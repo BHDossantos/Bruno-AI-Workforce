@@ -130,6 +130,17 @@ Write the next SMS reply (max 300 chars), helpful and conversational, moving tow
 a call or meeting. Return JSON with key "body".
 """
 
+# ── Reply classification ─────────────────────────────────────────────────────
+CLASSIFY_REPLY = """Classify this inbound reply from a prospect.
+
+Reply: "{text}"
+
+Return JSON with keys:
+- "intent": one of "interested", "question", "objection", "not_interested", "unsubscribe", "neutral".
+- "summary": a 1-line summary of what they want.
+- "suggested_reply": a short suggested response (max 60 words).
+"""
+
 # ── Agent 6: CEO Dashboard ───────────────────────────────────────────────────
 CEO_BRIEF = """You are the chief of staff producing a CEO daily executive brief.
 Here is today's raw output from all agents (JSON):

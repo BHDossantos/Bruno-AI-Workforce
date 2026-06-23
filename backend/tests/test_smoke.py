@@ -85,6 +85,15 @@ def test_email_template_wraps_body_with_signature_and_footer():
     assert email_template.render(None) is None
 
 
+def test_reply_classifier_safe_without_ai():
+    from app import classify
+
+    out = classify.classify_reply("yes I'm interested, let's talk")
+    assert out["intent"] in {"interested", "question", "objection", "not_interested", "unsubscribe", "neutral"}
+    assert out["status"]  # always maps to a status
+    assert classify.classify_reply("")["status"] == "Replied"
+
+
 def test_providers_fallback_meets_targets_without_keys():
     assert len(providers.fetch_insurance_leads("commercial", 100)) == 100
     assert len(providers.fetch_restaurants(100)) == 100
@@ -164,6 +173,14 @@ def test_social_queue_endpoint(client, auth_headers):
     r = client.get("/outreach/social", headers=auth_headers)
     assert r.status_code == 200
     assert isinstance(r.json(), list)
+
+
+@requires_db
+def test_csv_export(client, auth_headers):
+    r = client.get("/export/leads.csv", headers=auth_headers)
+    assert r.status_code == 200
+    assert "text/csv" in r.headers["content-type"]
+    assert "company_name" in r.text.splitlines()[0]  # header row
 
 
 @requires_db

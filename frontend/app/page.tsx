@@ -11,6 +11,11 @@ type Summary = {
   restaurant_prospects: number;
   music_playlists: number;
   instagram_targets: number;
+  emails_sent_today: number;
+  replies: number;
+  follow_ups_due: number;
+  applications: number;
+  sms_threads: number;
   totals: { jobs: number; leads: number; restaurants: number };
 };
 
@@ -57,13 +62,22 @@ function Dashboard() {
       {msg && <p className="mb-4 rounded bg-brand/10 p-3 text-sm text-brand-dark">{msg}</p>}
       {loading && <p className="text-gray-400">Loading KPIs…</p>}
       {s && (
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-          <KpiCard label="Jobs today" value={s.jobs_found} hint={`Goal ${TARGETS.jobs_found}`} />
-          <KpiCard label="Insurance leads" value={s.insurance_leads} hint={`Goal ${TARGETS.insurance_leads}`} />
-          <KpiCard label="Restaurants" value={s.restaurant_prospects} hint={`Goal ${TARGETS.restaurant_prospects}`} />
-          <KpiCard label="Playlists" value={s.music_playlists} hint={`Goal ${TARGETS.music_playlists}`} />
-          <KpiCard label="IG targets" value={s.instagram_targets} hint={`Goal ${TARGETS.instagram_targets}`} />
-        </div>
+        <>
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+            <KpiCard label="Jobs today" value={s.jobs_found} hint={`Goal ${TARGETS.jobs_found}`} />
+            <KpiCard label="Insurance leads" value={s.insurance_leads} hint={`Goal ${TARGETS.insurance_leads}`} />
+            <KpiCard label="Restaurants" value={s.restaurant_prospects} hint={`Goal ${TARGETS.restaurant_prospects}`} />
+            <KpiCard label="Playlists" value={s.music_playlists} hint={`Goal ${TARGETS.music_playlists}`} />
+            <KpiCard label="IG targets" value={s.instagram_targets} hint={`Goal ${TARGETS.instagram_targets}`} />
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-5">
+            <KpiCard label="Emails sent today" value={s.emails_sent_today} />
+            <KpiCard label="Replies" value={s.replies} hint="warm conversations" />
+            <KpiCard label="Follow-ups due" value={s.follow_ups_due} />
+            <KpiCard label="Applications" value={s.applications} />
+            <KpiCard label="SMS threads" value={s.sms_threads} />
+          </div>
+        </>
       )}
 
       <h2 className="mb-3 mt-8 text-lg font-semibold">Agents</h2>

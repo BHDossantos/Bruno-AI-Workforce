@@ -24,7 +24,8 @@ function Jobs() {
   const { data, loading } = useFetch<Job[]>(() => api.get<Job[]>("/jobs?limit=100"));
   return (
     <div>
-      <PageHeader title="Jobs" subtitle="Scored executive opportunities with application artifacts" />
+      <PageHeader title="Jobs" subtitle="Scored executive opportunities with application artifacts"
+        action={<button className="btn-ghost" onClick={() => api.download("/export/jobs.csv", "jobs.csv")}>Export CSV</button>} />
       {loading && <p className="text-gray-400">Loading…</p>}
       <div className="card overflow-x-auto">
         <table className="w-full">

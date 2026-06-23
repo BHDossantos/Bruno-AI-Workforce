@@ -15,6 +15,7 @@ from ..ai.prompts import CEO_BRIEF
 from ..integrations import mailer
 from ..config import settings
 from ..models import (
+    Application,
     DailyReport,
     FollowUp,
     InstagramTarget,
@@ -22,6 +23,7 @@ from ..models import (
     Job,
     KpiMetric,
     Lead,
+    Message,
     MusicPlaylist,
     Restaurant,
 )
@@ -43,6 +45,8 @@ class CEODashboardAgent(BaseAgent):
                 q = q.filter(getattr(model, k) == v)
             return q.scalar() or 0
 
+        emails_sent = self.db.query(func.count()).select_from(Message).filter(
+            Message.channel == "email", Message.sent_at >= start).scalar() or 0
         return {
             "jobs_found": count(Job, Job.found_at),
             "insurance_leads": count(Lead, Lead.created_at),
@@ -50,6 +54,8 @@ class CEODashboardAgent(BaseAgent):
             "music_playlists": count(MusicPlaylist, MusicPlaylist.created_at),
             "influencers": count(Influencer, Influencer.created_at),
             "instagram_targets": count(InstagramTarget, InstagramTarget.created_at),
+            "emails_sent_today": emails_sent,
+            "applications": self.db.query(func.count()).select_from(Application).scalar() or 0,
             "follow_ups_due": self.db.query(func.count()).select_from(FollowUp)
                 .filter(FollowUp.due_date <= date.today(), FollowUp.completed.is_(False)).scalar() or 0,
         }

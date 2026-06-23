@@ -7,13 +7,17 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import (
+    Application,
     DailyReport,
+    FollowUp,
     InstagramTarget,
     Job,
     Lead,
+    Message,
     MusicPlaylist,
     Restaurant,
 )
+from datetime import date as _date
 from ..schemas import ReportOut
 from ..security import require_role
 
@@ -42,6 +46,15 @@ def summary(db: Session = Depends(get_db), _=Depends(_read)):
             q = q.filter(getattr(model, k) == v)
         return q.scalar() or 0
 
+    emails_sent_today = db.query(func.count()).select_from(Message).filter(
+        Message.channel == "email", Message.sent_at >= start).scalar() or 0
+    replies = db.query(func.count()).select_from(Message).filter(Message.status == "Replied").scalar() or 0
+    followups_due = db.query(func.count()).select_from(FollowUp).filter(
+        FollowUp.due_date <= _date.today(), FollowUp.completed.is_(False)).scalar() or 0
+    applications = db.query(func.count()).select_from(Application).scalar() or 0
+    sms_threads = db.query(func.count(func.distinct(Message.to_email))).filter(
+        Message.channel == "sms").scalar() or 0
+
     return {
         "date": date.today().isoformat(),
         "jobs_found": c(Job, Job.found_at),
@@ -49,6 +62,11 @@ def summary(db: Session = Depends(get_db), _=Depends(_read)):
         "restaurant_prospects": c(Restaurant, Restaurant.created_at, kind="prospect"),
         "music_playlists": c(MusicPlaylist, MusicPlaylist.created_at),
         "instagram_targets": c(InstagramTarget, InstagramTarget.created_at),
+        "emails_sent_today": emails_sent_today,
+        "replies": replies,
+        "follow_ups_due": followups_due,
+        "applications": applications,
+        "sms_threads": sms_threads,
         "totals": {
             "jobs": db.query(func.count()).select_from(Job).scalar() or 0,
             "leads": db.query(func.count()).select_from(Lead).scalar() or 0,

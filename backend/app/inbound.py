@@ -10,9 +10,11 @@ import logging
 
 from sqlalchemy.orm import Session
 
-from . import sms_engine
+from . import classify, sms_engine
 from .integrations import gmail
 from .models import ActionLog, Lead, Message, Restaurant
+
+_TERMINAL = ("Interested", "Closed Won", "Closed Lost")
 
 log = logging.getLogger("bruno.inbound")
 ACCOUNTS = [gmail.PERSONAL, gmail.INSURANCE]
@@ -30,10 +32,11 @@ def sync_replies(db: Session, newer_than_days: int = 3) -> dict:
             if not sender:
                 continue
             hit = False
+            cls = classify.classify_reply(reply.get("snippet", ""))
 
             for lead in db.query(Lead).filter(Lead.email == sender).all():
-                if lead.status not in ("Replied", "Interested", "Closed Won", "Closed Lost"):
-                    lead.status = "Replied"
+                if lead.status not in _TERMINAL:
+                    lead.status = cls["status"]
                 # Warm → auto-text from the insurance number.
                 sms_engine.maybe_warm_text(
                     db, entity_type="lead", entity_id=lead.id,
@@ -41,8 +44,8 @@ def sync_replies(db: Session, newer_than_days: int = 3) -> dict:
                     context=lead.reason or "insurance", account="insurance")
                 hit = True
             for rest in db.query(Restaurant).filter(Restaurant.email == sender).all():
-                if rest.status not in ("Replied", "Interested", "Closed Won", "Closed Lost"):
-                    rest.status = "Replied"
+                if rest.status not in _TERMINAL:
+                    rest.status = cls["status"]
                 sms_engine.maybe_warm_text(
                     db, entity_type="restaurant", entity_id=rest.id, name=rest.name,
                     phone=rest.phone, context=rest.pain_points or "SavoryMind", account="personal")
@@ -53,8 +56,10 @@ def sync_replies(db: Session, newer_than_days: int = 3) -> dict:
 
             if hit:
                 matched += 1
-                db.add(ActionLog(actor="inbound", action="reply_matched", entity="email",
-                                 entity_id=sender, detail={"account": account, "subject": reply.get("subject")}))
+                db.add(ActionLog(actor="inbound", action="reply_classified", entity="email",
+                                 entity_id=sender, detail={"account": account, "intent": cls["intent"],
+                                                           "summary": cls["summary"],
+                                                           "subject": reply.get("subject")}))
 
     db.commit()
     log.info("Inbound sync: scanned %d, matched %d", scanned, matched)

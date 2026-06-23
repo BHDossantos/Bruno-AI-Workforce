@@ -83,6 +83,7 @@ class Settings(BaseSettings):
     personal_business_name: str = ""
     insurance_business_name: str = "Thrust Insurance"
     company_address: str = ""  # physical mailing address shown in the footer
+    calendar_link: str = ""     # booking link (Calendly/Cal.com) added to email CTAs
 
     # Outbound mode: "send" (auto-send now), "send_on_approve", or "draft".
     gmail_outbound_mode: str = "send"

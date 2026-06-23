@@ -29,6 +29,14 @@ def render(body: str | None, account: str = "personal") -> str | None:
         signature_lines.append(business)
     signature = "<br>".join(line for line in signature_lines if line)
 
+    # Optional booking-link call-to-action.
+    cta = ""
+    if settings.calendar_link:
+        cta = (f'<div style="margin-top:16px">'
+               f'<a href="{settings.calendar_link}" '
+               f'style="background:#6d28d9;color:#fff;padding:10px 18px;border-radius:8px;'
+               f'text-decoration:none;font-weight:600;display:inline-block">Book a time</a></div>')
+
     address = settings.company_address
     footer_bits = []
     if business or settings.sender_name:
@@ -41,6 +49,7 @@ def render(body: str | None, account: str = "personal") -> str | None:
     return f"""\
 <div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;color:#222;line-height:1.5;max-width:600px">
   <div>{html_body}</div>
+  {cta}
   <div style="margin-top:18px">{signature}</div>
   <hr style="border:none;border-top:1px solid #e5e5e5;margin:20px 0">
   <div style="font-size:12px;color:#888">{footer}</div>

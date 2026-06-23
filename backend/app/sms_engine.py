@@ -55,17 +55,19 @@ def maybe_warm_text(db: Session, *, entity_type: str, entity_id, name: str | Non
 
 
 def record_inbound(db: Session, *, phone: str, body: str) -> Message:
-    """Store an inbound SMS and link it to a known contact by phone."""
+    """Store an inbound SMS, classify it, and link it to a known contact by phone."""
+    from . import classify
     from .models import Lead, Restaurant
 
-    msg = Message(channel="sms", direction="inbound", to_email=phone, body=body, status="Replied")
-    # Best-effort link + mark the contact engaged.
+    cls = classify.classify_reply(body)
+    msg = Message(channel="sms", direction="inbound", to_email=phone, body=body, status=cls["status"])
+    # Best-effort link + apply the classified status.
     for model, etype in ((Lead, "lead"), (Restaurant, "restaurant")):
         row = db.query(model).filter(model.phone == phone).first()
         if row:
             msg.entity_type, msg.entity_id = etype, row.id
-            if row.status not in ("Interested", "Closed Won", "Closed Lost"):
-                row.status = "Interested"
+            if row.status not in ("Closed Won", "Closed Lost"):
+                row.status = cls["status"]
             break
     db.add(msg)
     db.commit()

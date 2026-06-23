@@ -33,11 +33,14 @@ function Insurance() {
         title="Insurance Leads"
         subtitle="Commercial & personal prospects with outreach scripts"
         action={
-          <select value={segment} onChange={(e) => setSegment(e.target.value)} className="rounded-lg border border-gray-300 px-3 py-2 text-sm">
-            <option value="">All segments</option>
-            <option value="commercial">Commercial</option>
-            <option value="personal">Personal</option>
-          </select>
+          <div className="flex gap-2">
+            <select value={segment} onChange={(e) => setSegment(e.target.value)} className="rounded-lg border border-gray-300 px-3 py-2 text-sm">
+              <option value="">All segments</option>
+              <option value="commercial">Commercial</option>
+              <option value="personal">Personal</option>
+            </select>
+            <button className="btn-ghost" onClick={() => api.download("/export/leads.csv", "leads.csv")}>Export CSV</button>
+          </div>
         }
       />
       {loading && <p className="text-gray-400">Loading…</p>}
