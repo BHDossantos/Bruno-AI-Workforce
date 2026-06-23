@@ -5,7 +5,18 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routers import agents, auth, instagram, jobs, leads, messages, music, reports, restaurants
+from .routers import (
+    agents,
+    auth,
+    instagram,
+    jobs,
+    leads,
+    messages,
+    music,
+    outreach_queue,
+    reports,
+    restaurants,
+)
 from .scheduler import shutdown_scheduler, start_scheduler
 from .seed import seed
 
@@ -41,6 +52,7 @@ app.include_router(music.router)
 app.include_router(instagram.router)
 app.include_router(reports.router)
 app.include_router(messages.router)
+app.include_router(outreach_queue.router)
 
 
 @app.get("/health", tags=["system"])

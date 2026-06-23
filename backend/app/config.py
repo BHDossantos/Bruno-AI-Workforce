@@ -65,6 +65,13 @@ class Settings(BaseSettings):
     insurance_google_oauth_refresh_token: str = ""
     insurance_google_token_json: str = ""
 
+    # Email template / signature (applied to every outbound email for a
+    # consistent look + CAN-SPAM compliant footer).
+    sender_name: str = "Bruno Dos Santos"
+    personal_business_name: str = ""
+    insurance_business_name: str = "Thrust Insurance"
+    company_address: str = ""  # physical mailing address shown in the footer
+
     # Outbound mode: "send" (auto-send now), "send_on_approve", or "draft".
     gmail_outbound_mode: str = "send"
     # Safety cap on auto-sent outreach per day, per account (protects the mailbox).

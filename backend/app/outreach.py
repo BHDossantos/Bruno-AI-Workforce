@@ -11,6 +11,7 @@ from datetime import date, datetime, timezone
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from . import email_template
 from .config import settings
 from .integrations import gmail
 from .models import ActionLog, Message
@@ -57,8 +58,9 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
     if mode == "send" and sent_today_count(db, account) >= settings.gmail_daily_send_cap:
         mode = "draft"  # hit the daily cap — degrade to a draft
 
+    html = email_template.render(body, account)  # consistent template + compliant footer
     if mode == "send":
-        mid = gmail.send_message(to_email, subject or "", body or "", account=account)
+        mid = gmail.send_message(to_email, subject or "", html or "", account=account)
         if mid:
             msg.provider_id = mid
             msg.approved = True
@@ -66,7 +68,7 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
             msg.sent_at = datetime.now(timezone.utc)
             _log(db, actor, "email_sent", msg, to=to_email, account=account)
     else:  # draft / send_on_approve
-        did = gmail.create_draft(to_email, subject or "", body or "", account=account)
+        did = gmail.create_draft(to_email, subject or "", html or "", account=account)
         if did:
             msg.provider_id = did
             _log(db, actor, "email_drafted", msg, to=to_email, account=account)

@@ -75,6 +75,16 @@ def test_marketing_skills_are_packaged_and_loaded():
     assert "valid JSON" in sp  # the agents still get JSON output instruction
 
 
+def test_email_template_wraps_body_with_signature_and_footer():
+    from app import email_template
+
+    out = email_template.render("Hi there\nThanks", account="insurance")
+    assert "Hi there" in out
+    assert "Thrust Insurance" in out  # signature/footer
+    assert "unsubscribe" in out.lower()  # CAN-SPAM footer
+    assert email_template.render(None) is None
+
+
 def test_providers_fallback_meets_targets_without_keys():
     assert len(providers.fetch_insurance_leads("commercial", 100)) == 100
     assert len(providers.fetch_restaurants(100)) == 100
@@ -129,6 +139,13 @@ def test_inbound_sync_is_safe_without_gmail(client, auth_headers):
     resp = client.post("/inbound/sync", headers=auth_headers)
     assert resp.status_code == 200
     assert resp.json() == {"scanned": 0, "matched": 0}
+
+
+@requires_db
+def test_social_queue_endpoint(client, auth_headers):
+    r = client.get("/outreach/social", headers=auth_headers)
+    assert r.status_code == 200
+    assert isinstance(r.json(), list)
 
 
 @requires_db
