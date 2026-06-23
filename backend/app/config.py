@@ -46,6 +46,13 @@ class Settings(BaseSettings):
     jobs_api_key: str = ""
     jobs_api_host: str = "jsearch.p.rapidapi.com"
 
+    # SMS (Twilio) — two-way texting. Used manually / for opted-in contacts only
+    # (cold automated SMS violates TCPA). No-ops if unconfigured.
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_from_number: str = ""          # default sending number (E.164, e.g. +1617...)
+    twilio_insurance_number: str = ""     # optional separate number for insurance
+
     # Gmail (outbound + inbound). Two accounts: "personal" (default, used by all
     # agents) and "insurance" (used by the Insurance agent). Each authenticates
     # via an authorized-user token JSON, or client id/secret + refresh token.
