@@ -1,7 +1,7 @@
 """Agent 3: SavoryMind Growth — runs daily at 7 AM."""
 from __future__ import annotations
 
-from ..ai import client
+from ..ai import client, skills
 from ..ai.prompts import MENU_ANALYSIS, SAVORYMIND_PITCH
 from ..integrations import providers
 from ..models import Restaurant
@@ -34,7 +34,7 @@ class SavoryMindAgent(BaseAgent):
             pitch = client.complete_json(SAVORYMIND_PITCH.format(
                 name=r["name"], cuisine=r["cuisine"], city=r["city"],
                 owner=r["owner_manager"], insight=insight or r["pain_points"],
-            ))
+            ), system=skills.system_prompt("copywriting", "cold-email"))
             pitch = pitch if isinstance(pitch, dict) else {}
             subject = pitch.get("pitch_subject") or f"Growing revenue at {r['name']} with SavoryMind"
             body = pitch.get("pitch_body")

@@ -39,6 +39,18 @@ def _sync_inbound() -> None:
         db.close()
 
 
+def _run_followups() -> None:
+    from .followups import process_due_followups
+
+    db = SessionLocal()
+    try:
+        process_due_followups(db)
+    except Exception:  # pragma: no cover
+        log.exception("Follow-up run failed")
+    finally:
+        db.close()
+
+
 def start_scheduler() -> BackgroundScheduler | None:
     global _scheduler
     if not settings.enable_scheduler:
@@ -53,6 +65,9 @@ def start_scheduler() -> BackgroundScheduler | None:
         log.info("Scheduled %s at cron '%s'", key, cls.schedule_cron)
     # Poll both mailboxes for replies every 2 hours (no-op if Gmail unconfigured).
     _scheduler.add_job(_sync_inbound, IntervalTrigger(hours=2), id="inbound_sync", replace_existing=True)
+    # Send any due follow-ups daily at 11 AM (after the morning agent runs).
+    _scheduler.add_job(_run_followups, CronTrigger.from_crontab("0 11 * * *", timezone=settings.timezone),
+                       id="followups", replace_existing=True)
     _scheduler.start()
     return _scheduler
 

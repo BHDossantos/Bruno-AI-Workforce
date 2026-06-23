@@ -56,6 +56,27 @@ or `send_on_approve` to keep a human in the loop.
 > Gmail) to use the Gmail API. If it's hosted elsewhere, set its SMTP/IMAP
 > instead, or use a Google Workspace alias.
 
+## 3b. 24/7 cloud deploy (Render blueprint)
+
+For always-on autonomy (agents + follow-ups running without your laptop):
+
+1. Push the repo to GitHub (done).
+2. In **Render** → **New → Blueprint** → connect this repo. It reads
+   [`render.yaml`](../render.yaml) and provisions Postgres + the backend.
+3. In the service's **Environment** tab, fill the `sync: false` secrets:
+   `ENCRYPTION_KEY`, `ADMIN_PASSWORD`, `OPENAI_API_KEY`, `APOLLO_API_KEY`,
+   `JOBS_API_KEY`, `HUBSPOT_API_KEY`, `GOOGLE_TOKEN_JSON`,
+   `INSURANCE_GOOGLE_TOKEN_JSON`.
+4. Deploy. Then deploy the **frontend on Vercel** with `NEXT_PUBLIC_API_URL`
+   pointing at the Render backend URL.
+
+> The scheduler only runs while the service is awake. Render's **free** web tier
+> sleeps on inactivity — use the **Starter** plan (~$7/mo) for true 24/7. The
+> blueprint defaults to `starter` for this reason.
+
+Managed-Postgres URLs (Render/Supabase/Heroku, `postgres://…`) are auto-coerced
+to the psycopg driver, so `DATABASE_URL` works as provided.
+
 ## 4. Production hosting
 
 - **Frontend → Vercel.** Set `NEXT_PUBLIC_API_URL` to your backend URL. The app

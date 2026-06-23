@@ -4,6 +4,7 @@ from app.agents.insurance import InsuranceAgent
 from app.agents.job_hunter import JobHunterAgent
 from app.agents.music import MusicAgent
 
+from app.ai import skills
 from app.integrations import apollo, jobs_api, providers
 
 from .conftest import requires_db
@@ -66,6 +67,14 @@ def test_jobs_api_maps_jsearch_payload():
     assert mapped["salary_min"] == 210000 and mapped["source"] == "indeed"
 
 
+def test_marketing_skills_are_packaged_and_loaded():
+    assert "cold" in skills.load_skill("cold-email").lower()
+    assert skills.load_skill("copywriting")
+    sp = skills.system_prompt("cold-email", "copywriting")
+    assert "Skill: cold-email" in sp and "Skill: copywriting" in sp
+    assert "valid JSON" in sp  # the agents still get JSON output instruction
+
+
 def test_providers_fallback_meets_targets_without_keys():
     assert len(providers.fetch_insurance_leads("commercial", 100)) == 100
     assert len(providers.fetch_restaurants(100)) == 100
@@ -120,3 +129,31 @@ def test_inbound_sync_is_safe_without_gmail(client, auth_headers):
     resp = client.post("/inbound/sync", headers=auth_headers)
     assert resp.status_code == 200
     assert resp.json() == {"scanned": 0, "matched": 0}
+
+
+@requires_db
+def test_followup_engine_processes_due_steps(client, auth_headers):
+    """A due follow-up generates a new outreach Message and is marked completed."""
+    from datetime import date, timedelta
+
+    from app import followups, models
+    from app.database import SessionLocal
+
+    db = SessionLocal()
+    lead = models.Lead(segment="commercial", email="fu-test@example.com",
+                       company_name="FU Co", status="Drafted")
+    db.add(lead)
+    db.flush()
+    db.add(models.Message(channel="email", entity_type="lead", entity_id=lead.id,
+                          to_email="fu-test@example.com", from_account="insurance",
+                          subject="hi", body="first touch", status="Sent"))
+    db.add(models.FollowUp(entity_type="lead", entity_id=lead.id, step=1,
+                           due_date=date.today() - timedelta(days=1), completed=False))
+    db.commit()
+
+    res = followups.process_due_followups(db)
+    assert res["due"] >= 1
+    # a follow-up Message was created (in addition to the first touch)
+    n = db.query(models.Message).filter(models.Message.entity_id == lead.id).count()
+    assert n >= 2
+    db.close()

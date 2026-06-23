@@ -106,6 +106,15 @@ gym, music, business, Rome, food, fatherhood, resilience.
 Return JSON with key "calendar": a list of 7 objects {{"day", "pillar", "idea", "caption"}}.
 """
 
+# ── Automated follow-ups ─────────────────────────────────────────────────────
+FOLLOWUP_EMAIL = """Write follow-up email #{step} (of 7) to {name}, who has not replied yet.
+Context of the original outreach: {context}
+
+Keep it under 80 words, polite and value-add (don't be pushy), reference that you
+reached out before, and end with a soft CTA plus a one-line unsubscribe note.
+Return JSON with keys "subject" and "body".
+"""
+
 # ── Agent 6: CEO Dashboard ───────────────────────────────────────────────────
 CEO_BRIEF = """You are the chief of staff producing a CEO daily executive brief.
 Here is today's raw output from all agents (JSON):

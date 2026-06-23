@@ -1,10 +1,12 @@
 """Agent 1: Executive Job Hunter — runs daily at 5 AM."""
 from __future__ import annotations
 
-from ..ai import client
+from datetime import datetime, timezone
+
+from ..ai import client, skills
 from ..ai.prompts import CANDIDATE_PROFILE, JOB_ARTIFACTS
-from ..integrations import providers
-from ..models import Job
+from ..integrations import apollo, providers
+from ..models import Application, Job
 from .base import BaseAgent
 
 LEADERSHIP_WORDS = ("director", "head", "vp", "chief", "cto")
@@ -17,7 +19,7 @@ DAILY_TARGET = 25
 class JobHunterAgent(BaseAgent):
     key = "job_hunter"
     name = "Executive Job Hunter"
-    description = "Searches executive engineering roles, scores them, and drafts application artifacts."
+    description = "Finds & scores executive roles, drafts artifacts, and auto-reaches hiring contacts."
     schedule_cron = "0 5 * * *"  # 5 AM
 
     @staticmethod
@@ -47,16 +49,16 @@ class JobHunterAgent(BaseAgent):
                 job["score"] = score
                 job["score_breakdown"] = breakdown
                 scored.append(job)
-
         scored.sort(key=lambda j: j["score"], reverse=True)
         top = scored[:DAILY_TARGET]
 
-        saved = 0
+        sysp = skills.system_prompt("copywriting", "cold-email")
+        saved, applied = 0, 0
         for job in top:
             artifacts = client.complete_json(JOB_ARTIFACTS.format(
                 profile=CANDIDATE_PROFILE, title=job["title"], company=job["company"],
                 location=job["location"], description=job["description"],
-            ))
+            ), system=sysp)
             row = Job(
                 title=job["title"], company=job["company"], location=job["location"],
                 remote=job["remote"], salary_min=job["salary_min"], salary_max=job["salary_max"],
@@ -68,13 +70,31 @@ class JobHunterAgent(BaseAgent):
                 hiring_msg=artifacts.get("hiring_msg"),
             )
             self.db.add(row)
+            self.db.flush()
+
+            # Auto-apply via direct outreach: find a recruiter / hiring manager and reach out.
+            contact = apollo.find_hiring_contact(job["company"])
+            app_status, applied_at, notes = "New", None, "No hiring contact found"
+            if contact and contact.get("email"):
+                body = artifacts.get("hiring_msg") or artifacts.get("cover_letter")
+                msg = self.dispatch_email(
+                    entity_type="job", entity_id=row.id, to_email=contact["email"],
+                    subject=f"Re: {job['title']} at {job['company']}", body=body, account="personal")
+                notes = f"Contact: {contact.get('owner_name')} <{contact['email']}>"
+                if msg.status == "Sent":
+                    app_status, applied_at, applied = "Sent", datetime.now(timezone.utc), applied + 1
+                else:
+                    app_status = "Drafted"
+                self.schedule_follow_ups("job", row.id)
+            self.db.add(Application(job_id=row.id, status=app_status, applied_at=applied_at, notes=notes))
             saved += 1
 
-        self.log_action("jobs_saved", entity="jobs", detail={"count": saved})
+        self.log_action("jobs_saved", entity="jobs", detail={"count": saved, "applied": applied})
         return {
-            "summary": f"Found {len(scored)} qualified jobs, saved top {saved}.",
+            "summary": f"Found {len(scored)} qualified jobs, saved top {saved}, auto-reached {applied} hiring contacts.",
             "found": len(scored),
             "saved": saved,
+            "applied": applied,
             "top_titles": [j["title"] for j in top[:10]],
         }
 

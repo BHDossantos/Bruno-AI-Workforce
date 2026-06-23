@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from .. import inbound
+from .. import followups, inbound
 from ..database import get_db
 from ..integrations import gmail
 from ..models import Message
@@ -70,3 +70,9 @@ def send_message(message_id: str, db: Session = Depends(get_db), _=Depends(_writ
 def sync_inbound(newer_than_days: int = 3, db: Session = Depends(get_db), _=Depends(_write)):
     """Pull recent replies from both mailboxes and mark matching records as Replied."""
     return inbound.sync_replies(db, newer_than_days=newer_than_days)
+
+
+@router.post("/followups/run")
+def run_followups(db: Session = Depends(get_db), _=Depends(_write)):
+    """Send all due follow-ups now (skips anyone who replied)."""
+    return followups.process_due_followups(db)

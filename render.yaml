@@ -1,0 +1,54 @@
+# Render Blueprint — one-click 24/7 deploy of the Bruno AI Workforce backend.
+# In Render: New → Blueprint → connect this repo. It creates the Postgres DB and
+# the backend web service. Fill the `sync: false` secrets in the dashboard.
+# Deploy the frontend separately on Vercel (set NEXT_PUBLIC_API_URL to the
+# backend URL Render gives you).
+#
+# NOTE: the scheduler (daily agents + follow-ups) only runs while the service is
+# awake. Render's free web tier sleeps on inactivity — use the Starter plan
+# ($7/mo) for true always-on 24/7 automation.
+
+databases:
+  - name: bruno-db
+    databaseName: bruno_ai
+    user: bruno
+    plan: free
+
+services:
+  - type: web
+    name: bruno-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: starter          # use "starter" for always-on; "free" sleeps
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: bruno-db
+          property: connectionString
+      - key: ENABLE_SCHEDULER
+        value: "true"
+      - key: TIMEZONE
+        value: America/New_York
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_EMAIL
+        value: brunodossantos707@gmail.com
+      # --- secrets: set these in the Render dashboard (Environment tab) ---
+      - { key: ENCRYPTION_KEY, sync: false }
+      - { key: ADMIN_PASSWORD, sync: false }
+      - { key: OPENAI_API_KEY, sync: false }
+      - { key: OPENAI_MODEL, value: gpt-4o }
+      - { key: APOLLO_API_KEY, sync: false }
+      - { key: JOBS_API_KEY, sync: false }
+      - { key: JOBS_API_HOST, value: jsearch.p.rapidapi.com }
+      - { key: HUBSPOT_API_KEY, sync: false }
+      - { key: GMAIL_OUTBOUND_MODE, value: send }
+      - { key: GMAIL_DAILY_SEND_CAP, value: "50" }
+      - { key: GMAIL_ADDRESS, value: brunodossantos707@gmail.com }
+      - { key: GOOGLE_TOKEN_JSON, sync: false }
+      - { key: INSURANCE_GMAIL_ADDRESS, value: bruno@thrustinsurance.com }
+      - { key: INSURANCE_GOOGLE_TOKEN_JSON, sync: false }
+      - { key: REPORT_TO_EMAIL, value: brunodossantos707@gmail.com }

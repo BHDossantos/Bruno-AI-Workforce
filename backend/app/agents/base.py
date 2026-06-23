@@ -4,17 +4,17 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ..config import settings
-from ..integrations import gmail
+from .. import outreach
 from ..models import ActionLog, Agent, FollowUp, Message, Task
 
 log = logging.getLogger("bruno.agents")
 
-# Follow-up cadence (days from first contact) per the automation spec.
-FOLLOW_UP_DAYS = [0, 2, 5, 10, 20]
+# Follow-up cadence: the first touch (Day 0) is sent by the agent; these are the
+# 7 automated follow-up steps (days from first contact): five 3 days apart, then
+# the last two ~2 weeks apart.
+FOLLOW_UP_OFFSETS = {1: 3, 2: 6, 3: 9, 4: 12, 5: 15, 6: 29, 7: 43}
 
 
 class BaseAgent:
@@ -33,9 +33,9 @@ class BaseAgent:
                               entity_id=str(entity_id) if entity_id else None, detail=detail))
 
     def schedule_follow_ups(self, entity_type: str, entity_id) -> None:
-        """Create the Day 0/2/5/10/20 follow-up sequence for an entity."""
+        """Create the Day 2/5/10/20 automated follow-up steps for an entity."""
         today = date.today()
-        for step, offset in enumerate(FOLLOW_UP_DAYS):
+        for step, offset in FOLLOW_UP_OFFSETS.items():
             self.db.add(FollowUp(
                 entity_type=entity_type, entity_id=entity_id,
                 step=step, due_date=today + timedelta(days=offset),
@@ -44,64 +44,11 @@ class BaseAgent:
     def dispatch_email(self, *, entity_type: str, entity_id, to_email: str | None,
                        subject: str | None, body: str | None,
                        account: str = "personal") -> Message:
-        """Create an outbound email Message and route it through Gmail ``account``.
-
-        ``account`` selects the sending mailbox ("personal" or "insurance").
-        Behavior follows ``GMAIL_OUTBOUND_MODE``:
-        - ``draft``           — create a Gmail draft, never send.
-        - ``send_on_approve`` — draft now; sent later once approved.
-        - ``send``            — auto-send now (subject to the per-account daily cap + dedupe).
-
-        Guardrails: requires a recipient; never contacts the same address twice
-        in one day; respects ``GMAIL_DAILY_SEND_CAP`` per account.
-        """
-        msg = Message(channel="email", direction="outbound", entity_type=entity_type,
-                      entity_id=entity_id, to_email=to_email, from_account=account,
-                      subject=subject, body=body, status="Drafted", approved=False)
-        self.db.add(msg)
-        self.db.flush()
-
-        if not to_email or not gmail.is_configured(account):
-            return msg  # nothing to send to / account not configured — leave as stored draft
-
-        mode = settings.gmail_outbound_mode
-        if mode == "send" and self._already_contacted_today(to_email):
-            self.log_action("send_skipped_duplicate", entity="message", entity_id=msg.id,
-                            detail={"to": to_email})
-            return msg
-        if mode == "send" and self._sent_today_count(account) >= settings.gmail_daily_send_cap:
-            mode = "draft"  # hit the safety cap — degrade to draft
-
-        if mode == "send":
-            mid = gmail.send_message(to_email, subject or "", body or "", account=account)
-            if mid:
-                msg.provider_id = mid
-                msg.approved = True
-                msg.status = "Sent"
-                msg.sent_at = datetime.now(timezone.utc)
-                self.log_action("email_sent", entity="message", entity_id=msg.id,
-                                detail={"to": to_email, "account": account})
-        else:  # draft / send_on_approve
-            did = gmail.create_draft(to_email, subject or "", body or "", account=account)
-            if did:
-                msg.provider_id = did
-                self.log_action("email_drafted", entity="message", entity_id=msg.id,
-                                detail={"to": to_email, "account": account})
-        return msg
-
-    def _sent_today_count(self, account: str) -> int:
-        today = date.today()
-        return self.db.query(func.count()).select_from(Message).filter(
-            Message.from_account == account,
-            Message.sent_at >= datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc),
-        ).scalar() or 0
-
-    def _already_contacted_today(self, to_email: str) -> bool:
-        today = date.today()
-        return self.db.query(Message).filter(
-            Message.to_email == to_email,
-            Message.sent_at >= datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc),
-        ).first() is not None
+        """Send/draft the first-touch email via the shared outreach dispatcher."""
+        return outreach.dispatch_email(
+            self.db, entity_type=entity_type, entity_id=entity_id, to_email=to_email,
+            subject=subject, body=body, account=account, actor=self.key,
+        )
 
     def _touch_agent_row(self) -> None:
         row = self.db.query(Agent).filter(Agent.key == self.key).first()

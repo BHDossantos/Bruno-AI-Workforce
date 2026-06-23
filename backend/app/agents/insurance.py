@@ -1,7 +1,7 @@
 """Agent 2: Insurance Lead Generator — runs daily at 6 AM."""
 from __future__ import annotations
 
-from ..ai import client
+from ..ai import client, skills
 from ..ai.prompts import INSURANCE_OUTREACH
 from ..integrations import crm, providers
 from ..models import Lead
@@ -47,7 +47,7 @@ class InsuranceAgent(BaseAgent):
             artifacts = client.complete_json(INSURANCE_OUTREACH.format(
                 company_name=p["company_name"], category=p["category"], segment=p["segment"],
                 industry=p.get("industry"), city=p.get("city"), reason=reason,
-            ))
+            ), system=skills.system_prompt("cold-email", "marketing-psychology"))
             subject = artifacts.get("cold_email_subject") or f"Insurance options for {p['company_name']}"
             body = artifacts.get("cold_email_body")
             row = Lead(

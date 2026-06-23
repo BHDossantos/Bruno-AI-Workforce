@@ -93,6 +93,21 @@ def fetch_commercial_leads(count: int) -> list[dict]:
     return leads[:count]
 
 
+HIRING_TITLES = ["Technical Recruiter", "Recruiter", "Talent Acquisition", "Head of Talent",
+                 "VP Engineering", "CTO", "Head of Engineering", "Engineering Manager"]
+
+
+def find_hiring_contact(company: str) -> dict | None:
+    """Best-effort: find a recruiter / hiring manager at ``company`` with an email."""
+    if not is_configured() or not company:
+        return None
+    people = search_people(titles=HIRING_TITLES, keywords=company, per_page=10, page=1)
+    for p in people:
+        if p.get("email"):
+            return p
+    return people[0] if people else None
+
+
 def fetch_restaurant_contacts(count: int) -> list[dict]:
     """Source ~``count`` restaurant owners/managers for SavoryMind outreach."""
     if not is_configured():
