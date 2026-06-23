@@ -92,12 +92,9 @@ function Outbox() {
                 <td className="td max-w-xs">{m.subject}</td>
                 <td className="td"><StatusBadge status={m.status} />{m.approved && <span className="ml-1 badge bg-green-100 text-green-700">approved</span>}</td>
                 <td className="td"><Expandable label="Body" text={m.body} /></td>
-                <td className="td space-x-2 whitespace-nowrap">
-                  {m.status !== "Sent" && !m.approved && (
-                    <button className="btn-ghost" disabled={busy === m.id} onClick={() => act(m.id, "approve")}>Approve</button>
-                  )}
+                <td className="td whitespace-nowrap">
                   {m.status !== "Sent" && (
-                    <button className="btn-ghost" disabled={busy === m.id} onClick={() => act(m.id, "send")}>Send</button>
+                    <button className="btn" disabled={busy === m.id} onClick={() => act(m.id, "send")}>Send</button>
                   )}
                 </td>
               </tr>

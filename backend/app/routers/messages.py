@@ -45,12 +45,10 @@ def approve_message(message_id: str, db: Session = Depends(get_db), _=Depends(_w
 
 @router.post("/messages/{message_id}/send", response_model=MessageOut)
 def send_message(message_id: str, db: Session = Depends(get_db), _=Depends(_write)):
-    """Send a drafted message now via its account's mailbox (requires approval)."""
+    """Send a drafted message now via its account's mailbox (one click, no approval step)."""
     msg = db.query(Message).filter(Message.id == message_id).first()
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found")
-    if not msg.approved:
-        raise HTTPException(status_code=400, detail="Message must be approved before sending")
     if not msg.to_email:
         raise HTTPException(status_code=400, detail="Message has no recipient")
     if not gmail.is_configured(msg.from_account):
@@ -59,6 +57,7 @@ def send_message(message_id: str, db: Session = Depends(get_db), _=Depends(_writ
     if not mid:
         raise HTTPException(status_code=502, detail="Gmail send failed")
     msg.provider_id = mid
+    msg.approved = True
     msg.status = "Sent"
     msg.sent_at = datetime.now(timezone.utc)
     db.commit()
