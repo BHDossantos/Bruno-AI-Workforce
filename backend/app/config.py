@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     # compatible JSearch host). Falls back to synthetic data when unset.
     jobs_api_key: str = ""
     jobs_api_host: str = "jsearch.p.rapidapi.com"
+    # When False, agents use ONLY live-sourced data (no synthetic top-up to hit
+    # target counts). Set False in production once Apollo/JSearch keys are set.
+    allow_synthetic_fallback: bool = True
 
     # SMS (Twilio) — two-way texting. Used manually / for opted-in contacts only
     # (cold automated SMS violates TCPA). No-ops if unconfigured.

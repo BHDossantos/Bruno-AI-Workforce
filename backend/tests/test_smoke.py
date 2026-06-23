@@ -94,6 +94,29 @@ def test_reply_classifier_safe_without_ai():
     assert classify.classify_reply("")["status"] == "Replied"
 
 
+def test_emails_never_sent_to_placeholder_addresses():
+    from app import outreach
+
+    assert outreach.is_real_email("jane@acme.com") is True
+    for bad in ["x@example.com", "y@test.com", "z@host.invalid", "a@b.local", "noatsign", ""]:
+        assert outreach.is_real_email(bad) is False
+
+
+def test_real_only_mode_emits_no_synthetic_data():
+    from app.config import settings
+    from app.integrations import providers
+
+    settings.allow_synthetic_fallback = False
+    try:
+        # No Apollo/JSearch keys in tests → real-only mode yields nothing synthetic.
+        assert providers.fetch_insurance_leads("commercial", 100) == []
+        assert providers.fetch_restaurants(100) == []
+        assert providers.fetch_jobs(60) == []
+        assert providers.fetch_playlists(50) == []
+    finally:
+        settings.allow_synthetic_fallback = True
+
+
 def test_providers_fallback_meets_targets_without_keys():
     assert len(providers.fetch_insurance_leads("commercial", 100)) == 100
     assert len(providers.fetch_restaurants(100)) == 100

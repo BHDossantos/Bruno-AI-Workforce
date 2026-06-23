@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import random
 
+from ..config import settings
 from . import apollo, jobs_api
 
 # Deterministic-ish but varied output per run.
@@ -46,6 +47,8 @@ def fetch_jobs(limit: int = 60) -> list[dict]:
     live = jobs_api.fetch_jobs(JOB_TITLES, limit=limit)
     if live:
         return live
+    if not settings.allow_synthetic_fallback:
+        return []
     out = []
     for _ in range(limit):
         title = _rng.choice(JOB_TITLES)
@@ -87,6 +90,8 @@ def fetch_insurance_leads(segment: str, count: int) -> list[dict]:
         if len(out) >= count:
             return out[:count]
 
+    if not settings.allow_synthetic_fallback:
+        return out[:count]  # live-sourced data only
     cats = COMMERCIAL_CATEGORIES if segment == "commercial" else PERSONAL_CATEGORIES
     need = count - len(out)
     for _ in range(need):
@@ -136,6 +141,8 @@ def fetch_restaurants(count: int) -> list[dict]:
         if len(out) >= count:
             return out[:count]
 
+    if not settings.allow_synthetic_fallback:
+        return out[:count]  # live-sourced data only
     for _ in range(count - len(out)):
         rtype = _rng.choice(RESTAURANT_TYPES)
         city = _rng.choice(_CITIES)
@@ -160,6 +167,8 @@ def fetch_restaurants(count: int) -> list[dict]:
 
 def fetch_food_consumers(count: int) -> list[dict]:
     """Consumer growth list (foodies / reviewers / travel-food creators)."""
+    if not settings.allow_synthetic_fallback:
+        return []
     out = []
     niches = ["Foodie", "Restaurant reviewer", "Travel food account", "Rome food creator", "Boston food creator"]
     for _ in range(count):
@@ -182,6 +191,8 @@ INFLUENCER_NICHES = ["Music reviewer", "Brazilian culture", "Latin music creator
 
 
 def fetch_playlists(count: int) -> list[dict]:
+    if not settings.allow_synthetic_fallback:
+        return []
     out = []
     for _ in range(count):
         genre = _rng.choice(MUSIC_GENRES)
@@ -199,6 +210,8 @@ def fetch_playlists(count: int) -> list[dict]:
 
 
 def fetch_influencers(count: int) -> list[dict]:
+    if not settings.allow_synthetic_fallback:
+        return []
     out = []
     for _ in range(count):
         niche = _rng.choice(INFLUENCER_NICHES)
@@ -222,6 +235,8 @@ IG_CATEGORIES = ["Potential follower", "Potential collaborator", "Potential cust
 
 
 def fetch_instagram_targets(count: int) -> list[dict]:
+    if not settings.allow_synthetic_fallback:
+        return []
     out = []
     for _ in range(count):
         out.append({

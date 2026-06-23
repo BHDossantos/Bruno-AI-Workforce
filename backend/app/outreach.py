@@ -17,6 +17,25 @@ from .integrations import gmail
 from .models import ActionLog, Message
 
 
+# Placeholder/sample domains that must never receive real outreach.
+_PLACEHOLDER_DOMAINS = {"example.com", "example.org", "example.net", "test.com",
+                        "email.com", "domain.com", "sample.com"}
+_PLACEHOLDER_SUFFIXES = (".invalid", ".local", ".test", ".example")
+
+
+def is_real_email(addr: str | None) -> bool:
+    """True only for a plausibly-real, deliverable address (not sample data)."""
+    a = (addr or "").strip().lower()
+    if "@" not in a or a.count("@") != 1:
+        return False
+    domain = a.split("@", 1)[1]
+    if not domain or "." not in domain:
+        return False
+    if domain in _PLACEHOLDER_DOMAINS:
+        return False
+    return not any(domain.endswith(s) for s in _PLACEHOLDER_SUFFIXES)
+
+
 def _day_start():
     return datetime.combine(date.today(), datetime.min.time(), tzinfo=timezone.utc)
 
@@ -50,6 +69,10 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
 
     if not to_email or not gmail.is_configured(account):
         return msg  # nothing to send to / account unconfigured — keep as stored draft
+    if not is_real_email(to_email):
+        # Never email sample/placeholder data — keep it as a draft only.
+        _log(db, actor, "send_skipped_synthetic", msg, to=to_email)
+        return msg
 
     mode = settings.gmail_outbound_mode
     if mode == "send" and already_contacted_today(db, to_email):
