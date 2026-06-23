@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import random
 
+from . import apollo, jobs_api
+
 # Deterministic-ish but varied output per run.
 _rng = random.Random()
 
@@ -40,7 +42,10 @@ _COMPANIES = ["NorthStar Cloud", "Vellum AI", "Harbor Data", "Apex Platform", "L
 
 
 def fetch_jobs(limit: int = 60) -> list[dict]:
-    """TODO: replace with mcp__Indeed__search_jobs + LinkedIn/Wellfound scrapers."""
+    """Live jobs via the JSearch/Indeed aggregator when configured, else synthetic."""
+    live = jobs_api.fetch_jobs(JOB_TITLES, limit=limit)
+    if live:
+        return live
     out = []
     for _ in range(limit):
         title = _rng.choice(JOB_TITLES)
@@ -69,10 +74,22 @@ PERSONAL_CATEGORIES = ["Homeowner", "New mover", "Auto owner", "Mortgage lead"]
 
 
 def fetch_insurance_leads(segment: str, count: int) -> list[dict]:
-    """TODO: replace with Apollo.io / Windsor (HubSpot) live enrichment."""
+    """Commercial leads from Apollo.io when configured (B2B); personal stays synthetic.
+
+    Apollo results are topped up with synthetic records so the daily target count
+    is always met even when the live API returns fewer rows.
+    """
+    out: list[dict] = []
+    if segment == "commercial" and apollo.is_configured():
+        for lead in apollo.fetch_commercial_leads(count):
+            lead.setdefault("category", lead.get("industry") or "Commercial")
+            out.append(lead)
+        if len(out) >= count:
+            return out[:count]
+
     cats = COMMERCIAL_CATEGORIES if segment == "commercial" else PERSONAL_CATEGORIES
-    out = []
-    for _ in range(count):
+    need = count - len(out)
+    for _ in range(need):
         cat = _rng.choice(cats)
         owner = _person()
         company = f"{owner.split()[1]} {cat}" if segment == "commercial" else owner
@@ -88,7 +105,7 @@ def fetch_insurance_leads(segment: str, count: int) -> list[dict]:
             "industry": cat,
             "city": _rng.choice(_CITIES),
         })
-    return out
+    return out[:count]
 
 
 # ── Agent 3: SavoryMind restaurants + consumers ──────────────────────────────
@@ -98,9 +115,28 @@ CUISINES = ["Italian", "Brazilian", "American", "French", "Japanese", "Mexican",
 
 
 def fetch_restaurants(count: int) -> list[dict]:
-    """TODO: replace with Google Maps / Yelp / web scraping."""
-    out = []
-    for _ in range(count):
+    """Restaurant decision-makers from Apollo when configured, topped up with synthetic."""
+    out: list[dict] = []
+    if apollo.is_configured():
+        for c in apollo.fetch_restaurant_contacts(count):
+            name = c.get("company_name") or "Restaurant"
+            out.append({
+                "kind": "prospect",
+                "name": name,
+                "owner_manager": c.get("owner_name"),
+                "website": c.get("website"),
+                "menu_url": None,
+                "instagram": None,
+                "email": c.get("email"),
+                "phone": c.get("phone"),
+                "cuisine": _rng.choice(CUISINES),
+                "city": c.get("city") or _rng.choice(_CITIES),
+                "pain_points": "Unknown — research before outreach",
+            })
+        if len(out) >= count:
+            return out[:count]
+
+    for _ in range(count - len(out)):
         rtype = _rng.choice(RESTAURANT_TYPES)
         city = _rng.choice(_CITIES)
         name = f"{_rng.choice(_LAST)}'s {rtype}"
@@ -119,7 +155,7 @@ def fetch_restaurants(count: int) -> list[dict]:
                 "Low average ticket", "Weak online reviews",
                 "No upsell at point of sale", "Outdated menu"]),
         })
-    return out
+    return out[:count]
 
 
 def fetch_food_consumers(count: int) -> list[dict]:

@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     apollo_api_key: str = ""
     instantly_api_key: str = ""
 
+    # Jobs sourcing (Indeed via the JSearch aggregator on RapidAPI, or any
+    # compatible JSearch host). Falls back to synthetic data when unset.
+    jobs_api_key: str = ""
+    jobs_api_host: str = "jsearch.p.rapidapi.com"
+
     # Gmail (outbound + inbound). Two accounts: "personal" (default, used by all
     # agents) and "insurance" (used by the Insurance agent). Each authenticates
     # via an authorized-user token JSON, or client id/secret + refresh token.

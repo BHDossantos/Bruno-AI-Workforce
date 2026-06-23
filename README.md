@@ -14,11 +14,13 @@ and execute — the agents do the sourcing, scoring, and drafting.
 | 6 | CEO Dashboard | 10 AM | 1 executive brief (emailed) |
 
 > **Status:** Phase 1 MVP. All six agents are implemented and run end-to-end.
-> Prospect sourcing currently uses pluggable **synthetic data providers** so the
-> whole system runs without external credentials — see
-> [`backend/app/integrations/providers.py`](backend/app/integrations/providers.py)
-> for the `TODO` markers where live APIs (Indeed, Apollo, HubSpot, Google Maps,
-> Spotify) plug in. AI content generation is real when `OPENAI_API_KEY` is set.
+> **Live sourcing is wired**: jobs via the JSearch/Indeed aggregator (`JOBS_API_KEY`),
+> commercial insurance + restaurant prospects via Apollo.io (`APOLLO_API_KEY`),
+> and qualified insurance leads auto-pushed to HubSpot (`HUBSPOT_API_KEY`). Each
+> live source falls back to (and is topped up with) synthetic data so the system
+> always runs and hits its daily targets even without credentials. Remaining
+> sources (music/Instagram) are synthetic. AI content is real when
+> `OPENAI_API_KEY` is set. See [`backend/app/integrations/`](backend/app/integrations/).
 
 ## Architecture
 

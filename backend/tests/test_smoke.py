@@ -4,6 +4,8 @@ from app.agents.insurance import InsuranceAgent
 from app.agents.job_hunter import JobHunterAgent
 from app.agents.music import MusicAgent
 
+from app.integrations import apollo, jobs_api, providers
+
 from .conftest import requires_db
 
 
@@ -40,6 +42,34 @@ def test_all_agents_registered():
     assert set(AGENTS) == {
         "job_hunter", "insurance", "savorymind", "music", "instagram", "ceo_dashboard"
     }
+
+
+# ── Live-source integrations (no network; key-gated) ─────────────────────────
+def test_live_sources_disabled_without_keys():
+    assert apollo.is_configured() is False
+    assert jobs_api.is_configured() is False
+    assert apollo.fetch_commercial_leads(10) == []
+    assert jobs_api.fetch_jobs(["Director SRE"], limit=5) == []
+
+
+def test_jobs_api_maps_jsearch_payload():
+    mapped = jobs_api._map({
+        "job_title": "Director SRE", "employer_name": "Acme",
+        "job_city": "Boston", "job_state": "MA", "job_is_remote": False,
+        "job_min_salary": 210000, "job_max_salary": 260000,
+        "job_publisher": "Indeed", "job_apply_link": "https://x/y",
+        "job_description": "Lead reliability.",
+    })
+    assert mapped["title"] == "Director SRE"
+    assert mapped["company"] == "Acme"
+    assert mapped["location"] == "Boston, MA"
+    assert mapped["salary_min"] == 210000 and mapped["source"] == "indeed"
+
+
+def test_providers_fallback_meets_targets_without_keys():
+    assert len(providers.fetch_insurance_leads("commercial", 100)) == 100
+    assert len(providers.fetch_restaurants(100)) == 100
+    assert len(providers.fetch_jobs(60)) == 60
 
 
 # ── Full pipeline (needs PostgreSQL) ─────────────────────────────────────────

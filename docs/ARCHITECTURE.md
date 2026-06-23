@@ -76,10 +76,16 @@ records `Replied`. Guardrails: per-account daily cap and same-day dedupe.
 
 Replace the synthetic generators in `app/integrations/providers.py`:
 
-| Function | Live source |
-|----------|-------------|
-| `fetch_jobs` | Indeed MCP / LinkedIn / Wellfound / company careers |
-| `fetch_insurance_leads` | Apollo.io / Windsor (HubSpot) |
-| `fetch_restaurants` | Google Maps / Yelp |
-| `fetch_playlists` / `fetch_influencers` | Spotify / SubmitHub / IG |
-| `fetch_instagram_targets` | Instagram (manual export or API) |
+| Function | Live source | Status |
+|----------|-------------|--------|
+| `fetch_jobs` | JSearch/Indeed aggregator (`integrations/jobs_api.py`) | **live when `JOBS_API_KEY` set** |
+| `fetch_insurance_leads` (commercial) | Apollo.io (`integrations/apollo.py`) | **live when `APOLLO_API_KEY` set** |
+| `fetch_restaurants` | Apollo.io people search | **live when `APOLLO_API_KEY` set** |
+| `fetch_insurance_leads` (personal) | — | synthetic (Apollo is B2B) |
+| `fetch_playlists` / `fetch_influencers` | Spotify / SubmitHub / IG | synthetic |
+| `fetch_instagram_targets` | Instagram (manual export or API) | synthetic |
+
+Live sources are **topped up with synthetic records** so the daily target counts
+(200 leads, 100 restaurants, etc.) are always met even if the API returns fewer
+rows. Qualified insurance leads (score ≥ 60) are pushed to HubSpot via
+`integrations/crm.py` when `HUBSPOT_API_KEY` is set.
