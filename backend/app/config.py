@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     # Scheduler
     enable_scheduler: bool = True
     timezone: str = "America/New_York"
+    # Shared secret for external cron triggers (Cloud Scheduler / cron-job.org).
+    # When set, /cron/* endpoints require header X-Cron-Token: <this value>.
+    cron_secret: str = ""
 
     # Email
     smtp_host: str = ""

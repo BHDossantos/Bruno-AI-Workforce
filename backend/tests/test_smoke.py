@@ -153,6 +153,13 @@ def test_sms_inbound_webhook_and_threads(client, auth_headers):
 
 
 @requires_db
+def test_cron_endpoint_requires_token(client):
+    # No token configured in tests → cron endpoints are locked down.
+    assert client.post("/cron/inbound").status_code == 401
+    assert client.post("/cron/inbound", headers={"X-Cron-Token": "wrong"}).status_code == 401
+
+
+@requires_db
 def test_social_queue_endpoint(client, auth_headers):
     r = client.get("/outreach/social", headers=auth_headers)
     assert r.status_code == 200

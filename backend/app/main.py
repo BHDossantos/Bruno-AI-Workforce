@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .routers import (
     agents,
     auth,
+    cron,
     instagram,
     jobs,
     leads,
@@ -55,6 +56,7 @@ app.include_router(reports.router)
 app.include_router(messages.router)
 app.include_router(outreach_queue.router)
 app.include_router(sms.router)
+app.include_router(cron.router)
 
 
 @app.get("/health", tags=["system"])
