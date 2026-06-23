@@ -1,0 +1,158 @@
+"""Pydantic response/request schemas."""
+from __future__ import annotations
+
+import uuid
+from datetime import date, datetime
+
+from pydantic import BaseModel, ConfigDict, EmailStr
+
+
+class ORMModel(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ── Auth ─────────────────────────────────────────────────────────────────────
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class UserOut(ORMModel):
+    id: uuid.UUID
+    email: EmailStr
+    full_name: str | None = None
+    role: str
+    is_active: bool
+
+
+# ── Agents ───────────────────────────────────────────────────────────────────
+class AgentOut(ORMModel):
+    id: uuid.UUID
+    key: str
+    name: str
+    description: str | None = None
+    schedule_cron: str | None = None
+    enabled: bool
+    last_run_at: datetime | None = None
+
+
+class JobOut(ORMModel):
+    id: uuid.UUID
+    title: str
+    company: str | None = None
+    location: str | None = None
+    remote: bool
+    salary_min: int | None = None
+    salary_max: int | None = None
+    source: str | None = None
+    url: str | None = None
+    score: int
+    score_breakdown: dict | None = None
+    resume_match: str | None = None
+    cover_letter: str | None = None
+    recruiter_msg: str | None = None
+    hiring_msg: str | None = None
+    found_at: datetime
+
+
+class LeadOut(ORMModel):
+    id: uuid.UUID
+    segment: str
+    category: str | None = None
+    company_name: str | None = None
+    owner_name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    website: str | None = None
+    linkedin: str | None = None
+    industry: str | None = None
+    reason: str | None = None
+    score: int
+    status: str
+    cold_email: str | None = None
+    call_script: str | None = None
+    linkedin_msg: str | None = None
+    pushed_to_crm: bool
+    created_at: datetime
+
+
+class RestaurantOut(ORMModel):
+    id: uuid.UUID
+    kind: str
+    name: str
+    owner_manager: str | None = None
+    website: str | None = None
+    menu_url: str | None = None
+    instagram: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    cuisine: str | None = None
+    city: str | None = None
+    pain_points: str | None = None
+    menu_analysis: dict | None = None
+    pitch_email: str | None = None
+    linkedin_msg: str | None = None
+    follow_up: str | None = None
+    status: str
+    created_at: datetime
+
+
+class PlaylistOut(ORMModel):
+    id: uuid.UUID
+    name: str
+    curator_name: str | None = None
+    genre: str | None = None
+    submission_link: str | None = None
+    email: str | None = None
+    instagram: str | None = None
+    followers: int | None = None
+    genre_match: int
+    pitch: str | None = None
+    status: str
+
+
+class InfluencerOut(ORMModel):
+    id: uuid.UUID
+    name: str
+    niche: str | None = None
+    platform: str | None = None
+    handle: str | None = None
+    followers: int | None = None
+    email: str | None = None
+    dm_pitch: str | None = None
+    collab_pitch: str | None = None
+    status: str
+
+
+class InstagramTargetOut(ORMModel):
+    id: uuid.UUID
+    handle: str
+    niche: str | None = None
+    category: str | None = None
+    followers: int | None = None
+    comment_idea: str | None = None
+    dm_opener: str | None = None
+    story_reply: str | None = None
+    status: str
+
+
+class CampaignOut(ORMModel):
+    id: uuid.UUID
+    channel: str | None = None
+    title: str | None = None
+    content: dict | None = None
+    scheduled_for: date | None = None
+    status: str
+
+
+class ReportOut(ORMModel):
+    id: uuid.UUID
+    report_date: date
+    summary: str | None = None
+    top_actions: dict | None = None
+    metrics: dict | None = None
+    emailed: bool
+
+
+class StatusUpdate(BaseModel):
+    status: str

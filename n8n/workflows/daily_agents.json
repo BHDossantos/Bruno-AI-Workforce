@@ -1,0 +1,96 @@
+{
+  "name": "Bruno AI — Daily Agent Triggers",
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{ "field": "cronExpression", "expression": "0 5 * * *" }] } },
+      "id": "cron-job-hunter",
+      "name": "5 AM — Job Hunter",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 100]
+    },
+    {
+      "parameters": { "rule": { "interval": [{ "field": "cronExpression", "expression": "0 6 * * *" }] } },
+      "id": "cron-insurance",
+      "name": "6 AM — Insurance",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 240]
+    },
+    {
+      "parameters": { "rule": { "interval": [{ "field": "cronExpression", "expression": "0 7 * * *" }] } },
+      "id": "cron-savorymind",
+      "name": "7 AM — SavoryMind",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 380]
+    },
+    {
+      "parameters": { "rule": { "interval": [{ "field": "cronExpression", "expression": "0 10 * * *" }] } },
+      "id": "cron-ceo",
+      "name": "10 AM — CEO Brief",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 520]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://backend:8000/agents/{{ $json.agent }}/run",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "http-run",
+      "name": "Run Agent (FastAPI)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [640, 300],
+      "notes": "Set an httpHeaderAuth credential named 'Bruno API' with Authorization: Bearer <token from /auth/token>."
+    },
+    {
+      "parameters": { "values": { "string": [{ "name": "agent", "value": "job_hunter" }] } },
+      "id": "set-job",
+      "name": "agent=job_hunter",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.2,
+      "position": [440, 100]
+    },
+    {
+      "parameters": { "values": { "string": [{ "name": "agent", "value": "insurance" }] } },
+      "id": "set-ins",
+      "name": "agent=insurance",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.2,
+      "position": [440, 240]
+    },
+    {
+      "parameters": { "values": { "string": [{ "name": "agent", "value": "savorymind" }] } },
+      "id": "set-sav",
+      "name": "agent=savorymind",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.2,
+      "position": [440, 380]
+    },
+    {
+      "parameters": { "values": { "string": [{ "name": "agent", "value": "ceo_dashboard" }] } },
+      "id": "set-ceo",
+      "name": "agent=ceo_dashboard",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.2,
+      "position": [440, 520]
+    }
+  ],
+  "connections": {
+    "5 AM — Job Hunter": { "main": [[{ "node": "agent=job_hunter", "type": "main", "index": 0 }]] },
+    "6 AM — Insurance": { "main": [[{ "node": "agent=insurance", "type": "main", "index": 0 }]] },
+    "7 AM — SavoryMind": { "main": [[{ "node": "agent=savorymind", "type": "main", "index": 0 }]] },
+    "10 AM — CEO Brief": { "main": [[{ "node": "agent=ceo_dashboard", "type": "main", "index": 0 }]] },
+    "agent=job_hunter": { "main": [[{ "node": "Run Agent (FastAPI)", "type": "main", "index": 0 }]] },
+    "agent=insurance": { "main": [[{ "node": "Run Agent (FastAPI)", "type": "main", "index": 0 }]] },
+    "agent=savorymind": { "main": [[{ "node": "Run Agent (FastAPI)", "type": "main", "index": 0 }]] },
+    "agent=ceo_dashboard": { "main": [[{ "node": "Run Agent (FastAPI)", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false
+}
