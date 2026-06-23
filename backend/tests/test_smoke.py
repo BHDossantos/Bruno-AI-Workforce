@@ -69,3 +69,24 @@ def test_full_daily_cycle_hits_targets(client, auth_headers):
 
     report = client.get("/reports/latest", headers=auth_headers).json()
     assert report is not None and report["metrics"]["insurance_leads"] == 200
+
+
+@requires_db
+def test_outbound_messages_created_per_account(client, auth_headers):
+    """Agents create outbound Message rows; insurance routes via its own mailbox."""
+    msgs = client.get("/messages?limit=500", headers=auth_headers).json()
+    assert len(msgs) >= 300  # 200 insurance + 100 savorymind cold emails
+
+    insurance = [m for m in msgs if m["from_account"] == "insurance"]
+    personal = [m for m in msgs if m["from_account"] == "personal"]
+    assert len(insurance) == 200
+    assert len(personal) >= 100
+    # Gmail is not configured in CI, so nothing is actually sent.
+    assert all(m["status"] == "Drafted" for m in msgs)
+
+
+@requires_db
+def test_inbound_sync_is_safe_without_gmail(client, auth_headers):
+    resp = client.post("/inbound/sync", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json() == {"scanned": 0, "matched": 0}

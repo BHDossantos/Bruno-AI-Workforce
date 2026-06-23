@@ -156,3 +156,19 @@ class ReportOut(ORMModel):
 
 class StatusUpdate(BaseModel):
     status: str
+
+
+class MessageOut(ORMModel):
+    id: uuid.UUID
+    channel: str | None = None
+    entity_type: str | None = None
+    entity_id: uuid.UUID | None = None
+    to_email: str | None = None
+    from_account: str
+    subject: str | None = None
+    body: str | None = None
+    status: str
+    approved: bool
+    provider_id: str | None = None
+    sent_at: datetime | None = None
+    created_at: datetime

@@ -223,10 +223,13 @@ CREATE TABLE IF NOT EXISTS messages (
     direction    TEXT NOT NULL DEFAULT 'outbound',
     entity_type  TEXT,                                     -- lead | restaurant | job | contact ...
     entity_id    UUID,
+    to_email     TEXT,
+    from_account TEXT NOT NULL DEFAULT 'personal',         -- personal | insurance
     subject      TEXT,
     body         TEXT,
     status       lead_status NOT NULL DEFAULT 'Drafted',
     approved     BOOLEAN NOT NULL DEFAULT FALSE,           -- nothing sends until approved
+    provider_id  TEXT,                                     -- Gmail message/draft id
     sent_at      TIMESTAMPTZ,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );

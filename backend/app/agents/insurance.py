@@ -36,7 +36,7 @@ class InsuranceAgent(BaseAgent):
             providers.fetch_insurance_leads("commercial", COMMERCIAL_TARGET)
             + providers.fetch_insurance_leads("personal", PERSONAL_TARGET)
         )
-        saved, pushed = 0, 0
+        saved, pushed, sent = 0, 0, 0
         for p in prospects:
             reason = f"{p['category']} businesses typically need liability, property and " \
                      f"professional coverage." if p["segment"] == "commercial" else \
@@ -48,12 +48,14 @@ class InsuranceAgent(BaseAgent):
                 company_name=p["company_name"], category=p["category"], segment=p["segment"],
                 industry=p.get("industry"), city=p.get("city"), reason=reason,
             ))
+            subject = artifacts.get("cold_email_subject") or f"Insurance options for {p['company_name']}"
+            body = artifacts.get("cold_email_body")
             row = Lead(
                 segment=p["segment"], category=p["category"], company_name=p["company_name"],
                 owner_name=p["owner_name"], email=p["email"], phone=p["phone"],
                 website=p.get("website"), linkedin=p.get("linkedin"), industry=p.get("industry"),
                 reason=reason, score=score, status="Drafted",
-                cold_email=_as_text(artifacts.get("cold_email")),
+                cold_email=body,
                 call_script=_as_text(artifacts.get("call_script")),
                 linkedin_msg=artifacts.get("linkedin_msg"),
             )
@@ -66,13 +68,22 @@ class InsuranceAgent(BaseAgent):
             self.db.add(row)
             self.db.flush()
             self.schedule_follow_ups("lead", row.id)
+
+            # Route the cold email through the Thrust Insurance mailbox.
+            msg = self.dispatch_email(entity_type="lead", entity_id=row.id, to_email=p.get("email"),
+                                      subject=subject, body=body, account="insurance")
+            if msg.status == "Sent":
+                row.status = "Sent"
+                sent += 1
             saved += 1
 
-        self.log_action("leads_saved", entity="leads", detail={"count": saved, "pushed": pushed})
+        self.log_action("leads_saved", entity="leads",
+                        detail={"count": saved, "pushed": pushed, "emailed": sent})
         return {
-            "summary": f"Generated {saved} insurance leads ({pushed} pushed to CRM).",
+            "summary": f"Generated {saved} insurance leads ({pushed} to CRM, {sent} emailed).",
             "saved": saved,
             "pushed_to_crm": pushed,
+            "emailed": sent,
         }
 
 

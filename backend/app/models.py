@@ -243,10 +243,13 @@ class Message(Base):
     direction: Mapped[str] = mapped_column(String, default="outbound")
     entity_type: Mapped[str | None] = mapped_column(String)
     entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    to_email: Mapped[str | None] = mapped_column(String, index=True)
+    from_account: Mapped[str] = mapped_column(String, default="personal")  # personal | insurance
     subject: Mapped[str | None] = mapped_column(String)
     body: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String, default="Drafted")
     approved: Mapped[bool] = mapped_column(Boolean, default=False)
+    provider_id: Mapped[str | None] = mapped_column(String)  # Gmail message/draft id
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

@@ -54,6 +54,16 @@ The SQLAlchemy models create tables automatically on boot (`init_db`), so the
   Leads ≥ 60 are pushed to HubSpot.
 - **Music** (`music.py`): genre-match 100 when in the artist's target genres.
 
+## Email routing (Gmail)
+
+`app/integrations/gmail.py` is account-aware. Two identities — `personal` and
+`insurance` — each with their own OAuth token. `BaseAgent.dispatch_email(...,
+account=...)` creates a `Message` row and, per `GMAIL_OUTBOUND_MODE`, either
+drafts or sends via that account (the Insurance agent passes
+`account="insurance"`; all others use `personal`). The CEO report goes out the
+personal account. `app/inbound.py` polls both inboxes and marks matching
+records `Replied`. Guardrails: per-account daily cap and same-day dedupe.
+
 ## Automation rules
 
 - Lead statuses: New → Drafted → Sent → Opened → Replied → Interested →

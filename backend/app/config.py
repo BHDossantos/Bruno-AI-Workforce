@@ -41,6 +41,30 @@ class Settings(BaseSettings):
     apollo_api_key: str = ""
     instantly_api_key: str = ""
 
+    # Gmail (outbound + inbound). Two accounts: "personal" (default, used by all
+    # agents) and "insurance" (used by the Insurance agent). Each authenticates
+    # via an authorized-user token JSON, or client id/secret + refresh token.
+    # No-ops if unconfigured. Run app.scripts.gmail_auth to mint tokens.
+    #
+    # Personal account — everything except insurance.
+    gmail_address: str = "brunodossantos707@gmail.com"
+    google_oauth_client_id: str = ""
+    google_oauth_client_secret: str = ""
+    google_oauth_refresh_token: str = ""
+    google_token_json: str = ""
+
+    # Insurance account — Insurance agent outreach + the report's insurance replies.
+    insurance_gmail_address: str = "bruno@thrustinsurance.com"
+    insurance_google_oauth_client_id: str = ""
+    insurance_google_oauth_client_secret: str = ""
+    insurance_google_oauth_refresh_token: str = ""
+    insurance_google_token_json: str = ""
+
+    # Outbound mode: "send" (auto-send now), "send_on_approve", or "draft".
+    gmail_outbound_mode: str = "send"
+    # Safety cap on auto-sent outreach per day, per account (protects the mailbox).
+    gmail_daily_send_cap: int = 50
+
 
 @lru_cache
 def get_settings() -> Settings:

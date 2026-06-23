@@ -7,14 +7,28 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 from ..config import settings
+from . import gmail
 
 log = logging.getLogger("bruno.mailer")
 
 
 def send_email(*, to: str, subject: str, html: str) -> bool:
-    """Send an HTML email. Returns False (without raising) if SMTP isn't set up."""
-    if not (settings.smtp_host and settings.report_from_email and to):
-        log.info("SMTP not configured — report not emailed (subject=%s)", subject)
+    """Send an HTML email.
+
+    Prefers the personal Gmail account; falls back to SMTP. Returns False
+    (without raising) if neither is configured.
+    """
+    if not to:
+        return False
+
+    # Preferred path: personal Gmail.
+    if gmail.is_configured(gmail.PERSONAL):
+        mid = gmail.send_message(to, subject, html, account=gmail.PERSONAL)
+        if mid:
+            return True
+
+    if not (settings.smtp_host and settings.report_from_email):
+        log.info("No Gmail/SMTP configured — report not emailed (subject=%s)", subject)
         return False
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject

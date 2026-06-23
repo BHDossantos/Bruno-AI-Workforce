@@ -11,6 +11,7 @@ const NAV = [
   { href: "/savorymind", label: "SavoryMind Leads", icon: "🍽️" },
   { href: "/music", label: "Music Campaigns", icon: "🎵" },
   { href: "/instagram", label: "Instagram Planner", icon: "📸" },
+  { href: "/outbox", label: "Outbox", icon: "📧" },
   { href: "/brief", label: "Daily Brief", icon: "📋" },
 ];
 

@@ -31,6 +31,31 @@ The backend already runs agents on cron via APScheduler. If you prefer n8n:
 3. Activate the workflow. Set `ENABLE_SCHEDULER=false` in `.env` to avoid
    double-running.
 
+## 3a. Gmail OAuth setup
+
+Outbound/inbound email uses two Gmail accounts (personal + insurance). For each:
+
+1. In Google Cloud Console, create an **OAuth 2.0 Client ID** of type *Desktop
+   app* and download `client_secret.json`. Enable the **Gmail API** for the project.
+2. Mint a token (logging in as the right account in the browser):
+   ```bash
+   cd backend
+   python -m app.scripts.gmail_auth /path/to/client_secret.json
+   ```
+3. Copy the printed JSON (one line) into the matching env var:
+   - personal → `GOOGLE_TOKEN_JSON`
+   - insurance (log in as `bruno@thrustinsurance.com`) → `INSURANCE_GOOGLE_TOKEN_JSON`
+4. Confirm `GMAIL_ADDRESS` / `INSURANCE_GMAIL_ADDRESS` match the authorized accounts.
+
+Without these tokens the system runs normally but emails are stored as drafts in
+the DB and nothing is sent. With `GMAIL_OUTBOUND_MODE=send`, outreach auto-sends
+(respecting `GMAIL_DAILY_SEND_CAP` and same-day dedupe). Set the mode to `draft`
+or `send_on_approve` to keep a human in the loop.
+
+> **Note:** `bruno@thrustinsurance.com` must be a Google account (Workspace or
+> Gmail) to use the Gmail API. If it's hosted elsewhere, set its SMTP/IMAP
+> instead, or use a Google Workspace alias.
+
 ## 4. Production hosting
 
 - **Frontend → Vercel.** Set `NEXT_PUBLIC_API_URL` to your backend URL. The app

@@ -96,7 +96,29 @@ docs/           Architecture + deployment guides
 ## Dashboard pages
 
 Home · Jobs · Insurance Leads · SavoryMind Leads · Music Campaigns ·
-Instagram Planner · Daily Brief.
+Instagram Planner · Outbox · Daily Brief.
+
+## Email (Gmail) — outbound + inbound
+
+Outreach and the daily report are routed through **two Gmail accounts**:
+
+| Account | Address (default) | Used by |
+|---------|-------------------|---------|
+| `personal` | `brunodossantos707@gmail.com` | all agents except insurance + the CEO report |
+| `insurance` | `bruno@thrustinsurance.com` | the Insurance agent's outreach |
+
+- **Outbound mode** (`GMAIL_OUTBOUND_MODE`): `send` (auto-send now, the current
+  setting), `send_on_approve`, or `draft`. Safety guardrails always apply: a
+  per-account daily cap (`GMAIL_DAILY_SEND_CAP`, default 50), no contacting the
+  same address twice in a day, and a required recipient. Cold emails include
+  unsubscribe language.
+- **Inbound**: both mailboxes are polled every 2 hours (and on demand from the
+  Outbox page) for replies, which flip the matching lead/restaurant/message to
+  `Replied`.
+- The **Outbox** page lists every outbound message, its sending account, and
+  status; you can approve/send drafts and trigger a reply sync.
+
+Set up each account's OAuth token once — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#gmail-oauth-setup).
 
 ## Security
 

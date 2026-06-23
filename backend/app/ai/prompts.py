@@ -35,7 +35,8 @@ Prospect: {company_name} ({category}, {segment}) — {industry}, {city}
 Why they may need insurance: {reason}
 
 Return JSON with keys:
-- "cold_email": a compliant cold email (subject + body) with a clear CTA and an unsubscribe line.
+- "cold_email_subject": a short, compelling subject line.
+- "cold_email_body": a compliant cold email body with a clear CTA and an unsubscribe line.
 - "call_script": a 5-line phone opener.
 - "linkedin_msg": a friendly LinkedIn connection message (max 80 words).
 """
@@ -60,7 +61,8 @@ Restaurant: {name} ({cuisine}, {city}). Owner/manager: {owner}
 Key insight to lead with: {insight}
 
 Return JSON with keys:
-- "pitch_email": a warm, specific pitch email (subject + body, max 180 words) + unsubscribe line.
+- "pitch_subject": a short, compelling subject line.
+- "pitch_body": a warm, specific pitch email body (max 180 words) + unsubscribe line.
 - "linkedin_msg": a short LinkedIn message (max 80 words).
 - "demo_invite": a one-paragraph demo invitation.
 """

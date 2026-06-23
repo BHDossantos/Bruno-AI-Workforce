@@ -35,19 +35,28 @@ class SavoryMindAgent(BaseAgent):
                 name=r["name"], cuisine=r["cuisine"], city=r["city"],
                 owner=r["owner_manager"], insight=insight or r["pain_points"],
             ))
+            pitch = pitch if isinstance(pitch, dict) else {}
+            subject = pitch.get("pitch_subject") or f"Growing revenue at {r['name']} with SavoryMind"
+            body = pitch.get("pitch_body")
             row = Restaurant(
                 kind="prospect", name=r["name"], owner_manager=r["owner_manager"],
                 website=r["website"], menu_url=r["menu_url"], instagram=r["instagram"],
                 email=r["email"], phone=r["phone"], cuisine=r["cuisine"], city=r["city"],
                 pain_points=r["pain_points"], menu_analysis=analysis if isinstance(analysis, dict) else None,
-                pitch_email=pitch.get("pitch_email") if isinstance(pitch, dict) else None,
-                linkedin_msg=pitch.get("linkedin_msg") if isinstance(pitch, dict) else None,
-                follow_up=pitch.get("demo_invite") if isinstance(pitch, dict) else None,
+                pitch_email=body,
+                linkedin_msg=pitch.get("linkedin_msg"),
+                follow_up=pitch.get("demo_invite"),
                 status="Drafted",
             )
             self.db.add(row)
             self.db.flush()
             self.schedule_follow_ups("restaurant", row.id)
+
+            msg = self.dispatch_email(entity_type="restaurant", entity_id=row.id,
+                                      to_email=r.get("email"), subject=subject, body=body)
+            if msg.status == "Sent":
+                row.status = "Sent"
+                sent += 1
             saved += 1
 
         consumers_saved = 0

@@ -4,9 +4,12 @@ from __future__ import annotations
 import logging
 from datetime import date, datetime, timedelta, timezone
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ..models import ActionLog, Agent, FollowUp, Task
+from ..config import settings
+from ..integrations import gmail
+from ..models import ActionLog, Agent, FollowUp, Message, Task
 
 log = logging.getLogger("bruno.agents")
 
@@ -37,6 +40,68 @@ class BaseAgent:
                 entity_type=entity_type, entity_id=entity_id,
                 step=step, due_date=today + timedelta(days=offset),
             ))
+
+    def dispatch_email(self, *, entity_type: str, entity_id, to_email: str | None,
+                       subject: str | None, body: str | None,
+                       account: str = "personal") -> Message:
+        """Create an outbound email Message and route it through Gmail ``account``.
+
+        ``account`` selects the sending mailbox ("personal" or "insurance").
+        Behavior follows ``GMAIL_OUTBOUND_MODE``:
+        - ``draft``           — create a Gmail draft, never send.
+        - ``send_on_approve`` — draft now; sent later once approved.
+        - ``send``            — auto-send now (subject to the per-account daily cap + dedupe).
+
+        Guardrails: requires a recipient; never contacts the same address twice
+        in one day; respects ``GMAIL_DAILY_SEND_CAP`` per account.
+        """
+        msg = Message(channel="email", direction="outbound", entity_type=entity_type,
+                      entity_id=entity_id, to_email=to_email, from_account=account,
+                      subject=subject, body=body, status="Drafted", approved=False)
+        self.db.add(msg)
+        self.db.flush()
+
+        if not to_email or not gmail.is_configured(account):
+            return msg  # nothing to send to / account not configured — leave as stored draft
+
+        mode = settings.gmail_outbound_mode
+        if mode == "send" and self._already_contacted_today(to_email):
+            self.log_action("send_skipped_duplicate", entity="message", entity_id=msg.id,
+                            detail={"to": to_email})
+            return msg
+        if mode == "send" and self._sent_today_count(account) >= settings.gmail_daily_send_cap:
+            mode = "draft"  # hit the safety cap — degrade to draft
+
+        if mode == "send":
+            mid = gmail.send_message(to_email, subject or "", body or "", account=account)
+            if mid:
+                msg.provider_id = mid
+                msg.approved = True
+                msg.status = "Sent"
+                msg.sent_at = datetime.now(timezone.utc)
+                self.log_action("email_sent", entity="message", entity_id=msg.id,
+                                detail={"to": to_email, "account": account})
+        else:  # draft / send_on_approve
+            did = gmail.create_draft(to_email, subject or "", body or "", account=account)
+            if did:
+                msg.provider_id = did
+                self.log_action("email_drafted", entity="message", entity_id=msg.id,
+                                detail={"to": to_email, "account": account})
+        return msg
+
+    def _sent_today_count(self, account: str) -> int:
+        today = date.today()
+        return self.db.query(func.count()).select_from(Message).filter(
+            Message.from_account == account,
+            Message.sent_at >= datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc),
+        ).scalar() or 0
+
+    def _already_contacted_today(self, to_email: str) -> bool:
+        today = date.today()
+        return self.db.query(Message).filter(
+            Message.to_email == to_email,
+            Message.sent_at >= datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc),
+        ).first() is not None
 
     def _touch_agent_row(self) -> None:
         row = self.db.query(Agent).filter(Agent.key == self.key).first()
