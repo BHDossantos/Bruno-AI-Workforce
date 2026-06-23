@@ -122,6 +122,15 @@ Outreach and the daily report are routed through **two Gmail accounts**:
 
 Set up each account's OAuth token once — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#gmail-oauth-setup).
 
+## Marketing skills
+
+`.claude/skills/` ships **45 marketing Agent Skills** (copywriting, cold email,
+prospecting, SEO/AI SEO, paid ads, social, SMS, pricing, churn, referrals, PR,
+and more) that Claude Code auto-discovers in this repo — use them to craft and
+sharpen the messaging the agents generate. Vendored (MIT) from
+[coreyhaines31/marketingskills](https://github.com/coreyhaines31/marketingskills);
+see [`.claude/skills/README.md`](.claude/skills/README.md) for attribution.
+
 ## Security
 
 - JWT auth with role-based access (`admin` / `operator` / `viewer`).
