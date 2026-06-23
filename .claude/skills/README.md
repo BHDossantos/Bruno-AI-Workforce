@@ -26,3 +26,18 @@ These skills are vendored from the **Marketing Skills** project by **Corey Haine
 Vendored unmodified for use within this repo. To update, re-copy the `skills/`
 directory from the upstream repository. All credit for the skill content goes to
 the original author; the MIT license terms are retained in `LICENSE`.
+
+## Second source: awesome-claude-skills (Apache-2.0)
+
+32 additional general-purpose skills are vendored from **ComposioHQ/awesome-claude-skills**
+(e.g. `lead-research-assistant`, `content-research-writer`, `competitive-ads-extractor`,
+`twitter-algorithm-optimizer`, `brand-guidelines`, `tailored-resume-generator`,
+`docx`/`pdf`/`pptx`/`xlsx`, and more).
+
+- Source: https://github.com/ComposioHQ/awesome-claude-skills
+- License: **Apache-2.0** for the collection; several skills include their own
+  `LICENSE.txt` (preserved inside each skill folder) and those terms govern them.
+- The upstream repo's **832 Composio SaaS-connector automation skills** were *not*
+  placed here (they would flood skill discovery); they're vendored for reference
+  under [`vendor/awesome-claude-skills/`](../../vendor/awesome-claude-skills/).
+  Promote any you want into this directory to make them discoverable.
