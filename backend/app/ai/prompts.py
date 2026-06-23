@@ -115,6 +115,21 @@ reached out before, and end with a soft CTA plus a one-line unsubscribe note.
 Return JSON with keys "subject" and "body".
 """
 
+# ── Warm SMS (sent after a lead replies to our email) ────────────────────────
+SMS_INTRO = """{name} just replied to our email about: {context}.
+Write a short, warm SMS (max 300 chars) that continues the conversation naturally,
+thanks them, and asks one easy question to move forward. Casual, human, no hard sell.
+End with " Reply STOP to opt out." Return JSON with key "body".
+"""
+
+SMS_REPLY = """You are texting with {name} about: {context}.
+Conversation so far (latest last):
+{history}
+
+Write the next SMS reply (max 300 chars), helpful and conversational, moving toward
+a call or meeting. Return JSON with key "body".
+"""
+
 # ── Agent 6: CEO Dashboard ───────────────────────────────────────────────────
 CEO_BRIEF = """You are the chief of staff producing a CEO daily executive brief.
 Here is today's raw output from all agents (JSON):

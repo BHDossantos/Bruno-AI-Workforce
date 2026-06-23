@@ -16,6 +16,7 @@ from .routers import (
     outreach_queue,
     reports,
     restaurants,
+    sms,
 )
 from .scheduler import shutdown_scheduler, start_scheduler
 from .seed import seed
@@ -53,6 +54,7 @@ app.include_router(instagram.router)
 app.include_router(reports.router)
 app.include_router(messages.router)
 app.include_router(outreach_queue.router)
+app.include_router(sms.router)
 
 
 @app.get("/health", tags=["system"])

@@ -12,6 +12,7 @@ const NAV = [
   { href: "/music", label: "Music Campaigns", icon: "🎵" },
   { href: "/instagram", label: "Instagram Planner", icon: "📸" },
   { href: "/outbox", label: "Outbox", icon: "📧" },
+  { href: "/texts", label: "Texts", icon: "💬" },
   { href: "/queue", label: "Outreach Queue", icon: "✋" },
   { href: "/brief", label: "Daily Brief", icon: "📋" },
 ];

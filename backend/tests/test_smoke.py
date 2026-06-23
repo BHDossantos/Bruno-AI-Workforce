@@ -142,6 +142,17 @@ def test_inbound_sync_is_safe_without_gmail(client, auth_headers):
 
 
 @requires_db
+def test_sms_inbound_webhook_and_threads(client, auth_headers):
+    # Inbound webhook is public (no auth) and stores the text.
+    r = client.post("/sms/inbound", data={"From": "+15551234567", "Body": "yes interested"})
+    assert r.status_code == 200
+    threads = client.get("/sms/threads", headers=auth_headers).json()
+    assert any(t["phone"] == "+15551234567" for t in threads)
+    thread = client.get("/sms/thread?phone=%2B15551234567", headers=auth_headers).json()
+    assert thread["messages"] and thread["messages"][0]["direction"] == "inbound"
+
+
+@requires_db
 def test_social_queue_endpoint(client, auth_headers):
     r = client.get("/outreach/social", headers=auth_headers)
     assert r.status_code == 200

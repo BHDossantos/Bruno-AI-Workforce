@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     twilio_auth_token: str = ""
     twilio_from_number: str = ""          # default sending number (E.164, e.g. +1617...)
     twilio_insurance_number: str = ""     # optional separate number for insurance
+    # Auto-send a warm intro text when a lead replies to our email (becomes warm).
+    sms_auto_on_reply: bool = True
 
     # Gmail (outbound + inbound). Two accounts: "personal" (default, used by all
     # agents) and "insurance" (used by the Insurance agent). Each authenticates
