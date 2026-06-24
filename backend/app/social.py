@@ -11,7 +11,7 @@ import logging
 from datetime import date
 
 from . import media
-from .integrations import facebook_api, instagram_api
+from .integrations import facebook_api, instagram_api, linkedin_api
 
 log = logging.getLogger("bruno.social")
 
@@ -21,6 +21,8 @@ PLATFORMS = {
                   lambda db, cap, img: instagram_api.publish_post(db, img, cap), True),
     "facebook": (facebook_api.is_connected,
                  lambda db, cap, img: facebook_api.post(db, cap, img), False),
+    "linkedin": (linkedin_api.is_connected,
+                 lambda db, cap, img: linkedin_api.post(db, cap, img), False),
 }
 
 
@@ -60,4 +62,6 @@ def status(db) -> dict:
     out["instagram"] = {"connected": ig is not None, "followers": ig.get("followers") if ig else None}
     fb = facebook_api.get_page(db) if facebook_api.is_connected(db) else None
     out["facebook"] = {"connected": fb is not None, "followers": fb.get("followers") if fb else None}
+    li = linkedin_api.get_profile(db) if linkedin_api.is_connected(db) else None
+    out["linkedin"] = {"connected": li is not None, "followers": None}
     return out

@@ -59,12 +59,15 @@ PROVIDERS: list[dict] = [
     },
     {
         "key": "linkedin", "name": "LinkedIn", "category": "social", "icon": "💼",
-        "auth_type": "manual",
-        "fields": [_field("profile_url", "Your profile / company URL", secret=False),
-                   _field("access_token", "Marketing API token (optional)", secret=True, required=False)],
-        "capabilities": ["publish_assist", "dm_assist", "analytics"],
+        "auth_type": "oauth",
+        "fields": [_field("access_token", "OAuth access token (w_member_social)", secret=True),
+                   _field("author_urn", "Author URN", placeholder="urn:li:person:xxxx or urn:li:organization:xxxx"),
+                   _field("profile_url", "Your profile / company URL", secret=False, required=False)],
+        "capabilities": ["publish_auto", "dm_assist", "analytics"],
         "stages": ["attract", "nurture", "convert"],
-        "compliance": "LinkedIn forbids automated connections/DMs. The platform drafts posts & messages and queues them for one-click manual send (ToS-safe).",
+        "compliance": "Auto-publishes YOUR OWN posts via the official LinkedIn API "
+                      "(w_member_social / w_organization_social). Automated connections "
+                      "& DMs are forbidden by LinkedIn — those stay one-click assisted.",
         "goals": ["leads", "followers"],
     },
     {

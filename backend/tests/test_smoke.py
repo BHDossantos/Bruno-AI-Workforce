@@ -308,6 +308,9 @@ def test_social_unified_publish_offline():
     assert social.publish_daily(None, "hello")["published"] == {}
     st = social.status(None)
     assert st["instagram"]["connected"] is False and st["facebook"]["connected"] is False
+    assert st["linkedin"]["connected"] is False
+    from app.integrations import linkedin_api
+    assert linkedin_api.post(None, "hi")["ok"] is False
 
 
 def test_media_hosting_disabled_offline():
