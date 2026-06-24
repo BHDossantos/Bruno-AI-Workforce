@@ -13,7 +13,7 @@ LEADERSHIP_WORDS = ("director", "head", "vp", "chief", "cto")
 CLOUD_WORDS = ("sre", "cloud", "infrastructure", "platform", "reliability")
 AI_DATA_WORDS = ("ai", "data platform", "machine learning", "ml")
 SCORE_THRESHOLD = 70
-DAILY_TARGET = 25
+DAILY_TARGET = 20  # roles queued per run
 
 
 class JobHunterAgent(BaseAgent):

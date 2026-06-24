@@ -307,13 +307,13 @@ def test_full_daily_cycle_hits_targets(client, auth_headers):
     batch = settings.lead_batch_size
 
     summary = client.get("/dashboard/summary", headers=auth_headers).json()
-    assert summary["jobs_found"] == 25
+    assert summary["jobs_found"] == 20
     assert summary["insurance_leads"] == batch
     assert summary["restaurant_prospects"] == batch
     assert summary["music_playlists"] == 50
     assert summary["instagram_targets"] == 100
 
-    assert len(client.get("/jobs", headers=auth_headers).json()) == 25
+    assert len(client.get("/jobs", headers=auth_headers).json()) == 20
     assert len(client.get("/instagram/targets", headers=auth_headers).json()) == 100
     assert len(client.get("/music/influencers", headers=auth_headers).json()) == 25
 
@@ -450,6 +450,24 @@ def test_connections_crud_and_secret_encryption(client, auth_headers):
     d = client.delete(f"/connections/{cid}", headers=auth_headers)
     assert d.status_code == 200
     assert all(c["id"] != cid for c in client.get("/connections", headers=auth_headers).json())
+
+
+@requires_db
+def test_brand_profile_get_and_update(client, auth_headers):
+    p = client.get("/profile", headers=auth_headers).json()
+    assert p["business_name"]  # seeded with a default on first read
+    r = client.put("/profile", headers=auth_headers,
+                   json={"instagram_handle": "brunotest", "niche": "Test niche"})
+    assert r.status_code == 200 and r.json()["instagram_handle"] == "brunotest"
+    p2 = client.get("/profile", headers=auth_headers).json()
+    assert p2["niche"] == "Test niche"  # persisted
+
+    # The brand context used by content agents reflects the saved profile.
+    from app import brand
+    from app.database import SessionLocal
+    db = SessionLocal()
+    assert "Test niche" in brand.context(db)
+    db.close()
 
 
 @requires_db

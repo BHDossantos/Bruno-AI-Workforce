@@ -18,6 +18,7 @@ const NAV = [
   { href: "/texts", label: "Texts", icon: "💬" },
   { href: "/queue", label: "Outreach Queue", icon: "✋" },
   { href: "/brief", label: "Daily Brief", icon: "📋" },
+  { href: "/settings", label: "Brand Profile", icon: "⚙️" },
 ];
 
 export default function Sidebar() {

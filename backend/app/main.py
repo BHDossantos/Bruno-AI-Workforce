@@ -18,6 +18,7 @@ from .routers import (
     messages,
     music,
     outreach_queue,
+    profile,
     reports,
     restaurants,
     sms,
@@ -71,6 +72,7 @@ app.include_router(cron.router)
 app.include_router(export.router)
 app.include_router(imports.router)
 app.include_router(connections.router)
+app.include_router(profile.router)
 
 
 @app.get("/health", tags=["system"])
