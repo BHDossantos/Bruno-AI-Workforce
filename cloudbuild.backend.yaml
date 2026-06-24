@@ -1,22 +1,25 @@
 # Builds the FastAPI backend image AND deploys it to its Cloud Run service.
 #   gcloud builds submit --config cloudbuild.backend.yaml .
+# _TAG defaults to "latest" so manual `gcloud builds submit` works (COMMIT_SHA is
+# only populated by Cloud Build triggers); pass --substitutions=_TAG=<sha> to tag.
 substitutions:
   _SERVICE: ai-workforce
   _REGION: europe-west1
+  _TAG: latest
 images:
-  - gcr.io/$PROJECT_ID/$_SERVICE:$COMMIT_SHA
+  - gcr.io/$PROJECT_ID/$_SERVICE:$_TAG
 steps:
   - name: gcr.io/cloud-builders/docker
-    args: [build, -f, Dockerfile, -t, "gcr.io/$PROJECT_ID/$_SERVICE:$COMMIT_SHA", .]
+    args: [build, -f, Dockerfile, -t, "gcr.io/$PROJECT_ID/$_SERVICE:$_TAG", .]
   - name: gcr.io/cloud-builders/docker
-    args: [push, "gcr.io/$PROJECT_ID/$_SERVICE:$COMMIT_SHA"]
+    args: [push, "gcr.io/$PROJECT_ID/$_SERVICE:$_TAG"]
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
     entrypoint: gcloud
     args:
       - run
       - deploy
       - ${_SERVICE}
-      - --image=gcr.io/$PROJECT_ID/$_SERVICE:$COMMIT_SHA
+      - --image=gcr.io/$PROJECT_ID/$_SERVICE:$_TAG
       - --region=${_REGION}
       - --platform=managed
       - --allow-unauthenticated

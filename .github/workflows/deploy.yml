@@ -34,7 +34,7 @@ jobs:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
       - name: Deploy backend (ai-workforce, europe-west1)
-        run: gcloud builds submit --config cloudbuild.backend.yaml .
+        run: gcloud builds submit --config cloudbuild.backend.yaml --substitutions=_TAG="${GITHUB_SHA::7}" .
 
       - name: Deploy frontend (bruno-ai-workforce-front, northamerica-northeast1)
-        run: gcloud builds submit --config cloudbuild.frontend.yaml .
+        run: gcloud builds submit --config cloudbuild.frontend.yaml --substitutions=_TAG="${GITHUB_SHA::7}" .
