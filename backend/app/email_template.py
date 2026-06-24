@@ -6,7 +6,32 @@ signature (so prospects can always call back) and a CAN-SPAM compliant footer
 """
 from __future__ import annotations
 
+import re
+
 from .config import settings
+
+# Cut an AI-added sign-off (and everything after it: "[Your Name]", P.S. lines)
+# — the template appends the real signature, so the body must not carry one.
+_SIGNOFF_RE = re.compile(
+    r"\n\s*(best regards|best wishes|best|kind regards|warm regards|warmly|"
+    r"sincerely|regards|thanks|thank you|cheers|talk soon|looking forward)\b.*",
+    re.IGNORECASE | re.DOTALL,
+)
+# Leftover bracket placeholders the AI sometimes emits ("[Your Name]", "[Company]").
+_PLACEHOLDER_RE = re.compile(r"\[[^\]\n]{1,40}\]")
+
+
+def clean_body(body: str | None) -> str | None:
+    """Strip AI sign-offs/placeholders so only the template signature remains."""
+    if not body:
+        return body
+    text = _SIGNOFF_RE.sub("", body)
+    text = _PLACEHOLDER_RE.sub("", text)
+    # Fix dangling greetings left by removed name placeholders ("Hi ,").
+    text = re.sub(r"\b(Hi|Hello|Hey|Dear)\s*,", r"\1 there,", text)
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 def _business(account: str) -> str:
@@ -39,6 +64,7 @@ def render(body: str | None, account: str = "personal") -> str | None:
     if not body:
         return body
 
+    body = clean_body(body)
     # If the body is plain text, convert newlines to HTML breaks.
     html_body = body if "<" in body and ">" in body else body.replace("\n", "<br>")
 

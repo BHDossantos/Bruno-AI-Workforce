@@ -61,6 +61,7 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
                    subject: str | None, body: str | None, account: str = "personal",
                    actor: str = "system") -> Message:
     """Create a Message and route it via Gmail per the configured mode."""
+    body = email_template.clean_body(body)  # strip AI placeholders/sign-offs once
     msg = Message(channel="email", direction="outbound", entity_type=entity_type,
                   entity_id=entity_id, to_email=to_email, from_account=account,
                   subject=subject, body=body, status="Drafted", approved=False)

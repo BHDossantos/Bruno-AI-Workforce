@@ -91,6 +91,16 @@ def test_email_template_wraps_body_with_signature_and_footer():
     assert "tel:+16039308272" in personal
     assert "Thrust Insurance" not in personal  # insurance signature must not leak
 
+    # AI placeholders + sign-off are stripped; only the real signature remains.
+    raw = ("Hi [Prospect's Name],\n\nRunning a restaurant is hard.\n\n"
+           "Best,\n[Your Name]\n\nP.S. If you'd rather not hear from me, let me know.")
+    cleaned = email_template.clean_body(raw)
+    assert "[Your Name]" not in cleaned and "[Prospect's Name]" not in cleaned
+    assert "Best," not in cleaned and "P.S." not in cleaned
+    assert "Hi there," in cleaned
+    rendered = email_template.render(raw, account="insurance")
+    assert "[Your Name]" not in rendered and "Bruno Dossantos" in rendered
+
 
 def test_reply_classifier_safe_without_ai():
     from app import classify
