@@ -16,6 +16,8 @@ os.environ.setdefault("ADMIN_EMAIL", "admin@example.com")
 os.environ.setdefault("ADMIN_PASSWORD", "testpass")
 # Disable live lead sourcing (OpenStreetMap) during tests — no network calls.
 os.environ["LEAD_CITIES"] = ""
+os.environ["LEAD_STATES"] = ""
+os.environ["ENABLE_FREE_JOBS"] = "false"
 os.environ.setdefault(
     "DATABASE_URL",
     os.environ.get("DATABASE_URL", "postgresql+psycopg://bruno@localhost:5432/bruno_ai"),

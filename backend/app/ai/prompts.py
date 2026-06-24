@@ -35,8 +35,12 @@ Prospect: {company_name} ({category}, {segment}) — {industry}, {city}
 Why they may need insurance: {reason}
 
 Return JSON with keys:
-- "cold_email_subject": a short, compelling subject line.
-- "cold_email_body": a compliant cold email body with a clear CTA and an unsubscribe line.
+- "cold_email_subject": a short, compelling subject line (no placeholders).
+- "cold_email_body": the email body ONLY. Address the business by its real name
+  ({company_name}); never use placeholders like [Name] or [Your Name]. Open with
+  a specific line, give one clear value point, end with a one-line CTA question.
+  Do NOT add any greeting placeholder, sign-off, signature, or unsubscribe line —
+  those are appended automatically. Keep it under 110 words.
 - "call_script": a 5-line phone opener.
 - "linkedin_msg": a friendly LinkedIn connection message (max 80 words).
 """
@@ -61,8 +65,11 @@ Restaurant: {name} ({cuisine}, {city}). Owner/manager: {owner}
 Key insight to lead with: {insight}
 
 Return JSON with keys:
-- "pitch_subject": a short, compelling subject line.
-- "pitch_body": a warm, specific pitch email body (max 180 words) + unsubscribe line.
+- "pitch_subject": a short, compelling subject line (no placeholders).
+- "pitch_body": the email body ONLY (max 150 words). Address the restaurant by
+  its real name ({name}); never use placeholders like [Name] or [Your Name]. Do
+  NOT add a greeting placeholder, sign-off, signature, or unsubscribe line — those
+  are appended automatically.
 - "linkedin_msg": a short LinkedIn message (max 80 words).
 - "demo_invite": a one-paragraph demo invitation.
 """

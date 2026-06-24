@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     # compatible JSearch host). Falls back to synthetic data when unset.
     jobs_api_key: str = ""
     jobs_api_host: str = "jsearch.p.rapidapi.com"
+    # Free real job source (Remotive API, no key). Real remote roles with apply
+    # links. Disabled in tests so they never hit the network.
+    enable_free_jobs: bool = True
     # When False, agents use ONLY live-sourced data (no synthetic top-up to hit
     # target counts). Set False in production once real sourcing is in place.
     allow_synthetic_fallback: bool = True
@@ -56,6 +59,15 @@ class Settings(BaseSettings):
     # OpenStreetMap). Comma-separated. Drives commercial insurance + restaurant
     # sourcing with real, deliverable emails at no cost.
     lead_cities: str = "Boston,New York,Miami,Chicago,Austin"
+    # Whole STATES to search (OSM names, comma-separated). When set, these take
+    # precedence over lead_cities and give a much wider lead pool — the engine
+    # pulls email-tagged businesses from across the entire state.
+    lead_states: str = "Massachusetts,New Hampshire,Florida"
+    # How many leads each lead-finder agent produces per run. Small batches keep
+    # every run fast and well under Cloud Run's request timeout; run the agent
+    # more often to accumulate more. Insurance splits this across commercial +
+    # personal segments.
+    lead_batch_size: int = 20
 
     # SMS (Twilio) — two-way texting. Used manually / for opted-in contacts only
     # (cold automated SMS violates TCPA). No-ops if unconfigured.
@@ -77,6 +89,9 @@ class Settings(BaseSettings):
     google_oauth_client_secret: str = ""
     google_oauth_refresh_token: str = ""
     google_token_json: str = ""
+    # Simplest sending path: a Gmail "App Password" (Google account → Security →
+    # App passwords). When set, outreach sends via SMTP — no OAuth flow needed.
+    gmail_app_password: str = ""
 
     # Insurance account — Insurance agent outreach + the report's insurance replies.
     insurance_gmail_address: str = "bruno@thrustinsurance.com"
@@ -84,6 +99,17 @@ class Settings(BaseSettings):
     insurance_google_oauth_client_secret: str = ""
     insurance_google_oauth_refresh_token: str = ""
     insurance_google_token_json: str = ""
+    insurance_gmail_app_password: str = ""  # App Password for the Thrust mailbox
+    # No-admin workaround: when True, insurance emails are sent THROUGH the
+    # personal mailbox (personal App Password) but with the Thrust address as the
+    # From — requires adding bruno@thrustinsurance.com as a verified "Send mail
+    # as" alias in the personal Gmail. Lets you send as Thrust without Workspace
+    # admin access.
+    insurance_send_as_alias: bool = False
+    # No-admin path: send insurance outreach THROUGH the personal mailbox with
+    # the From as the personal address but Reply-To set to the Thrust address, so
+    # replies land in the Thrust inbox. Works with zero Thrust-account access.
+    insurance_via_personal_reply_to: bool = False
 
     # Email template / signature (applied to every outbound email for a
     # consistent look + CAN-SPAM compliant footer).

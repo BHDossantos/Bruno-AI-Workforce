@@ -35,6 +35,7 @@ def _account_cfg(account: str) -> dict:
             "client_id": settings.insurance_google_oauth_client_id,
             "client_secret": settings.insurance_google_oauth_client_secret,
             "refresh_token": settings.insurance_google_oauth_refresh_token,
+            "app_password": settings.insurance_gmail_app_password,
         }
     return {
         "address": settings.gmail_address,
@@ -42,6 +43,7 @@ def _account_cfg(account: str) -> dict:
         "client_id": settings.google_oauth_client_id,
         "client_secret": settings.google_oauth_client_secret,
         "refresh_token": settings.google_oauth_refresh_token,
+        "app_password": settings.gmail_app_password,
     }
 
 
@@ -88,8 +90,63 @@ def _service(account: str):
         return None
 
 
+def _smtp_login(account: str):
+    """Return (login_address, login_password, from_address, reply_to) for SMTP.
+
+    Normally an account logs in and sends as itself. The insurance account, when
+    its own Thrust credentials aren't available, can send THROUGH the personal
+    mailbox in one of two ways:
+      - send_as_alias: From = Thrust address (needs a verified Gmail alias)
+      - via_personal_reply_to: From = personal address, Reply-To = Thrust (no
+        Thrust access needed at all; replies still land in the Thrust inbox)
+    """
+    cfg = _account_cfg(account)
+    if cfg.get("app_password") and cfg.get("address"):
+        return cfg["address"], cfg["app_password"], cfg["address"], None
+    if account == INSURANCE:
+        p = _account_cfg(PERSONAL)
+        if p.get("app_password") and p.get("address"):
+            if settings.insurance_send_as_alias:
+                return p["address"], p["app_password"], cfg["address"], None
+            if settings.insurance_via_personal_reply_to:
+                return p["address"], p["app_password"], p["address"], cfg["address"]
+    return None, None, None, None
+
+
+def _smtp_configured(account: str) -> bool:
+    return _smtp_login(account)[1] is not None
+
+
 def is_configured(account: str = PERSONAL) -> bool:
-    return _credentials(account) is not None
+    """Configured if EITHER OAuth credentials OR an SMTP app password is set."""
+    return _credentials(account) is not None or _smtp_configured(account)
+
+
+def _send_smtp(account: str, to: str, subject: str, body: str) -> str | None:
+    """Send via Gmail SMTP using an App Password. Returns a synthetic id or None."""
+    import smtplib
+    from email.utils import make_msgid
+
+    login_addr, pw, from_addr, reply_to = _smtp_login(account)
+    if not (login_addr and pw):
+        return None
+    mime = MIMEText(body, "html")
+    mime["To"] = to
+    mime["From"] = from_addr or login_addr
+    mime["Subject"] = subject or "(no subject)"
+    if reply_to:
+        mime["Reply-To"] = reply_to
+    msg_id = make_msgid()
+    mime["Message-ID"] = msg_id
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as server:
+            server.starttls()
+            server.login(login_addr, pw)
+            server.sendmail(from_addr or login_addr, [to], mime.as_string())
+        return msg_id
+    except Exception as exc:  # pragma: no cover - network guard
+        log.warning("SMTP send failed (%s via %s): %s", to, account, exc)
+        return None
 
 
 def _raw(account: str, to: str, subject: str, body: str) -> dict:
@@ -101,16 +158,22 @@ def _raw(account: str, to: str, subject: str, body: str) -> dict:
 
 
 def send_message(to: str, subject: str, body: str, account: str = PERSONAL) -> str | None:
-    """Send an email immediately from ``account``. Returns the message id or None."""
-    svc = _service(account)
-    if svc is None or not to:
+    """Send an email immediately from ``account``. Returns the message id or None.
+
+    Uses the Gmail API when OAuth is configured; otherwise falls back to SMTP
+    with an App Password (the simplest setup).
+    """
+    if not to:
         return None
+    svc = _service(account)
+    if svc is None:
+        return _send_smtp(account, to, subject, body)  # App Password path
     try:
         sent = svc.users().messages().send(userId="me", body=_raw(account, to, subject, body)).execute()
         return sent.get("id")
     except Exception as exc:  # pragma: no cover - network guard
         log.warning("Gmail send failed (%s via %s): %s", to, account, exc)
-        return None
+        return _send_smtp(account, to, subject, body)  # last-resort fallback
 
 
 def create_draft(to: str, subject: str, body: str, account: str = PERSONAL) -> str | None:

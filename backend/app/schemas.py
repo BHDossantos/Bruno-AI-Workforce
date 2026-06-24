@@ -172,3 +172,34 @@ class MessageOut(ORMModel):
     provider_id: str | None = None
     sent_at: datetime | None = None
     created_at: datetime
+
+
+# ── Connections (connect-any-account platform) ───────────────────────────────
+class ConnectionCreate(BaseModel):
+    provider: str
+    display_name: str | None = None
+    account_ref: str | None = None
+    goal: str | None = None
+    credentials: dict[str, str] = {}
+    settings: dict | None = None
+
+
+class ConnectionOut(ORMModel):
+    id: uuid.UUID
+    provider: str
+    display_name: str
+    account_ref: str | None = None
+    status: str
+    funnel_enabled: bool
+    goal: str | None = None
+    settings: dict | None = None
+    last_synced_at: datetime | None = None
+    created_at: datetime
+
+
+class ConnectionUpdate(BaseModel):
+    display_name: str | None = None
+    goal: str | None = None
+    funnel_enabled: bool | None = None
+    credentials: dict[str, str] | None = None
+    settings: dict | None = None

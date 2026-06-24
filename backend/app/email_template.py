@@ -1,12 +1,37 @@
 """Consistent HTML email template applied to every outbound email.
 
-Wraps the AI-written body in a clean layout with a signature and a CAN-SPAM
-compliant footer (sender identity, mailing address, unsubscribe line). This runs
-on top of the skill-based copy so every send looks templated and compliant.
+Wraps the AI-written body in a clean layout with the correct per-account
+signature (so prospects can always call back) and a CAN-SPAM compliant footer
+(sender identity, mailing address, unsubscribe line).
 """
 from __future__ import annotations
 
+import re
+
 from .config import settings
+
+# Cut an AI-added sign-off (and everything after it: "[Your Name]", P.S. lines)
+# — the template appends the real signature, so the body must not carry one.
+_SIGNOFF_RE = re.compile(
+    r"\n\s*(best regards|best wishes|best|kind regards|warm regards|warmly|"
+    r"sincerely|regards|thanks|thank you|cheers|talk soon|looking forward)\b.*",
+    re.IGNORECASE | re.DOTALL,
+)
+# Leftover bracket placeholders the AI sometimes emits ("[Your Name]", "[Company]").
+_PLACEHOLDER_RE = re.compile(r"\[[^\]\n]{1,40}\]")
+
+
+def clean_body(body: str | None) -> str | None:
+    """Strip AI sign-offs/placeholders so only the template signature remains."""
+    if not body:
+        return body
+    text = _SIGNOFF_RE.sub("", body)
+    text = _PLACEHOLDER_RE.sub("", text)
+    # Fix dangling greetings left by removed name placeholders ("Hi ,").
+    text = re.sub(r"\b(Hi|Hello|Hey|Dear)\s*,", r"\1 there,", text)
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 def _business(account: str) -> str:
@@ -15,19 +40,36 @@ def _business(account: str) -> str:
     return settings.personal_business_name or ""
 
 
+def _signature(account: str) -> str:
+    """Per-account signature block with click-to-call phone numbers."""
+    if account == "insurance":
+        return (
+            'Best regards,<br>'
+            '<strong>Bruno Dossantos</strong><br>'
+            'Phone: <a href="tel:+16175683000" style="color:#6d28d9;text-decoration:none">(617) 568-3000</a> ext. 119'
+            ' &nbsp;|&nbsp; '
+            'Cell: <a href="tel:+16039308272" style="color:#6d28d9;text-decoration:none">(603) 930-8272</a><br>'
+            'Thrust Insurance — Independent Agent<br>'
+            '<span style="color:#666">Languages: English, Portuguese, Spanish &amp; Italian</span>'
+        )
+    return (
+        'Best regards,<br>'
+        '<strong>Bruno Dos Santos, MBA, MSIT</strong> | IT &amp; Cloud Leader<br>'
+        'Cell: <a href="tel:+16039308272" style="color:#6d28d9;text-decoration:none">(603) 930-8272</a>'
+    )
+
+
 def render(body: str | None, account: str = "personal") -> str | None:
     """Return the body wrapped in the standard HTML template."""
     if not body:
         return body
 
+    body = clean_body(body)
     # If the body is plain text, convert newlines to HTML breaks.
     html_body = body if "<" in body and ">" in body else body.replace("\n", "<br>")
 
+    signature = _signature(account)
     business = _business(account)
-    signature_lines = [settings.sender_name]
-    if business:
-        signature_lines.append(business)
-    signature = "<br>".join(line for line in signature_lines if line)
 
     # Optional booking-link call-to-action.
     cta = ""

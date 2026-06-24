@@ -52,3 +52,27 @@ def cron_followups(x_cron_token: str | None = Header(default=None), db: Session 
 def cron_inbound(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
     _auth(x_cron_token)
     return inbound.sync_replies(db)
+
+
+@router.post("/test-email")
+def cron_test_email(to: str, account: str = "personal",
+                    x_cron_token: str | None = Header(default=None)):
+    """Send ONE test email so you can verify a mailbox sends + see the signature.
+
+    Example: POST /cron/test-email?to=you@gmail.com&account=insurance
+    """
+    _auth(x_cron_token)
+    from .. import email_template
+    from ..integrations import gmail
+
+    if not gmail.is_configured(account):
+        return {"ok": False, "reason": f"'{account}' mailbox not configured "
+                f"(set its app password / OAuth)"}
+    html = email_template.render(
+        "This is a test from your Bruno AI Workforce.<br><br>"
+        "If you can read this and see the signature below, sending works — "
+        "the autopilot is ready to send real outreach. \U0001F389",
+        account,
+    )
+    mid = gmail.send_message(to, "Bruno AI — test email", html, account=account)
+    return {"ok": bool(mid), "id": mid, "account": account, "to": to}
