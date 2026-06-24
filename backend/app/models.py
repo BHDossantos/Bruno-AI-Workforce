@@ -155,6 +155,8 @@ class Lead(Base):
     call_script: Mapped[str | None] = mapped_column(Text)
     linkedin_msg: Mapped[str | None] = mapped_column(Text)
     pushed_to_crm: Mapped[bool] = mapped_column(Boolean, default=False)
+    times_contacted: Mapped[int] = mapped_column(Integer, default=0)
+    last_contacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -177,6 +179,8 @@ class Restaurant(Base):
     linkedin_msg: Mapped[str | None] = mapped_column(Text)
     follow_up: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String, default="New")
+    times_contacted: Mapped[int] = mapped_column(Integer, default=0)
+    last_contacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

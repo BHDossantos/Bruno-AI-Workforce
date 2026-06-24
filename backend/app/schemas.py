@@ -73,6 +73,8 @@ class LeadOut(ORMModel):
     call_script: str | None = None
     linkedin_msg: str | None = None
     pushed_to_crm: bool
+    times_contacted: int = 0
+    last_contacted_at: datetime | None = None
     created_at: datetime
 
 
@@ -94,6 +96,8 @@ class RestaurantOut(ORMModel):
     linkedin_msg: str | None = None
     follow_up: str | None = None
     status: str
+    times_contacted: int = 0
+    last_contacted_at: datetime | None = None
     created_at: datetime
 
 

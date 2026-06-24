@@ -33,8 +33,27 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
+# Idempotent column additions for tables that predate a new feature.
+# create_all() creates missing TABLES but never alters existing ones.
+_MIGRATIONS = [
+    "ALTER TABLE leads ADD COLUMN IF NOT EXISTS times_contacted INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE leads ADD COLUMN IF NOT EXISTS last_contacted_at TIMESTAMPTZ",
+    "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS times_contacted INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS last_contacted_at TIMESTAMPTZ",
+]
+
+
 def init_db() -> None:
-    """Create all tables from the SQLAlchemy models if they don't exist."""
+    """Create all tables from the SQLAlchemy models, then run light migrations."""
+    from sqlalchemy import text
+
     from . import models  # noqa: F401  (ensure models are imported/registered)
 
     Base.metadata.create_all(bind=engine)
+    # Add any new columns to pre-existing tables (Postgres supports IF NOT EXISTS).
+    with engine.begin() as conn:
+        for stmt in _MIGRATIONS:
+            try:
+                conn.execute(text(stmt))
+            except Exception:  # pragma: no cover - non-Postgres or perms
+                pass

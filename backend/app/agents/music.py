@@ -19,6 +19,27 @@ PLAYLIST_TARGET = 50
 INFLUENCER_TARGET = 25
 
 
+def _fallback_content(artist: str, genres: str) -> dict:
+    """A usable content package so the Music page is never empty without AI."""
+    g = genres.split(",")[0].strip() if genres else "your sound"
+    return {
+        "reels": [
+            f"15s studio teaser of {artist}'s next {g} track — hook on the drop.",
+            f"Behind-the-scenes: how {artist} writes a {g} melody.",
+            f"Fan-duet prompt: stitch your verse over {artist}'s chorus.",
+        ],
+        "captions": [
+            f"New {g} energy dropping soon. 🎶 Save this. — {artist}",
+            f"Made for late nights and good company. {artist} x {g}.",
+            f"Tag someone who needs this {g} vibe today.",
+        ],
+        "hashtags": [f"#{g.replace(' ', '')}", "#newmusic", "#indieartist", "#musicpromo",
+                     "#nowplaying", "#musician", "#singersongwriter", "#brazilianmusic",
+                     "#latinmusic", "#spotify"],
+        "story": f"Poll: which unreleased {artist} snippet should drop first? A or B.",
+    }
+
+
 class MusicAgent(BaseAgent):
     key = "music"
     name = "Music Marketing Agent"
@@ -28,6 +49,8 @@ class MusicAgent(BaseAgent):
     @staticmethod
     def genre_match(genre: str) -> int:
         return 100 if (genre or "").lower() in ARTIST_GENRES else 50
+
+    # _fallback_content is defined at module level below.
 
     def execute(self) -> dict:
         p = brand.get_profile(self.db)
@@ -39,9 +62,10 @@ class MusicAgent(BaseAgent):
         content = client.complete_json(
             MUSIC_DAILY_CONTENT.format(brand=brand_ctx, artist=artist, genres=genres),
             system=skills.system_prompt("social"))
+        if not isinstance(content, dict) or not content:
+            content = _fallback_content(artist, genres)  # never leave it empty
         self.db.add(Campaign(channel="music", title=f"Music content {date.today()}",
-                             content=content if isinstance(content, dict) else {},
-                             scheduled_for=date.today()))
+                             content=content, scheduled_for=date.today()))
         self.db.commit()
 
         copy_system = skills.system_prompt("copywriting", "cold-email")

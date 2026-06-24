@@ -24,9 +24,19 @@ class SavoryMindAgent(BaseAgent):
         restaurants = providers.fetch_restaurants(batch)
         consumers = providers.fetch_food_consumers(batch)
 
-        # ── Phase 1: save prospects + consumers FAST (no AI) and commit. ─────────
+        # Don't duplicate restaurants we already have (keep contact history).
+        existing = {e for (e,) in self.db.query(Restaurant.email)
+                    .filter(Restaurant.email.isnot(None)).all()}
+
+        # ── Phase 1: save NEW prospects + consumers FAST (no AI) and commit. ─────
         pairs: list[tuple[Restaurant, dict]] = []
+        seen_now: set[str] = set()
         for r in restaurants:
+            email = (r.get("email") or "").lower()
+            if email and (email in existing or email in seen_now):
+                continue
+            if email:
+                seen_now.add(email)
             row = Restaurant(
                 kind="prospect", name=r["name"], owner_manager=r.get("owner_manager"),
                 website=r.get("website"), menu_url=r.get("menu_url"), instagram=r.get("instagram"),

@@ -61,6 +61,9 @@ def test_free_jobs_gated_off_in_tests_and_parse_salary():
     assert jobs_free._salary("$180k - $220k") == 180000
     assert jobs_free._salary("210000") == 210000
     assert jobs_free._salary(None) is None
+    # Skill-fit filter: keep cloud/leadership roles, drop unrelated ones.
+    assert jobs_free._fits("Director of Site Reliability", "cloud platform") is True
+    assert jobs_free._fits("Barista", "make coffee") is False
 
 
 def test_jobs_api_maps_jsearch_payload():
@@ -461,6 +464,45 @@ def test_connections_crud_and_secret_encryption(client, auth_headers):
     d = client.delete(f"/connections/{cid}", headers=auth_headers)
     assert d.status_code == 200
     assert all(c["id"] != cid for c in client.get("/connections", headers=auth_headers).json())
+
+
+@requires_db
+def test_leads_are_not_duplicated_across_runs(client, auth_headers):
+    """A second agent run must not create duplicate leads for the same email."""
+    from app import models
+    from app.database import SessionLocal
+    from app.agents.insurance import InsuranceAgent
+
+    db = SessionLocal()
+    before = db.query(models.Lead).count()
+    InsuranceAgent(db).run()
+    after_first = db.query(models.Lead).count()
+    InsuranceAgent(db).run()
+    after_second = db.query(models.Lead).count()
+    # No new leads on the second run (all emails already exist) — and no dup emails.
+    emails = [e for (e,) in db.query(models.Lead.email).filter(models.Lead.email.isnot(None)).all()]
+    assert len(emails) == len(set(emails)), "duplicate lead emails found"
+    assert after_second == after_first  # second run added nothing new
+    assert after_first >= before
+    db.close()
+
+
+@requires_db
+def test_outreach_bumps_contact_count():
+    # The reach-out counter helper increments count + stamps a time.
+    from app import models, outreach
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        lead = models.Lead(segment="commercial", email="touch-test@acme.com",
+                           company_name="Touch Co", status="New")
+        db.add(lead); db.flush()
+        outreach._bump_contact(db, "lead", lead.id)
+        outreach._bump_contact(db, "lead", lead.id)
+        db.flush()
+        assert lead.times_contacted == 2 and lead.last_contacted_at is not None
+    finally:
+        db.rollback(); db.close()
 
 
 @requires_db
