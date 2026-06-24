@@ -16,6 +16,8 @@ from .routers import (
     imports,
     instagram,
     jobs,
+    browser,
+    crm,
     leads,
     memory,
     messages,
@@ -79,6 +81,8 @@ app.include_router(profile.router)
 app.include_router(analytics.router)
 app.include_router(executive.router)
 app.include_router(memory.router)
+app.include_router(crm.router)
+app.include_router(browser.router)
 
 
 @app.get("/health", tags=["system"])

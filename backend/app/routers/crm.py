@@ -1,0 +1,42 @@
+"""Universal CRM API — one contact surface across every source + the memory graph."""
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from .. import crm
+from ..database import get_db
+from ..security import require_role
+
+router = APIRouter(prefix="/crm", tags=["crm"])
+_read = require_role("admin", "operator", "viewer")
+_write = require_role("admin", "operator")
+
+
+class ContactIn(BaseModel):
+    name: str
+    company: str | None = None
+    title: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    kind: str = "contact"
+    status: str | None = None
+    notes: str | None = None
+
+
+@router.get("")
+def list_contacts(q: str | None = None, source: str | None = None,
+                  limit: int = 200, db: Session = Depends(get_db), _=Depends(_read)):
+    return crm.list_contacts(db, q=q, source=source, limit=limit)
+
+
+@router.post("")
+def add_contact(body: ContactIn, db: Session = Depends(get_db), _=Depends(_write)):
+    return crm.add_contact(db, **body.model_dump())
+
+
+@router.get("/{cid}")
+def get_contact(cid: str, db: Session = Depends(get_db), _=Depends(_read)):
+    c = crm.get_contact(db, cid)
+    if not c:
+        raise HTTPException(404, "contact not found")
+    return c

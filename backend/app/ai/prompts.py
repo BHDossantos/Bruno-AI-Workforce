@@ -6,11 +6,18 @@ to tune. Each agent imports the templates it needs.
 
 # Candidate profile used by the Job Hunter for resume/cover-letter matching.
 CANDIDATE_PROFILE = (
-    "Senior engineering leader. Strengths: Site Reliability Engineering (SRE), "
-    "cloud infrastructure (AWS/GCP/Azure), platform engineering, AI/data "
-    "platforms, team leadership and scaling. Target titles: Director/Head of "
-    "SRE, Director Cloud/Platform/Infrastructure Engineering, VP Engineering, "
-    "Director AI Infrastructure, Director Data Platform, CTO / Fractional CTO."
+    "Bruno Dos Santos — Director-level SRE & Cloud Operations leader (Boston). "
+    "10+ years leading multi-region AWS/GCP/Azure and hybrid environments. "
+    "Highlights: raised uptime SLA from 98.5% to 99.95% with AWS EKS production "
+    "clusters; led global SRE teams; cut cloud costs ~30% and deployment time "
+    "~40%; built CI/CD with Terraform, Kubernetes/EKS, Jenkins/CloudBees and "
+    "GitHub Actions; defined SLO/SLI frameworks and error budgets; observability "
+    "with Grafana/Prometheus/Datadog. Recent roles: SRE Leader @ CVS Health; "
+    "Head of DevOps & SRE @ SNHU; Director Cloud App Provisioning @ Deltek; "
+    "Sr Manager Cloud Delivery @ UKG. MBA, IT Management. Fluent EN/PT/ES/IT. "
+    "Target titles: Director/Head of SRE, Director Cloud/Platform/Infrastructure "
+    "Engineering, VP Engineering, Director AI Infrastructure, Director Data "
+    "Platform, CTO / Fractional CTO."
 )
 
 # ── Agent 1: Executive Job Hunter ────────────────────────────────────────────

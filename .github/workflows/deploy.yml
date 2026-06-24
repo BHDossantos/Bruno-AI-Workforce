@@ -1,0 +1,40 @@
+name: Deploy to Cloud Run
+
+# Runs after CI passes on main, so only green code deploys. Also runnable
+# manually from the Actions tab (workflow_dispatch).
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write   # allows Workload Identity Federation if you use it
+
+jobs:
+  deploy:
+    # Deploy on a successful CI run on main, or when triggered by hand.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Deploy backend (ai-workforce, europe-west1)
+        run: gcloud builds submit --config cloudbuild.backend.yaml .
+
+      - name: Deploy frontend (bruno-ai-workforce-front, northamerica-northeast1)
+        run: gcloud builds submit --config cloudbuild.frontend.yaml .

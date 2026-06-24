@@ -6,7 +6,7 @@ import { api } from "@/lib/api";
 import { AuthGate, PageHeader, useFetch } from "@/components/ui";
 
 type Action = {
-  title: string; command_center: string; objective: string; action_type: string;
+  key: string; title: string; command_center: string; objective: string; action_type: string;
   value: number; probability: number; effort: number; priority: number;
   link: string; why: string;
 };
@@ -28,9 +28,11 @@ function money(n: number) {
 }
 
 function Home() {
-  const { data: b } = useFetch<Brief>(() => api.get<Brief>("/brief/today"));
-  const { data: score } = useFetch<Score>(() => api.get<Score>("/scoreboard"));
+  const [refresh, setRefresh] = useState(0);
+  const { data: b } = useFetch<Brief>(() => api.get<Brief>("/brief/today"), [refresh]);
+  const { data: score } = useFetch<Score>(() => api.get<Score>("/scoreboard"), [refresh]);
   const [running, setRunning] = useState(false);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
 
   async function runAll() {
@@ -38,6 +40,16 @@ function Home() {
     try { await api.post("/agents/run-all"); setMsg("Agents running — refresh in a minute."); }
     catch (e) { setMsg(String(e)); }
     finally { setRunning(false); }
+  }
+
+  async function act(path: string, key: string) {
+    setBusyKey(key); setMsg("");
+    try {
+      const r = await api.post<{ ok: boolean; message?: string; reason?: string }>(path, { key });
+      setMsg(r.ok ? `✅ ${r.message || "Done"}` : `❌ ${r.reason || "Failed"}`);
+      setRefresh((n) => n + 1);
+    } catch (e) { setMsg(String(e)); }
+    finally { setBusyKey(null); }
   }
 
   return (
@@ -72,22 +84,44 @@ function Home() {
       {/* Top 3 actions */}
       <h2 className="mb-3 text-lg font-semibold">🎯 Highest-value actions today</h2>
       <div className="space-y-3">
-        {(b?.top_actions || []).map((a, i) => (
-          <Link key={i} href={a.link}
-            className="card flex items-center justify-between gap-4 hover:ring-2 hover:ring-brand/40">
-            <div className="flex items-start gap-3">
-              <span className="text-xl font-bold text-gray-300">{i + 1}</span>
-              <div>
-                <div className="font-semibold">{CENTER_ICON[a.command_center] || "•"} {a.title}</div>
-                <div className="text-xs text-gray-500">{a.why}</div>
+        {(b?.top_actions || []).map((a, i) => {
+          const isLink = a.link?.startsWith("http");
+          const execLabel = a.action_type === "apply" ? "Mark applied"
+            : a.action_type === "follow_up" ? "Send follow-up" : "Done";
+          return (
+            <div key={a.key} className="card">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <span className="text-xl font-bold text-gray-300">{i + 1}</span>
+                  <div>
+                    <div className="font-semibold">{CENTER_ICON[a.command_center] || "•"} {a.title}</div>
+                    <div className="text-xs text-gray-500">{a.why}</div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm font-semibold text-green-600">{money(Math.round(a.value * a.probability))}</div>
+                  <div className="text-[10px] text-gray-400">expected value</div>
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {isLink ? (
+                  <a href={a.link} target="_blank" rel="noreferrer"
+                     className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm">Open ↗</a>
+                ) : (
+                  <Link href={a.link} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm">Open</Link>
+                )}
+                {a.action_type !== "reply" && (
+                  <button onClick={() => act("/actions/execute", a.key)} disabled={busyKey === a.key}
+                          className="rounded-lg bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700">
+                    {busyKey === a.key ? "Working…" : `✓ ${execLabel}`}
+                  </button>
+                )}
+                <button onClick={() => act("/actions/dismiss", a.key)} disabled={busyKey === a.key}
+                        className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-500">Dismiss</button>
               </div>
             </div>
-            <div className="text-right">
-              <div className="text-sm font-semibold text-green-600">{money(Math.round(a.value * a.probability))}</div>
-              <div className="text-[10px] text-gray-400">expected value</div>
-            </div>
-          </Link>
-        ))}
+          );
+        })}
         {b && b.top_actions.length === 0 && (
           <div className="card text-sm text-gray-500">No open actions yet — hit “Refresh opportunities”.</div>
         )}

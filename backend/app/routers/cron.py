@@ -33,13 +33,8 @@ def run_agent(key: str, x_cron_token: str | None = Header(default=None),
 @router.post("/run-all")
 def run_all(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
     _auth(x_cron_token)
-    out: dict = {}
-    for key, cls in AGENTS.items():
-        try:
-            out[key] = cls(db).run()
-        except Exception as exc:  # pragma: no cover
-            out[key] = {"error": str(exc)}
-    return out
+    from .. import commanders
+    return commanders.run_ceo(db)  # CEO → Commander → Agent hierarchy
 
 
 @router.post("/followups")

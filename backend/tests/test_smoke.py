@@ -287,6 +287,27 @@ def test_scoring_weights_prioritize_high_roi_objectives():
     assert scoring._score(100, 0.9, 1, 1, 1) > scoring._score(100, 0.3, 1, 1, 1)
 
 
+def test_browser_field_matching_and_default_mode():
+    from app import browser
+    fm = {"email": "a@b.com", "phone": "555", "full_name": "Bruno Dos Santos", "cover_letter": "Hi"}
+    assert browser._match_field("Your Email Address", fm) == "a@b.com"
+    assert browser._match_field("mobile_phone", fm) == "555"
+    assert browser._match_field("full name", fm) == "Bruno Dos Santos"
+    assert browser._match_field("favorite color", fm) is None
+    assert browser.is_automation_ready() is False  # off by default -> safe assist mode
+
+
+def test_commanders_map_to_real_agents():
+    from app.agents import AGENTS
+    from app.commanders import COMMANDERS
+    covered = set()
+    for spec in COMMANDERS.values():
+        for k in spec["agents"]:
+            assert k in AGENTS  # every commander directs real agents
+            covered.add(k)
+    assert {"job_hunter", "insurance", "savorymind", "music", "instagram"} <= covered
+
+
 def test_memory_cosine_similarity():
     from app.memory import _cosine
     assert _cosine([1, 0], [1, 0]) == 1.0
@@ -551,6 +572,86 @@ def test_outreach_bumps_contact_count():
         assert lead.times_contacted == 2 and lead.last_contacted_at is not None
     finally:
         db.rollback(); db.close()
+
+
+@requires_db
+def test_commander_rollup_and_status(client, auth_headers):
+    # The daily cycle (run via the CEO→Commander→Agent hierarchy) already ran.
+    from app import commanders
+    from app.database import SessionLocal
+    db = SessionLocal()
+    commanders.rollup_objectives(db)
+    db.close()
+    cc = client.get("/commanders", headers=auth_headers).json()
+    centers = {c["center"] for c in cc}
+    assert {"wealth", "business", "influence"} <= centers
+    assert all("pipeline_value" in c for c in cc)
+
+
+@requires_db
+def test_objective_tuning_and_global_search(client, auth_headers):
+    # Re-weight an objective (the COO re-prioritization control).
+    r = client.patch("/objectives/insurance", headers=auth_headers, json={"weight": 0.95})
+    assert r.status_code == 200 and abs(r.json()["weight"] - 0.95) < 1e-6
+    assert client.patch("/objectives/nope", headers=auth_headers, json={"weight": 1}).status_code == 404
+
+    # Global search spans CRM + memory.
+    client.post("/crm", headers=auth_headers, json={"name": "Searchable Sam", "kind": "advisor"})
+    res = client.get("/search?q=Searchable", headers=auth_headers).json()
+    assert "contacts" in res and "memories" in res
+    assert any("Searchable" in c["name"] for c in res["contacts"])
+    assert client.get("/search?q=", headers=auth_headers).json() == {"contacts": [], "memories": []}
+
+
+@requires_db
+def test_universal_crm_aggregates_and_adds(client, auth_headers):
+    # Sources from the daily run (leads/restaurants/jobs) surface in one list.
+    all_c = client.get("/crm", headers=auth_headers).json()
+    assert isinstance(all_c, list) and len(all_c) > 0
+    assert {c["source"] for c in all_c} & {"insurance", "savorymind", "career"}
+
+    # Add a standalone contact -> appears under 'manual' and seeds the memory graph.
+    r = client.post("/crm", headers=auth_headers, json={
+        "name": "Dana Recruiter", "company": "BigCo", "title": "Tech Recruiter", "kind": "recruiter"})
+    assert r.status_code == 200
+    manual = client.get("/crm?source=manual&q=Dana", headers=auth_headers).json()
+    assert any(c["name"] == "Dana Recruiter" for c in manual)
+    cid = next(c["id"] for c in manual if c["name"] == "Dana Recruiter")
+    detail = client.get(f"/crm/{cid}", headers=auth_headers).json()
+    assert "memories" in detail and len(detail["memories"]) >= 1  # auto-seeded
+
+
+@requires_db
+def test_browser_autopilot_assist_mode(client, auth_headers):
+    jobs = client.get("/jobs?limit=1", headers=auth_headers).json()
+    assert jobs, "expected a job from the daily run"
+    task = client.post(f"/browser/apply/{jobs[0]['id']}", headers=auth_headers).json()
+    assert task["status"] == "prepared"
+    assert task["field_map"]["email"]  # applicant identity populated
+    # Run with automation off -> assist mode, needs_review, never crashes.
+    r = client.post(f"/browser/tasks/{task['id']}/run", headers=auth_headers).json()
+    assert r["status"] == "needs_review" and r["mode"] == "assist"
+    assert any(t["id"] == task["id"] for t in client.get("/browser/tasks", headers=auth_headers).json())
+
+
+@requires_db
+def test_brief_action_execute_and_dismiss(client, auth_headers):
+    actions = client.get("/brief/today?top=20", headers=auth_headers).json()["top_actions"]
+    assert actions, "expected brief actions from the daily run"
+
+    # Dismiss the first action -> it drops out of the brief.
+    key = actions[0]["key"]
+    assert client.post("/actions/dismiss", headers=auth_headers, json={"key": key}).json()["ok"]
+    after = client.get("/brief/today?top=50", headers=auth_headers).json()["top_actions"]
+    assert all(a["key"] != key for a in after)
+
+    # Execute an 'apply' action -> marks the job applied (no email, safe).
+    apply_key = next((a["key"] for a in after if a["action_type"] == "apply"), None)
+    if apply_key:
+        r = client.post("/actions/execute", headers=auth_headers, json={"key": apply_key}).json()
+        assert r["ok"] is True
+        again = client.get("/brief/today?top=50", headers=auth_headers).json()["top_actions"]
+        assert all(a["key"] != apply_key for a in again)  # done -> gone
 
 
 @requires_db

@@ -330,6 +330,55 @@ class BrandProfile(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class BrowserTask(Base):
+    """A browser-worker job — e.g. fill a job application form. Holds the prepared
+    field map and the run result. Status: prepared → running → needs_review →
+    submitted (or failed). Never auto-submits unless explicitly configured."""
+    __tablename__ = "browser_tasks"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    kind: Mapped[str] = mapped_column(String, default="job_application")
+    target_url: Mapped[str | None] = mapped_column(String)
+    entity_type: Mapped[str | None] = mapped_column(String)  # e.g. "job"
+    entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    status: Mapped[str] = mapped_column(String, default="prepared", index=True)
+    mode: Mapped[str | None] = mapped_column(String)  # assist|automation
+    field_map: Mapped[dict | None] = mapped_column(JSONB)
+    result: Mapped[dict | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ManualContact(Base):
+    """A standalone contact (recruiter, advisor, partner) not owned by an agent
+    source. Source entities (leads, restaurants, jobs, curators) surface through
+    the CRM aggregation; this table holds the people you add by hand."""
+    __tablename__ = "manual_contacts"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    company: Mapped[str | None] = mapped_column(String)
+    title: Mapped[str | None] = mapped_column(String)
+    email: Mapped[str | None] = mapped_column(String, index=True)
+    phone: Mapped[str | None] = mapped_column(String)
+    kind: Mapped[str] = mapped_column(String, default="contact")  # recruiter|advisor|partner|...
+    status: Mapped[str | None] = mapped_column(String)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ActionState(Base):
+    """State overlay for the Daily-Brief actions (which are derived live).
+
+    Keyed by a deterministic action key (e.g. 'follow_up:lead:<id>') so an
+    executed/dismissed action stays out of the brief without a full action table.
+    """
+    __tablename__ = "action_states"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    key: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String, default="open")  # open|done|dismissed
+    result: Mapped[dict | None] = mapped_column(JSONB)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Memory(Base):
     """The AI memory / knowledge graph: one fact Bruno's workforce should remember
     (about a person, company, lead, preference, goal, or event). Embeddings are

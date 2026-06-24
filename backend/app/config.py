@@ -120,6 +120,24 @@ class Settings(BaseSettings):
     company_address: str = ""  # physical mailing address shown in the footer
     calendar_link: str = ""     # booking link (Calendly/Cal.com) added to email CTAs
 
+    # Browser-Use worker — drives a headless browser to fill forms on YOUR own /
+    # authorized portals. Off by default: when disabled (or Playwright isn't
+    # installed) the worker runs in "assist" mode (prepares a ready-to-submit
+    # package, no browser). Never auto-submits unless browser_auto_submit=True.
+    browser_automation_enabled: bool = False
+    browser_headless: bool = True
+    browser_auto_submit: bool = False  # human-in-the-loop by default — review before submit
+    # Applicant identity used to fill application forms.
+    applicant_name: str = "Bruno Dos Santos"
+    applicant_email: str = "brunodossantos707@gmail.com"
+    applicant_phone: str = "603-930-8272"
+    applicant_linkedin: str = ""  # set to your LinkedIn URL
+    applicant_github: str = "https://github.com/BHDossantos"
+    applicant_location: str = "Boston, MA"
+    # Resume PDF baked into the backend image (see backend/assets/resume/); the
+    # browser worker attaches it to file uploads. Override via env if needed.
+    applicant_resume_path: str = "/app/assets/resume/Bruno_Dos_Santos_Resume.pdf"
+
     # Outbound mode: "send" (auto-send now), "send_on_approve", or "draft".
     gmail_outbound_mode: str = "send"
     # Safety cap on auto-sent outreach per day, per account (protects the mailbox).
