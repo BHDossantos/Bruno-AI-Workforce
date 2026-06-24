@@ -111,7 +111,7 @@ def fetch_insurance_leads(segment: str, count: int) -> list[dict]:
             "category": cat,
             "company_name": company,
             "owner_name": owner,
-            "email": f"{_slug(owner)}{i}@example.com",  # unique per record
+            "email": f"{_slug(owner)}-{segment}{i}@example.com",  # globally unique per record
             "phone": f"+1{_rng.randint(2000000000, 9999999999)}",
             "website": f"https://{_slug(company)}.com" if segment == "commercial" else None,
             "linkedin": f"https://linkedin.com/in/{_slug(owner)}",
