@@ -1,0 +1,24 @@
+# Cloud Run-friendly frontend image: builds the Next.js dashboard from the repo
+# ROOT context, bakes in the API URL at build time, and serves on $PORT.
+FROM node:20-alpine AS deps
+WORKDIR /app
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm ci || npm install
+
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY frontend/ .
+# NEXT_PUBLIC_* must be present at build time (Next inlines it into the client).
+ARG NEXT_PUBLIC_API_URL=https://ai-workforce-746155486511.europe-west1.run.app
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL NEXT_TELEMETRY_DISABLED=1
+RUN npm run build
+
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+EXPOSE 8080
+CMD ["node", "server.js"]
