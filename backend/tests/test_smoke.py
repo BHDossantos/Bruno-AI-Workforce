@@ -81,8 +81,15 @@ def test_email_template_wraps_body_with_signature_and_footer():
     out = email_template.render("Hi there\nThanks", account="insurance")
     assert "Hi there" in out
     assert "Thrust Insurance" in out  # signature/footer
+    assert "Bruno Dossantos" in out
+    assert "tel:+16175683000" in out and "tel:+16039308272" in out  # click-to-call
     assert "unsubscribe" in out.lower()  # CAN-SPAM footer
     assert email_template.render(None) is None
+
+    personal = email_template.render("Hi there", account="personal")
+    assert "Bruno Dos Santos, MBA, MSIT" in personal
+    assert "tel:+16039308272" in personal
+    assert "Thrust Insurance" not in personal  # insurance signature must not leak
 
 
 def test_reply_classifier_safe_without_ai():
