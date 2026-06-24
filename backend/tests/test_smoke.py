@@ -131,15 +131,29 @@ def test_osm_lead_engine_offline_behavior():
     assert osm_leads._clean_email("Info@Acme.com") == "info@acme.com"
     assert osm_leads._clean_email("logo@2x.png") is None
     assert osm_leads._clean_email("x@example.com") is None
-    # Disabled (and never hits the network) when no cities configured.
-    old = settings.lead_cities
+
+    # States take precedence and produce state-level (admin_level 4) areas.
+    old_c, old_s = settings.lead_cities, settings.lead_states
+    settings.lead_states = "Massachusetts,New Hampshire,Florida"
+    settings.lead_cities = "Boston"
+    try:
+        areas = osm_leads._areas()
+        labels = [a[0] for a in areas]
+        assert labels == ["Massachusetts", "New Hampshire", "Florida"]  # states win
+        assert all('"admin_level"="4"' in a[1] for a in areas)
+    finally:
+        settings.lead_cities, settings.lead_states = old_c, old_s
+    # Disabled (and never hits the network) when no states/cities configured.
+    old_c, old_s = settings.lead_cities, settings.lead_states
     settings.lead_cities = ""
+    settings.lead_states = ""
     try:
         assert osm_leads.is_enabled() is False
         assert osm_leads.fetch_commercial_leads(10) == []
         assert osm_leads.fetch_restaurants(10) == []
     finally:
-        settings.lead_cities = old
+        settings.lead_cities = old_c
+        settings.lead_states = old_s
 
 
 def test_places_source_disabled_without_key():

@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     # OpenStreetMap). Comma-separated. Drives commercial insurance + restaurant
     # sourcing with real, deliverable emails at no cost.
     lead_cities: str = "Boston,New York,Miami,Chicago,Austin"
+    # Whole STATES to search (OSM names, comma-separated). When set, these take
+    # precedence over lead_cities and give a much wider lead pool — the engine
+    # pulls email-tagged businesses from across the entire state.
+    lead_states: str = "Massachusetts,New Hampshire,Florida"
     # How many leads each lead-finder agent produces per run. Small batches keep
     # every run fast and well under Cloud Run's request timeout; run the agent
     # more often to accumulate more. Insurance splits this across commercial +

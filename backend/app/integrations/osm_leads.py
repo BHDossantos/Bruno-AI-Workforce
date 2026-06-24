@@ -50,24 +50,36 @@ RESTAURANT_OSM = ['node["amenity"~"restaurant|cafe|bar|pub|fast_food"]']
 # Bound website scraping per run so the agent stays fast (each scrape is a few
 # HTTP fetches). Most leads should come from OSM email tags (zero scraping).
 _SCRAPE_BUDGET = 15
-# Don't scan every configured city — stop once we have enough. A single large
-# city's combined query already returns up to 100 email/website-tagged businesses.
-_MAX_CITIES = 2
 
 
 def is_enabled() -> bool:
-    return bool(settings.lead_cities)
+    return bool(settings.lead_states or settings.lead_cities)
+
+
+def _states() -> list[str]:
+    return [s.strip() for s in (settings.lead_states or "").split(",") if s.strip()]
 
 
 def _cities() -> list[str]:
-    return [c.strip() for c in settings.lead_cities.split(",") if c.strip()]
+    return [c.strip() for c in (settings.lead_cities or "").split(",") if c.strip()]
+
+
+def _areas() -> list[tuple[str, str]]:
+    """(label, Overpass area-clause) to search. States (admin_level 4) take
+    precedence and give a wide pool; otherwise fall back to cities (level 8)."""
+    if _states():
+        return [(s, f'area["name"="{s}"]["admin_level"="4"]->.a;') for s in _states()]
+    return [(c, f'area["name"="{c}"]["admin_level"="8"]->.a;') for c in _cities()]
 
 
 def _clean_email(e: str | None) -> str | None:
     return email_finder.clean_email(e)
 
 
-_TIMEOUT = httpx.Timeout(25.0, connect=5.0)
+_TIMEOUT = httpx.Timeout(30.0, connect=5.0)
+# Email tags are selective, so an email-only query is fast even statewide.
+_EMAIL_TAGS = ('["email"]', '["contact:email"]')
+_SITE_TAGS = ('["website"]', '["contact:website"]')
 
 
 def _post_overpass(body: str) -> list[dict]:
@@ -87,25 +99,9 @@ def _post_overpass(body: str) -> list[dict]:
     return []
 
 
-def _query(selectors: list[str], city: str) -> list[dict]:
-    """One bounded Overpass query for a city, newest-area match.
-
-    Constrains the area to municipal level (admin_level 8 = US city) so a bare
-    city name can't match a whole state. Cities in LEAD_CITIES are unambiguous
-    municipalities, so a single query suffices.
-    """
-    parts = []
-    for s in selectors:
-        for tag in ('["contact:email"]', '["email"]', '["website"]', '["contact:website"]'):
-            parts.append(f"{s}{tag}(area.a);")
-    inner = "".join(parts)
-    head = (f'[out:json][timeout:20];'
-            f'area["name"="{city}"]["admin_level"="8"]->.a;')
-    els = _post_overpass(head + "(" + inner + ");out tags 100;")
-    if not els:  # some cities sit at a different admin level — fall back to name
-        head = f'[out:json][timeout:20];area["name"="{city}"]["boundary"="administrative"]->.a;'
-        els = _post_overpass(head + "(" + inner + ");out tags 100;")
-    return els
+def _build(area_head: str, selectors: list[str], tags: tuple, cap: int) -> str:
+    parts = "".join(f"{s}{tag}(area.a);" for s in selectors for tag in tags)
+    return f'[out:json][timeout:25];{area_head}(' + parts + f');out tags {cap};'
 
 
 def _category_for(t: dict, default: str = "Commercial") -> str:
@@ -126,52 +122,58 @@ def _category_for(t: dict, default: str = "Commercial") -> str:
 
 
 def _harvest(selectors: list[str], segment: str, count: int) -> list[dict]:
-    """Pull up to ``count`` leads with real emails across a few cities.
+    """Pull up to ``count`` leads with real emails across the configured areas.
 
-    Single Overpass query per city (all selectors at once). Email-tagged
-    businesses are taken instantly; website-only ones are scraped within a small
-    budget so the run never hangs.
+    Pass 1 grabs email-tagged businesses (instant, and selective enough to be
+    fast even statewide). Pass 2 fills any shortfall by scraping website-only
+    businesses within a small budget, so the run never hangs.
     """
     seen: set[str] = set()
     out: list[dict] = []
-    pending: list[tuple[dict, str]] = []  # (tags, city) needing a scrape
-    budget = [_SCRAPE_BUDGET]
+    areas = _areas()
 
-    for city in _cities()[:_MAX_CITIES]:
+    # Pass 1 — email-tagged businesses across each area (no scraping needed).
+    for label, head in areas:
         if len(out) >= count:
             break
-        for el in _query(selectors, city):
+        for el in _post_overpass(_build(head, selectors, _EMAIL_TAGS, 200)):
             t = el.get("tags", {})
-            name = t.get("name")
-            if not name:
+            if not t.get("name"):
                 continue
             email = _clean_email(t.get("contact:email") or t.get("email"))
-            if email:
-                if email in seen:
+            if not email or email in seen:
+                continue
+            seen.add(email)
+            out.append(_row(t, email, label, segment))
+            if len(out) >= count:
+                break
+
+    # Pass 2 — website-only businesses, scraped to fill the shortfall (bounded).
+    if len(out) < count:
+        budget = [_SCRAPE_BUDGET]
+        for label, head in areas:
+            if len(out) >= count or budget[0] <= 0:
+                break
+            for el in _post_overpass(_build(head, selectors, _SITE_TAGS, 120)):
+                if len(out) >= count or budget[0] <= 0:
+                    break
+                t = el.get("tags", {})
+                website = t.get("website") or t.get("contact:website")
+                if not t.get("name") or not website:
+                    continue
+                email = email_finder.extract_email(website, budget)
+                if not email or email in seen:
                     continue
                 seen.add(email)
-                out.append(_row(t, email, city, segment))
-                if len(out) >= count:
-                    break
-            elif t.get("website") or t.get("contact:website"):
-                pending.append((t, city))
-
-    # Fill any shortfall by scraping website-only businesses (bounded).
-    for t, city in pending:
-        if len(out) >= count or budget[0] <= 0:
-            break
-        website = t.get("website") or t.get("contact:website")
-        email = email_finder.extract_email(website, budget)
-        if not email or email in seen:
-            continue
-        seen.add(email)
-        out.append(_row(t, email, city, segment))
+                out.append(_row(t, email, label, segment))
 
     return out[:count]
 
 
-def _row(t: dict, email: str, city: str, segment: str) -> dict:
+def _row(t: dict, email: str, area_label: str, segment: str) -> dict:
     cat = _category_for(t)
+    # Prefer the business's own city tag; fall back to the searched area label.
+    city = t.get("addr:city") or area_label
     return {
         "segment": segment, "category": cat, "company_name": t.get("name"),
         "owner_name": None, "email": email,
