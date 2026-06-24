@@ -15,7 +15,16 @@ from ..config import settings
 from . import email_finder
 
 log = logging.getLogger("bruno.osm")
-OVERPASS = "https://overpass-api.de/api/interpreter"
+
+# Several public Overpass mirrors — the main one (overpass-api.de) is frequently
+# rate-limited (429) or overloaded (504). We try each in order until one answers,
+# so a single busy server never means "zero leads".
+OVERPASS_MIRRORS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+]
 
 # Commercial-insurance prospect categories → OpenStreetMap selectors.
 COMMERCIAL_OSM = {
@@ -33,7 +42,7 @@ COMMERCIAL_OSM = {
 RESTAURANT_OSM = ['node["amenity"~"restaurant|cafe|bar|pub|fast_food"]']
 
 # Bound website scraping per run so the agent doesn't hang.
-_SCRAPE_BUDGET = 60
+_SCRAPE_BUDGET = 120
 
 
 def is_enabled() -> bool:
@@ -48,19 +57,40 @@ def _clean_email(e: str | None) -> str | None:
     return email_finder.clean_email(e)
 
 
+def _post_overpass(body: str) -> list[dict]:
+    """POST a query to Overpass, failing over across mirrors on error/limit."""
+    last = ""
+    for url in OVERPASS_MIRRORS:
+        try:
+            r = httpx.post(url, data={"data": body}, timeout=60)
+            if r.status_code in (429, 502, 503, 504):  # busy → try next mirror
+                last = f"{url} -> HTTP {r.status_code}"
+                continue
+            r.raise_for_status()
+            return r.json().get("elements", [])
+        except Exception as exc:  # pragma: no cover - network guard
+            last = f"{url} -> {exc}"
+            continue
+    log.warning("All Overpass mirrors failed: %s", last)
+    return []
+
+
 def _query(selectors: list[str], city: str) -> list[dict]:
     parts = []
     for s in selectors:
         for tag in ('["contact:email"]', '["email"]', '["website"]', '["contact:website"]'):
             parts.append(f"{s}{tag}(area.a);")
-    body = f'[out:json][timeout:25];area["name"="{city}"]->.a;(' + "".join(parts) + ");out tags 80;"
-    try:
-        r = httpx.post(OVERPASS, data={"data": body}, timeout=45)
-        r.raise_for_status()
-        return r.json().get("elements", [])
-    except Exception as exc:  # pragma: no cover - network guard
-        log.warning("Overpass query failed (%s): %s", city, exc)
-        return []
+    inner = "".join(parts)
+    # Constrain the area to municipal levels (city/borough/county) so we never
+    # accidentally match a whole STATE area named the same (e.g. "New York"),
+    # which would time out. Fall back to an unconstrained name match if needed.
+    head_admin = (f'[out:json][timeout:25];'
+                  f'area["name"="{city}"]["boundary"="administrative"]["admin_level"~"6|7|8|9|10"]->.a;')
+    head_plain = f'[out:json][timeout:25];area["name"="{city}"]->.a;'
+    els = _post_overpass(head_admin + "(" + inner + ");out tags 80;")
+    if not els:
+        els = _post_overpass(head_plain + "(" + inner + ");out tags 80;")
+    return els
 
 
 def _collect(selectors: list[str], category: str, segment: str, count: int,
