@@ -234,11 +234,10 @@ def test_funnel_respects_tos_assist_vs_auto():
 
     li = funnel.build_plan("linkedin")
     li_actions = {(a["capability"], a["mode"]) for s in li["stages"] for a in s["actions"]}
-    # LinkedIn publishing & DMs must stay assist-only (no bot automation) to be
-    # ToS-safe. (Read-only analytics may still run automatically.)
-    assert ("publish_assist", "assist") in li_actions
+    # Auto-posting YOUR OWN content via LinkedIn's official API (w_member_social)
+    # is permitted; automated connections/DMs are NOT — those stay assist-only.
+    assert ("publish_auto", "auto") in li_actions
     assert ("dm_assist", "assist") in li_actions
-    assert not any(cap in ("publish_auto",) for cap, _ in li_actions)
 
     ig = funnel.build_plan("instagram")
     ig_actions = {(a["capability"], a["mode"]) for s in ig["stages"] for a in s["actions"]}
