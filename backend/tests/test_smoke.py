@@ -589,6 +589,21 @@ def test_commander_rollup_and_status(client, auth_headers):
 
 
 @requires_db
+def test_objective_tuning_and_global_search(client, auth_headers):
+    # Re-weight an objective (the COO re-prioritization control).
+    r = client.patch("/objectives/insurance", headers=auth_headers, json={"weight": 0.95})
+    assert r.status_code == 200 and abs(r.json()["weight"] - 0.95) < 1e-6
+    assert client.patch("/objectives/nope", headers=auth_headers, json={"weight": 1}).status_code == 404
+
+    # Global search spans CRM + memory.
+    client.post("/crm", headers=auth_headers, json={"name": "Searchable Sam", "kind": "advisor"})
+    res = client.get("/search?q=Searchable", headers=auth_headers).json()
+    assert "contacts" in res and "memories" in res
+    assert any("Searchable" in c["name"] for c in res["contacts"])
+    assert client.get("/search?q=", headers=auth_headers).json() == {"contacts": [], "memories": []}
+
+
+@requires_db
 def test_universal_crm_aggregates_and_adds(client, auth_headers):
     # Sources from the daily run (leads/restaurants/jobs) surface in one list.
     all_c = client.get("/crm", headers=auth_headers).json()

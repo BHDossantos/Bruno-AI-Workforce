@@ -1,14 +1,17 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { clearToken } from "@/lib/api";
 
 const NAV = [
   { href: "/", label: "Home Dashboard", icon: "🏠" },
+  { href: "/search", label: "Search", icon: "🔍" },
   { href: "/autopilot", label: "Application Autopilot", icon: "🤖" },
   { href: "/crm", label: "Universal CRM", icon: "👥" },
   { href: "/centers", label: "Command Centers", icon: "🎖️" },
+  { href: "/objectives", label: "Objectives", icon: "🎯" },
   { href: "/analytics", label: "Funnel Analytics", icon: "📊" },
   { href: "/jobs", label: "Jobs", icon: "💼" },
   { href: "/apply", label: "Apply Queue", icon: "✅" },
@@ -29,41 +32,73 @@ const NAV = [
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
 
   if (pathname === "/login") return null;
 
+  function search() {
+    if (!q.trim()) return;
+    router.push(`/search?q=${encodeURIComponent(q)}`);
+    setOpen(false);
+  }
+
   return (
-    <aside className="flex w-60 flex-col bg-brand-dark text-white">
-      <div className="px-5 py-6">
-        <h1 className="text-lg font-bold leading-tight">Bruno AI</h1>
-        <p className="text-xs text-brand-light">Workforce Platform</p>
+    <>
+      {/* Mobile top bar */}
+      <div className="flex items-center justify-between bg-brand-dark px-4 py-3 text-white md:hidden">
+        <span className="font-bold">Bruno AI</span>
+        <button aria-label="Menu" onClick={() => setOpen(!open)} className="rounded p-1 hover:bg-white/10">
+          {open ? "✕" : "☰"}
+        </button>
       </div>
-      <nav className="flex-1 space-y-1 px-3">
-        {NAV.map((item) => {
-          const active = pathname === item.href;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition ${
-                active ? "bg-white/15 font-semibold" : "text-brand-light hover:bg-white/10"
-              }`}
-            >
-              <span>{item.icon}</span>
-              {item.label}
-            </Link>
-          );
-        })}
-      </nav>
-      <button
-        onClick={() => {
-          clearToken();
-          router.push("/login");
-        }}
-        className="m-3 rounded-lg border border-white/20 px-3 py-2 text-sm text-brand-light hover:bg-white/10"
-      >
-        Sign out
-      </button>
-    </aside>
+
+      {open && <div className="fixed inset-0 z-20 bg-black/40 md:hidden" onClick={() => setOpen(false)} />}
+
+      <aside className={`fixed inset-y-0 left-0 z-30 flex w-60 flex-col bg-brand-dark text-white transition-transform md:static md:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`}>
+        <div className="px-5 py-6">
+          <h1 className="text-lg font-bold leading-tight">Bruno AI</h1>
+          <p className="text-xs text-brand-light">Workforce Platform</p>
+        </div>
+
+        <div className="px-3 pb-3">
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && search()}
+            placeholder="Search everything…"
+            className="w-full rounded-lg bg-white/10 px-3 py-2 text-sm text-white placeholder-brand-light outline-none focus:bg-white/15"
+          />
+        </div>
+
+        <nav className="flex-1 space-y-1 overflow-y-auto px-3">
+          {NAV.map((item) => {
+            const active = pathname === item.href;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={() => setOpen(false)}
+                className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition ${
+                  active ? "bg-white/15 font-semibold" : "text-brand-light hover:bg-white/10"
+                }`}
+              >
+                <span>{item.icon}</span>
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+        <button
+          onClick={() => {
+            clearToken();
+            router.push("/login");
+          }}
+          className="m-3 rounded-lg border border-white/20 px-3 py-2 text-sm text-brand-light hover:bg-white/10"
+        >
+          Sign out
+        </button>
+      </aside>
+    </>
   );
 }

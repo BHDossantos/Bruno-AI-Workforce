@@ -2,7 +2,7 @@
 
 Daily Brief (Top-3), Objectives, Command Centers, and the roll-up Scoreboard.
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -48,6 +48,41 @@ def list_objectives(db: Session = Depends(get_db), _=Depends(_read)):
         "current_value": float(o.current_value or 0), "rank": o.rank,
         "weight": float(o.weight or 0), "status": o.status,
     } for o in rows]
+
+
+class ObjectivePatch(BaseModel):
+    weight: float | None = None
+    target_value: float | None = None
+    rank: int | None = None
+    name: str | None = None
+    status: str | None = None
+
+
+@router.patch("/objectives/{key}")
+def update_objective(key: str, body: ObjectivePatch, db: Session = Depends(get_db), _=Depends(_write)):
+    obj.ensure_objectives(db)
+    o = db.query(Objective).filter(Objective.key == key).first()
+    if not o:
+        raise HTTPException(404, "objective not found")
+    for field, val in body.model_dump(exclude_none=True).items():
+        setattr(o, field, val)
+    db.commit()
+    return {"key": o.key, "name": o.name, "weight": float(o.weight or 0),
+            "target_value": float(o.target_value or 0), "rank": o.rank, "status": o.status}
+
+
+@router.get("/search")
+def global_search(q: str, db: Session = Depends(get_db), _=Depends(_read)):
+    """One search across the CRM and the memory graph."""
+    from .. import crm as crm_svc
+    from .. import memory as mem_svc
+    q = (q or "").strip()
+    if not q:
+        return {"contacts": [], "memories": []}
+    return {
+        "contacts": crm_svc.list_contacts(db, q=q, limit=12),
+        "memories": mem_svc.search(db, q, k=12),
+    }
 
 
 @router.get("/command-centers")
