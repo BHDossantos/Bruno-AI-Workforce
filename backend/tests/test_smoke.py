@@ -117,6 +117,24 @@ def test_real_only_mode_emits_no_synthetic_data():
         settings.allow_synthetic_fallback = True
 
 
+def test_osm_lead_engine_offline_behavior():
+    from app.config import settings
+    from app.integrations import osm_leads
+
+    assert osm_leads._clean_email("Info@Acme.com") == "info@acme.com"
+    assert osm_leads._clean_email("logo@2x.png") is None
+    assert osm_leads._clean_email("x@example.com") is None
+    # Disabled (and never hits the network) when no cities configured.
+    old = settings.lead_cities
+    settings.lead_cities = ""
+    try:
+        assert osm_leads.is_enabled() is False
+        assert osm_leads.fetch_commercial_leads(10) == []
+        assert osm_leads.fetch_restaurants(10) == []
+    finally:
+        settings.lead_cities = old
+
+
 def test_providers_fallback_meets_targets_without_keys():
     assert len(providers.fetch_insurance_leads("commercial", 100)) == 100
     assert len(providers.fetch_restaurants(100)) == 100
@@ -196,6 +214,16 @@ def test_social_queue_endpoint(client, auth_headers):
     r = client.get("/outreach/social", headers=auth_headers)
     assert r.status_code == 200
     assert isinstance(r.json(), list)
+
+
+@requires_db
+def test_csv_import_leads(client, auth_headers):
+    csv_data = "email,company_name\njane@acmeplumbing.com,Acme Plumbing\n,No Email Co\n"
+    r = client.post("/import/leads", headers=auth_headers,
+                    files={"file": ("leads.csv", csv_data, "text/csv")})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["imported"] == 1 and body["skipped_no_email"] == 1
 
 
 @requires_db

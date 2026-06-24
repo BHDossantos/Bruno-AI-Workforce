@@ -10,6 +10,7 @@ from .routers import (
     auth,
     cron,
     export,
+    imports,
     instagram,
     jobs,
     leads,
@@ -59,6 +60,7 @@ app.include_router(outreach_queue.router)
 app.include_router(sms.router)
 app.include_router(cron.router)
 app.include_router(export.router)
+app.include_router(imports.router)
 
 
 @app.get("/health", tags=["system"])

@@ -49,8 +49,12 @@ class Settings(BaseSettings):
     jobs_api_key: str = ""
     jobs_api_host: str = "jsearch.p.rapidapi.com"
     # When False, agents use ONLY live-sourced data (no synthetic top-up to hit
-    # target counts). Set False in production once Apollo/JSearch keys are set.
+    # target counts). Set False in production once real sourcing is in place.
     allow_synthetic_fallback: bool = True
+    # Cities the lead-finder agents search for real businesses (free, via
+    # OpenStreetMap). Comma-separated. Drives commercial insurance + restaurant
+    # sourcing with real, deliverable emails at no cost.
+    lead_cities: str = "Boston,New York,Miami,Chicago,Austin"
 
     # SMS (Twilio) — two-way texting. Used manually / for opted-in contacts only
     # (cold automated SMS violates TCPA). No-ops if unconfigured.

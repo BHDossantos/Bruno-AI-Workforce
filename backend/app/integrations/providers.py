@@ -13,7 +13,7 @@ from __future__ import annotations
 import random
 
 from ..config import settings
-from . import apollo, jobs_api
+from . import apollo, jobs_api, osm_leads
 
 # Deterministic-ish but varied output per run.
 _rng = random.Random()
@@ -77,16 +77,19 @@ PERSONAL_CATEGORIES = ["Homeowner", "New mover", "Auto owner", "Mortgage lead"]
 
 
 def fetch_insurance_leads(segment: str, count: int) -> list[dict]:
-    """Commercial leads from Apollo.io when configured (B2B); personal stays synthetic.
+    """Real commercial leads from OpenStreetMap (free) + Apollo (if configured).
 
-    Apollo results are topped up with synthetic records so the daily target count
-    is always met even when the live API returns fewer rows.
+    The lead-finder agents call this. Commercial prospects come from real local
+    businesses (OSM) with real emails, then Apollo, then synthetic top-up (only
+    if ALLOW_SYNTHETIC_FALLBACK). Personal leads have no free real source.
     """
     out: list[dict] = []
-    if segment == "commercial" and apollo.is_configured():
-        for lead in apollo.fetch_commercial_leads(count):
-            lead.setdefault("category", lead.get("industry") or "Commercial")
-            out.append(lead)
+    if segment == "commercial":
+        out.extend(osm_leads.fetch_commercial_leads(count))                 # free, real
+        if apollo.is_configured() and len(out) < count:
+            for lead in apollo.fetch_commercial_leads(count - len(out)):    # paid, real
+                lead.setdefault("category", lead.get("industry") or "Commercial")
+                out.append(lead)
         if len(out) >= count:
             return out[:count]
 
@@ -120,8 +123,10 @@ CUISINES = ["Italian", "Brazilian", "American", "French", "Japanese", "Mexican",
 
 
 def fetch_restaurants(count: int) -> list[dict]:
-    """Restaurant decision-makers from Apollo when configured, topped up with synthetic."""
-    out: list[dict] = []
+    """Real restaurants from OpenStreetMap (free) + Apollo, topped up with synthetic."""
+    out: list[dict] = list(osm_leads.fetch_restaurants(count))  # free, real
+    if len(out) >= count:
+        return out[:count]
     if apollo.is_configured():
         for c in apollo.fetch_restaurant_contacts(count):
             name = c.get("company_name") or "Restaurant"
