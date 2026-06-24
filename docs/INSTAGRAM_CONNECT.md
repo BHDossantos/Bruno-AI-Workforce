@@ -37,6 +37,30 @@ To let the app publish posts (`POST /instagram/publish` with a public `image_url
 which requires **App Review** by Meta. Reading insights works without review
 while you're an app role/tester.
 
+## Hands-off auto-posting (AI image + publish)
+The Influence Commander can post for you on every cycle. It generates the post
+image with AI, hosts it on a public GCS bucket, and publishes via the Graph API.
+To enable:
+
+1. Create a **public** GCS bucket and allow public reads:
+   ```bash
+   gcloud storage buckets create gs://YOUR-BUCKET --location=us
+   gcloud storage buckets add-iam-policy-binding gs://YOUR-BUCKET \
+     --member=allUsers --role=roles/storage.objectViewer
+   ```
+2. Set env vars on the backend service:
+   ```
+   GCS_BUCKET=YOUR-BUCKET
+   OPENAI_API_KEY=...            # also powers image generation
+   INSTAGRAM_AUTO_PUBLISH=true
+   ```
+3. Ensure the Cloud Run service account can write to the bucket
+   (`roles/storage.objectAdmin` on the bucket).
+4. Get `instagram_content_publish` approved on your Meta app (App Review).
+
+With all four in place, each scheduled run generates + posts the day's image
+automatically. Missing any piece → it safely skips publishing (still plans).
+
 ## Notes
 - Long-lived tokens expire (~60 days). Re-run Step 2.4 and update the connection
   when it lapses (the planner will show a "couldn't load account" note).

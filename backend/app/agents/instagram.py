@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from datetime import date
 
-from .. import brand
+from .. import brand, media
 from ..ai import client
 from ..ai.prompts import INSTAGRAM_CALENDAR, INSTAGRAM_ENGAGEMENT
 from ..config import settings
@@ -79,8 +79,12 @@ class InstagramAgent(BaseAgent):
         if not items:
             return None
         today = items[0]
+        caption = today.get("caption") or today.get("idea") or ""
         image_url = today.get("image_url")
         if not image_url:
-            log.info("IG auto-publish skipped: today's post has no image_url")
+            # No image on the plan — generate one and host it publicly (IG needs media).
+            image_url = media.generate_and_host(today.get("idea") or caption, f"{date.today()}-post")
+        if not image_url:
+            log.info("IG auto-publish skipped: no image (set GCS_BUCKET + OpenAI key to auto-generate)")
             return {"ok": False, "reason": "no image to post"}
-        return instagram_api.publish_post(self.db, image_url, today.get("caption") or today.get("idea") or "")
+        return instagram_api.publish_post(self.db, image_url, caption)

@@ -302,6 +302,16 @@ def test_browser_field_matching_and_default_mode():
     assert browser.is_automation_ready() is False  # off by default -> safe assist mode
 
 
+def test_media_hosting_disabled_offline():
+    # No OpenAI key / no bucket in tests -> generation+hosting safely no-ops.
+    from app import media
+    from app.integrations import storage
+    assert storage.is_configured() is False
+    assert storage.upload_public(b"x", "ig/x.png") is None
+    assert media.can_generate() is False
+    assert media.generate_and_host("a sunset", "test") is None
+
+
 def test_instagram_api_not_connected():
     from app.integrations import instagram_api
     assert instagram_api.is_connected(None) is False

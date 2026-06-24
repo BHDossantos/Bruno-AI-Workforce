@@ -79,3 +79,28 @@ def embed(text: str) -> list[float] | None:
     except Exception as exc:  # pragma: no cover - network guard
         log.warning("OpenAI embedding failed: %s", exc)
         return None
+
+
+def generate_image(prompt: str, *, size: str = "1024x1024") -> bytes | None:
+    """Generate a social image and return raw PNG bytes, or None when offline.
+
+    Used by the Instagram auto-publisher (Instagram requires real media)."""
+    if _client is None or not prompt:
+        return None
+    try:
+        import base64
+
+        resp = _client.images.generate(model=settings.image_model, prompt=prompt[:4000], size=size)
+        item = resp.data[0]
+        b64 = getattr(item, "b64_json", None)
+        if b64:
+            return base64.b64decode(b64)
+        url = getattr(item, "url", None)
+        if url:
+            import httpx
+            r = httpx.get(url, timeout=30.0)
+            return r.content if r.status_code == 200 else None
+        return None
+    except Exception as exc:  # pragma: no cover - network guard
+        log.warning("OpenAI image generation failed: %s", exc)
+        return None

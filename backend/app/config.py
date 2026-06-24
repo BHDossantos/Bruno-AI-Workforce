@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o"
     embedding_model: str = "text-embedding-3-small"  # for the memory/knowledge layer
+    image_model: str = "gpt-image-1"  # for auto-generated social post images
+
+    # Public GCS bucket for hosting generated media (e.g. Instagram post images,
+    # which the IG API must fetch from a public URL). Leave blank to disable.
+    gcs_bucket: str = ""
 
     # Scheduler
     enable_scheduler: bool = True
