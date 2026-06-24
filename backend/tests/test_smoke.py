@@ -302,6 +302,14 @@ def test_browser_field_matching_and_default_mode():
     assert browser.is_automation_ready() is False  # off by default -> safe assist mode
 
 
+def test_instagram_api_not_connected():
+    from app.integrations import instagram_api
+    assert instagram_api.is_connected(None) is False
+    assert instagram_api.overview(None) == {"connected": False}
+    assert instagram_api.get_account(None) is None
+    assert instagram_api.publish_post(None, "http://x/i.jpg", "hi")["ok"] is False
+
+
 def test_commanders_map_to_real_agents():
     from app.agents import AGENTS
     from app.commanders import COMMANDERS

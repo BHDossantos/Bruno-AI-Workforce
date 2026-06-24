@@ -7,7 +7,8 @@ from datetime import date
 from .. import brand
 from ..ai import client
 from ..ai.prompts import INSTAGRAM_CALENDAR, INSTAGRAM_ENGAGEMENT
-from ..integrations import providers
+from ..config import settings
+from ..integrations import instagram_api, providers
 from ..models import Campaign, InstagramTarget
 from .base import BaseAgent
 
@@ -50,10 +51,36 @@ class InstagramAgent(BaseAgent):
                 log.exception("IG target enrichment failed for %s", t.get("handle"))
                 self.db.rollback()
 
-        self.log_action("instagram_targets_saved", entity="instagram_targets", detail={"count": saved})
-        return {
-            "summary": "Refreshed the brand-tailored 7-day content calendar"
-                       + (f" and saved {saved} target accounts to engage." if saved else "."),
-            "targets": saved,
-            "calendar": bool(calendar),
-        }
+        # ── Automatic mode: act on the CONNECTED account ──────────────────────
+        connected = instagram_api.is_connected(self.db)
+        published = None
+        if connected and settings.instagram_auto_publish:
+            published = self._auto_publish(calendar)
+
+        acct = instagram_api.get_account(self.db) if connected else None
+        followers = acct.get("followers") if acct else None
+
+        self.log_action("instagram_targets_saved", entity="instagram_targets",
+                        detail={"count": saved, "connected": connected, "published": bool(published)})
+        summary = "Refreshed the brand-tailored 7-day content calendar"
+        summary += f" and saved {saved} target accounts to engage." if saved else "."
+        if connected:
+            summary += f" Account connected ({followers:,} followers)." if followers else " Account connected."
+        if published and published.get("ok"):
+            summary += " Auto-published today's post."
+        return {"summary": summary, "targets": saved, "calendar": bool(calendar),
+                "connected": connected, "followers": followers, "published": published}
+
+    def _auto_publish(self, calendar) -> dict | None:
+        """Publish today's planned post IF it carries an image_url. (Instagram's
+        API requires media — text-only posts aren't allowed — so a post needs an
+        image source before this does anything.)"""
+        items = (calendar or {}).get("calendar") if isinstance(calendar, dict) else None
+        if not items:
+            return None
+        today = items[0]
+        image_url = today.get("image_url")
+        if not image_url:
+            log.info("IG auto-publish skipped: today's post has no image_url")
+            return {"ok": False, "reason": "no image to post"}
+        return instagram_api.publish_post(self.db, image_url, today.get("caption") or today.get("idea") or "")
