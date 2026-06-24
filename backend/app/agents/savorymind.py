@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 
+from .. import memory
 from ..ai import client, skills
 from ..ai.prompts import MENU_ANALYSIS, SAVORYMIND_PITCH
 from ..config import settings
@@ -68,10 +69,14 @@ class SavoryMindAgent(BaseAgent):
                 if isinstance(analysis, dict) and analysis.get("upsell"):
                     up = analysis["upsell"]
                     insight = up[0] if isinstance(up, list) and up else str(up)
+                sysp = skills.system_prompt("copywriting", "cold-email")
+                mem_ctx = memory.context_block(self.db, r.get("name") or "")
+                if mem_ctx:
+                    sysp = f"{sysp}\n\n{mem_ctx}"
                 pitch = client.complete_json(SAVORYMIND_PITCH.format(
                     name=r["name"], cuisine=r.get("cuisine"), city=r.get("city"),
                     owner=r.get("owner_manager"), insight=insight or r.get("pain_points"),
-                ), system=skills.system_prompt("copywriting", "cold-email"))
+                ), system=sysp)
                 pitch = pitch if isinstance(pitch, dict) else {}
                 subject = pitch.get("pitch_subject") or f"Growing revenue at {r['name']} with SavoryMind"
                 body = pitch.get("pitch_body")

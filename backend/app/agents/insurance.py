@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 
+from .. import memory
 from ..ai import client, skills
 from ..ai.prompts import INSURANCE_OUTREACH
 from ..config import settings
@@ -78,10 +79,14 @@ class InsuranceAgent(BaseAgent):
         pushed = sent = enriched = 0
         for row, p in pairs:
             try:
+                sysp = skills.system_prompt("cold-email", "marketing-psychology")
+                mem_ctx = memory.context_block(self.db, p.get("company_name") or "")
+                if mem_ctx:  # personalize with what we remember about this prospect
+                    sysp = f"{sysp}\n\n{mem_ctx}"
                 artifacts = client.complete_json(INSURANCE_OUTREACH.format(
                     company_name=p["company_name"], category=p["category"], segment=p["segment"],
                     industry=p.get("industry"), city=p.get("city"), reason=p["reason"],
-                ), system=skills.system_prompt("cold-email", "marketing-psychology"))
+                ), system=sysp)
                 artifacts = artifacts if isinstance(artifacts, dict) else {}
                 subject = artifacts.get("cold_email_subject") or f"Insurance options for {p['company_name']}"
                 body = artifacts.get("cold_email_body")
