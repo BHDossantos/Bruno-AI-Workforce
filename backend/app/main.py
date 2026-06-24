@@ -30,8 +30,16 @@ log = logging.getLogger("bruno")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    seed()
-    start_scheduler()
+    # Don't let a DB/seed hiccup crash startup — the container must listen on
+    # $PORT for Cloud Run. Errors are logged so they're visible in the logs.
+    try:
+        seed()
+    except Exception:
+        log.exception("Startup seed() failed — check DATABASE_URL / Cloud SQL connection")
+    try:
+        start_scheduler()
+    except Exception:
+        log.exception("Scheduler failed to start")
     log.info("Bruno AI Workforce backend started.")
     yield
     shutdown_scheduler()
@@ -66,3 +74,18 @@ app.include_router(imports.router)
 @app.get("/health", tags=["system"])
 def health():
     return {"status": "ok", "service": "bruno-ai-workforce"}
+
+
+@app.get("/health/db", tags=["system"])
+def health_db():
+    """Reports whether the database is reachable, with the error if not."""
+    from sqlalchemy import text
+
+    from .database import engine
+
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return {"db": "ok"}
+    except Exception as exc:  # surface the real connection error
+        return {"db": "error", "detail": str(exc)[:600]}
