@@ -284,3 +284,24 @@ class KpiMetric(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     value: Mapped[float | None] = mapped_column(Numeric)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Connection(Base):
+    """A user-connected app / social / ad / commerce account.
+
+    Credentials are stored as an encrypted JSON blob (Fernet). The platform reads
+    a connection's declared capabilities (from the provider registry) to build and
+    run its marketing & sales funnel automatically.
+    """
+    __tablename__ = "connections"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    provider: Mapped[str] = mapped_column(String, nullable=False, index=True)  # registry key
+    display_name: Mapped[str] = mapped_column(String, nullable=False)  # user's label
+    account_ref: Mapped[str | None] = mapped_column(String)  # handle / email / account id
+    credentials_enc: Mapped[str | None] = mapped_column(Text)  # Fernet-encrypted JSON
+    status: Mapped[str] = mapped_column(String, default="connected")  # connected|error|disconnected
+    funnel_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    goal: Mapped[str | None] = mapped_column(String)  # leads | sales | followers | bookings
+    settings: Mapped[dict | None] = mapped_column(JSONB)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

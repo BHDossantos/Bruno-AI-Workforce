@@ -152,6 +152,59 @@ def test_providers_fallback_meets_targets_without_keys():
     assert len(providers.fetch_jobs(60)) == 60
 
 
+# ── Connect-any-account platform (no DB) ─────────────────────────────────────
+def test_provider_registry_is_well_formed():
+    from app.integrations import registry
+
+    keys = {p["key"] for p in registry.list_providers()}
+    # A representative spread of categories the user can connect.
+    for must in ["instagram", "facebook", "linkedin", "gmail", "hubspot",
+                 "shopify", "stripe", "meta_ads", "google_ads", "twilio_sms"]:
+        assert must in keys
+    for p in registry.list_providers():
+        assert p["name"] and p["category"] and p["capabilities"]
+        assert set(p["stages"]).issubset(set(registry.STAGES))
+        # every secret field is a known field
+        assert registry.secret_field_keys(p["key"]) <= {f["key"] for f in p["fields"]}
+
+
+def test_funnel_plan_maps_capabilities_to_stages():
+    from app import funnel
+
+    plan = funnel.build_plan("gmail")
+    stages = {s["stage"] for s in plan["stages"]}
+    # Gmail has email_auto + lead_capture → capture/nurture/convert covered.
+    assert {"capture", "nurture", "convert"}.issubset(stages)
+    assert plan["auto_actions"] >= 1
+    # Unknown provider degrades gracefully.
+    assert funnel.build_plan("nope").get("unsupported") is True
+
+
+def test_funnel_respects_tos_assist_vs_auto():
+    from app import funnel
+
+    li = funnel.build_plan("linkedin")
+    li_actions = {(a["capability"], a["mode"]) for s in li["stages"] for a in s["actions"]}
+    # LinkedIn publishing & DMs must stay assist-only (no bot automation) to be
+    # ToS-safe. (Read-only analytics may still run automatically.)
+    assert ("publish_assist", "assist") in li_actions
+    assert ("dm_assist", "assist") in li_actions
+    assert not any(cap in ("publish_auto",) for cap, _ in li_actions)
+
+    ig = funnel.build_plan("instagram")
+    ig_actions = {(a["capability"], a["mode"]) for s in ig["stages"] for a in s["actions"]}
+    assert ("publish_auto", "auto") in ig_actions       # official API posting
+    assert ("dm_assist", "assist") in ig_actions        # DMs stay one-click
+
+
+def test_funnel_overview_reports_gaps():
+    from app import funnel
+
+    ov = funnel.overview([{"provider": "instagram", "goal": "followers"}])
+    assert ov["connected"] == 1
+    assert "convert" in ov["gaps"] or ov["stage_coverage"]["attract"] >= 1
+
+
 # ── Full pipeline (needs PostgreSQL) ─────────────────────────────────────────
 @requires_db
 def test_health_and_auth(client, auth_headers):
@@ -243,6 +296,54 @@ def test_csv_export(client, auth_headers):
     assert r.status_code == 200
     assert "text/csv" in r.headers["content-type"]
     assert "company_name" in r.text.splitlines()[0]  # header row
+
+
+@requires_db
+def test_connections_crud_and_secret_encryption(client, auth_headers):
+    # Catalog is available.
+    cats = client.get("/connections/providers", headers=auth_headers).json()
+    assert any(p["key"] == "instagram" for p in cats)
+
+    # Missing required field is rejected.
+    bad = client.post("/connections", headers=auth_headers,
+                      json={"provider": "instagram", "credentials": {}})
+    assert bad.status_code == 400
+
+    # Connect an account with credentials.
+    r = client.post("/connections", headers=auth_headers, json={
+        "provider": "instagram", "display_name": "Bruno IG", "goal": "followers",
+        "credentials": {"access_token": "secret-token-123", "ig_user_id": "17841400000000000"},
+    })
+    assert r.status_code == 200
+    conn = r.json()
+    cid = conn["id"]
+    assert conn["provider"] == "instagram" and conn["status"] == "connected"
+    # The raw secret is NEVER returned by the API.
+    assert "secret-token-123" not in r.text and "credentials" not in conn
+
+    # It's stored encrypted at rest (not plaintext).
+    from app import models
+    from app.database import SessionLocal
+    db = SessionLocal()
+    row = db.query(models.Connection).filter(models.Connection.id == cid).first()
+    assert row.credentials_enc and "secret-token-123" not in row.credentials_enc
+    from app.security import decrypt_secret
+    import json as _json
+    assert _json.loads(decrypt_secret(row.credentials_enc))["access_token"] == "secret-token-123"
+    db.close()
+
+    # Funnel plan is generated for the connection.
+    plan = client.get(f"/connections/{cid}/funnel", headers=auth_headers).json()
+    assert plan["provider"] == "instagram" and plan["stages"]
+
+    # Overview aggregates coverage.
+    ov = client.get("/connections/overview", headers=auth_headers).json()
+    assert ov["connected"] >= 1
+
+    # Disconnect.
+    d = client.delete(f"/connections/{cid}", headers=auth_headers)
+    assert d.status_code == 200
+    assert all(c["id"] != cid for c in client.get("/connections", headers=auth_headers).json())
 
 
 @requires_db

@@ -264,6 +264,22 @@ CREATE TABLE IF NOT EXISTS kpi_metrics (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- ── Connect-any-account platform ────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS connections (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    provider        TEXT NOT NULL,
+    display_name    TEXT NOT NULL,
+    account_ref     TEXT,
+    credentials_enc TEXT,
+    status          TEXT NOT NULL DEFAULT 'connected',
+    funnel_enabled  BOOLEAN NOT NULL DEFAULT TRUE,
+    goal            TEXT,
+    settings        JSONB,
+    last_synced_at  TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_connections_provider ON connections(provider);
+
 -- ── Helpful indexes ─────────────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_jobs_score        ON jobs(score DESC);
 CREATE INDEX IF NOT EXISTS idx_leads_status      ON leads(status);
