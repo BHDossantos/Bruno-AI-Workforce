@@ -19,15 +19,19 @@ if [ -z "${PROJECT}" ]; then
 fi
 
 TARGET="${1:-all}"
-echo "▶ Deploying '${TARGET}' to project: ${PROJECT}"
+# Image tag. COMMIT_SHA is only set by Cloud Build triggers, so we pass our own.
+TAG="$(git rev-parse --short HEAD 2>/dev/null || echo latest)"
+echo "▶ Deploying '${TARGET}' to project: ${PROJECT} (tag: ${TAG})"
 
 deploy_backend() {
   echo "▶ Backend  → service 'ai-workforce' (europe-west1)…"
-  gcloud builds submit --project "${PROJECT}" --config cloudbuild.backend.yaml .
+  gcloud builds submit --project "${PROJECT}" --config cloudbuild.backend.yaml \
+    --substitutions=_TAG="${TAG}" .
 }
 deploy_frontend() {
   echo "▶ Frontend → service 'bruno-ai-workforce-front' (northamerica-northeast1)…"
-  gcloud builds submit --project "${PROJECT}" --config cloudbuild.frontend.yaml .
+  gcloud builds submit --project "${PROJECT}" --config cloudbuild.frontend.yaml \
+    --substitutions=_TAG="${TAG}" .
 }
 
 case "${TARGET}" in

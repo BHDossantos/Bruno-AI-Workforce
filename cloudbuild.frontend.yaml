@@ -12,8 +12,9 @@ substitutions:
   _SERVICE: bruno-ai-workforce-front
   _REGION: northamerica-northeast1
   _API_URL: https://ai-workforce-746155486511.europe-west1.run.app
+  _TAG: latest
 images:
-  - gcr.io/$PROJECT_ID/$_SERVICE:$COMMIT_SHA
+  - gcr.io/$PROJECT_ID/$_SERVICE:$_TAG
 steps:
   # 1) Build the real Next.js image from frontend/Dockerfile, baking the API URL.
   - name: gcr.io/cloud-builders/docker
@@ -24,11 +25,11 @@ steps:
       - --build-arg
       - NEXT_PUBLIC_API_URL=${_API_URL}
       - -t
-      - gcr.io/$PROJECT_ID/$_SERVICE:$COMMIT_SHA
+      - gcr.io/$PROJECT_ID/$_SERVICE:$_TAG
       - frontend
   # 2) Push it.
   - name: gcr.io/cloud-builders/docker
-    args: [push, gcr.io/$PROJECT_ID/$_SERVICE:$COMMIT_SHA]
+    args: [push, gcr.io/$PROJECT_ID/$_SERVICE:$_TAG]
   # 3) Deploy that exact image to the service and route 100% traffic to it.
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
     entrypoint: gcloud
@@ -36,7 +37,7 @@ steps:
       - run
       - deploy
       - ${_SERVICE}
-      - --image=gcr.io/$PROJECT_ID/$_SERVICE:$COMMIT_SHA
+      - --image=gcr.io/$PROJECT_ID/$_SERVICE:$_TAG
       - --region=${_REGION}
       - --platform=managed
       - --allow-unauthenticated
