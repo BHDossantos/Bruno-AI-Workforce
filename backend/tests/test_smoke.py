@@ -579,6 +579,24 @@ def test_commander_rollup_and_status(client, auth_headers):
 
 
 @requires_db
+def test_universal_crm_aggregates_and_adds(client, auth_headers):
+    # Sources from the daily run (leads/restaurants/jobs) surface in one list.
+    all_c = client.get("/crm", headers=auth_headers).json()
+    assert isinstance(all_c, list) and len(all_c) > 0
+    assert {c["source"] for c in all_c} & {"insurance", "savorymind", "career"}
+
+    # Add a standalone contact -> appears under 'manual' and seeds the memory graph.
+    r = client.post("/crm", headers=auth_headers, json={
+        "name": "Dana Recruiter", "company": "BigCo", "title": "Tech Recruiter", "kind": "recruiter"})
+    assert r.status_code == 200
+    manual = client.get("/crm?source=manual&q=Dana", headers=auth_headers).json()
+    assert any(c["name"] == "Dana Recruiter" for c in manual)
+    cid = next(c["id"] for c in manual if c["name"] == "Dana Recruiter")
+    detail = client.get(f"/crm/{cid}", headers=auth_headers).json()
+    assert "memories" in detail and len(detail["memories"]) >= 1  # auto-seeded
+
+
+@requires_db
 def test_brief_action_execute_and_dismiss(client, auth_headers):
     actions = client.get("/brief/today?top=20", headers=auth_headers).json()["top_actions"]
     assert actions, "expected brief actions from the daily run"

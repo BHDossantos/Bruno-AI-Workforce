@@ -330,6 +330,23 @@ class BrandProfile(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class ManualContact(Base):
+    """A standalone contact (recruiter, advisor, partner) not owned by an agent
+    source. Source entities (leads, restaurants, jobs, curators) surface through
+    the CRM aggregation; this table holds the people you add by hand."""
+    __tablename__ = "manual_contacts"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    company: Mapped[str | None] = mapped_column(String)
+    title: Mapped[str | None] = mapped_column(String)
+    email: Mapped[str | None] = mapped_column(String, index=True)
+    phone: Mapped[str | None] = mapped_column(String)
+    kind: Mapped[str] = mapped_column(String, default="contact")  # recruiter|advisor|partner|...
+    status: Mapped[str | None] = mapped_column(String)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class ActionState(Base):
     """State overlay for the Daily-Brief actions (which are derived live).
 
