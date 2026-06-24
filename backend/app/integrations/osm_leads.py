@@ -16,15 +16,21 @@ from . import email_finder
 
 log = logging.getLogger("bruno.osm")
 
-# Several public Overpass mirrors — the main one (overpass-api.de) is frequently
-# rate-limited (429) or overloaded (504). We try each in order until one answers,
-# so a single busy server never means "zero leads".
+# Several public Overpass mirrors — tried in order until one answers, so a single
+# busy/blocking server never means "zero leads". kumi.systems is fast and lenient,
+# so it's first; the slow maps.mail.ru mirror is the last resort.
 OVERPASS_MIRRORS = [
-    "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass-api.de/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
     "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
 ]
+# A descriptive User-Agent is REQUIRED by Overpass servers — overpass-api.de
+# returns HTTP 406 to requests sent with a default script User-Agent.
+_OVERPASS_HEADERS = {
+    "User-Agent": "BrunoAIWorkforce/1.0 (lead sourcing; contact brunodossantos707@gmail.com)",
+    "Accept": "application/json",
+}
 
 # Commercial-insurance prospect categories → OpenStreetMap selectors.
 COMMERCIAL_OSM = {
@@ -44,8 +50,9 @@ RESTAURANT_OSM = ['node["amenity"~"restaurant|cafe|bar|pub|fast_food"]']
 # Bound website scraping per run so the agent stays fast (each scrape is a few
 # HTTP fetches). Most leads should come from OSM email tags (zero scraping).
 _SCRAPE_BUDGET = 15
-# Don't scan every configured city — stop once we have enough.
-_MAX_CITIES = 4
+# Don't scan every configured city — stop once we have enough. A single large
+# city's combined query already returns up to 100 email/website-tagged businesses.
+_MAX_CITIES = 2
 
 
 def is_enabled() -> bool:
@@ -68,7 +75,7 @@ def _post_overpass(body: str) -> list[dict]:
     last = ""
     for url in OVERPASS_MIRRORS:
         try:
-            r = httpx.post(url, data={"data": body}, timeout=_TIMEOUT)
+            r = httpx.post(url, data={"data": body}, headers=_OVERPASS_HEADERS, timeout=_TIMEOUT)
             if r.status_code != 200:  # busy/blocked/bad → just try the next mirror
                 last = f"{url} -> HTTP {r.status_code}"
                 continue
