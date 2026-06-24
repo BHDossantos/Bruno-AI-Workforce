@@ -328,3 +328,20 @@ class BrandProfile(Base):
     music_artist: Mapped[str | None] = mapped_column(String)
     music_genres: Mapped[str | None] = mapped_column(String)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Objective(Base):
+    """An OUTCOME Bruno is driving toward (not a project). Agents/sources feed it,
+    and its weight ranks how much attention its actions get in the Daily Brief."""
+    __tablename__ = "objectives"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    key: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    command_center: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    metric: Mapped[str | None] = mapped_column(String)        # income | revenue | followers ...
+    target_value: Mapped[float | None] = mapped_column(Numeric)
+    current_value: Mapped[float] = mapped_column(Numeric, default=0)
+    rank: Mapped[int] = mapped_column(Integer, default=100)
+    weight: Mapped[float] = mapped_column(Numeric, default=0.5)  # 0–1, scales priority
+    status: Mapped[str] = mapped_column(String, default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

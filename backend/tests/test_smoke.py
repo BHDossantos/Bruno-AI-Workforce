@@ -269,6 +269,24 @@ def test_gmail_app_password_enables_sending_config():
         settings.gmail_app_password = old
 
 
+def test_objective_defaults_are_ranked():
+    from app import objectives
+    keys = [d["key"] for d in objectives.DEFAULTS]
+    assert keys[0] == "exec_role" and keys[-1] == "music"  # COO ranking
+    assert objectives.DEFAULTS[0]["weight"] > objectives.DEFAULTS[-1]["weight"]
+    assert {c["key"] for c in objectives.CENTERS} >= {"wealth", "business", "influence"}
+
+
+def test_scoring_weights_prioritize_high_roi_objectives():
+    from app import scoring
+    # Same dollars + odds, but the executive objective (weight 1.0) must outrank
+    # music (weight 0.25) for today's attention.
+    assert scoring._score(300_000, 0.5, 2, 1.0, 1.0) > scoring._score(300_000, 0.5, 2, 0.25, 1.0)
+    # More effort lowers priority; more probability raises it.
+    assert scoring._score(100, 1, 1, 1, 1) > scoring._score(100, 1, 2, 1, 1)
+    assert scoring._score(100, 0.9, 1, 1, 1) > scoring._score(100, 0.3, 1, 1, 1)
+
+
 def test_analytics_funnel_is_monotonic():
     from app.routers.analytics import _funnel
 
@@ -508,6 +526,25 @@ def test_outreach_bumps_contact_count():
         assert lead.times_contacted == 2 and lead.last_contacted_at is not None
     finally:
         db.rollback(); db.close()
+
+
+@requires_db
+def test_daily_brief_and_command_centers(client, auth_headers):
+    objs = client.get("/objectives", headers=auth_headers).json()
+    assert any(o["key"] == "exec_role" for o in objs) and len(objs) >= 5
+
+    b = client.get("/brief/today", headers=auth_headers).json()
+    assert "focus_score" in b and "estimated_value_today" in b
+    assert len(b["top_actions"]) <= 3  # only the top 3 surface
+    # The daily cycle created jobs/leads, so there should be ranked actions.
+    assert b["total_actions"] >= 1
+    assert b["top_actions"][0]["priority"] >= (b["top_actions"][-1]["priority"]
+                                               if len(b["top_actions"]) > 1 else 0)
+
+    cc = client.get("/command-centers", headers=auth_headers).json()
+    assert {c["key"] for c in cc} >= {"wealth", "business", "influence"}
+    sb = client.get("/scoreboard", headers=auth_headers).json()
+    assert "pipeline_value" in sb and sb["leads"] >= 0
 
 
 @requires_db

@@ -32,6 +32,10 @@ def seed() -> None:
                 db.add(Agent(key=key, name=cls.name, description=cls.description,
                              schedule_cron=cls.schedule_cron))
         db.commit()
+
+        # Seed outcome objectives (Command Centers)
+        from . import objectives
+        objectives.ensure_objectives(db)
     finally:
         db.close()
 
