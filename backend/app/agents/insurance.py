@@ -45,10 +45,19 @@ class InsuranceAgent(BaseAgent):
             + providers.fetch_insurance_leads("personal", personal_target)
         )
 
-        # ── Phase 1: persist every lead FAST (no AI/network) and commit, so leads
-        # are never lost if the slower enrichment below times out or errors. ──────
+        # Never duplicate an existing lead — we keep history (incl. how many times
+        # we've reached out), so skip any email already in the system.
+        existing = {e for (e,) in self.db.query(Lead.email).filter(Lead.email.isnot(None)).all()}
+
+        # ── Phase 1: persist every NEW lead FAST (no AI/network) and commit, so
+        # leads are never lost if the slower enrichment below times out/errors. ───
         pairs: list[tuple[Lead, dict]] = []
+        seen_now: set[str] = set()
         for p in prospects:
+            email = (p.get("email") or "").lower()
+            if not email or email in existing or email in seen_now:
+                continue  # already have this lead — don't create a duplicate
+            seen_now.add(email)
             reason = f"{p['category']} businesses typically need liability, property and " \
                      f"professional coverage." if p["segment"] == "commercial" else \
                      f"{p['category']} prospects often need home/auto/life coverage."

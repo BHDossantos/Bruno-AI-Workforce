@@ -155,6 +155,8 @@ class Lead(Base):
     call_script: Mapped[str | None] = mapped_column(Text)
     linkedin_msg: Mapped[str | None] = mapped_column(Text)
     pushed_to_crm: Mapped[bool] = mapped_column(Boolean, default=False)
+    times_contacted: Mapped[int] = mapped_column(Integer, default=0)
+    last_contacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -177,6 +179,8 @@ class Restaurant(Base):
     linkedin_msg: Mapped[str | None] = mapped_column(Text)
     follow_up: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String, default="New")
+    times_contacted: Mapped[int] = mapped_column(Integer, default=0)
+    last_contacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -305,3 +309,22 @@ class Connection(Base):
     settings: Mapped[dict | None] = mapped_column(JSONB)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class BrandProfile(Base):
+    """Single-row profile of the user's brand/account that tailors ALL AI content
+    (Instagram calendar, music package, outreach tone). Editable in the UI."""
+    __tablename__ = "brand_profile"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    business_name: Mapped[str | None] = mapped_column(String)
+    niche: Mapped[str | None] = mapped_column(String)        # what you do / industry
+    location: Mapped[str | None] = mapped_column(String)
+    audience: Mapped[str | None] = mapped_column(String)     # who you target
+    value_prop: Mapped[str | None] = mapped_column(Text)     # your offer / differentiator
+    website: Mapped[str | None] = mapped_column(String)
+    tone: Mapped[str | None] = mapped_column(String)         # brand voice
+    instagram_handle: Mapped[str | None] = mapped_column(String)
+    content_pillars: Mapped[str | None] = mapped_column(Text)  # comma-separated themes
+    music_artist: Mapped[str | None] = mapped_column(String)
+    music_genres: Mapped[str | None] = mapped_column(String)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

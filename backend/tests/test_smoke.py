@@ -61,6 +61,9 @@ def test_free_jobs_gated_off_in_tests_and_parse_salary():
     assert jobs_free._salary("$180k - $220k") == 180000
     assert jobs_free._salary("210000") == 210000
     assert jobs_free._salary(None) is None
+    # Skill-fit filter: keep cloud/leadership roles, drop unrelated ones.
+    assert jobs_free._fits("Director of Site Reliability", "cloud platform") is True
+    assert jobs_free._fits("Barista", "make coffee") is False
 
 
 def test_jobs_api_maps_jsearch_payload():
@@ -266,6 +269,17 @@ def test_gmail_app_password_enables_sending_config():
         settings.gmail_app_password = old
 
 
+def test_analytics_funnel_is_monotonic():
+    from app.routers.analytics import _funnel
+
+    statuses = ["New", "Sent", "Opened", "Replied", "Interested", "Closed Won", "Closed Lost"]
+    f = {d["stage"]: d["count"] for d in _funnel(statuses)}
+    assert f["Sourced"] == 7              # everyone is sourced
+    assert f["Contacted"] >= f["Opened"] >= f["Replied"] >= f["Interested"] >= f["Won"]
+    assert f["Won"] == 1                  # one Closed Won
+    assert f["Replied"] == 3             # Replied, Interested, Closed Won
+
+
 def test_crm_token_falls_back_to_env_without_connection():
     from app.config import settings
     from app.integrations import crm
@@ -307,13 +321,13 @@ def test_full_daily_cycle_hits_targets(client, auth_headers):
     batch = settings.lead_batch_size
 
     summary = client.get("/dashboard/summary", headers=auth_headers).json()
-    assert summary["jobs_found"] == 25
+    assert summary["jobs_found"] == 20
     assert summary["insurance_leads"] == batch
     assert summary["restaurant_prospects"] == batch
     assert summary["music_playlists"] == 50
     assert summary["instagram_targets"] == 100
 
-    assert len(client.get("/jobs", headers=auth_headers).json()) == 25
+    assert len(client.get("/jobs", headers=auth_headers).json()) == 20
     assert len(client.get("/instagram/targets", headers=auth_headers).json()) == 100
     assert len(client.get("/music/influencers", headers=auth_headers).json()) == 25
 
@@ -450,6 +464,68 @@ def test_connections_crud_and_secret_encryption(client, auth_headers):
     d = client.delete(f"/connections/{cid}", headers=auth_headers)
     assert d.status_code == 200
     assert all(c["id"] != cid for c in client.get("/connections", headers=auth_headers).json())
+
+
+@requires_db
+def test_leads_are_not_duplicated_across_runs(client, auth_headers, monkeypatch):
+    """Re-running the agent over the same prospect must not duplicate the lead."""
+    from app import models
+    from app.agents import insurance as ins_mod
+    from app.database import SessionLocal
+
+    fixed = [{
+        "segment": "commercial", "category": "Restaurant", "company_name": "Dedupe Cafe",
+        "owner_name": "Joe D", "email": "dedupe-unique@acme.com", "phone": "1",
+        "website": "https://x.com", "linkedin": None, "industry": "Restaurant", "city": "Boston",
+    }]
+    monkeypatch.setattr(ins_mod.providers, "fetch_insurance_leads",
+                        lambda segment, count: fixed if segment == "commercial" else [])
+
+    db = SessionLocal()
+    try:
+        ins_mod.InsuranceAgent(db).run()
+        ins_mod.InsuranceAgent(db).run()  # same prospect again
+        n = (db.query(models.Lead)
+             .filter(models.Lead.email == "dedupe-unique@acme.com").count())
+        assert n == 1  # second run did NOT create a duplicate
+    finally:
+        db.close()
+
+
+@requires_db
+def test_outreach_bumps_contact_count():
+    # The reach-out counter helper increments count + stamps a time.
+    from app import models, outreach
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        lead = models.Lead(segment="commercial", email="touch-test@acme.com",
+                           company_name="Touch Co", status="New")
+        db.add(lead); db.flush()
+        outreach._bump_contact(db, "lead", lead.id)
+        outreach._bump_contact(db, "lead", lead.id)
+        db.flush()
+        assert lead.times_contacted == 2 and lead.last_contacted_at is not None
+    finally:
+        db.rollback(); db.close()
+
+
+@requires_db
+def test_brand_profile_get_and_update(client, auth_headers):
+    p = client.get("/profile", headers=auth_headers).json()
+    assert p["business_name"]  # seeded with a default on first read
+    r = client.put("/profile", headers=auth_headers,
+                   json={"instagram_handle": "brunotest", "niche": "Test niche"})
+    assert r.status_code == 200 and r.json()["instagram_handle"] == "brunotest"
+    p2 = client.get("/profile", headers=auth_headers).json()
+    assert p2["niche"] == "Test niche"  # persisted
+
+    # The brand context used by content agents reflects the saved profile.
+    from app import brand
+    from app.database import SessionLocal
+    db = SessionLocal()
+    assert "Test niche" in brand.context(db)
+    db.close()
 
 
 @requires_db

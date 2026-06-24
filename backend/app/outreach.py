@@ -14,7 +14,18 @@ from sqlalchemy.orm import Session
 from . import email_template
 from .config import settings
 from .integrations import gmail
-from .models import ActionLog, Message
+from .models import ActionLog, Lead, Message, Restaurant
+
+
+def _bump_contact(db: Session, entity_type: str | None, entity_id) -> None:
+    """Record that we reached out to this entity (count + timestamp)."""
+    model = {"lead": Lead, "restaurant": Restaurant}.get(entity_type or "")
+    if not model or not entity_id:
+        return
+    row = db.query(model).filter(model.id == entity_id).first()
+    if row is not None:
+        row.times_contacted = (row.times_contacted or 0) + 1
+        row.last_contacted_at = datetime.now(timezone.utc)
 
 
 # Placeholder/sample domains that must never receive real outreach.
@@ -90,6 +101,7 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
             msg.approved = True
             msg.status = "Sent"
             msg.sent_at = datetime.now(timezone.utc)
+            _bump_contact(db, entity_type, entity_id)  # track reach-out count
             _log(db, actor, "email_sent", msg, to=to_email, account=account)
     else:  # draft / send_on_approve
         did = gmail.create_draft(to_email, subject or "", html or "", account=account)

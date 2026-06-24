@@ -6,6 +6,7 @@ import { clearToken } from "@/lib/api";
 
 const NAV = [
   { href: "/", label: "Home Dashboard", icon: "🏠" },
+  { href: "/analytics", label: "Funnel Analytics", icon: "📊" },
   { href: "/jobs", label: "Jobs", icon: "💼" },
   { href: "/apply", label: "Apply Queue", icon: "✅" },
   { href: "/insurance", label: "Insurance Leads", icon: "🛡️" },
@@ -18,6 +19,7 @@ const NAV = [
   { href: "/texts", label: "Texts", icon: "💬" },
   { href: "/queue", label: "Outreach Queue", icon: "✋" },
   { href: "/brief", label: "Daily Brief", icon: "📋" },
+  { href: "/settings", label: "Brand Profile", icon: "⚙️" },
 ];
 
 export default function Sidebar() {

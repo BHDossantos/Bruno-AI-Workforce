@@ -19,6 +19,8 @@ type Lead = {
   cold_email: string | null;
   call_script: string | null;
   linkedin_msg: string | null;
+  times_contacted: number;
+  last_contacted_at: string | null;
 };
 
 function Insurance() {
@@ -54,6 +56,7 @@ function Insurance() {
               <th className="th">Contact</th>
               <th className="th">Reason</th>
               <th className="th">Status</th>
+              <th className="th">Touches</th>
               <th className="th">Scripts</th>
             </tr>
           </thead>
@@ -66,6 +69,12 @@ function Insurance() {
                 <td className="td text-xs">{l.email}<br />{l.phone}</td>
                 <td className="td max-w-xs text-xs">{l.reason}</td>
                 <td className="td"><StatusBadge status={l.status} /></td>
+                <td className="td text-xs">
+                  <span className="font-medium">{l.times_contacted || 0}×</span>
+                  {l.last_contacted_at && (
+                    <div className="text-gray-400">{new Date(l.last_contacted_at).toLocaleDateString()}</div>
+                  )}
+                </td>
                 <td className="td space-y-1">
                   <Expandable label="Cold email" text={l.cold_email} />
                   <Expandable label="Call script" text={l.call_script} />

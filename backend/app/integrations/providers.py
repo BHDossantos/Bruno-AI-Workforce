@@ -102,7 +102,7 @@ def fetch_insurance_leads(segment: str, count: int) -> list[dict]:
         return out[:count]  # live-sourced data only
     cats = COMMERCIAL_CATEGORIES if segment == "commercial" else PERSONAL_CATEGORIES
     need = count - len(out)
-    for _ in range(need):
+    for i in range(need):
         cat = _rng.choice(cats)
         owner = _person()
         company = f"{owner.split()[1]} {cat}" if segment == "commercial" else owner
@@ -111,7 +111,7 @@ def fetch_insurance_leads(segment: str, count: int) -> list[dict]:
             "category": cat,
             "company_name": company,
             "owner_name": owner,
-            "email": f"{_slug(owner)}@example.com",
+            "email": f"{_slug(owner)}-{segment}{i}@example.com",  # globally unique per record
             "phone": f"+1{_rng.randint(2000000000, 9999999999)}",
             "website": f"https://{_slug(company)}.com" if segment == "commercial" else None,
             "linkedin": f"https://linkedin.com/in/{_slug(owner)}",
@@ -155,7 +155,7 @@ def fetch_restaurants(count: int) -> list[dict]:
 
     if not settings.allow_synthetic_fallback:
         return out[:count]  # live-sourced data only
-    for _ in range(count - len(out)):
+    for i in range(count - len(out)):
         rtype = _rng.choice(RESTAURANT_TYPES)
         city = _rng.choice(_CITIES)
         name = f"{_rng.choice(_LAST)}'s {rtype}"
@@ -166,7 +166,7 @@ def fetch_restaurants(count: int) -> list[dict]:
             "website": f"https://{_slug(name)}.com",
             "menu_url": f"https://{_slug(name)}.com/menu",
             "instagram": f"@{_slug(name)}",
-            "email": f"info@{_slug(name)}.com",
+            "email": f"info{i}@{_slug(name)}.com",  # unique per record
             "phone": f"+1{_rng.randint(2000000000, 9999999999)}",
             "cuisine": _rng.choice(CUISINES),
             "city": city,

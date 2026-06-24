@@ -90,8 +90,12 @@ Return JSON with keys:
 - "collab_pitch": a 2-sentence collaboration proposal.
 """
 
-MUSIC_DAILY_CONTENT = """Create a daily music promotion content package for a Brazilian/Latin
-romantic artist (samba, pagode, Brazilian jazz, R&B). Return JSON with keys:
+MUSIC_DAILY_CONTENT = """Create a daily music-promotion content package for this artist.
+
+{brand}
+Artist: {artist}. Genres: {genres}.
+
+Return JSON with keys:
 - "reels": 3 short reel ideas.
 - "captions": 3 captions.
 - "hashtags": 10 hashtags.
@@ -99,18 +103,23 @@ romantic artist (samba, pagode, Brazilian jazz, R&B). Return JSON with keys:
 """
 
 # ── Agent 5: Instagram Growth ────────────────────────────────────────────────
-INSTAGRAM_ENGAGEMENT = """Generate engagement suggestions for an Instagram target account.
+INSTAGRAM_ENGAGEMENT = """Generate engagement suggestions for an Instagram target account,
+on behalf of this brand:
+{brand}
 
-Account: @{handle} in niche "{niche}", categorized as "{category}".
+Target account: @{handle} in niche "{niche}", categorized as "{category}".
 Return JSON with keys:
 - "comment_idea": a thoughtful comment.
 - "dm_opener": a non-salesy DM opener.
 - "story_reply": a casual story reply.
 """
 
-INSTAGRAM_CALENDAR = """Build a 7-day Instagram content calendar mixing these pillars:
-gym, music, business, Rome, food, fatherhood, resilience.
-Return JSON with key "calendar": a list of 7 objects {{"day", "pillar", "idea", "caption"}}.
+INSTAGRAM_CALENDAR = """Build a 7-day Instagram content calendar for THIS account/brand:
+{brand}
+
+Use the brand's own content pillars above (not generic ones). Make every idea and
+caption specific to this business, its audience, and its voice.
+Return JSON with key "calendar": a list of 7 objects {{"day", "pillar", "idea", "caption", "hashtags"}}.
 """
 
 # ── Automated follow-ups ─────────────────────────────────────────────────────

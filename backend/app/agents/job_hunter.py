@@ -13,7 +13,7 @@ LEADERSHIP_WORDS = ("director", "head", "vp", "chief", "cto")
 CLOUD_WORDS = ("sre", "cloud", "infrastructure", "platform", "reliability")
 AI_DATA_WORDS = ("ai", "data platform", "machine learning", "ml")
 SCORE_THRESHOLD = 70
-DAILY_TARGET = 25
+DAILY_TARGET = 20  # roles queued per run
 
 
 class JobHunterAgent(BaseAgent):
@@ -51,6 +51,10 @@ class JobHunterAgent(BaseAgent):
                 scored.append(job)
         scored.sort(key=lambda j: j["score"], reverse=True)
         top = scored[:DAILY_TARGET]
+
+        # Don't re-add jobs we already have (dedupe by apply URL across runs).
+        existing_urls = {u for (u,) in self.db.query(Job.url).filter(Job.url.isnot(None)).all()}
+        top = [j for j in top if j.get("url") not in existing_urls][:DAILY_TARGET]
 
         # ── Phase 1: persist scored jobs FAST (no AI) and commit, so the apply
         # queue always has the roles even if enrichment is slow/errors. ──────────

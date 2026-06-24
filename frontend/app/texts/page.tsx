@@ -13,6 +13,7 @@ function Texts() {
   const [account, setAccount] = useState("personal");
   const [draft, setDraft] = useState("");
   const [refresh, setRefresh] = useState(0);
+  const [newPhone, setNewPhone] = useState("");
   const { data: threads } = useFetch<Thread[]>(() => api.get<Thread[]>("/sms/threads"), [refresh]);
   const { data: detail } = useFetch<ThreadDetail | null>(
     () => (active ? api.get<ThreadDetail>(`/sms/thread?phone=${encodeURIComponent(active)}`) : Promise.resolve(null)),
@@ -29,12 +30,28 @@ function Texts() {
     setRefresh((r) => r + 1);
   }
 
+  function startNew() {
+    const phone = newPhone.trim();
+    if (!/^\+?\d{10,15}$/.test(phone.replace(/[\s()-]/g, ""))) {
+      alert("Enter a valid phone number in E.164 form, e.g. +16175551234");
+      return;
+    }
+    setActive(phone.startsWith("+") ? phone : `+${phone}`);
+    setNewPhone("");
+  }
+
   return (
     <div>
-      <PageHeader title="Texts" subtitle="Two-way SMS — warm leads are auto-texted; reply right here" />
+      <PageHeader title="Texts" subtitle="Two-way SMS — start a new text or reply to warm leads here" />
       <div className="flex h-[70vh] overflow-hidden rounded-xl border border-gray-200 bg-white">
         {/* Threads list */}
         <div className="w-72 shrink-0 overflow-y-auto border-r border-gray-200">
+          <div className="flex gap-1 border-b border-gray-200 p-2">
+            <input value={newPhone} onChange={(e) => setNewPhone(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && startNew()}
+              placeholder="+1 617 555 1234" className="min-w-0 flex-1 rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+            <button onClick={startNew} className="shrink-0 rounded-lg bg-brand px-3 py-1.5 text-sm font-medium text-white">New</button>
+          </div>
           {(threads || []).map((t) => (
             <button
               key={t.phone}

@@ -280,6 +280,22 @@ CREATE TABLE IF NOT EXISTS connections (
 );
 CREATE INDEX IF NOT EXISTS idx_connections_provider ON connections(provider);
 
+CREATE TABLE IF NOT EXISTS brand_profile (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    business_name    TEXT,
+    niche            TEXT,
+    location         TEXT,
+    audience         TEXT,
+    value_prop       TEXT,
+    website          TEXT,
+    tone             TEXT,
+    instagram_handle TEXT,
+    content_pillars  TEXT,
+    music_artist     TEXT,
+    music_genres     TEXT,
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- ── Helpful indexes ─────────────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_jobs_score        ON jobs(score DESC);
 CREATE INDEX IF NOT EXISTS idx_leads_status      ON leads(status);
