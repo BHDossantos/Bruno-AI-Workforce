@@ -302,6 +302,14 @@ def test_browser_field_matching_and_default_mode():
     assert browser.is_automation_ready() is False  # off by default -> safe assist mode
 
 
+def test_social_unified_publish_offline():
+    from app import social
+    assert social.connected_platforms(None) == []
+    assert social.publish_daily(None, "hello")["published"] == {}
+    st = social.status(None)
+    assert st["instagram"]["connected"] is False and st["facebook"]["connected"] is False
+
+
 def test_media_hosting_disabled_offline():
     # No OpenAI key / no bucket in tests -> generation+hosting safely no-ops.
     from app import media

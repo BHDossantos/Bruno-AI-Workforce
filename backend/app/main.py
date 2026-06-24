@@ -21,6 +21,7 @@ from .routers import (
     leads,
     memory,
     messages,
+    social,
     music,
     outreach_queue,
     profile,
@@ -83,6 +84,7 @@ app.include_router(executive.router)
 app.include_router(memory.router)
 app.include_router(crm.router)
 app.include_router(browser.router)
+app.include_router(social.router)
 
 
 @app.get("/health", tags=["system"])

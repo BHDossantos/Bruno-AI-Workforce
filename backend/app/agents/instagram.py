@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from datetime import date
 
-from .. import brand, media
+from .. import brand, social
 from ..ai import client
 from ..ai.prompts import INSTAGRAM_CALENDAR, INSTAGRAM_ENGAGEMENT
 from ..config import settings
@@ -51,40 +51,29 @@ class InstagramAgent(BaseAgent):
                 log.exception("IG target enrichment failed for %s", t.get("handle"))
                 self.db.rollback()
 
-        # ── Automatic mode: act on the CONNECTED account ──────────────────────
-        connected = instagram_api.is_connected(self.db)
+        # ── Automatic mode: post today's content to EVERY connected platform ──
+        platforms = social.connected_platforms(self.db)
         published = None
-        if connected and settings.instagram_auto_publish:
-            published = self._auto_publish(calendar)
-
-        acct = instagram_api.get_account(self.db) if connected else None
-        followers = acct.get("followers") if acct else None
+        if platforms and (settings.social_auto_publish or settings.instagram_auto_publish):
+            published = social.publish_daily(self.db, self._todays_caption(calendar))
 
         self.log_action("instagram_targets_saved", entity="instagram_targets",
-                        detail={"count": saved, "connected": connected, "published": bool(published)})
+                        detail={"count": saved, "connected": platforms, "published": bool(published)})
         summary = "Refreshed the brand-tailored 7-day content calendar"
         summary += f" and saved {saved} target accounts to engage." if saved else "."
-        if connected:
-            summary += f" Account connected ({followers:,} followers)." if followers else " Account connected."
-        if published and published.get("ok"):
-            summary += " Auto-published today's post."
+        if platforms:
+            summary += f" Connected: {', '.join(platforms)}."
+        if published:
+            ok = [p for p, r in published.get("published", {}).items() if r.get("ok")]
+            if ok:
+                summary += f" Auto-posted to {', '.join(ok)}."
         return {"summary": summary, "targets": saved, "calendar": bool(calendar),
-                "connected": connected, "followers": followers, "published": published}
+                "connected": platforms, "published": published}
 
-    def _auto_publish(self, calendar) -> dict | None:
-        """Publish today's planned post IF it carries an image_url. (Instagram's
-        API requires media — text-only posts aren't allowed — so a post needs an
-        image source before this does anything.)"""
+    @staticmethod
+    def _todays_caption(calendar) -> str:
         items = (calendar or {}).get("calendar") if isinstance(calendar, dict) else None
         if not items:
-            return None
+            return "Today's update."
         today = items[0]
-        caption = today.get("caption") or today.get("idea") or ""
-        image_url = today.get("image_url")
-        if not image_url:
-            # No image on the plan — generate one and host it publicly (IG needs media).
-            image_url = media.generate_and_host(today.get("idea") or caption, f"{date.today()}-post")
-        if not image_url:
-            log.info("IG auto-publish skipped: no image (set GCS_BUCKET + OpenAI key to auto-generate)")
-            return {"ok": False, "reason": "no image to post"}
-        return instagram_api.publish_post(self.db, image_url, caption)
+        return today.get("caption") or today.get("idea") or "Today's update."

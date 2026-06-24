@@ -136,10 +136,11 @@ class Settings(BaseSettings):
     # package, no browser). Never auto-submits unless browser_auto_submit=True.
     browser_automation_enabled: bool = False
     browser_headless: bool = True
-    # When True AND an Instagram account is connected, the Influence Commander
-    # auto-publishes the day's planned post (needs a post image_url + Meta's
-    # instagram_content_publish approval). Off by default.
+    # When True AND a social account is connected, the Influence Commander
+    # auto-publishes the day's post to EVERY connected platform (Instagram,
+    # Facebook, …). instagram_auto_publish is kept as an alias. Off by default.
     instagram_auto_publish: bool = False
+    social_auto_publish: bool = False
     browser_auto_submit: bool = False  # human-in-the-loop by default — review before submit
     # Applicant identity used to fill application forms.
     applicant_name: str = "Bruno Dos Santos"
