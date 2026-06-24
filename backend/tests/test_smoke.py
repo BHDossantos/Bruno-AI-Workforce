@@ -197,6 +197,21 @@ def test_funnel_respects_tos_assist_vs_auto():
     assert ("dm_assist", "assist") in ig_actions        # DMs stay one-click
 
 
+def test_crm_token_falls_back_to_env_without_connection():
+    from app.config import settings
+    from app.integrations import crm
+
+    old = settings.hubspot_api_key
+    try:
+        settings.hubspot_api_key = ""
+        assert crm.resolve_token(None) is None            # nothing configured -> no push
+        assert crm.push_lead({"email": "a@b.com"}, db=None)["ok"] is False
+        settings.hubspot_api_key = "env-key"
+        assert crm.resolve_token(None) == "env-key"       # env var used as fallback
+    finally:
+        settings.hubspot_api_key = old
+
+
 def test_funnel_overview_reports_gaps():
     from app import funnel
 
@@ -219,10 +234,13 @@ def test_full_daily_cycle_hits_targets(client, auth_headers):
     resp = client.post("/agents/run-all", headers=auth_headers)
     assert resp.status_code == 200
 
+    from app.config import settings
+    batch = settings.lead_batch_size
+
     summary = client.get("/dashboard/summary", headers=auth_headers).json()
     assert summary["jobs_found"] == 25
-    assert summary["insurance_leads"] == 200
-    assert summary["restaurant_prospects"] == 100
+    assert summary["insurance_leads"] == batch
+    assert summary["restaurant_prospects"] == batch
     assert summary["music_playlists"] == 50
     assert summary["instagram_targets"] == 100
 
@@ -231,19 +249,22 @@ def test_full_daily_cycle_hits_targets(client, auth_headers):
     assert len(client.get("/music/influencers", headers=auth_headers).json()) == 25
 
     report = client.get("/reports/latest", headers=auth_headers).json()
-    assert report is not None and report["metrics"]["insurance_leads"] == 200
+    assert report is not None and report["metrics"]["insurance_leads"] == batch
 
 
 @requires_db
 def test_outbound_messages_created_per_account(client, auth_headers):
     """Agents create outbound Message rows; insurance routes via its own mailbox."""
+    from app.config import settings
+    batch = settings.lead_batch_size
+
     msgs = client.get("/messages?limit=500", headers=auth_headers).json()
-    assert len(msgs) >= 300  # 200 insurance + 100 savorymind cold emails
+    assert len(msgs) >= 2 * batch  # insurance batch + savorymind batch cold emails
 
     insurance = [m for m in msgs if m["from_account"] == "insurance"]
     personal = [m for m in msgs if m["from_account"] == "personal"]
-    assert len(insurance) == 200
-    assert len(personal) >= 100
+    assert len(insurance) == batch          # every insurance lead gets a first touch
+    assert len(personal) >= batch           # restaurant prospects (+ any others)
     # Gmail is not configured in CI, so nothing is actually sent.
     assert all(m["status"] == "Drafted" for m in msgs)
 
@@ -344,6 +365,31 @@ def test_connections_crud_and_secret_encryption(client, auth_headers):
     d = client.delete(f"/connections/{cid}", headers=auth_headers)
     assert d.status_code == 200
     assert all(c["id"] != cid for c in client.get("/connections", headers=auth_headers).json())
+
+
+@requires_db
+def test_connected_hubspot_drives_crm_token(client, auth_headers):
+    """Connecting a HubSpot account makes lead sync use its token over the env var."""
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.integrations import crm
+
+    r = client.post("/connections", headers=auth_headers, json={
+        "provider": "hubspot", "display_name": "Bruno CRM",
+        "credentials": {"access_token": "pat-from-connection"},
+    })
+    assert r.status_code == 200
+    cid = r.json()["id"]
+    db = SessionLocal()
+    old = settings.hubspot_api_key
+    try:
+        settings.hubspot_api_key = "env-key"
+        # The connected account's token wins over the env var.
+        assert crm.resolve_token(db) == "pat-from-connection"
+    finally:
+        settings.hubspot_api_key = old
+        db.close()
+        client.delete(f"/connections/{cid}", headers=auth_headers)
 
 
 @requires_db

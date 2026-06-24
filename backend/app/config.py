@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     # OpenStreetMap). Comma-separated. Drives commercial insurance + restaurant
     # sourcing with real, deliverable emails at no cost.
     lead_cities: str = "Boston,New York,Miami,Chicago,Austin"
+    # How many leads each lead-finder agent produces per run. Small batches keep
+    # every run fast and well under Cloud Run's request timeout; run the agent
+    # more often to accumulate more. Insurance splits this across commercial +
+    # personal segments.
+    lead_batch_size: int = 20
 
     # SMS (Twilio) — two-way texting. Used manually / for opted-in contacts only
     # (cold automated SMS violates TCPA). No-ops if unconfigured.
