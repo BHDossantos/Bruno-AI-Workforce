@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     # compatible JSearch host). Falls back to synthetic data when unset.
     jobs_api_key: str = ""
     jobs_api_host: str = "jsearch.p.rapidapi.com"
+    # Job matching: only surface roles scoring at/above this (0-100) and aim for
+    # this many per day. fetch_limit is the raw pool pulled across all boards.
+    job_score_threshold: int = 75
+    job_daily_target: int = 30
+    job_fetch_limit: int = 300
     # Free real job source (Remotive API, no key). Real remote roles with apply
     # links. Disabled in tests so they never hit the network.
     enable_free_jobs: bool = True
@@ -141,7 +146,8 @@ class Settings(BaseSettings):
     # Outbound mode: "send" (auto-send now), "send_on_approve", or "draft".
     gmail_outbound_mode: str = "send"
     # Safety cap on auto-sent outreach per day, per account (protects the mailbox).
-    gmail_daily_send_cap: int = 50
+    # Sized for the 3×/day lead passes; lower it if a fresh mailbox gets flagged.
+    gmail_daily_send_cap: int = 120
 
 
 @lru_cache

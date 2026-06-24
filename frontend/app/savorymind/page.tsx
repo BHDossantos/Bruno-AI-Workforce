@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { api } from "@/lib/api";
 import { AuthGate, Expandable, PageHeader, StatusBadge, useFetch } from "@/components/ui";
 
@@ -20,10 +21,26 @@ type Restaurant = {
 };
 
 function SavoryMind() {
-  const { data, loading } = useFetch<Restaurant[]>(() => api.get<Restaurant[]>("/restaurants?kind=prospect&limit=200"));
+  const [refresh, setRefresh] = useState(0);
+  const { data, loading } = useFetch<Restaurant[]>(
+    () => api.get<Restaurant[]>("/restaurants?kind=prospect&limit=200"), [refresh]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState("");
+
+  async function send(id: string) {
+    setBusy(id); setMsg("");
+    try {
+      const r = await api.post<{ ok: boolean; status?: string; reason?: string }>(`/restaurants/${id}/send`, {});
+      setMsg(r.ok ? `✅ Pitch ${r.status?.toLowerCase() || "queued"}` : `❌ ${r.reason || "failed"}`);
+      setRefresh((n) => n + 1);
+    } catch (e) { setMsg(String(e)); }
+    finally { setBusy(null); }
+  }
+
   return (
     <div>
       <PageHeader title="SavoryMind Leads" subtitle="Restaurant prospects with AI menu analysis and pitch" />
+      {msg && <p className="mb-2 text-sm text-gray-600">{msg}</p>}
       {loading && <p className="text-gray-400">Loading…</p>}
       <div className="card overflow-x-auto">
         <table className="w-full">
@@ -36,6 +53,7 @@ function SavoryMind() {
               <th className="th">Menu analysis</th>
               <th className="th">Status</th>
               <th className="th">Pitch</th>
+              <th className="th">Action</th>
             </tr>
           </thead>
           <tbody>
@@ -51,6 +69,12 @@ function SavoryMind() {
                   <Expandable label="Pitch email" text={r.pitch_email} />
                   <Expandable label="LinkedIn msg" text={r.linkedin_msg} />
                   <Expandable label="Demo invite" text={r.follow_up} />
+                </td>
+                <td className="td">
+                  <button onClick={() => send(r.id)} disabled={busy === r.id || !r.email}
+                    className="rounded-lg bg-brand px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
+                    {busy === r.id ? "Sending…" : "Reach out"}
+                  </button>
                 </td>
               </tr>
             ))}

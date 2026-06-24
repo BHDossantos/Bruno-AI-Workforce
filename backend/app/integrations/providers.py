@@ -43,13 +43,28 @@ _COMPANIES = ["NorthStar Cloud", "Vellum AI", "Harbor Data", "Apex Platform", "L
 
 
 def fetch_jobs(limit: int = 60) -> list[dict]:
-    """Live jobs via the JSearch/Indeed aggregator when configured, else synthetic."""
-    live = jobs_api.fetch_jobs(JOB_TITLES, limit=limit)
-    if live:
-        return live
-    free = jobs_free.fetch_jobs(limit=limit)  # real remote roles, no key
-    if free:
-        return free
+    """Real jobs COMBINED across every available board, deduped by apply URL.
+
+    JSearch (RapidAPI) aggregates LinkedIn, Indeed, Glassdoor, ZipRecruiter &
+    company boards; the free sources add Remotive, RemoteOK, Arbeitnow, Jobicy &
+    Himalayas — so a single run sweeps the top platforms. Synthetic only if every
+    real source is empty/unconfigured."""
+    combined: list[dict] = []
+    seen: set[str] = set()
+    for source in (
+        lambda: jobs_api.fetch_jobs(JOB_TITLES, limit=limit),  # LinkedIn/Indeed/Glassdoor/ZipRecruiter
+        lambda: jobs_free.fetch_jobs(limit=limit),             # Remotive/RemoteOK/Arbeitnow/Jobicy/Himalayas
+    ):
+        try:
+            for j in source() or []:
+                url = j.get("url")
+                if url and url not in seen:
+                    seen.add(url)
+                    combined.append(j)
+        except Exception:  # one board failing must not sink the rest
+            continue
+    if combined:
+        return combined
     if not settings.allow_synthetic_fallback:
         return []
     out = []

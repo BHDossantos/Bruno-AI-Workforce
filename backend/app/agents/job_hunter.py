@@ -6,15 +6,18 @@ from datetime import datetime, timezone
 from .. import memory
 from ..ai import client, skills
 from ..ai.prompts import CANDIDATE_PROFILE, JOB_ARTIFACTS
+from ..config import settings
 from ..integrations import apollo, providers
 from ..models import Application, Job
 from .base import BaseAgent
 
-LEADERSHIP_WORDS = ("director", "head", "vp", "chief", "cto")
-CLOUD_WORDS = ("sre", "cloud", "infrastructure", "platform", "reliability")
-AI_DATA_WORDS = ("ai", "data platform", "machine learning", "ml")
-SCORE_THRESHOLD = 70
-DAILY_TARGET = 20  # roles queued per run
+# Tuned to Bruno's résumé: Director-level SRE / Cloud Ops leadership.
+LEADERSHIP_WORDS = ("director", "head of", "head ", "vp", "vice president", "chief",
+                    "cto", "principal", "senior manager", "sr manager")
+CLOUD_WORDS = ("sre", "site reliability", "cloud", "infrastructure", "platform",
+               "devops", "kubernetes", "terraform", "reliability", "observability")
+AI_DATA_WORDS = ("ai", "artificial intelligence", "data platform", "machine learning",
+                 "ml", "mlops", "data engineering")
 
 
 class JobHunterAgent(BaseAgent):
@@ -25,37 +28,41 @@ class JobHunterAgent(BaseAgent):
 
     @staticmethod
     def score_job(job: dict) -> tuple[int, dict]:
+        """0-100 fit score weighted to title/skill match so genuinely-relevant
+        roles clear the 75% bar even when a board hides the salary."""
         title = (job.get("title") or "").lower()
         desc = (job.get("description") or "").lower()
         text = f"{title} {desc}"
         breakdown: dict[str, int] = {}
-        if job.get("remote"):
-            breakdown["remote"] = 25
-        if (job.get("salary_min") or 0) >= 200_000:
-            breakdown["salary_200k_plus"] = 25
         if any(w in title for w in LEADERSHIP_WORDS):
-            breakdown["leadership"] = 20
+            breakdown["leadership"] = 30
         if any(w in text for w in CLOUD_WORDS):
-            breakdown["cloud_sre_match"] = 20
+            breakdown["cloud_sre_match"] = 30
         if any(w in text for w in AI_DATA_WORDS):
-            breakdown["ai_data_platform"] = 10
-        return sum(breakdown.values()), breakdown
+            breakdown["ai_data_platform"] = 15
+        if job.get("remote"):
+            breakdown["remote"] = 15
+        if (job.get("salary_min") or 0) >= 200_000:
+            breakdown["salary_200k_plus"] = 10
+        return min(100, sum(breakdown.values())), breakdown
 
     def execute(self) -> dict:
-        raw = providers.fetch_jobs(limit=80)
+        threshold = settings.job_score_threshold
+        target = settings.job_daily_target
+        raw = providers.fetch_jobs(limit=settings.job_fetch_limit)
         scored = []
         for job in raw:
             score, breakdown = self.score_job(job)
-            if score >= SCORE_THRESHOLD:
+            if score >= threshold:
                 job["score"] = score
                 job["score_breakdown"] = breakdown
                 scored.append(job)
         scored.sort(key=lambda j: j["score"], reverse=True)
-        top = scored[:DAILY_TARGET]
+        top = scored[:target]
 
         # Don't re-add jobs we already have (dedupe by apply URL across runs).
         existing_urls = {u for (u,) in self.db.query(Job.url).filter(Job.url.isnot(None)).all()}
-        top = [j for j in top if j.get("url") not in existing_urls][:DAILY_TARGET]
+        top = [j for j in top if j.get("url") not in existing_urls][:target]
 
         # ── Phase 1: persist scored jobs FAST (no AI) and commit, so the apply
         # queue always has the roles even if enrichment is slow/errors. ──────────
