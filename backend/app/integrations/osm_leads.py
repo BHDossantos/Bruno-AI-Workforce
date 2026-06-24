@@ -41,8 +41,11 @@ COMMERCIAL_OSM = {
 }
 RESTAURANT_OSM = ['node["amenity"~"restaurant|cafe|bar|pub|fast_food"]']
 
-# Bound website scraping per run so the agent doesn't hang.
-_SCRAPE_BUDGET = 120
+# Bound website scraping per run so the agent stays fast (each scrape is a few
+# HTTP fetches). Most leads should come from OSM email tags (zero scraping).
+_SCRAPE_BUDGET = 15
+# Don't scan every configured city — stop once we have enough.
+_MAX_CITIES = 4
 
 
 def is_enabled() -> bool:
@@ -57,16 +60,18 @@ def _clean_email(e: str | None) -> str | None:
     return email_finder.clean_email(e)
 
 
+_TIMEOUT = httpx.Timeout(25.0, connect=5.0)
+
+
 def _post_overpass(body: str) -> list[dict]:
-    """POST a query to Overpass, failing over across mirrors on error/limit."""
+    """POST a query to Overpass, failing over across mirrors on any error/limit."""
     last = ""
     for url in OVERPASS_MIRRORS:
         try:
-            r = httpx.post(url, data={"data": body}, timeout=60)
-            if r.status_code in (429, 502, 503, 504):  # busy → try next mirror
+            r = httpx.post(url, data={"data": body}, timeout=_TIMEOUT)
+            if r.status_code != 200:  # busy/blocked/bad → just try the next mirror
                 last = f"{url} -> HTTP {r.status_code}"
                 continue
-            r.raise_for_status()
             return r.json().get("elements", [])
         except Exception as exc:  # pragma: no cover - network guard
             last = f"{url} -> {exc}"
@@ -76,68 +81,116 @@ def _post_overpass(body: str) -> list[dict]:
 
 
 def _query(selectors: list[str], city: str) -> list[dict]:
+    """One bounded Overpass query for a city, newest-area match.
+
+    Constrains the area to municipal level (admin_level 8 = US city) so a bare
+    city name can't match a whole state. Cities in LEAD_CITIES are unambiguous
+    municipalities, so a single query suffices.
+    """
     parts = []
     for s in selectors:
         for tag in ('["contact:email"]', '["email"]', '["website"]', '["contact:website"]'):
             parts.append(f"{s}{tag}(area.a);")
     inner = "".join(parts)
-    # Constrain the area to municipal levels (city/borough/county) so we never
-    # accidentally match a whole STATE area named the same (e.g. "New York"),
-    # which would time out. Fall back to an unconstrained name match if needed.
-    head_admin = (f'[out:json][timeout:25];'
-                  f'area["name"="{city}"]["boundary"="administrative"]["admin_level"~"6|7|8|9|10"]->.a;')
-    head_plain = f'[out:json][timeout:25];area["name"="{city}"]->.a;'
-    els = _post_overpass(head_admin + "(" + inner + ");out tags 80;")
-    if not els:
-        els = _post_overpass(head_plain + "(" + inner + ");out tags 80;")
+    head = (f'[out:json][timeout:20];'
+            f'area["name"="{city}"]["admin_level"="8"]->.a;')
+    els = _post_overpass(head + "(" + inner + ");out tags 100;")
+    if not els:  # some cities sit at a different admin level — fall back to name
+        head = f'[out:json][timeout:20];area["name"="{city}"]["boundary"="administrative"]->.a;'
+        els = _post_overpass(head + "(" + inner + ");out tags 100;")
     return els
 
 
-def _collect(selectors: list[str], category: str, segment: str, count: int,
-             budget: list[int], seen: set) -> list[dict]:
+def _category_for(t: dict, default: str = "Commercial") -> str:
+    """Best-effort business category from OSM tags (for the lead record)."""
+    if t.get("amenity") in {"restaurant", "cafe", "fast_food", "bar", "pub"}:
+        return "Restaurant"
+    if t.get("craft"):
+        return "Contractor"
+    if t.get("office"):
+        return "Professional services"
+    if t.get("tourism"):
+        return "Hospitality"
+    if t.get("amenity") in {"clinic", "doctors", "dentist", "veterinary", "pharmacy"}:
+        return "Medical office"
+    if t.get("shop"):
+        return "Retail store"
+    return default
+
+
+def _harvest(selectors: list[str], segment: str, count: int) -> list[dict]:
+    """Pull up to ``count`` leads with real emails across a few cities.
+
+    Single Overpass query per city (all selectors at once). Email-tagged
+    businesses are taken instantly; website-only ones are scraped within a small
+    budget so the run never hangs.
+    """
+    seen: set[str] = set()
     out: list[dict] = []
-    for city in _cities():
+    pending: list[tuple[dict, str]] = []  # (tags, city) needing a scrape
+    budget = [_SCRAPE_BUDGET]
+
+    for city in _cities()[:_MAX_CITIES]:
         if len(out) >= count:
             break
         for el in _query(selectors, city):
-            if len(out) >= count:
-                break
             t = el.get("tags", {})
             name = t.get("name")
             if not name:
                 continue
             email = _clean_email(t.get("contact:email") or t.get("email"))
-            website = t.get("website") or t.get("contact:website")
-            if not email and website:
-                email = email_finder.extract_email(website, budget)
-            if not email or email in seen:
-                continue
-            seen.add(email)
-            out.append({
-                "segment": segment, "category": category, "company_name": name,
-                "owner_name": None, "email": email,
-                "phone": t.get("phone") or t.get("contact:phone"),
-                "website": website, "linkedin": None, "industry": category, "city": city,
-            })
-    return out
+            if email:
+                if email in seen:
+                    continue
+                seen.add(email)
+                out.append(_row(t, email, city, segment))
+                if len(out) >= count:
+                    break
+            elif t.get("website") or t.get("contact:website"):
+                pending.append((t, city))
+
+    # Fill any shortfall by scraping website-only businesses (bounded).
+    for t, city in pending:
+        if len(out) >= count or budget[0] <= 0:
+            break
+        website = t.get("website") or t.get("contact:website")
+        email = email_finder.extract_email(website, budget)
+        if not email or email in seen:
+            continue
+        seen.add(email)
+        out.append(_row(t, email, city, segment))
+
+    return out[:count]
+
+
+def _row(t: dict, email: str, city: str, segment: str) -> dict:
+    cat = _category_for(t)
+    return {
+        "segment": segment, "category": cat, "company_name": t.get("name"),
+        "owner_name": None, "email": email,
+        "phone": t.get("phone") or t.get("contact:phone"),
+        "website": t.get("website") or t.get("contact:website"),
+        "linkedin": None, "industry": cat, "city": city,
+    }
+
+
+def _all_commercial_selectors() -> list[str]:
+    sels: list[str] = []
+    for v in COMMERCIAL_OSM.values():
+        sels.extend(v)
+    return sels
 
 
 def fetch_commercial_leads(count: int) -> list[dict]:
     if not is_enabled():
         return []
-    budget, seen, out = [_SCRAPE_BUDGET], set(), []
-    per = max(5, count // max(1, len(COMMERCIAL_OSM)))
-    for cat, sels in COMMERCIAL_OSM.items():
-        if len(out) >= count:
-            break
-        out.extend(_collect(sels, cat, "commercial", per, budget, seen))
-    return out[:count]
+    return _harvest(_all_commercial_selectors(), "commercial", count)
 
 
 def fetch_restaurants(count: int) -> list[dict]:
     if not is_enabled():
         return []
-    rows = _collect(RESTAURANT_OSM, "Restaurant", "commercial", count, [_SCRAPE_BUDGET], set())
+    rows = _harvest(RESTAURANT_OSM, "commercial", count)
     return [{
         "kind": "prospect", "name": r["company_name"], "owner_manager": None,
         "website": r["website"], "menu_url": None, "instagram": None,

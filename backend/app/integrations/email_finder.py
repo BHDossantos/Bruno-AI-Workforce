@@ -15,8 +15,9 @@ _MAILTO_RE = re.compile(r"mailto:([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}
 _BAD = ("example.", "@2x", ".png", ".jpg", ".jpeg", ".gif", ".webp", "sentry", "wixpress",
         "your@", "email@", "domain.com", "@sentry", "godaddy", "u003e", "@example",
         "name@", "test@test")
-_PATHS = ("", "/contact", "/contact-us", "/contactus", "/about", "/about-us", "/team")
+_PATHS = ("", "/contact", "/about")
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; BrunoAI/1.0; +https://example.com/bot)"}
+_TIMEOUT = httpx.Timeout(5.0, connect=4.0)
 
 
 def clean_email(e: str | None) -> str | None:
@@ -40,7 +41,7 @@ def extract_email(url: str | None, budget: list[int]) -> str | None:
     base = url.rstrip("/")
     for path in _PATHS:
         try:
-            r = httpx.get(base + path, timeout=8, follow_redirects=True, headers=_HEADERS)
+            r = httpx.get(base + path, timeout=_TIMEOUT, follow_redirects=True, headers=_HEADERS)
             html = r.text
             for m in _MAILTO_RE.findall(html):   # explicit mailto links first
                 e = clean_email(m)
