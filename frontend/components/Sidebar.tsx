@@ -6,6 +6,7 @@ import { clearToken } from "@/lib/api";
 
 const NAV = [
   { href: "/", label: "Home Dashboard", icon: "🏠" },
+  { href: "/centers", label: "Command Centers", icon: "🎖️" },
   { href: "/analytics", label: "Funnel Analytics", icon: "📊" },
   { href: "/jobs", label: "Jobs", icon: "💼" },
   { href: "/apply", label: "Apply Queue", icon: "✅" },

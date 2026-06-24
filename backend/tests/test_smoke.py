@@ -287,6 +287,17 @@ def test_scoring_weights_prioritize_high_roi_objectives():
     assert scoring._score(100, 0.9, 1, 1, 1) > scoring._score(100, 0.3, 1, 1, 1)
 
 
+def test_commanders_map_to_real_agents():
+    from app.agents import AGENTS
+    from app.commanders import COMMANDERS
+    covered = set()
+    for spec in COMMANDERS.values():
+        for k in spec["agents"]:
+            assert k in AGENTS  # every commander directs real agents
+            covered.add(k)
+    assert {"job_hunter", "insurance", "savorymind", "music", "instagram"} <= covered
+
+
 def test_memory_cosine_similarity():
     from app.memory import _cosine
     assert _cosine([1, 0], [1, 0]) == 1.0
@@ -551,6 +562,20 @@ def test_outreach_bumps_contact_count():
         assert lead.times_contacted == 2 and lead.last_contacted_at is not None
     finally:
         db.rollback(); db.close()
+
+
+@requires_db
+def test_commander_rollup_and_status(client, auth_headers):
+    # The daily cycle (run via the CEO→Commander→Agent hierarchy) already ran.
+    from app import commanders
+    from app.database import SessionLocal
+    db = SessionLocal()
+    commanders.rollup_objectives(db)
+    db.close()
+    cc = client.get("/commanders", headers=auth_headers).json()
+    centers = {c["center"] for c in cc}
+    assert {"wealth", "business", "influence"} <= centers
+    assert all("pipeline_value" in c for c in cc)
 
 
 @requires_db

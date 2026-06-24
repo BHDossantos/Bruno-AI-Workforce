@@ -55,6 +55,12 @@ def command_centers(db: Session = Depends(get_db), _=Depends(_read)):
     return out
 
 
+@router.get("/commanders")
+def commanders_status(db: Session = Depends(get_db), _=Depends(_read)):
+    from .. import commanders
+    return commanders.status(db)
+
+
 @router.get("/scoreboard")
 def scoreboard(db: Session = Depends(get_db), _=Depends(_read)):
     """The six roll-up metrics everything else feeds into."""
