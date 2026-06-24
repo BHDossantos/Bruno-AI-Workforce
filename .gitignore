@@ -32,3 +32,4 @@ n8n-data/
 .idea/
 .vscode/
 *.swp
+.env.production
