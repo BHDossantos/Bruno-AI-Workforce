@@ -19,6 +19,7 @@ const NAV = [
   { href: "/texts", label: "Texts", icon: "💬" },
   { href: "/queue", label: "Outreach Queue", icon: "✋" },
   { href: "/brief", label: "Daily Brief", icon: "📋" },
+  { href: "/memory", label: "Memory / Knowledge", icon: "🧠" },
   { href: "/settings", label: "Brand Profile", icon: "⚙️" },
 ];
 

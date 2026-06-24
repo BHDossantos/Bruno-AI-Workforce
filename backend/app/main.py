@@ -17,6 +17,7 @@ from .routers import (
     instagram,
     jobs,
     leads,
+    memory,
     messages,
     music,
     outreach_queue,
@@ -77,6 +78,7 @@ app.include_router(connections.router)
 app.include_router(profile.router)
 app.include_router(analytics.router)
 app.include_router(executive.router)
+app.include_router(memory.router)
 
 
 @app.get("/health", tags=["system"])

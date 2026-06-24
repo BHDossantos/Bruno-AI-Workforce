@@ -287,6 +287,31 @@ def test_scoring_weights_prioritize_high_roi_objectives():
     assert scoring._score(100, 0.9, 1, 1, 1) > scoring._score(100, 0.3, 1, 1, 1)
 
 
+def test_memory_cosine_similarity():
+    from app.memory import _cosine
+    assert _cosine([1, 0], [1, 0]) == 1.0
+    assert _cosine([1, 0], [0, 1]) == 0.0
+    assert _cosine([], [1]) == 0.0
+    assert _cosine([1, 1], [1, 1]) > _cosine([1, 1], [1, 0])
+
+
+@requires_db
+def test_memory_add_search_recall(client, auth_headers):
+    # Add a fact (no OpenAI in CI -> embedding is None, keyword search path).
+    r = client.post("/memory", headers=auth_headers, json={
+        "content": "Recruiter Jane at Acme is hiring a Director of SRE",
+        "subject": "Jane", "kind": "contact"})
+    assert r.status_code == 200 and "id" in r.json()
+    # Dedupe: same content+subject doesn't create a second row.
+    client.post("/memory", headers=auth_headers, json={
+        "content": "Recruiter Jane at Acme is hiring a Director of SRE", "subject": "Jane"})
+
+    hits = client.get("/memory?q=Director%20of%20SRE", headers=auth_headers).json()
+    assert any("Director of SRE" in h["content"] for h in hits)
+    recall = client.get("/memory/recall?subject=Jane", headers=auth_headers).json()
+    assert len(recall) == 1  # deduped
+
+
 def test_analytics_funnel_is_monotonic():
     from app.routers.analytics import _funnel
 
