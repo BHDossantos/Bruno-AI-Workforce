@@ -13,7 +13,7 @@ from __future__ import annotations
 import random
 
 from ..config import settings
-from . import apollo, jobs_api, osm_leads, places
+from . import apollo, jobs_api, jobs_free, osm_leads, places
 
 # Deterministic-ish but varied output per run.
 _rng = random.Random()
@@ -47,6 +47,9 @@ def fetch_jobs(limit: int = 60) -> list[dict]:
     live = jobs_api.fetch_jobs(JOB_TITLES, limit=limit)
     if live:
         return live
+    free = jobs_free.fetch_jobs(limit=limit)  # real remote roles, no key
+    if free:
+        return free
     if not settings.allow_synthetic_fallback:
         return []
     out = []

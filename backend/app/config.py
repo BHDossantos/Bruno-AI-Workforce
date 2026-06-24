@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     # compatible JSearch host). Falls back to synthetic data when unset.
     jobs_api_key: str = ""
     jobs_api_host: str = "jsearch.p.rapidapi.com"
+    # Free real job source (Remotive API, no key). Real remote roles with apply
+    # links. Disabled in tests so they never hit the network.
+    enable_free_jobs: bool = True
     # When False, agents use ONLY live-sourced data (no synthetic top-up to hit
     # target counts). Set False in production once real sourcing is in place.
     allow_synthetic_fallback: bool = True

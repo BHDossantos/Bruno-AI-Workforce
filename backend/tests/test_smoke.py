@@ -53,6 +53,16 @@ def test_live_sources_disabled_without_keys():
     assert jobs_api.fetch_jobs(["Director SRE"], limit=5) == []
 
 
+def test_free_jobs_gated_off_in_tests_and_parse_salary():
+    from app.integrations import jobs_free
+
+    assert jobs_free.is_enabled() is False          # ENABLE_FREE_JOBS=false in tests
+    assert jobs_free.fetch_jobs(10) == []           # disabled → no network
+    assert jobs_free._salary("$180k - $220k") == 180000
+    assert jobs_free._salary("210000") == 210000
+    assert jobs_free._salary(None) is None
+
+
 def test_jobs_api_maps_jsearch_payload():
     mapped = jobs_api._map({
         "job_title": "Director SRE", "employer_name": "Acme",
@@ -358,6 +368,22 @@ def test_social_queue_endpoint(client, auth_headers):
     r = client.get("/outreach/social", headers=auth_headers)
     assert r.status_code == 200
     assert isinstance(r.json(), list)
+
+
+@requires_db
+def test_job_apply_queue_and_mark(client, auth_headers):
+    # The daily cycle already created jobs; the queue returns pending ones.
+    q = client.get("/jobs/queue", headers=auth_headers).json()
+    assert isinstance(q, list) and q, "expected queued jobs from the daily run"
+    item = q[0]
+    assert item["url"] and "title" in item and "score" in item
+
+    # Marking a job 'Applied' removes it from the queue.
+    r = client.post("/jobs/queue/mark", headers=auth_headers,
+                    json={"job_id": item["job_id"], "status": "Applied"})
+    assert r.status_code == 200 and r.json()["ok"] is True
+    q2 = client.get("/jobs/queue", headers=auth_headers).json()
+    assert all(x["job_id"] != item["job_id"] for x in q2)
 
 
 @requires_db

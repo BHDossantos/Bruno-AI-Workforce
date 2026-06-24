@@ -52,48 +52,64 @@ class JobHunterAgent(BaseAgent):
         scored.sort(key=lambda j: j["score"], reverse=True)
         top = scored[:DAILY_TARGET]
 
-        sysp = skills.system_prompt("copywriting", "cold-email")
-        saved, applied = 0, 0
+        # ── Phase 1: persist scored jobs FAST (no AI) and commit, so the apply
+        # queue always has the roles even if enrichment is slow/errors. ──────────
+        pairs: list[tuple[Job, dict]] = []
         for job in top:
-            artifacts = client.complete_json(JOB_ARTIFACTS.format(
-                profile=CANDIDATE_PROFILE, title=job["title"], company=job["company"],
-                location=job["location"], description=job["description"],
-            ), system=sysp)
             row = Job(
                 title=job["title"], company=job["company"], location=job["location"],
                 remote=job["remote"], salary_min=job["salary_min"], salary_max=job["salary_max"],
                 source=job["source"], url=job["url"], description=job["description"],
                 score=job["score"], score_breakdown=job["score_breakdown"],
-                resume_match=_as_text(artifacts.get("resume_match")),
-                cover_letter=artifacts.get("cover_letter"),
-                recruiter_msg=artifacts.get("recruiter_msg"),
-                hiring_msg=artifacts.get("hiring_msg"),
             )
             self.db.add(row)
-            self.db.flush()
+            pairs.append((row, job))
+        self.db.commit()
+        saved = len(pairs)
 
-            # Auto-apply via direct outreach: find a recruiter / hiring manager and reach out.
-            contact = apollo.find_hiring_contact(job["company"])
-            app_status, applied_at, notes = "New", None, "No hiring contact found"
-            if contact and contact.get("email"):
-                body = artifacts.get("hiring_msg") or artifacts.get("cover_letter")
-                msg = self.dispatch_email(
-                    entity_type="job", entity_id=row.id, to_email=contact["email"],
-                    subject=f"Re: {job['title']} at {job['company']}", body=body, account="personal")
-                notes = f"Contact: {contact.get('owner_name')} <{contact['email']}>"
-                if msg.status == "Sent":
-                    app_status, applied_at, applied = "Sent", datetime.now(timezone.utc), applied + 1
-                else:
-                    app_status = "Drafted"
-                self.schedule_follow_ups("job", row.id)
-            self.db.add(Application(job_id=row.id, status=app_status, applied_at=applied_at, notes=notes))
-            saved += 1
+        # ── Phase 2: AI application materials + a 'New' Application (queued for
+        # one-click apply). Resilient per-job. We do NOT bot-submit anywhere. ─────
+        sysp = skills.system_prompt("copywriting", "cold-email")
+        enriched = applied = 0
+        for row, job in pairs:
+            try:
+                artifacts = client.complete_json(JOB_ARTIFACTS.format(
+                    profile=CANDIDATE_PROFILE, title=job["title"], company=job["company"],
+                    location=job["location"], description=job["description"],
+                ), system=sysp)
+                artifacts = artifacts if isinstance(artifacts, dict) else {}
+                row.resume_match = _as_text(artifacts.get("resume_match"))
+                row.cover_letter = artifacts.get("cover_letter")
+                row.recruiter_msg = artifacts.get("recruiter_msg")
+                row.hiring_msg = artifacts.get("hiring_msg")
+
+                # Optional: if a hiring contact is found (Apollo), email them directly.
+                contact = apollo.find_hiring_contact(job["company"])
+                app_status, applied_at, notes = "New", None, "Queued for one-click apply"
+                if contact and contact.get("email"):
+                    body = artifacts.get("hiring_msg") or artifacts.get("cover_letter")
+                    msg = self.dispatch_email(
+                        entity_type="job", entity_id=row.id, to_email=contact["email"],
+                        subject=f"Re: {job['title']} at {job['company']}", body=body, account="personal")
+                    notes = f"Contact: {contact.get('owner_name')} <{contact['email']}>"
+                    if msg.status == "Sent":
+                        app_status, applied_at, applied = "Sent", datetime.now(timezone.utc), applied + 1
+                    else:
+                        app_status = "Drafted"
+                    self.schedule_follow_ups("job", row.id)
+                self.db.add(Application(job_id=row.id, status=app_status, applied_at=applied_at, notes=notes))
+                enriched += 1
+                self.db.commit()
+            except Exception:  # one bad job must not drop the rest
+                self.db.rollback()
 
         self.log_action("jobs_saved", entity="jobs", detail={"count": saved, "applied": applied})
         return {
-            "summary": f"Found {len(scored)} qualified jobs, saved top {saved}, auto-reached {applied} hiring contacts.",
+            "summary": f"Found {len(scored)} qualified jobs, queued top {saved} for one-click apply "
+                       f"({applied} hiring contacts emailed directly).",
             "found": len(scored),
             "saved": saved,
+            "enriched": enriched,
             "applied": applied,
             "top_titles": [j["title"] for j in top[:10]],
         }
