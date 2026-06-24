@@ -62,14 +62,20 @@ Useful optional vars (all have safe defaults):
   Set `APPLICANT_LINKEDIN` to your profile URL.
 
 ## Daily automation (run the AI workforce on a schedule)
-The full CEO→Commander→Agent cycle runs at `POST /cron/run-all` (header
-`X-Cron-Token: $CRON_SECRET`). Wire it with Cloud Scheduler:
+One idempotent script provisions all the Cloud Scheduler jobs:
 ```bash
-gcloud scheduler jobs create http bruno-daily \
-  --schedule="0 6 * * *" --time-zone="America/New_York" \
-  --uri="https://ai-workforce-746155486511.europe-west1.run.app/cron/run-all" \
-  --http-method=POST --headers="X-Cron-Token=<CRON_SECRET>"
+CRON_SECRET='<same value as the backend CRON_SECRET>' ./scripts/setup-scheduler.sh
 ```
+It creates (or updates) three jobs that call the token-protected `/cron/*`
+endpoints:
+
+| Job | Schedule (America/New_York) | Endpoint | What it does |
+|---|---|---|---|
+| `bruno-daily-run` | 6:00 AM daily | `/cron/run-all` | Full CEO→Commander→Agent cycle |
+| `bruno-inbound` | every 30 min | `/cron/inbound` | Sync replies, classify, auto warm-text |
+| `bruno-followups` | 9 AM & 2 PM, Mon–Fri | `/cron/followups` | Send due follow-ups |
+
+Override `PROJECT`, `LOCATION`, `API_URL`, or `TZ` via env vars if needed.
 
 ## Automatic deploys (CI/CD) — never touch the CLI
 `.github/workflows/deploy.yml` deploys **automatically after CI passes on
