@@ -24,7 +24,9 @@ function Importer() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(JSON.stringify(data));
-      setResult(`✅ Imported ${data.imported}, sent ${data.sent}, skipped (no email) ${data.skipped_no_email}.`);
+      setResult(type === "contacts"
+        ? `✅ Imported ${data.imported} contacts into the CRM, skipped ${data.skipped}.`
+        : `✅ Imported ${data.imported}, sent ${data.sent}, skipped (no email) ${data.skipped_no_email}.`);
     } catch (e) {
       setResult(`❌ ${e}`);
     } finally {
@@ -41,6 +43,7 @@ function Importer() {
           <select value={type} onChange={(e) => setType(e.target.value)} className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2">
             <option value="leads">Insurance leads (sent from Thrust Insurance)</option>
             <option value="restaurants">Restaurants / SavoryMind (sent from personal)</option>
+            <option value="contacts">Personal contacts → CRM (Google export, NOT auto-emailed)</option>
           </select>
         </div>
         <div>
@@ -48,13 +51,14 @@ function Importer() {
           <input type="file" accept=".csv" onChange={(e) => setFile(e.target.files?.[0] || null)}
                  className="mt-1 block w-full text-sm" />
           <p className="mt-1 text-xs text-gray-500">
-            Required column: <b>email</b>. Optional: company_name, owner_name, phone, website, linkedin, industry, segment, category.
-            {" "}
-            <a className="text-brand hover:underline" href={`${API_URL}/import/template/${type}.csv`} target="_blank" rel="noreferrer">Download template</a>
+            {type === "contacts"
+              ? "Upload your Google Contacts export as-is (First Name, E-mail 1 - Value, Phone 1 - Value, Organization…). They land in the Universal CRM — searchable, never auto-emailed."
+              : <>Required column: <b>email</b>. Optional: company_name, owner_name, phone, website, linkedin, industry, segment, category.{" "}
+                  <a className="text-brand hover:underline" href={`${API_URL}/import/template/${type}.csv`} target="_blank" rel="noreferrer">Download template</a></>}
           </p>
         </div>
         <button className="btn" onClick={upload} disabled={!file || busy}>
-          {busy ? "Importing & sending…" : "Import & send"}
+          {busy ? (type === "contacts" ? "Importing…" : "Importing & sending…") : (type === "contacts" ? "Import to CRM" : "Import & send")}
         </button>
         {result && <p className="rounded bg-gray-50 p-3 text-sm">{result}</p>}
         <p className="text-xs text-gray-400">

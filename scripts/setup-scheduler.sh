@@ -41,8 +41,13 @@ upsert_job() {
   fi
 }
 
-# Full CEO → Commander → Agent cycle, every morning (give it a long deadline).
+# Full CEO → Commander → Agent cycle every morning (jobs + leads + cold emails
+# + the executive report). Long deadline since it runs every agent.
 upsert_job "bruno-daily-run"  "0 6 * * *"   "/cron/run-all"  "1800s"
+# Lead-gen + auto cold-email pass 3× a day (noon & 5 PM in addition to the 6 AM
+# full run) — each pass finds fresh prospects AND sends their cold emails.
+upsert_job "bruno-leads-noon" "0 12 * * *"  "/cron/leads"    "1200s"
+upsert_job "bruno-leads-eve"  "0 17 * * *"  "/cron/leads"    "1200s"
 # Sync inbound replies (classify + auto warm-text) frequently.
 upsert_job "bruno-inbound"    "*/30 * * * *" "/cron/inbound"  "320s"
 # Process due follow-ups twice a day on business days.

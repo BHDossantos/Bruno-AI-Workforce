@@ -20,6 +20,23 @@ log = logging.getLogger("bruno.inbound")
 ACCOUNTS = [gmail.PERSONAL, gmail.INSURANCE]
 
 
+def _draft_reply(db: Session, sender: str, reply: dict, cls: dict, account: str) -> None:
+    """Generate a concise reply with AI and save it as a draft for one-click send."""
+    from . import outreach
+    from .ai import client, skills
+    body = client.complete(
+        f"A prospect ({sender}) replied to our outreach. Their message:\n"
+        f"\"{reply.get('snippet', '')}\"\n\nIntent: {cls.get('intent')}.\n"
+        "Write a short, warm, helpful reply (max 120 words) that moves toward a call. "
+        "No subject line, no placeholders.",
+        system=skills.system_prompt("cold-email"))
+    if not body or body.startswith("["):
+        return  # offline stub — skip
+    outreach.dispatch_email(db, entity_type="reply", entity_id=None, to_email=sender,
+                            subject=f"Re: {reply.get('subject') or 'your note'}",
+                            body=body, account=account, actor="inbound", force_draft=True)
+
+
 def sync_replies(db: Session, newer_than_days: int = 3) -> dict:
     matched = 0
     scanned = 0
@@ -67,6 +84,12 @@ def sync_replies(db: Session, newer_than_days: int = 3) -> dict:
                                kind="event", subject=sender, source="inbound")
                 except Exception:  # never let memory break the sync
                     log.debug("memory capture skipped", exc_info=True)
+
+                # AI-draft a reply (kept as a draft for one-click review/send).
+                try:
+                    _draft_reply(db, sender, reply, cls, account)
+                except Exception:
+                    log.debug("reply draft skipped", exc_info=True)
 
     db.commit()
     log.info("Inbound sync: scanned %d, matched %d", scanned, matched)

@@ -16,19 +16,58 @@ from . import outreach
 from .agents.base import FOLLOW_UP_OFFSETS
 from .ai import client, skills
 from .ai.prompts import INSURANCE_OUTREACH, SAVORYMIND_PITCH
-from .models import FollowUp, Lead, Restaurant
+from .models import FollowUp, Lead, ManualContact, Restaurant
 
 log = logging.getLogger("bruno.importer")
 
 
 def _g(row: dict, *keys: str) -> str | None:
-    """Case-insensitive get across possible column names."""
+    """Case-insensitive get across possible column names. Multi-value Google
+    fields ('a ::: b') return the first value."""
     lower = {(k or "").strip().lower(): v for k, v in row.items()}
     for k in keys:
         v = lower.get(k.lower())
         if v and str(v).strip():
-            return str(v).strip()
+            return str(v).split(":::")[0].strip()
     return None
+
+
+def process_contacts_csv(db: Session, rows: list[dict]) -> dict:
+    """Import a personal contact list (e.g. a Google Contacts export) into the
+    Universal CRM. These are NOT auto-emailed — they become searchable contacts
+    you can choose to reach out to. Handles Google's 'First Name', 'E-mail 1 -
+    Value', 'Phone 1 - Value', 'Organization Name/Title' columns."""
+    imported = skipped = 0
+    seen: set[str] = set()
+    existing = {e.lower() for (e,) in db.query(ManualContact.email)
+                .filter(ManualContact.email.isnot(None)).all()}
+    for row in rows:
+        name = " ".join(p for p in [_g(row, "first name", "given name"),
+                                    _g(row, "middle name"),
+                                    _g(row, "last name", "family name")] if p)
+        name = name or _g(row, "file as", "name") or _g(row, "organization name")
+        email = _g(row, "e-mail 1 - value", "email 1 - value", "e-mail 2 - value",
+                   "email", "email_address")
+        phone = _g(row, "phone 1 - value", "phone 2 - value", "phone")
+        if not email and not phone:
+            skipped += 1  # nothing actionable
+            continue
+        name = name or email or phone
+        dedupe = (email or "").lower() or f"{name}|{phone}".lower()
+        if dedupe in seen or (email and email.lower() in existing):
+            skipped += 1
+            continue
+        seen.add(dedupe)
+        db.add(ManualContact(
+            name=name, email=email, phone=phone,
+            company=_g(row, "organization name"), title=_g(row, "organization title"),
+            kind="contact", notes=_g(row, "notes")))
+        imported += 1
+        if imported % 500 == 0:
+            db.commit()
+    db.commit()
+    log.info("Imported %d contacts (%d skipped)", imported, skipped)
+    return {"imported": imported, "skipped": skipped}
 
 
 def _schedule_followups(db: Session, entity_type: str, entity_id) -> None:

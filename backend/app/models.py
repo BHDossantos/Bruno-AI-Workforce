@@ -330,6 +330,44 @@ class BrandProfile(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class Account(Base):
+    """A financial account or holding. Net worth = assets − liabilities."""
+    __tablename__ = "accounts"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    kind: Mapped[str] = mapped_column(String, default="asset")        # asset|liability
+    category: Mapped[str | None] = mapped_column(String)             # checking|savings|investment|credit|loan|cash|property
+    balance: Mapped[float] = mapped_column(Numeric(14, 2), default=0)
+    currency: Mapped[str] = mapped_column(String, default="USD")
+    institution: Mapped[str | None] = mapped_column(String)
+    source: Mapped[str] = mapped_column(String, default="manual")    # manual|plaid|import
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Transaction(Base):
+    """A money movement. amount > 0 = income, amount < 0 = expense."""
+    __tablename__ = "transactions"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    date: Mapped[date] = mapped_column(Date, index=True)
+    amount: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False)
+    category: Mapped[str | None] = mapped_column(String, index=True)
+    description: Mapped[str | None] = mapped_column(String)
+    account_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("accounts.id"))
+    source: Mapped[str] = mapped_column(String, default="manual")    # manual|csv|plaid
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SocialSnapshot(Base):
+    """A point-in-time follower/reach reading per platform, for growth charts."""
+    __tablename__ = "social_snapshots"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    platform: Mapped[str] = mapped_column(String, index=True)
+    followers: Mapped[int | None] = mapped_column(Integer)
+    reach: Mapped[int | None] = mapped_column(Integer)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class BrowserTask(Base):
     """A browser-worker job — e.g. fill a job application form. Holds the prepared
     field map and the run result. Status: prepared → running → needs_review →

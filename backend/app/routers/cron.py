@@ -37,6 +37,23 @@ def run_all(x_cron_token: str | None = Header(default=None), db: Session = Depen
     return commanders.run_ceo(db)  # CEO → Commander → Agent hierarchy
 
 
+@router.post("/leads")
+def cron_leads(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
+    """Lead-gen + auto cold-email pass: the insurance and SavoryMind agents each
+    find fresh prospects AND send their cold emails in one run. Schedule this a
+    few times a day so you wake up to outreach already sent."""
+    _auth(x_cron_token)
+    out = {}
+    for key in ("insurance", "savorymind"):
+        cls = AGENTS.get(key)
+        if cls:
+            try:
+                out[key] = cls(db).run()
+            except Exception as exc:  # one agent failing must not stop the other
+                out[key] = {"error": str(exc)}
+    return out
+
+
 @router.post("/followups")
 def cron_followups(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
     _auth(x_cron_token)

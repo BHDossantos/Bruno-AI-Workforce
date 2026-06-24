@@ -64,15 +64,36 @@ def _get_json(url: str, **params):
         return None
 
 
+# Search terms tuned to Bruno's résumé (Director SRE / Cloud Ops leadership).
+_SEARCH_TERMS = (
+    "director sre", "director cloud", "head of engineering", "head of platform",
+    "site reliability", "platform engineering", "cloud infrastructure",
+    "vp engineering", "director infrastructure", "director data platform",
+)
+
+
 def _remotive() -> list[dict]:
     out = []
-    for term in ("director", "head of engineering", "cloud", "site reliability", "platform"):
+    for term in _SEARCH_TERMS:
         data = _get_json("https://remotive.com/api/remote-jobs", search=term, limit=50)
         for j in (data or {}).get("jobs", []):
             out.append({"title": j.get("title"), "company": j.get("company_name"),
                         "location": j.get("candidate_required_location") or "Remote",
                         "salary_min": _salary(j.get("salary")), "source": "remotive",
                         "url": j.get("url"), "description": _strip_html(j.get("description"))})
+    return out
+
+
+def _himalayas() -> list[dict]:
+    data = _get_json("https://himalayas.app/jobs/api", limit=100)
+    out = []
+    for j in (data or {}).get("jobs", []):
+        loc = j.get("locationRestrictions") or ["Remote"]
+        out.append({"title": j.get("title"), "company": j.get("companyName"),
+                    "location": (loc[0] if loc else "Remote"),
+                    "salary_min": _salary(j.get("minSalary")), "source": "himalayas",
+                    "url": j.get("applicationLink") or j.get("guid"),
+                    "description": _strip_html(j.get("description"))})
     return out
 
 
@@ -114,7 +135,7 @@ def _jobicy() -> list[dict]:
     return out
 
 
-_SOURCES = (_remotive, _remoteok, _arbeitnow, _jobicy)
+_SOURCES = (_remotive, _remoteok, _arbeitnow, _jobicy, _himalayas)
 
 
 def fetch_jobs(limit: int = 60) -> list[dict]:

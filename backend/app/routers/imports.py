@@ -29,6 +29,12 @@ async def import_restaurants(file: UploadFile = File(...), db: Session = Depends
     return importer.process_restaurants_csv(db, await _rows(file))
 
 
+@router.post("/contacts")
+async def import_contacts(file: UploadFile = File(...), db: Session = Depends(get_db), _=Depends(_write)):
+    """Import a personal contact list (Google Contacts export) into the CRM."""
+    return importer.process_contacts_csv(db, await _rows(file))
+
+
 @router.get("/template/leads.csv", response_class=PlainTextResponse)
 def leads_template():
     return ("email,company_name,owner_name,phone,website,linkedin,industry,segment,category\n"

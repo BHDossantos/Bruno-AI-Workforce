@@ -9,6 +9,7 @@ gates); it falls back to a plain sequential run so the daily cycle never breaks.
 from __future__ import annotations
 
 import logging
+from typing import TypedDict
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -65,6 +66,9 @@ def rollup_objectives(db: Session) -> None:
         if obj is not None:
             obj.current_value = val
     db.commit()
+    # Net worth rolls up from the finance ledger.
+    from . import finance
+    finance.rollup(db)
 
 
 # ── Orchestration ────────────────────────────────────────────────────────────
@@ -87,29 +91,30 @@ def _run_sequential(db: Session) -> dict:
     return results
 
 
+class _GraphState(TypedDict, total=False):
+    """Shared state passed between LangGraph nodes. Module-level so LangGraph's
+    type-hint introspection can resolve it (a local class breaks get_type_hints)."""
+    results: dict
+
+
 def _run_langgraph(db: Session) -> dict:
     """Run commanders through a LangGraph StateGraph (CEO → commanders → rollup)."""
-    from typing import TypedDict
-
     from langgraph.graph import END, START, StateGraph
 
-    class State(TypedDict, total=False):
-        results: dict
-
     def node(center):
-        def _fn(state: State) -> State:
+        def _fn(state: _GraphState) -> _GraphState:
             res = dict(state.get("results") or {})
             res[center] = _run_commander(db, center)
             return {"results": res}
         return _fn
 
-    def rollup_node(state: State) -> State:
+    def rollup_node(state: _GraphState) -> _GraphState:
         rollup_objectives(db)
         res = dict(state.get("results") or {})
         res["ceo_report"] = _run_ceo_agent(db)  # CEO summarizes after commanders
         return {"results": res}
 
-    g = StateGraph(State)
+    g = StateGraph(_GraphState)
     order = list(COMMANDERS)
     for c in order:
         g.add_node(c, node(c))

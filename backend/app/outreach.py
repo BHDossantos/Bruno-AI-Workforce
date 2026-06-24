@@ -70,8 +70,11 @@ def _log(db: Session, actor: str, action: str, msg: Message, **detail) -> None:
 
 def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | None,
                    subject: str | None, body: str | None, account: str = "personal",
-                   actor: str = "system") -> Message:
-    """Create a Message and route it via Gmail per the configured mode."""
+                   actor: str = "system", force_draft: bool = False) -> Message:
+    """Create a Message and route it via Gmail per the configured mode.
+
+    force_draft keeps it a draft regardless of GMAIL_OUTBOUND_MODE (used for
+    replies, which a human should review before sending)."""
     body = email_template.clean_body(body)  # strip AI placeholders/sign-offs once
     msg = Message(channel="email", direction="outbound", entity_type=entity_type,
                   entity_id=entity_id, to_email=to_email, from_account=account,
@@ -86,7 +89,7 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
         _log(db, actor, "send_skipped_synthetic", msg, to=to_email)
         return msg
 
-    mode = settings.gmail_outbound_mode
+    mode = "draft" if force_draft else settings.gmail_outbound_mode
     if mode == "send" and already_contacted_today(db, to_email):
         _log(db, actor, "send_skipped_duplicate", msg, to=to_email)
         return msg

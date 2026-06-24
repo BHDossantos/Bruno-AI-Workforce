@@ -12,6 +12,8 @@ from .models import Objective
 
 # command_center keys: wealth | business | influence | personal | life_ops
 DEFAULTS = [
+    dict(key="net_worth", name="Grow net worth to $1M",
+         command_center="wealth", metric="net_worth", target_value=1_000_000, rank=1, weight=1.0),
     dict(key="exec_role", name="Land a $250–350k executive role",
          command_center="wealth", metric="income", target_value=300_000, rank=1, weight=1.0),
     dict(key="insurance", name="Grow the insurance book (fast cash flow)",

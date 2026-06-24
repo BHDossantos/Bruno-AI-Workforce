@@ -123,10 +123,12 @@ def scoreboard(db: Session = Depends(get_db), _=Depends(_read)):
         Restaurant.kind == "prospect").scalar() or 0
     followers = db.query(func.coalesce(func.sum(MusicPlaylist.followers), 0)).scalar() or 0
     ig = db.query(func.count()).select_from(InstagramTarget).scalar() or 0
+    from .. import finance
+    fin = finance.summary(db)
     return {
-        "monthly_income": 0,          # wire to real income source later
+        "monthly_income": fin["monthly_income"],
         "pipeline_value": pipeline,
-        "net_worth": 0,               # wire to investments/banking later
+        "net_worth": fin["net_worth"],
         "leads": int(leads),
         "users": int(restaurants),    # SavoryMind prospects as a proxy until live
         "reach": int(followers) + int(ig),

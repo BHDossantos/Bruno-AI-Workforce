@@ -18,9 +18,14 @@ def test_job_scoring_rules():
     )
     assert score == 100
     assert breakdown == {
-        "remote": 25, "salary_200k_plus": 25, "leadership": 20,
-        "cloud_sre_match": 20, "ai_data_platform": 10,
+        "leadership": 30, "cloud_sre_match": 30, "ai_data_platform": 15,
+        "remote": 15, "salary_200k_plus": 10,
     }
+    # A relevant leadership+cloud role still clears 75% with no salary listed.
+    s2, _ = JobHunterAgent.score_job(
+        {"title": "Director, Cloud Engineering", "description": "platform reliability",
+         "remote": True, "salary_min": None})
+    assert s2 >= 75
 
 
 def test_low_scoring_job_is_filtered():
@@ -28,7 +33,7 @@ def test_low_scoring_job_is_filtered():
         {"title": "Software Engineer", "description": "react frontend",
          "remote": False, "salary_min": 120_000}
     )
-    assert score < 70
+    assert score < 75
 
 
 def test_insurance_and_music_scoring():
@@ -229,11 +234,10 @@ def test_funnel_respects_tos_assist_vs_auto():
 
     li = funnel.build_plan("linkedin")
     li_actions = {(a["capability"], a["mode"]) for s in li["stages"] for a in s["actions"]}
-    # LinkedIn publishing & DMs must stay assist-only (no bot automation) to be
-    # ToS-safe. (Read-only analytics may still run automatically.)
-    assert ("publish_assist", "assist") in li_actions
+    # Auto-posting YOUR OWN content via LinkedIn's official API (w_member_social)
+    # is permitted; automated connections/DMs are NOT — those stay assist-only.
+    assert ("publish_auto", "auto") in li_actions
     assert ("dm_assist", "assist") in li_actions
-    assert not any(cap in ("publish_auto",) for cap, _ in li_actions)
 
     ig = funnel.build_plan("instagram")
     ig_actions = {(a["capability"], a["mode"]) for s in ig["stages"] for a in s["actions"]}
@@ -272,7 +276,8 @@ def test_gmail_app_password_enables_sending_config():
 def test_objective_defaults_are_ranked():
     from app import objectives
     keys = [d["key"] for d in objectives.DEFAULTS]
-    assert keys[0] == "exec_role" and keys[-1] == "music"  # COO ranking
+    assert keys[0] == "net_worth" and keys[-1] == "music"  # COO ranking (net worth on top)
+    assert "exec_role" in keys
     assert objectives.DEFAULTS[0]["weight"] > objectives.DEFAULTS[-1]["weight"]
     assert {c["key"] for c in objectives.CENTERS} >= {"wealth", "business", "influence"}
 
@@ -295,6 +300,56 @@ def test_browser_field_matching_and_default_mode():
     assert browser._match_field("full name", fm) == "Bruno Dos Santos"
     assert browser._match_field("favorite color", fm) is None
     assert browser.is_automation_ready() is False  # off by default -> safe assist mode
+
+
+def test_social_unified_publish_offline():
+    from app import social
+    assert social.connected_platforms(None) == []
+    assert social.publish_daily(None, "hello")["published"] == {}
+    st = social.status(None)
+    for p in ("instagram", "facebook", "linkedin", "x"):
+        assert st[p]["connected"] is False
+    from app.integrations import linkedin_api, spotify_api, twitter_api
+    assert linkedin_api.post(None, "hi")["ok"] is False
+    assert twitter_api.post(None, "hi")["ok"] is False
+    assert spotify_api.overview(None) == {"connected": False}
+
+
+@requires_db
+def test_finance_networth_and_scoreboard(client, auth_headers):
+    client.post("/finance/accounts", headers=auth_headers,
+                json={"name": "Checking", "kind": "asset", "category": "checking", "balance": 10000})
+    client.post("/finance/accounts", headers=auth_headers,
+                json={"name": "Card", "kind": "liability", "category": "credit", "balance": 2500})
+    s = client.get("/finance/summary", headers=auth_headers).json()
+    assert s["net_worth"] == 7500.0
+    client.post("/finance/transactions", headers=auth_headers, json={"amount": 5000, "category": "salary"})
+    assert client.get("/finance/summary", headers=auth_headers).json()["monthly_income"] >= 5000
+    assert client.get("/scoreboard", headers=auth_headers).json()["net_worth"] == 7500.0
+
+
+def test_x_and_spotify_in_registry():
+    from app.integrations import registry
+    keys = {p["key"] for p in registry.list_providers()}
+    assert {"x", "spotify"} <= keys
+
+
+def test_media_hosting_disabled_offline():
+    # No OpenAI key / no bucket in tests -> generation+hosting safely no-ops.
+    from app import media
+    from app.integrations import storage
+    assert storage.is_configured() is False
+    assert storage.upload_public(b"x", "ig/x.png") is None
+    assert media.can_generate() is False
+    assert media.generate_and_host("a sunset", "test") is None
+
+
+def test_instagram_api_not_connected():
+    from app.integrations import instagram_api
+    assert instagram_api.is_connected(None) is False
+    assert instagram_api.overview(None) == {"connected": False}
+    assert instagram_api.get_account(None) is None
+    assert instagram_api.publish_post(None, "http://x/i.jpg", "hi")["ok"] is False
 
 
 def test_commanders_map_to_real_agents():
@@ -385,13 +440,13 @@ def test_full_daily_cycle_hits_targets(client, auth_headers):
     batch = settings.lead_batch_size
 
     summary = client.get("/dashboard/summary", headers=auth_headers).json()
-    assert summary["jobs_found"] == 20
+    assert summary["jobs_found"] == settings.job_daily_target
     assert summary["insurance_leads"] == batch
     assert summary["restaurant_prospects"] == batch
     assert summary["music_playlists"] == 50
     assert summary["instagram_targets"] == 100
 
-    assert len(client.get("/jobs", headers=auth_headers).json()) == 20
+    assert len(client.get("/jobs", headers=auth_headers).json()) == settings.job_daily_target
     assert len(client.get("/instagram/targets", headers=auth_headers).json()) == 100
     assert len(client.get("/music/influencers", headers=auth_headers).json()) == 25
 
@@ -601,6 +656,32 @@ def test_objective_tuning_and_global_search(client, auth_headers):
     assert "contacts" in res and "memories" in res
     assert any("Searchable" in c["name"] for c in res["contacts"])
     assert client.get("/search?q=", headers=auth_headers).json() == {"contacts": [], "memories": []}
+
+
+@requires_db
+def test_google_contacts_import(client, auth_headers):
+    csv = ("First Name,Last Name,Organization Name,Organization Title,"
+           "E-mail 1 - Value,Phone 1 - Value,Notes\n"
+           "Gina,Curtis,BigCo,Tech Recruiter,gina@bigco-import.com,+16035551212,met at conf\n"
+           "NoContact,Person,,,,,\n"
+           "Gina,Curtis,BigCo,Tech Recruiter,gina@bigco-import.com,,dupe row\n")
+    files = {"file": ("contacts.csv", csv, "text/csv")}
+    r = client.post("/import/contacts", headers=auth_headers, files=files).json()
+    assert r["imported"] == 1 and r["skipped"] == 2  # blank + duplicate skipped
+    found = client.get("/crm?source=manual&q=Gina", headers=auth_headers).json()
+    assert any(c["name"] == "Gina Curtis" for c in found)
+
+
+@requires_db
+def test_restaurant_and_music_reachout(client, auth_headers):
+    rests = client.get("/restaurants?limit=1", headers=auth_headers).json()
+    if rests:
+        r = client.post(f"/restaurants/{rests[0]['id']}/send", headers=auth_headers)
+        assert r.status_code == 200 and "ok" in r.json()
+    pls = client.get("/music/playlists?limit=1", headers=auth_headers).json()
+    if pls:
+        r = client.post(f"/music/playlists/{pls[0]['id']}/send", headers=auth_headers)
+        assert r.status_code == 200 and "ok" in r.json()
 
 
 @requires_db
