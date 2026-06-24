@@ -3,9 +3,11 @@
 Daily Brief (Top-3), Objectives, Command Centers, and the roll-up Scoreboard.
 """
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from .. import actions as action_svc
 from .. import objectives as obj
 from .. import scoring
 from ..database import get_db
@@ -14,6 +16,21 @@ from ..security import require_role
 
 router = APIRouter(tags=["executive"])
 _read = require_role("admin", "operator", "viewer")
+_write = require_role("admin", "operator")
+
+
+class ActionKey(BaseModel):
+    key: str
+
+
+@router.post("/actions/execute")
+def execute_action(body: ActionKey, db: Session = Depends(get_db), _=Depends(_write)):
+    return action_svc.execute(db, body.key)
+
+
+@router.post("/actions/dismiss")
+def dismiss_action(body: ActionKey, db: Session = Depends(get_db), _=Depends(_write)):
+    return action_svc.dismiss(db, body.key)
 
 
 @router.get("/brief/today")

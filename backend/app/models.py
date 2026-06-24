@@ -330,6 +330,20 @@ class BrandProfile(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class ActionState(Base):
+    """State overlay for the Daily-Brief actions (which are derived live).
+
+    Keyed by a deterministic action key (e.g. 'follow_up:lead:<id>') so an
+    executed/dismissed action stays out of the brief without a full action table.
+    """
+    __tablename__ = "action_states"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    key: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String, default="open")  # open|done|dismissed
+    result: Mapped[dict | None] = mapped_column(JSONB)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Memory(Base):
     """The AI memory / knowledge graph: one fact Bruno's workforce should remember
     (about a person, company, lead, preference, goal, or event). Embeddings are

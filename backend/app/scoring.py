@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from . import objectives
-from .models import Application, Job, Lead, Message, Restaurant
+from .models import ActionState, Application, Job, Lead, Message, Restaurant
 
 # Expected-value assumptions (tune freely; these are sensible defaults).
 _COMMERCIAL_VALUE = 5_000      # avg commercial insurance commission
@@ -41,11 +41,12 @@ def build_actions(db: Session) -> list[dict]:
         value = float(j.salary_min or _DEFAULT_SALARY)
         prob = min(0.9, (j.score or 60) / 100)
         actions.append({
+            "key": f"apply:{j.id}",
             "title": f"Apply: {j.title} @ {j.company}",
             "command_center": "wealth", "objective": "exec_role", "action_type": "apply",
             "value": value, "probability": round(prob, 2), "effort": 2,
             "priority": _score(value, prob, 2, w.get("exec_role", 1.0), 1.0),
-            "link": "/apply", "why": f"${round(value/1000)}k role · fit {j.score}",
+            "link": j.url or "/apply", "why": f"${round(value/1000)}k role · fit {j.score}",
         })
 
     # ── Wealth · warm insurance leads to follow up ───────────────────────────
@@ -53,6 +54,7 @@ def build_actions(db: Session) -> list[dict]:
         value = _COMMERCIAL_VALUE if l.segment == "commercial" else _PERSONAL_VALUE
         prob = _WARM_PROB.get(l.status, 0.3)
         actions.append({
+            "key": f"follow_up:lead:{l.id}",
             "title": f"Follow up: {l.company_name or l.owner_name}",
             "command_center": "wealth", "objective": "insurance", "action_type": "follow_up",
             "value": float(value), "probability": prob, "effort": 2,
@@ -66,6 +68,7 @@ def build_actions(db: Session) -> list[dict]:
                       Restaurant.status.in_(["Replied", "Interested"])).limit(40)):
         prob = 0.4 if r.status == "Interested" else 0.3
         actions.append({
+            "key": f"follow_up:restaurant:{r.id}",
             "title": f"Advance SavoryMind demo: {r.name}",
             "command_center": "business", "objective": "savorymind", "action_type": "follow_up",
             "value": float(_RESTAURANT_ARR), "probability": prob, "effort": 3,
@@ -76,6 +79,7 @@ def build_actions(db: Session) -> list[dict]:
     # ── Replied-by-text leads waiting on you (fast, high urgency) ─────────────
     for phone in _unanswered_sms(db):
         actions.append({
+            "key": f"reply:{phone}",
             "title": f"Reply to text from {phone}",
             "command_center": "wealth", "objective": "insurance", "action_type": "reply",
             "value": 3_000.0, "probability": 0.6, "effort": 1,
@@ -83,6 +87,10 @@ def build_actions(db: Session) -> list[dict]:
             "link": "/texts", "why": "Warm — replied to your text",
         })
 
+    # Drop actions already executed or dismissed (state overlay).
+    inactive = {k for (k,) in db.query(ActionState.key)
+                .filter(ActionState.status.in_(["done", "dismissed"])).all()}
+    actions = [a for a in actions if a["key"] not in inactive]
     actions.sort(key=lambda a: a["priority"], reverse=True)
     return actions
 

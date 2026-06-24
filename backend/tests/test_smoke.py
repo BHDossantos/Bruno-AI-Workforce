@@ -579,6 +579,26 @@ def test_commander_rollup_and_status(client, auth_headers):
 
 
 @requires_db
+def test_brief_action_execute_and_dismiss(client, auth_headers):
+    actions = client.get("/brief/today?top=20", headers=auth_headers).json()["top_actions"]
+    assert actions, "expected brief actions from the daily run"
+
+    # Dismiss the first action -> it drops out of the brief.
+    key = actions[0]["key"]
+    assert client.post("/actions/dismiss", headers=auth_headers, json={"key": key}).json()["ok"]
+    after = client.get("/brief/today?top=50", headers=auth_headers).json()["top_actions"]
+    assert all(a["key"] != key for a in after)
+
+    # Execute an 'apply' action -> marks the job applied (no email, safe).
+    apply_key = next((a["key"] for a in after if a["action_type"] == "apply"), None)
+    if apply_key:
+        r = client.post("/actions/execute", headers=auth_headers, json={"key": apply_key}).json()
+        assert r["ok"] is True
+        again = client.get("/brief/today?top=50", headers=auth_headers).json()["top_actions"]
+        assert all(a["key"] != apply_key for a in again)  # done -> gone
+
+
+@requires_db
 def test_daily_brief_and_command_centers(client, auth_headers):
     objs = client.get("/objectives", headers=auth_headers).json()
     assert any(o["key"] == "exec_role" for o in objs) and len(objs) >= 5
