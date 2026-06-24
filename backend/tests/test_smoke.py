@@ -287,6 +287,16 @@ def test_scoring_weights_prioritize_high_roi_objectives():
     assert scoring._score(100, 0.9, 1, 1, 1) > scoring._score(100, 0.3, 1, 1, 1)
 
 
+def test_browser_field_matching_and_default_mode():
+    from app import browser
+    fm = {"email": "a@b.com", "phone": "555", "full_name": "Bruno Dos Santos", "cover_letter": "Hi"}
+    assert browser._match_field("Your Email Address", fm) == "a@b.com"
+    assert browser._match_field("mobile_phone", fm) == "555"
+    assert browser._match_field("full name", fm) == "Bruno Dos Santos"
+    assert browser._match_field("favorite color", fm) is None
+    assert browser.is_automation_ready() is False  # off by default -> safe assist mode
+
+
 def test_commanders_map_to_real_agents():
     from app.agents import AGENTS
     from app.commanders import COMMANDERS
@@ -594,6 +604,19 @@ def test_universal_crm_aggregates_and_adds(client, auth_headers):
     cid = next(c["id"] for c in manual if c["name"] == "Dana Recruiter")
     detail = client.get(f"/crm/{cid}", headers=auth_headers).json()
     assert "memories" in detail and len(detail["memories"]) >= 1  # auto-seeded
+
+
+@requires_db
+def test_browser_autopilot_assist_mode(client, auth_headers):
+    jobs = client.get("/jobs?limit=1", headers=auth_headers).json()
+    assert jobs, "expected a job from the daily run"
+    task = client.post(f"/browser/apply/{jobs[0]['id']}", headers=auth_headers).json()
+    assert task["status"] == "prepared"
+    assert task["field_map"]["email"]  # applicant identity populated
+    # Run with automation off -> assist mode, needs_review, never crashes.
+    r = client.post(f"/browser/tasks/{task['id']}/run", headers=auth_headers).json()
+    assert r["status"] == "needs_review" and r["mode"] == "assist"
+    assert any(t["id"] == task["id"] for t in client.get("/browser/tasks", headers=auth_headers).json())
 
 
 @requires_db
