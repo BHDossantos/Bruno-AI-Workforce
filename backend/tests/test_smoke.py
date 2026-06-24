@@ -218,6 +218,21 @@ def test_funnel_respects_tos_assist_vs_auto():
     assert ("dm_assist", "assist") in ig_actions        # DMs stay one-click
 
 
+def test_gmail_app_password_enables_sending_config():
+    from app.config import settings
+    from app.integrations import gmail
+
+    old = settings.gmail_app_password
+    try:
+        settings.gmail_app_password = ""
+        assert gmail._smtp_configured("personal") is False
+        settings.gmail_app_password = "abcd efgh ijkl mnop"  # App Password
+        assert gmail._smtp_configured("personal") is True
+        assert gmail.is_configured("personal") is True  # send path now enabled
+    finally:
+        settings.gmail_app_password = old
+
+
 def test_crm_token_falls_back_to_env_without_connection():
     from app.config import settings
     from app.integrations import crm

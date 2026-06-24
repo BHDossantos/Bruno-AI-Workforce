@@ -86,6 +86,9 @@ class Settings(BaseSettings):
     google_oauth_client_secret: str = ""
     google_oauth_refresh_token: str = ""
     google_token_json: str = ""
+    # Simplest sending path: a Gmail "App Password" (Google account → Security →
+    # App passwords). When set, outreach sends via SMTP — no OAuth flow needed.
+    gmail_app_password: str = ""
 
     # Insurance account — Insurance agent outreach + the report's insurance replies.
     insurance_gmail_address: str = "bruno@thrustinsurance.com"
@@ -93,6 +96,7 @@ class Settings(BaseSettings):
     insurance_google_oauth_client_secret: str = ""
     insurance_google_oauth_refresh_token: str = ""
     insurance_google_token_json: str = ""
+    insurance_gmail_app_password: str = ""  # App Password for the Thrust mailbox
 
     # Email template / signature (applied to every outbound email for a
     # consistent look + CAN-SPAM compliant footer).
