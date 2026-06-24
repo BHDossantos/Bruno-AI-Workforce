@@ -390,13 +390,13 @@ def test_full_daily_cycle_hits_targets(client, auth_headers):
     batch = settings.lead_batch_size
 
     summary = client.get("/dashboard/summary", headers=auth_headers).json()
-    assert summary["jobs_found"] == 20
+    assert summary["jobs_found"] == settings.job_daily_target
     assert summary["insurance_leads"] == batch
     assert summary["restaurant_prospects"] == batch
     assert summary["music_playlists"] == 50
     assert summary["instagram_targets"] == 100
 
-    assert len(client.get("/jobs", headers=auth_headers).json()) == 20
+    assert len(client.get("/jobs", headers=auth_headers).json()) == settings.job_daily_target
     assert len(client.get("/instagram/targets", headers=auth_headers).json()) == 100
     assert len(client.get("/music/influencers", headers=auth_headers).json()) == 25
 
