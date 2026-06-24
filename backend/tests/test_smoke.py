@@ -135,6 +135,17 @@ def test_osm_lead_engine_offline_behavior():
         settings.lead_cities = old
 
 
+def test_places_source_disabled_without_key():
+    from app.integrations import email_finder, places
+
+    assert places.is_configured() is False
+    assert places.fetch_commercial_leads(10) == []
+    assert places.fetch_restaurants(10) == []
+    # Shared email finder cleans correctly.
+    assert email_finder.clean_email("Sales@Acme.com") == "sales@acme.com"
+    assert email_finder.clean_email("hero@2x.png") is None
+
+
 def test_providers_fallback_meets_targets_without_keys():
     assert len(providers.fetch_insurance_leads("commercial", 100)) == 100
     assert len(providers.fetch_restaurants(100)) == 100

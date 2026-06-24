@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     # Integrations
     hubspot_api_key: str = ""
     apollo_api_key: str = ""
+    google_places_api_key: str = ""  # free $200/mo credit; adds real business leads
     instantly_api_key: str = ""
 
     # Jobs sourcing (Indeed via the JSearch aggregator on RapidAPI, or any

@@ -13,7 +13,7 @@ from __future__ import annotations
 import random
 
 from ..config import settings
-from . import apollo, jobs_api, osm_leads
+from . import apollo, jobs_api, osm_leads, places
 
 # Deterministic-ish but varied output per run.
 _rng = random.Random()
@@ -86,6 +86,8 @@ def fetch_insurance_leads(segment: str, count: int) -> list[dict]:
     out: list[dict] = []
     if segment == "commercial":
         out.extend(osm_leads.fetch_commercial_leads(count))                 # free, real
+        if len(out) < count:
+            out.extend(places.fetch_commercial_leads(count - len(out)))     # Google Places (free credit)
         if apollo.is_configured() and len(out) < count:
             for lead in apollo.fetch_commercial_leads(count - len(out)):    # paid, real
                 lead.setdefault("category", lead.get("industry") or "Commercial")
@@ -125,6 +127,8 @@ CUISINES = ["Italian", "Brazilian", "American", "French", "Japanese", "Mexican",
 def fetch_restaurants(count: int) -> list[dict]:
     """Real restaurants from OpenStreetMap (free) + Apollo, topped up with synthetic."""
     out: list[dict] = list(osm_leads.fetch_restaurants(count))  # free, real
+    if len(out) < count:
+        out.extend(places.fetch_restaurants(count - len(out)))  # Google Places (free credit)
     if len(out) >= count:
         return out[:count]
     if apollo.is_configured():
