@@ -1,0 +1,45 @@
+# Builds the Next.js dashboard image AND deploys it to the Cloud Run service in
+# one shot. Use this as the Cloud Build trigger config (or run it manually) so a
+# successful build is ALWAYS promoted to the serving revision — no separate
+# deploy step that can be skipped, leaving the service on a stale image.
+#
+#   gcloud builds submit --config cloudbuild.frontend.yaml .
+#
+# Trigger setup (Console): Cloud Build > Triggers > Edit your frontend trigger >
+#   Configuration = "Cloud Build configuration file (yaml or json)"
+#   Location = Repository, File = cloudbuild.frontend.yaml
+substitutions:
+  _SERVICE: bruno-ai-workforce-front
+  _REGION: northamerica-northeast1
+  _API_URL: https://ai-workforce-746155486511.europe-west1.run.app
+images:
+  - gcr.io/$PROJECT_ID/$_SERVICE:$COMMIT_SHA
+steps:
+  # 1) Build the real Next.js image from frontend/Dockerfile, baking the API URL.
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - frontend/Dockerfile
+      - --build-arg
+      - NEXT_PUBLIC_API_URL=${_API_URL}
+      - -t
+      - gcr.io/$PROJECT_ID/$_SERVICE:$COMMIT_SHA
+      - frontend
+  # 2) Push it.
+  - name: gcr.io/cloud-builders/docker
+    args: [push, gcr.io/$PROJECT_ID/$_SERVICE:$COMMIT_SHA]
+  # 3) Deploy that exact image to the service and route 100% traffic to it.
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=gcr.io/$PROJECT_ID/$_SERVICE:$COMMIT_SHA
+      - --region=${_REGION}
+      - --platform=managed
+      - --allow-unauthenticated
+      - --port=8080
+options:
+  logging: CLOUD_LOGGING_ONLY

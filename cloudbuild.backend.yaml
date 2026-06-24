@@ -1,0 +1,25 @@
+# Builds the FastAPI backend image AND deploys it to its Cloud Run service.
+#   gcloud builds submit --config cloudbuild.backend.yaml .
+substitutions:
+  _SERVICE: ai-workforce
+  _REGION: europe-west1
+images:
+  - gcr.io/$PROJECT_ID/$_SERVICE:$COMMIT_SHA
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: [build, -f, Dockerfile, -t, "gcr.io/$PROJECT_ID/$_SERVICE:$COMMIT_SHA", .]
+  - name: gcr.io/cloud-builders/docker
+    args: [push, "gcr.io/$PROJECT_ID/$_SERVICE:$COMMIT_SHA"]
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=gcr.io/$PROJECT_ID/$_SERVICE:$COMMIT_SHA
+      - --region=${_REGION}
+      - --platform=managed
+      - --allow-unauthenticated
+      - --port=8080
+options:
+  logging: CLOUD_LOGGING_ONLY
