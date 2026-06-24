@@ -229,6 +229,19 @@ def test_gmail_app_password_enables_sending_config():
         settings.gmail_app_password = "abcd efgh ijkl mnop"  # App Password
         assert gmail._smtp_configured("personal") is True
         assert gmail.is_configured("personal") is True  # send path now enabled
+
+        # Insurance with no Thrust creds: via-personal reply-to mode sends from
+        # the personal address but routes replies to the Thrust inbox.
+        old_rt = settings.insurance_via_personal_reply_to
+        try:
+            settings.insurance_via_personal_reply_to = True
+            login, pw, frm, reply = gmail._smtp_login("insurance")
+            assert login == settings.gmail_address          # logs in as personal
+            assert frm == settings.gmail_address            # From = personal
+            assert reply == settings.insurance_gmail_address  # Reply-To = Thrust
+            assert gmail.is_configured("insurance") is True
+        finally:
+            settings.insurance_via_personal_reply_to = old_rt
     finally:
         settings.gmail_app_password = old
 

@@ -103,6 +103,10 @@ class Settings(BaseSettings):
     # as" alias in the personal Gmail. Lets you send as Thrust without Workspace
     # admin access.
     insurance_send_as_alias: bool = False
+    # No-admin path: send insurance outreach THROUGH the personal mailbox with
+    # the From as the personal address but Reply-To set to the Thrust address, so
+    # replies land in the Thrust inbox. Works with zero Thrust-account access.
+    insurance_via_personal_reply_to: bool = False
 
     # Email template / signature (applied to every outbound email for a
     # consistent look + CAN-SPAM compliant footer).
