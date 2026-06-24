@@ -467,24 +467,29 @@ def test_connections_crud_and_secret_encryption(client, auth_headers):
 
 
 @requires_db
-def test_leads_are_not_duplicated_across_runs(client, auth_headers):
-    """A second agent run must not create duplicate leads for the same email."""
+def test_leads_are_not_duplicated_across_runs(client, auth_headers, monkeypatch):
+    """Re-running the agent over the same prospect must not duplicate the lead."""
     from app import models
+    from app.agents import insurance as ins_mod
     from app.database import SessionLocal
-    from app.agents.insurance import InsuranceAgent
+
+    fixed = [{
+        "segment": "commercial", "category": "Restaurant", "company_name": "Dedupe Cafe",
+        "owner_name": "Joe D", "email": "dedupe-unique@acme.com", "phone": "1",
+        "website": "https://x.com", "linkedin": None, "industry": "Restaurant", "city": "Boston",
+    }]
+    monkeypatch.setattr(ins_mod.providers, "fetch_insurance_leads",
+                        lambda segment, count: fixed if segment == "commercial" else [])
 
     db = SessionLocal()
-    before = db.query(models.Lead).count()
-    InsuranceAgent(db).run()
-    after_first = db.query(models.Lead).count()
-    InsuranceAgent(db).run()
-    after_second = db.query(models.Lead).count()
-    # No new leads on the second run (all emails already exist) — and no dup emails.
-    emails = [e for (e,) in db.query(models.Lead.email).filter(models.Lead.email.isnot(None)).all()]
-    assert len(emails) == len(set(emails)), "duplicate lead emails found"
-    assert after_second == after_first  # second run added nothing new
-    assert after_first >= before
-    db.close()
+    try:
+        ins_mod.InsuranceAgent(db).run()
+        ins_mod.InsuranceAgent(db).run()  # same prospect again
+        n = (db.query(models.Lead)
+             .filter(models.Lead.email == "dedupe-unique@acme.com").count())
+        assert n == 1  # second run did NOT create a duplicate
+    finally:
+        db.close()
 
 
 @requires_db
