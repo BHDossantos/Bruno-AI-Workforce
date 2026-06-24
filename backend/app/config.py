@@ -97,6 +97,12 @@ class Settings(BaseSettings):
     insurance_google_oauth_refresh_token: str = ""
     insurance_google_token_json: str = ""
     insurance_gmail_app_password: str = ""  # App Password for the Thrust mailbox
+    # No-admin workaround: when True, insurance emails are sent THROUGH the
+    # personal mailbox (personal App Password) but with the Thrust address as the
+    # From — requires adding bruno@thrustinsurance.com as a verified "Send mail
+    # as" alias in the personal Gmail. Lets you send as Thrust without Workspace
+    # admin access.
+    insurance_send_as_alias: bool = False
 
     # Email template / signature (applied to every outbound email for a
     # consistent look + CAN-SPAM compliant footer).

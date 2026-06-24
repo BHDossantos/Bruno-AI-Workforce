@@ -90,9 +90,26 @@ def _service(account: str):
         return None
 
 
-def _smtp_configured(account: str) -> bool:
+def _smtp_login(account: str) -> tuple[str | None, str | None, str | None]:
+    """Return (login_address, login_password, from_address) for SMTP, or Nones.
+
+    Normally an account logs in as itself. The insurance account can optionally
+    send THROUGH the personal mailbox (App Password) with the Thrust address as
+    the From — a verified "Send mail as" alias — so you can send as Thrust
+    without Workspace-admin access.
+    """
     cfg = _account_cfg(account)
-    return bool(cfg.get("app_password") and cfg.get("address"))
+    if cfg.get("app_password") and cfg.get("address"):
+        return cfg["address"], cfg["app_password"], cfg["address"]
+    if account == INSURANCE and settings.insurance_send_as_alias:
+        p = _account_cfg(PERSONAL)
+        if p.get("app_password") and p.get("address"):
+            return p["address"], p["app_password"], cfg["address"]  # send as alias
+    return None, None, None
+
+
+def _smtp_configured(account: str) -> bool:
+    return _smtp_login(account)[1] is not None
 
 
 def is_configured(account: str = PERSONAL) -> bool:
@@ -105,21 +122,20 @@ def _send_smtp(account: str, to: str, subject: str, body: str) -> str | None:
     import smtplib
     from email.utils import make_msgid
 
-    cfg = _account_cfg(account)
-    addr, pw = cfg["address"], cfg.get("app_password")
-    if not (addr and pw):
+    login_addr, pw, from_addr = _smtp_login(account)
+    if not (login_addr and pw):
         return None
     mime = MIMEText(body, "html")
     mime["To"] = to
-    mime["From"] = addr
+    mime["From"] = from_addr or login_addr
     mime["Subject"] = subject or "(no subject)"
     msg_id = make_msgid()
     mime["Message-ID"] = msg_id
     try:
         with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as server:
             server.starttls()
-            server.login(addr, pw)
-            server.sendmail(addr, [to], mime.as_string())
+            server.login(login_addr, pw)
+            server.sendmail(from_addr or login_addr, [to], mime.as_string())
         return msg_id
     except Exception as exc:  # pragma: no cover - network guard
         log.warning("SMTP send failed (%s via %s): %s", to, account, exc)
