@@ -130,9 +130,13 @@ class Settings(BaseSettings):
     # Applicant identity used to fill application forms.
     applicant_name: str = "Bruno Dos Santos"
     applicant_email: str = "brunodossantos707@gmail.com"
-    applicant_phone: str = ""
-    applicant_linkedin: str = ""
-    applicant_resume_path: str = ""  # absolute path to a resume PDF, attached to uploads
+    applicant_phone: str = "603-930-8272"
+    applicant_linkedin: str = ""  # set to your LinkedIn URL
+    applicant_github: str = "https://github.com/BHDossantos"
+    applicant_location: str = "Boston, MA"
+    # Resume PDF baked into the backend image (see backend/assets/resume/); the
+    # browser worker attaches it to file uploads. Override via env if needed.
+    applicant_resume_path: str = "/app/assets/resume/Bruno_Dos_Santos_Resume.pdf"
 
     # Outbound mode: "send" (auto-send now), "send_on_approve", or "draft".
     gmail_outbound_mode: str = "send"
