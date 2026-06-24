@@ -60,6 +60,13 @@ def sync_replies(db: Session, newer_than_days: int = 3) -> dict:
                                  entity_id=sender, detail={"account": account, "intent": cls["intent"],
                                                            "summary": cls["summary"],
                                                            "subject": reply.get("subject")}))
+                # Remember the interaction in the knowledge graph.
+                try:
+                    from . import memory
+                    memory.add(db, f"{sender} replied ({cls['intent']}): {cls.get('summary') or reply.get('snippet','')}",
+                               kind="event", subject=sender, source="inbound")
+                except Exception:  # never let memory break the sync
+                    log.debug("memory capture skipped", exc_info=True)
 
     db.commit()
     log.info("Inbound sync: scanned %d, matched %d", scanned, matched)

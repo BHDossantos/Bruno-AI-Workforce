@@ -62,3 +62,20 @@ def complete_json(prompt: str, *, system: str = "You output only valid JSON.") -
     except Exception as exc:  # pragma: no cover - network guard
         log.warning("OpenAI JSON completion failed: %s", exc)
         return {}
+
+
+def embed(text: str) -> list[float] | None:
+    """Return an embedding vector for the text, or None when offline/unavailable.
+
+    Used by the memory/knowledge layer for semantic recall. Callers must handle
+    None and fall back to keyword search.
+    """
+    if _client is None or not text:
+        return None
+    try:
+        resp = _client.embeddings.create(
+            model=settings.embedding_model, input=text[:8000])
+        return resp.data[0].embedding
+    except Exception as exc:  # pragma: no cover - network guard
+        log.warning("OpenAI embedding failed: %s", exc)
+        return None

@@ -328,3 +328,36 @@ class BrandProfile(Base):
     music_artist: Mapped[str | None] = mapped_column(String)
     music_genres: Mapped[str | None] = mapped_column(String)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Memory(Base):
+    """The AI memory / knowledge graph: one fact Bruno's workforce should remember
+    (about a person, company, lead, preference, goal, or event). Embeddings are
+    stored as a float array (JSONB) and cosine-ranked in Python — no vector
+    extension or extra server needed; swappable to Mem0/pgvector at scale."""
+    __tablename__ = "memories"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    kind: Mapped[str] = mapped_column(String, default="fact", index=True)  # fact|contact|preference|goal|event|note
+    subject: Mapped[str | None] = mapped_column(String, index=True)        # who/what it's about
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding: Mapped[list | None] = mapped_column(JSONB)                  # float[]; null when offline
+    meta: Mapped[dict | None] = mapped_column(JSONB)
+    source: Mapped[str | None] = mapped_column(String)                     # agent/user/import
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Objective(Base):
+    """An OUTCOME Bruno is driving toward (not a project). Agents/sources feed it,
+    and its weight ranks how much attention its actions get in the Daily Brief."""
+    __tablename__ = "objectives"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    key: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    command_center: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    metric: Mapped[str | None] = mapped_column(String)        # income | revenue | followers ...
+    target_value: Mapped[float | None] = mapped_column(Numeric)
+    current_value: Mapped[float] = mapped_column(Numeric, default=0)
+    rank: Mapped[int] = mapped_column(Integer, default=100)
+    weight: Mapped[float] = mapped_column(Numeric, default=0.5)  # 0–1, scales priority
+    status: Mapped[str] = mapped_column(String, default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

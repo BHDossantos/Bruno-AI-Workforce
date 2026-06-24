@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     # OpenAI
     openai_api_key: str = ""
     openai_model: str = "gpt-4o"
+    embedding_model: str = "text-embedding-3-small"  # for the memory/knowledge layer
 
     # Scheduler
     enable_scheduler: bool = True

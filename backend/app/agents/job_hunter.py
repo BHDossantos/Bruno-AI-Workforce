@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from .. import memory
 from ..ai import client, skills
 from ..ai.prompts import CANDIDATE_PROFILE, JOB_ARTIFACTS
 from ..integrations import apollo, providers
@@ -77,10 +78,12 @@ class JobHunterAgent(BaseAgent):
         enriched = applied = 0
         for row, job in pairs:
             try:
+                mem_ctx = memory.context_block(self.db, job.get("company") or "")
+                jsysp = f"{sysp}\n\n{mem_ctx}" if mem_ctx else sysp
                 artifacts = client.complete_json(JOB_ARTIFACTS.format(
                     profile=CANDIDATE_PROFILE, title=job["title"], company=job["company"],
                     location=job["location"], description=job["description"],
-                ), system=sysp)
+                ), system=jsysp)
                 artifacts = artifacts if isinstance(artifacts, dict) else {}
                 row.resume_match = _as_text(artifacts.get("resume_match"))
                 row.cover_letter = artifacts.get("cover_letter")

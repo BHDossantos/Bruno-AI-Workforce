@@ -1,114 +1,119 @@
 "use client";
 
-import { api } from "@/lib/api";
-import { AuthGate, KpiCard, PageHeader, useFetch } from "@/components/ui";
 import { useState } from "react";
+import Link from "next/link";
+import { api } from "@/lib/api";
+import { AuthGate, PageHeader, useFetch } from "@/components/ui";
 
-type Summary = {
-  date: string;
-  jobs_found: number;
-  insurance_leads: number;
-  restaurant_prospects: number;
-  music_playlists: number;
-  instagram_targets: number;
-  emails_sent_today: number;
-  replies: number;
-  follow_ups_due: number;
-  applications: number;
-  sms_threads: number;
-  totals: { jobs: number; leads: number; restaurants: number };
+type Action = {
+  title: string; command_center: string; objective: string; action_type: string;
+  value: number; probability: number; effort: number; priority: number;
+  link: string; why: string;
+};
+type Brief = {
+  greeting: string; focus_score: number; estimated_value_today: number;
+  top_actions: Action[]; summary: string[]; total_actions: number; hidden_count: number;
+};
+type Score = {
+  monthly_income: number; pipeline_value: number; net_worth: number;
+  leads: number; users: number; reach: number; fitness_score: number;
 };
 
-type Agent = { key: string; name: string; schedule_cron: string; last_run_at: string | null };
-
-const TARGETS: Record<string, number> = {
-  jobs_found: 25,
-  insurance_leads: 200,
-  restaurant_prospects: 100,
-  music_playlists: 50,
-  instagram_targets: 100,
+const CENTER_ICON: Record<string, string> = {
+  wealth: "💰", business: "🏢", influence: "📣", personal: "💪", life_ops: "🗂️",
 };
 
-function Dashboard() {
-  const { data: s, loading } = useFetch<Summary>(() => api.get<Summary>("/dashboard/summary"));
-  const { data: agents } = useFetch<Agent[]>(() => api.get<Agent[]>("/agents"));
+function money(n: number) {
+  return n >= 1000 ? `$${(n / 1000).toFixed(n >= 100000 ? 0 : 1)}k` : `$${n}`;
+}
+
+function Home() {
+  const { data: b } = useFetch<Brief>(() => api.get<Brief>("/brief/today"));
+  const { data: score } = useFetch<Score>(() => api.get<Score>("/scoreboard"));
   const [running, setRunning] = useState(false);
   const [msg, setMsg] = useState("");
 
   async function runAll() {
-    setRunning(true);
-    setMsg("");
-    try {
-      await api.post("/agents/run-all");
-      setMsg("All agents executed. Refresh to see updated KPIs.");
-    } catch (e) {
-      setMsg(String(e));
-    } finally {
-      setRunning(false);
-    }
+    setRunning(true); setMsg("");
+    try { await api.post("/agents/run-all"); setMsg("Agents running — refresh in a minute."); }
+    catch (e) { setMsg(String(e)); }
+    finally { setRunning(false); }
   }
 
   return (
     <div>
       <PageHeader
-        title="Home Dashboard"
-        subtitle={s ? `Daily KPI summary — ${s.date}` : "Daily KPI summary"}
-        action={
-          <button className="btn" onClick={runAll} disabled={running}>
-            {running ? "Running…" : "Run all agents now"}
-          </button>
-        }
+        title={b?.greeting || "Good morning, Bruno"}
+        subtitle="Your chief of staff has ranked today. Do the top 3 — the rest can wait."
+        action={<button className="btn" onClick={runAll} disabled={running}>{running ? "Running…" : "Refresh opportunities"}</button>}
       />
       {msg && <p className="mb-4 rounded bg-brand/10 p-3 text-sm text-brand-dark">{msg}</p>}
-      {loading && <p className="text-gray-400">Loading KPIs…</p>}
-      {s && (
-        <>
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-            <KpiCard label="Jobs today" value={s.jobs_found} hint={`Goal ${TARGETS.jobs_found}`} />
-            <KpiCard label="Insurance leads" value={s.insurance_leads} hint={`Goal ${TARGETS.insurance_leads}`} />
-            <KpiCard label="Restaurants" value={s.restaurant_prospects} hint={`Goal ${TARGETS.restaurant_prospects}`} />
-            <KpiCard label="Playlists" value={s.music_playlists} hint={`Goal ${TARGETS.music_playlists}`} />
-            <KpiCard label="IG targets" value={s.instagram_targets} hint={`Goal ${TARGETS.instagram_targets}`} />
-          </div>
-          <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-5">
-            <KpiCard label="Emails sent today" value={s.emails_sent_today} />
-            <KpiCard label="Replies" value={s.replies} hint="warm conversations" />
-            <KpiCard label="Follow-ups due" value={s.follow_ups_due} />
-            <KpiCard label="Applications" value={s.applications} />
-            <KpiCard label="SMS threads" value={s.sms_threads} />
-          </div>
-        </>
+
+      {/* Focus + value */}
+      <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
+        <div className="card">
+          <div className="text-xs text-gray-500">Focus score</div>
+          <div className="text-3xl font-bold text-brand">{b?.focus_score ?? "—"}<span className="text-base text-gray-400">/100</span></div>
+        </div>
+        <div className="card">
+          <div className="text-xs text-gray-500">Est. value in today&apos;s top 3</div>
+          <div className="text-3xl font-bold">{b ? money(b.estimated_value_today) : "—"}</div>
+        </div>
+        <div className="card">
+          <div className="text-xs text-gray-500">Pipeline value</div>
+          <div className="text-3xl font-bold">{score ? money(score.pipeline_value) : "—"}</div>
+        </div>
+        <div className="card">
+          <div className="text-xs text-gray-500">Reach</div>
+          <div className="text-3xl font-bold">{score ? score.reach.toLocaleString() : "—"}</div>
+        </div>
+      </div>
+
+      {/* Top 3 actions */}
+      <h2 className="mb-3 text-lg font-semibold">🎯 Highest-value actions today</h2>
+      <div className="space-y-3">
+        {(b?.top_actions || []).map((a, i) => (
+          <Link key={i} href={a.link}
+            className="card flex items-center justify-between gap-4 hover:ring-2 hover:ring-brand/40">
+            <div className="flex items-start gap-3">
+              <span className="text-xl font-bold text-gray-300">{i + 1}</span>
+              <div>
+                <div className="font-semibold">{CENTER_ICON[a.command_center] || "•"} {a.title}</div>
+                <div className="text-xs text-gray-500">{a.why}</div>
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-sm font-semibold text-green-600">{money(Math.round(a.value * a.probability))}</div>
+              <div className="text-[10px] text-gray-400">expected value</div>
+            </div>
+          </Link>
+        ))}
+        {b && b.top_actions.length === 0 && (
+          <div className="card text-sm text-gray-500">No open actions yet — hit “Refresh opportunities”.</div>
+        )}
+      </div>
+
+      {b && (b.hidden_count > 0 || b.summary.length > 0) && (
+        <div className="mt-4 rounded-lg bg-gray-50 p-4 text-sm text-gray-600">
+          <ul className="list-inside list-disc space-y-1">
+            {b.summary.map((s, i) => <li key={i}>{s}</li>)}
+          </ul>
+          {b.hidden_count > 0 && (
+            <p className="mt-2 text-xs text-gray-400">
+              {b.hidden_count} more lower-priority actions hidden so you can focus.
+            </p>
+          )}
+        </div>
       )}
 
-      <h2 className="mb-3 mt-8 text-lg font-semibold">Agents</h2>
-      <div className="card overflow-x-auto">
-        <table className="w-full">
-          <thead>
-            <tr>
-              <th className="th">Agent</th>
-              <th className="th">Schedule (cron)</th>
-              <th className="th">Last run</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(agents || []).map((a) => (
-              <tr key={a.key} className="border-t border-gray-100">
-                <td className="td font-medium">{a.name}</td>
-                <td className="td font-mono text-xs">{a.schedule_cron}</td>
-                <td className="td">{a.last_run_at ? new Date(a.last_run_at).toLocaleString() : "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <p className="mt-6 text-xs text-gray-400">
+        Ranked by expected value × win probability ÷ effort, weighted by your objective priorities
+        (executive role &gt; insurance &gt; consulting &gt; SavoryMind &gt; music).
+      </p>
     </div>
   );
 }
 
 export default function HomePage() {
-  return (
-    <AuthGate>
-      <Dashboard />
-    </AuthGate>
-  );
+  return <AuthGate><Home /></AuthGate>;
 }
