@@ -11,7 +11,7 @@ import logging
 from datetime import date
 
 from . import media
-from .integrations import facebook_api, instagram_api, linkedin_api
+from .integrations import facebook_api, instagram_api, linkedin_api, twitter_api
 
 log = logging.getLogger("bruno.social")
 
@@ -23,6 +23,8 @@ PLATFORMS = {
                  lambda db, cap, img: facebook_api.post(db, cap, img), False),
     "linkedin": (linkedin_api.is_connected,
                  lambda db, cap, img: linkedin_api.post(db, cap, img), False),
+    "x": (twitter_api.is_connected,
+          lambda db, cap, img: twitter_api.post(db, cap, img), False),
 }
 
 
@@ -64,4 +66,28 @@ def status(db) -> dict:
     out["facebook"] = {"connected": fb is not None, "followers": fb.get("followers") if fb else None}
     li = linkedin_api.get_profile(db) if linkedin_api.is_connected(db) else None
     out["linkedin"] = {"connected": li is not None, "followers": None}
+    out["x"] = {"connected": twitter_api.is_connected(db), "followers": None}
     return out
+
+
+def snapshot(db) -> int:
+    """Record current followers per connected platform (for growth charts)."""
+    from .models import SocialSnapshot
+    n = 0
+    for plat, info in status(db).items():
+        if info.get("connected"):
+            db.add(SocialSnapshot(platform=plat, followers=info.get("followers")))
+            n += 1
+    if n:
+        db.commit()
+    return n
+
+
+def history(db, platform: str | None = None, limit: int = 90) -> list[dict]:
+    from .models import SocialSnapshot
+    q = db.query(SocialSnapshot)
+    if platform:
+        q = q.filter(SocialSnapshot.platform == platform)
+    rows = q.order_by(SocialSnapshot.captured_at.desc()).limit(limit).all()
+    return [{"platform": r.platform, "followers": r.followers, "reach": r.reach,
+             "captured_at": r.captured_at.isoformat() if r.captured_at else None} for r in rows]

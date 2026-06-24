@@ -48,20 +48,51 @@ def get_profile(db) -> dict | None:
         return None
 
 
+def _upload_image(c: dict, image_url: str) -> str | None:
+    """Register + upload an image to LinkedIn (it needs an owned asset, not an
+    external URL); return the asset URN or None."""
+    try:
+        reg = httpx.post(f"{_BASE}/assets?action=registerUpload", timeout=_TIMEOUT,
+                         headers={"Authorization": f"Bearer {c['access_token']}",
+                                  "Content-Type": "application/json"},
+                         json={"registerUploadRequest": {
+                             "owner": c["author_urn"],
+                             "recipes": ["urn:li:digitalmediaRecipe:feedshare-image"],
+                             "serviceRelationships": [{
+                                 "relationshipType": "OWNER",
+                                 "identifier": "urn:li:userGeneratedContent"}]}})
+        v = (reg.json() or {}).get("value") or {}
+        asset = v.get("asset")
+        upload_url = (((v.get("uploadMechanism") or {})
+                      .get("com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest") or {})
+                      .get("uploadUrl"))
+        if not asset or not upload_url:
+            return None
+        img = httpx.get(image_url, timeout=30.0)
+        if img.status_code != 200:
+            return None
+        up = httpx.put(upload_url, content=img.content, timeout=60.0,
+                       headers={"Authorization": f"Bearer {c['access_token']}"})
+        return asset if up.status_code in (200, 201) else None
+    except Exception as exc:  # pragma: no cover - network guard
+        log.warning("LinkedIn image upload failed: %s", exc)
+        return None
+
+
 def post(db, message: str, image_url: str | None = None) -> dict:
-    """Publish a text share to the member/organization feed."""
+    """Publish a share to the member/organization feed (image when provided)."""
     c = _creds(db)
     if not c:
         return {"ok": False, "reason": "LinkedIn not connected"}
+    content: dict = {"shareCommentary": {"text": message or ""}, "shareMediaCategory": "NONE"}
+    if image_url:
+        asset = _upload_image(c, image_url)
+        if asset:
+            content["shareMediaCategory"] = "IMAGE"
+            content["media"] = [{"status": "READY", "media": asset}]
     payload = {
-        "author": c["author_urn"],
-        "lifecycleState": "PUBLISHED",
-        "specificContent": {
-            "com.linkedin.ugc.ShareContent": {
-                "shareCommentary": {"text": message or ""},
-                "shareMediaCategory": "NONE",
-            }
-        },
+        "author": c["author_urn"], "lifecycleState": "PUBLISHED",
+        "specificContent": {"com.linkedin.ugc.ShareContent": content},
         "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"},
     }
     try:

@@ -7,12 +7,14 @@ import { AuthGate, Expandable, PageHeader, useFetch } from "@/components/ui";
 type Playlist = { id: string; name: string; curator_name: string; genre: string; followers: number; genre_match: number; submission_link: string; pitch: string | null };
 type Influencer = { id: string; name: string; niche: string; handle: string; followers: number; dm_pitch: string | null; collab_pitch: string | null };
 type Campaign = { id: string; title: string; content: Record<string, unknown> | null };
+type Spotify = { connected: boolean; name?: string; followers?: number; popularity?: number; top_tracks?: { name: string; url: string }[] };
 
 function Music() {
   const [refresh, setRefresh] = useState(0);
   const { data: playlists } = useFetch<Playlist[]>(() => api.get<Playlist[]>("/music/playlists?limit=100"), [refresh]);
   const { data: influencers } = useFetch<Influencer[]>(() => api.get<Influencer[]>("/music/influencers?limit=100"), [refresh]);
   const { data: content } = useFetch<Campaign[]>(() => api.get<Campaign[]>("/music/content?limit=5"));
+  const { data: spotify } = useFetch<Spotify>(() => api.get<Spotify>("/music/spotify"));
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
 
@@ -30,6 +32,24 @@ function Music() {
     <div className="space-y-8">
       <PageHeader title="Music Campaigns" subtitle="Playlists, influencers, and daily content package" />
       {msg && <p className="text-sm text-gray-600">{msg}</p>}
+
+      {spotify?.connected ? (
+        <div className="card">
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold">🎧 {spotify.name || "Spotify"}</h2>
+            <span className="text-sm text-gray-500">{spotify.followers?.toLocaleString()} followers · popularity {spotify.popularity ?? "—"}</span>
+          </div>
+          {spotify.top_tracks && spotify.top_tracks.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2 text-xs">
+              {spotify.top_tracks.slice(0, 6).map((t) => (
+                <a key={t.url} href={t.url} target="_blank" rel="noreferrer" className="rounded bg-gray-100 px-2 py-1 hover:bg-gray-200">{t.name}</a>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="card bg-gray-50 text-sm text-gray-500">🎧 Connect Spotify in Connections to see your live follower count and top tracks.</div>
+      )}
 
       {content && content[0]?.content && (
         <div className="card">

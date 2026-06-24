@@ -71,6 +71,26 @@ PROVIDERS: list[dict] = [
         "goals": ["leads", "followers"],
     },
     {
+        "key": "x", "name": "X (Twitter)", "category": "social", "icon": "𝕏",
+        "auth_type": "oauth",
+        "fields": [_field("access_token", "OAuth2 user token (tweet.write)", secret=True)],
+        "capabilities": ["publish_auto", "analytics"],
+        "stages": ["attract"],
+        "compliance": "Auto-posts to your X account via API v2 (requires a paid X API tier).",
+        "goals": ["followers"],
+    },
+    {
+        "key": "spotify", "name": "Spotify for Artists", "category": "social", "icon": "🎧",
+        "auth_type": "oauth",
+        "fields": [_field("access_token", "OAuth access token", secret=True),
+                   _field("artist_id", "Spotify artist ID")],
+        "capabilities": ["analytics"],
+        "stages": ["attract", "retain"],
+        "compliance": "Read-only analytics (followers, top tracks) via the Spotify Web API. "
+                      "Spotify has no API to upload or post music.",
+        "goals": ["followers"],
+    },
+    {
         "key": "tiktok", "name": "TikTok", "category": "social", "icon": "🎵",
         "auth_type": "api_key",
         "fields": [_field("access_token", "TikTok API access token", secret=True),

@@ -53,6 +53,7 @@ class InstagramAgent(BaseAgent):
 
         # ── Automatic mode: post today's content to EVERY connected platform ──
         platforms = social.connected_platforms(self.db)
+        social.snapshot(self.db)  # record follower counts for growth charts
         published = None
         if platforms and (settings.social_auto_publish or settings.instagram_auto_publish):
             published = social.publish_daily(self.db, self._todays_caption(calendar))

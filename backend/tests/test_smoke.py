@@ -276,7 +276,8 @@ def test_gmail_app_password_enables_sending_config():
 def test_objective_defaults_are_ranked():
     from app import objectives
     keys = [d["key"] for d in objectives.DEFAULTS]
-    assert keys[0] == "exec_role" and keys[-1] == "music"  # COO ranking
+    assert keys[0] == "net_worth" and keys[-1] == "music"  # COO ranking (net worth on top)
+    assert "exec_role" in keys
     assert objectives.DEFAULTS[0]["weight"] > objectives.DEFAULTS[-1]["weight"]
     assert {c["key"] for c in objectives.CENTERS} >= {"wealth", "business", "influence"}
 
@@ -306,10 +307,31 @@ def test_social_unified_publish_offline():
     assert social.connected_platforms(None) == []
     assert social.publish_daily(None, "hello")["published"] == {}
     st = social.status(None)
-    assert st["instagram"]["connected"] is False and st["facebook"]["connected"] is False
-    assert st["linkedin"]["connected"] is False
-    from app.integrations import linkedin_api
+    for p in ("instagram", "facebook", "linkedin", "x"):
+        assert st[p]["connected"] is False
+    from app.integrations import linkedin_api, spotify_api, twitter_api
     assert linkedin_api.post(None, "hi")["ok"] is False
+    assert twitter_api.post(None, "hi")["ok"] is False
+    assert spotify_api.overview(None) == {"connected": False}
+
+
+@requires_db
+def test_finance_networth_and_scoreboard(client, auth_headers):
+    client.post("/finance/accounts", headers=auth_headers,
+                json={"name": "Checking", "kind": "asset", "category": "checking", "balance": 10000})
+    client.post("/finance/accounts", headers=auth_headers,
+                json={"name": "Card", "kind": "liability", "category": "credit", "balance": 2500})
+    s = client.get("/finance/summary", headers=auth_headers).json()
+    assert s["net_worth"] == 7500.0
+    client.post("/finance/transactions", headers=auth_headers, json={"amount": 5000, "category": "salary"})
+    assert client.get("/finance/summary", headers=auth_headers).json()["monthly_income"] >= 5000
+    assert client.get("/scoreboard", headers=auth_headers).json()["net_worth"] == 7500.0
+
+
+def test_x_and_spotify_in_registry():
+    from app.integrations import registry
+    keys = {p["key"] for p in registry.list_providers()}
+    assert {"x", "spotify"} <= keys
 
 
 def test_media_hosting_disabled_offline():

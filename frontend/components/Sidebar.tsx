@@ -11,6 +11,7 @@ const NAV = [
   { href: "/autopilot", label: "Application Autopilot", icon: "🤖" },
   { href: "/crm", label: "Universal CRM", icon: "👥" },
   { href: "/centers", label: "Command Centers", icon: "🎖️" },
+  { href: "/money", label: "Money / Net Worth", icon: "💵" },
   { href: "/objectives", label: "Objectives", icon: "🎯" },
   { href: "/analytics", label: "Funnel Analytics", icon: "📊" },
   { href: "/jobs", label: "Jobs", icon: "💼" },

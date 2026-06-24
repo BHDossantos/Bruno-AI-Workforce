@@ -22,6 +22,12 @@ def status(db: Session = Depends(get_db), _=Depends(_read)):
     return social.status(db)
 
 
+@router.get("/history")
+def history(platform: str | None = None, limit: int = 90,
+            db: Session = Depends(get_db), _=Depends(_read)):
+    return social.history(db, platform, limit)
+
+
 @router.post("/publish")
 def publish(body: PostIn, db: Session = Depends(get_db), _=Depends(_write)):
     """Post now to every connected platform (generates an image if hosting is set)."""

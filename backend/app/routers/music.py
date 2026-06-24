@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from .. import outreach
 from ..database import get_db
+from ..integrations import spotify_api
 from ..models import Campaign, Influencer, MusicPlaylist
 from ..schemas import CampaignOut, InfluencerOut, PlaylistOut
 from ..security import require_role
@@ -56,6 +57,12 @@ def send_influencer_pitch(influencer_id: str, db: Session = Depends(get_db), _=D
         inf.status = "Sent"
     db.commit()
     return {"ok": True, "status": msg.status, "to": inf.email}
+
+
+@router.get("/spotify")
+def spotify(db: Session = Depends(get_db), _=Depends(_read)):
+    """Live Spotify artist analytics (followers, top tracks) when connected."""
+    return spotify_api.overview(db)
 
 
 @router.get("/content", response_model=list[CampaignOut])

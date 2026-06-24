@@ -66,6 +66,9 @@ def rollup_objectives(db: Session) -> None:
         if obj is not None:
             obj.current_value = val
     db.commit()
+    # Net worth rolls up from the finance ledger.
+    from . import finance
+    finance.rollup(db)
 
 
 # ── Orchestration ────────────────────────────────────────────────────────────
