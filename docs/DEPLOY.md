@@ -71,6 +71,31 @@ gcloud scheduler jobs create http bruno-daily \
   --http-method=POST --headers="X-Cron-Token=<CRON_SECRET>"
 ```
 
+## Automatic deploys (CI/CD) — never touch the CLI
+`.github/workflows/deploy.yml` deploys **automatically after CI passes on
+`main`** (and is runnable by hand from the Actions tab). Set it up once:
+
+**1. Create a deploy service account + key**
+```bash
+PROJECT=<PROJECT_ID>
+gcloud iam service-accounts create gha-deployer --project "$PROJECT" \
+  --display-name "GitHub Actions deployer"
+SA="gha-deployer@${PROJECT}.iam.gserviceaccount.com"
+for ROLE in roles/cloudbuild.builds.editor roles/run.admin \
+            roles/iam.serviceAccountUser roles/storage.admin; do
+  gcloud projects add-iam-policy-binding "$PROJECT" --member="serviceAccount:$SA" --role="$ROLE"
+done
+gcloud iam service-accounts keys create key.json --iam-account "$SA"
+```
+
+**2. Add the repo secrets** (GitHub → Settings → Secrets and variables → Actions):
+- `GCP_SA_KEY` — the full contents of `key.json`
+- `GCP_PROJECT_ID` — your project id
+
+Then **delete `key.json` locally**. From now on, every merge to `main` that
+passes CI deploys both services. (Prefer keyless? Swap `credentials_json` for
+Workload Identity Federation in the workflow.)
+
 ## Verify
 ```bash
 curl -fsS https://ai-workforce-746155486511.europe-west1.run.app/health   # {"status":"ok"}
