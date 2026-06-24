@@ -266,6 +266,17 @@ def test_gmail_app_password_enables_sending_config():
         settings.gmail_app_password = old
 
 
+def test_analytics_funnel_is_monotonic():
+    from app.routers.analytics import _funnel
+
+    statuses = ["New", "Sent", "Opened", "Replied", "Interested", "Closed Won", "Closed Lost"]
+    f = {d["stage"]: d["count"] for d in _funnel(statuses)}
+    assert f["Sourced"] == 7              # everyone is sourced
+    assert f["Contacted"] >= f["Opened"] >= f["Replied"] >= f["Interested"] >= f["Won"]
+    assert f["Won"] == 1                  # one Closed Won
+    assert f["Replied"] == 3             # Replied, Interested, Closed Won
+
+
 def test_crm_token_falls_back_to_env_without_connection():
     from app.config import settings
     from app.integrations import crm
