@@ -164,6 +164,17 @@ class Settings(BaseSettings):
     # (private to your account); after your app passes audit, set this to
     # PUBLIC_TO_EVERYONE (or MUTUAL_FOLLOW_FRIENDS / FOLLOWER_OF_CREATOR).
     tiktok_privacy_level: str = "SELF_ONLY"
+    # TikTok Login Kit (OAuth) — enables the in-app "Connect with TikTok" button
+    # (and the demo flow TikTok app review wants to see). Get client_key/secret
+    # from the TikTok developer app; redirect_uri must be registered there and
+    # point at this backend's callback, e.g.
+    # https://<backend>/connections/tiktok/oauth/callback
+    tiktok_client_key: str = ""
+    tiktok_client_secret: str = ""
+    tiktok_redirect_uri: str = ""
+    # Where to send the browser back after OAuth completes (your frontend's
+    # /connections page). If blank, the callback shows a simple success page.
+    frontend_url: str = ""
     # Applicant identity used to fill application forms.
     applicant_name: str = "Bruno Dos Santos"
     applicant_email: str = "brunodossantos707@gmail.com"

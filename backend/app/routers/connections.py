@@ -4,12 +4,17 @@ Browse the provider catalog, connect any app / social / ad / commerce account
 (credentials encrypted at rest), and get the automated marketing & sales funnel
 the platform will run for each one.
 """
+import hashlib
+import hmac
 import json
+import time
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from .. import funnel
+from ..config import settings
 from ..database import get_db
 from ..integrations import registry
 from ..models import Connection
@@ -184,4 +189,63 @@ def test_connection(conn_id: str, db: Session = Depends(get_db),
         conn.status = "error"
     db.commit()
     return {"ok": ok, "detail": detail, "status": conn.status, "provider": conn.provider}
+
+
+# ── TikTok Login Kit (OAuth) ─────────────────────────────────────────────────
+def _sign_state() -> str:
+    """A short-lived signed state token to protect the OAuth round-trip (CSRF)."""
+    ts = str(int(time.time()))
+    sig = hmac.new(settings.secret_key.encode(), ts.encode(), hashlib.sha256).hexdigest()[:16]
+    return f"{ts}.{sig}"
+
+
+def _valid_state(state: str, max_age: int = 600) -> bool:
+    try:
+        ts, sig = (state or "").split(".", 1)
+        expected = hmac.new(settings.secret_key.encode(), ts.encode(), hashlib.sha256).hexdigest()[:16]
+        return hmac.compare_digest(sig, expected) and (time.time() - int(ts)) < max_age
+    except Exception:
+        return False
+
+
+@router.get("/tiktok/oauth/start")
+def tiktok_oauth_start(_=Depends(require_role("admin", "operator"))):
+    """Return the TikTok consent URL for the in-app 'Connect with TikTok' button."""
+    from ..integrations import tiktok_api
+    if not tiktok_api.oauth_configured():
+        raise HTTPException(400, "TikTok OAuth not configured (set TIKTOK_CLIENT_KEY, "
+                                 "TIKTOK_CLIENT_SECRET, TIKTOK_REDIRECT_URI)")
+    return {"url": tiktok_api.build_auth_url(_sign_state())}
+
+
+@router.get("/tiktok/oauth/callback")
+def tiktok_oauth_callback(code: str | None = None, state: str | None = None,
+                          error: str | None = None, db: Session = Depends(get_db)):
+    """TikTok redirects here after consent — exchange the code, store the
+    connection, and send the user back to the dashboard. Public (no bearer:
+    TikTok can't send one) but the signed `state` guards against CSRF."""
+    from ..integrations import tiktok_api
+
+    def _back(status: str) -> HTMLResponse | RedirectResponse:
+        if settings.frontend_url:
+            return RedirectResponse(f"{settings.frontend_url.rstrip('/')}/connections?tiktok={status}")
+        msg = ("✅ TikTok connected — you can close this tab and return to the app."
+               if status == "connected" else f"❌ TikTok connection failed ({status}).")
+        return HTMLResponse(f"<html><body style='font-family:sans-serif;padding:40px'>{msg}</body></html>")
+
+    if error or not code or not _valid_state(state or ""):
+        return _back("error")
+    creds = tiktok_api.exchange_code(code)
+    if not creds or not creds.get("access_token"):
+        return _back("error")
+
+    conn = db.query(Connection).filter(Connection.provider == "tiktok").first()
+    if not conn:
+        conn = Connection(provider="tiktok", display_name="TikTok", goal="followers")
+        db.add(conn)
+    conn.credentials_enc = encrypt_secret(json.dumps(creds))
+    conn.account_ref = creds.get("open_id")
+    conn.status = "connected"
+    db.commit()
+    return _back("connected")
 
