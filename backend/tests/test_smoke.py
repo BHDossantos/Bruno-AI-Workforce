@@ -480,6 +480,33 @@ def test_platform_loops_offline_and_growth(client, auth_headers):
     assert g["kpis"]["daily_target"] == sum(c["per_day"] for c in platform_loops.LOOPS.values())
 
 
+def test_posting_times_defaults_cover_platforms():
+    from app import platform_loops, posting_times
+    # Every platform loop has a default posting hour, and hours are valid (0-23).
+    assert set(platform_loops.LOOPS) <= set(posting_times.DEFAULT_HOURS)
+    assert all(0 <= h <= 23 for h in posting_times.DEFAULT_HOURS.values())
+
+
+@requires_db
+def test_posting_times_next_slot_and_endpoint(client, auth_headers):
+    from datetime import datetime, timezone
+    from app import posting_times
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        # With no data, best_hour falls back to the platform default and next_slot
+        # returns a future UTC datetime landing on that local hour.
+        assert posting_times.best_hour(db, "instagram") == posting_times.DEFAULT_HOURS["instagram"]
+        now = datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc)
+        slot = posting_times.next_slot(db, "linkedin", now=now)
+        assert slot > now and slot.tzinfo is not None
+    finally:
+        db.close()
+    pt = client.get("/analytics/posting-times", headers=auth_headers).json()
+    assert "summary" in pt and "instagram" in pt["summary"]
+    assert pt["summary"]["instagram"]["hour"] == posting_times.DEFAULT_HOURS["instagram"]
+
+
 def test_bnbglobal_agent_registered_and_scored():
     from app.agents import AGENTS, BnbGlobalAgent
     from app.commanders import COMMANDERS

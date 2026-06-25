@@ -9,7 +9,7 @@ and stores each piece with a status driven by the approval mode:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
@@ -27,14 +27,15 @@ _PUBLISHABLE = {"linkedin", "instagram", "facebook", "x"}  # via the social publ
 _SIMILAR = 0.88  # cosine above this == "we've covered this"
 
 
-def _status_for_mode(channel: str) -> tuple[str, datetime | None]:
+def _status_for_mode(db: Session, channel: str) -> tuple[str, datetime | None]:
     mode = settings.content_approval_mode
     if mode <= 1:
         return "generated", None
     if mode == 2:
         return "needs_approval", None
-    if mode == 3:  # auto-schedule (stagger a few hours out)
-        return "scheduled", datetime.now(timezone.utc) + timedelta(hours=2)
+    if mode == 3:  # auto-schedule into the channel's learned best posting window
+        from . import posting_times
+        return "scheduled", posting_times.next_slot(db, channel)
     return "scheduled", datetime.now(timezone.utc)  # 4/5: publish on next content-cron tick
 
 
@@ -70,7 +71,7 @@ def generate_pack(db: Session, topic: str, business: str = "executive",
         data = pack.get(ch)
         if not isinstance(data, dict):
             continue
-        status, sched = _status_for_mode(ch)
+        status, sched = _status_for_mode(db, ch)
         if ch not in _PUBLISHABLE and status == "scheduled":
             status, sched = "ready", None  # non-social pieces are drafts to use
         item = ContentItem(
