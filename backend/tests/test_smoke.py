@@ -540,6 +540,29 @@ def test_tiktok_oauth_state_and_config():
     assert tiktok_api.oauth_configured() is False
 
 
+def test_lead_geography_scopes():
+    from app.integrations import osm_leads
+    # US = 50 states, EU = country list, us_eu = both.
+    us = osm_leads.scope_areas("us")
+    eu = osm_leads.scope_areas("eu")
+    both = osm_leads.scope_areas("us_eu")
+    assert len(us) == 50 and len(eu) >= 10 and len(both) == len(us) + len(eu)
+    # US states use admin_level 4, countries level 2.
+    assert 'admin_level"="4"' in us[0][1]
+    assert 'admin_level"="2"' in eu[0][1]
+    # Explicit comma list → those areas (insurance stays NH/MA/FL).
+    ins = osm_leads.scope_areas("Massachusetts,New Hampshire,Florida")
+    assert {a[0] for a in ins} == {"Massachusetts", "New Hampshire", "Florida"}
+    # Rotation keeps a single run bounded.
+    assert len(osm_leads._rotate(both, 6)) == 6
+
+
+def test_bnbglobal_in_sales_cron():
+    import inspect
+    from app.routers import cron
+    assert '"bnbglobal"' in inspect.getsource(cron.cron_leads)
+
+
 def test_contacts_insurance_outreach_offline():
     from app import contacts_outreach
     from app.config import settings

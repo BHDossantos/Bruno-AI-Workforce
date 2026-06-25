@@ -54,8 +54,9 @@ def _map(job: dict) -> dict:
     }
 
 
-def fetch_jobs(titles: list[str], limit: int = 80) -> list[dict]:
-    """Query each target title and return mapped, de-duplicated jobs."""
+def fetch_jobs(titles: list[str], limit: int = 80, location: str | None = None) -> list[dict]:
+    """Query each target title (optionally biased to a location) and return
+    mapped, de-duplicated jobs."""
     if not is_configured():
         return []
     seen: set[str] = set()
@@ -63,8 +64,9 @@ def fetch_jobs(titles: list[str], limit: int = 80) -> list[dict]:
     for title in titles:
         if len(out) >= limit:
             break
+        query = f"{title} in {location}" if location else title
         try:
-            for raw in _search(title, pages=1):
+            for raw in _search(query, pages=1):
                 mapped = _map(raw)
                 key = (mapped["title"] + "|" + (mapped["company"] or "")).lower()
                 if key in seen or not mapped["title"]:

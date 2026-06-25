@@ -109,12 +109,12 @@ def cron_refresh_tokens(x_cron_token: str | None = Header(default=None), db: Ses
 
 @router.post("/leads")
 def cron_leads(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
-    """Lead-gen + auto cold-email pass: the insurance and SavoryMind agents each
-    find fresh prospects AND send their cold emails in one run. Schedule this a
-    few times a day so you wake up to outreach already sent."""
+    """Lead-gen + auto cold-email pass: the insurance, SavoryMind and BnB Global
+    agents each find fresh prospects AND send their cold emails in one run.
+    Schedule this a few times a day so you wake up to outreach already sent."""
     _auth(x_cron_token)
     out = {}
-    for key in ("insurance", "savorymind"):
+    for key in ("insurance", "savorymind", "bnbglobal"):
         cls = AGENTS.get(key)
         if cls:
             try:

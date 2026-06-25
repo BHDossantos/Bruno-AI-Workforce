@@ -22,7 +22,8 @@ class SavoryMindAgent(BaseAgent):
 
     def execute(self) -> dict:
         batch = max(1, settings.lead_batch_size)
-        restaurants = providers.fetch_restaurants(batch)
+        # SavoryMind sells anywhere → sweep restaurants across the US + Europe.
+        restaurants = providers.fetch_restaurants(batch, scope=settings.restaurant_lead_scope)
         consumers = providers.fetch_food_consumers(batch)
 
         # Don't duplicate restaurants we already have (keep contact history).

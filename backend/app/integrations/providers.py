@@ -52,7 +52,7 @@ def fetch_jobs(limit: int = 60) -> list[dict]:
     combined: list[dict] = []
     seen: set[str] = set()
     for source in (
-        lambda: jobs_api.fetch_jobs(JOB_TITLES, limit=limit),  # LinkedIn/Indeed/Glassdoor/ZipRecruiter
+        lambda: jobs_api.fetch_jobs(JOB_TITLES, limit=limit, location=settings.job_location),  # LinkedIn/Indeed/Glassdoor/ZipRecruiter
         lambda: jobs_free.fetch_jobs(limit=limit),             # Remotive/RemoteOK/Arbeitnow/Jobicy/Himalayas
     ):
         try:
@@ -94,16 +94,17 @@ COMMERCIAL_CATEGORIES = ["Contractor", "Restaurant", "Medical office", "Real est
 PERSONAL_CATEGORIES = ["Homeowner", "New mover", "Auto owner", "Mortgage lead"]
 
 
-def fetch_insurance_leads(segment: str, count: int) -> list[dict]:
+def fetch_insurance_leads(segment: str, count: int, scope: str | None = None) -> list[dict]:
     """Real commercial leads from OpenStreetMap (free) + Apollo (if configured).
 
-    The lead-finder agents call this. Commercial prospects come from real local
-    businesses (OSM) with real emails, then Apollo, then synthetic top-up (only
-    if ALLOW_SYNTHETIC_FALLBACK). Personal leads have no free real source.
+    The lead-finder agents call this. ``scope`` controls geography (e.g. insurance
+    stays in NH/MA/FL; consulting sweeps US+EU). Commercial prospects come from
+    real local businesses (OSM) with real emails, then Apollo, then synthetic
+    top-up (only if ALLOW_SYNTHETIC_FALLBACK). Personal leads have no free source.
     """
     out: list[dict] = []
     if segment == "commercial":
-        out.extend(osm_leads.fetch_commercial_leads(count))                 # free, real
+        out.extend(osm_leads.fetch_commercial_leads(count, scope=scope))    # free, real
         if len(out) < count:
             out.extend(places.fetch_commercial_leads(count - len(out)))     # Google Places (free credit)
         if apollo.is_configured() and len(out) < count:
@@ -142,9 +143,9 @@ RESTAURANT_TYPES = ["Fine dining", "Wine bar", "Cafe", "Family restaurant",
 CUISINES = ["Italian", "Brazilian", "American", "French", "Japanese", "Mexican", "Mediterranean"]
 
 
-def fetch_restaurants(count: int) -> list[dict]:
+def fetch_restaurants(count: int, scope: str | None = None) -> list[dict]:
     """Real restaurants from OpenStreetMap (free) + Apollo, topped up with synthetic."""
-    out: list[dict] = list(osm_leads.fetch_restaurants(count))  # free, real
+    out: list[dict] = list(osm_leads.fetch_restaurants(count, scope=scope))  # free, real
     if len(out) < count:
         out.extend(places.fetch_restaurants(count - len(out)))  # Google Places (free credit)
     if len(out) >= count:
