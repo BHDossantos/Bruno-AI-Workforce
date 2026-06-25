@@ -52,6 +52,8 @@ upsert_job "bruno-leads-eve"  "0 17 * * *"  "/cron/leads"    "1200s"
 upsert_job "bruno-inbound"    "*/30 * * * *" "/cron/inbound"  "320s"
 # Process due follow-ups twice a day on business days.
 upsert_job "bruno-followups"  "0 9,14 * * 1-5" "/cron/followups" "320s"
+# Auto-refresh OAuth tokens daily so social connections never expire.
+upsert_job "bruno-refresh-tokens" "0 4 * * *"  "/cron/refresh-tokens" "320s"
 
 echo "✅ Scheduler jobs provisioned in ${LOCATION} (project ${PROJECT}, tz ${TZ})."
 echo "   List: gcloud scheduler jobs list --location ${LOCATION}"

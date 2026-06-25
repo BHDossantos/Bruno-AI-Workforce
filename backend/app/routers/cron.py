@@ -33,8 +33,18 @@ def run_agent(key: str, x_cron_token: str | None = Header(default=None),
 @router.post("/run-all")
 def run_all(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
     _auth(x_cron_token)
-    from .. import commanders
-    return commanders.run_ceo(db)  # CEO → Commander → Agent hierarchy
+    from .. import alerts, commanders
+    result = commanders.run_ceo(db)  # CEO → Commander → Agent hierarchy
+    alerts.check_run("daily cycle", result)  # email admin only if something errored
+    return result
+
+
+@router.post("/refresh-tokens")
+def cron_refresh_tokens(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
+    """Auto-refresh OAuth tokens so social connections never silently expire."""
+    _auth(x_cron_token)
+    from ..integrations import oauth_refresh
+    return oauth_refresh.refresh_all(db)
 
 
 @router.post("/leads")
@@ -51,6 +61,8 @@ def cron_leads(x_cron_token: str | None = Header(default=None), db: Session = De
                 out[key] = cls(db).run()
             except Exception as exc:  # one agent failing must not stop the other
                 out[key] = {"error": str(exc)}
+    from .. import alerts
+    alerts.check_run("lead + cold-email pass", out)
     return out
 
 

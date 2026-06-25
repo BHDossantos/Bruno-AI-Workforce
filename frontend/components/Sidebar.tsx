@@ -21,6 +21,7 @@ const NAV = [
   { href: "/music", label: "Music Campaigns", icon: "🎵" },
   { href: "/instagram", label: "Instagram Planner", icon: "📸" },
   { href: "/connections", label: "Connections", icon: "🔌" },
+  { href: "/status", label: "System Status", icon: "🩺" },
   { href: "/import", label: "Import Contacts", icon: "📥" },
   { href: "/outbox", label: "Outbox", icon: "📧" },
   { href: "/texts", label: "Texts", icon: "💬" },

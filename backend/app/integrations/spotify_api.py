@@ -28,6 +28,24 @@ def is_connected(db) -> bool:
     return _creds(db) is not None
 
 
+def _access_token(db, c: dict) -> str:
+    """Spotify access tokens expire hourly — mint a fresh one from the refresh
+    token when we have one, and persist it; otherwise use the stored token."""
+    if not (c.get("refresh_token") and c.get("client_id") and c.get("client_secret")):
+        return c["access_token"]
+    try:
+        r = httpx.post("https://accounts.spotify.com/api/token", timeout=_TIMEOUT, data={
+            "grant_type": "refresh_token", "refresh_token": c["refresh_token"],
+            "client_id": c["client_id"], "client_secret": c["client_secret"]})
+        tok = (r.json() or {}).get("access_token") if r.status_code == 200 else None
+        if tok:
+            connectors.update_credentials(db, "spotify", {**c, "access_token": tok})
+            return tok
+    except Exception as exc:  # pragma: no cover - network guard
+        log.warning("Spotify token refresh failed: %s", exc)
+    return c["access_token"]
+
+
 def _get(path: str, token: str, **params) -> dict | None:
     try:
         r = httpx.get(f"{_BASE}/{path}", params=params or None,
@@ -42,10 +60,11 @@ def overview(db) -> dict:
     c = _creds(db)
     if not c:
         return {"connected": False}
-    artist = _get(f"artists/{c['artist_id']}", c["access_token"])
+    token = _access_token(db, c)
+    artist = _get(f"artists/{c['artist_id']}", token)
     if not artist:
         return {"connected": True, "error": "Could not load artist — check the token."}
-    tracks = _get(f"artists/{c['artist_id']}/top-tracks", c["access_token"], market="US") or {}
+    tracks = _get(f"artists/{c['artist_id']}/top-tracks", token, market="US") or {}
     return {
         "connected": True,
         "name": artist.get("name"),

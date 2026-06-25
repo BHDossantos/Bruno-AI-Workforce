@@ -51,3 +51,19 @@ def get_credentials(db: Session | None, provider: str) -> dict | None:
 
 def is_connected(db: Session | None, provider: str) -> bool:
     return get_connection(db, provider) is not None
+
+
+def update_credentials(db: Session, provider: str, creds: dict) -> bool:
+    """Persist refreshed credentials (re-encrypted) for a provider's connection."""
+    from ..security import encrypt_secret
+    conn = get_connection(db, provider)
+    if not conn:
+        return False
+    try:
+        conn.credentials_enc = encrypt_secret(json.dumps(creds))
+        db.commit()
+        return True
+    except Exception as exc:  # pragma: no cover
+        log.warning("Could not update credentials for %s: %s", provider, exc)
+        db.rollback()
+        return False
