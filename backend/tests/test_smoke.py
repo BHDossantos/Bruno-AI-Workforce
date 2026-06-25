@@ -110,6 +110,18 @@ def test_release_kit_shape_and_offline():
     assert res["ok"] is False
 
 
+def test_followups_are_memory_aware():
+    """Outreach must recall what we know before writing — the Operating Memory."""
+    from app import memory
+    from app.ai.prompts import FOLLOWUP_EMAIL
+    # No name/email → no DB calls, empty block (safe to call anywhere).
+    assert memory.entity_context(db=None, name=None, email=None) == ""
+    # The follow-up prompt carries a memory slot that gets injected.
+    out = FOLLOWUP_EMAIL.format(step=2, name="Ana", context="insurance",
+                                memory="What you remember about Ana:\n- prefers mornings")
+    assert "prefers mornings" in out
+
+
 def test_recap_references_real_columns():
     """Guard: the home recap touches several models' timestamp columns — assert
     they exist so a renamed/missing column fails here, not in a live DB test."""
