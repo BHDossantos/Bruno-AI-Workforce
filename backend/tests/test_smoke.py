@@ -874,7 +874,7 @@ def test_leads_are_not_duplicated_across_runs(client, auth_headers, monkeypatch)
         "website": "https://x.com", "linkedin": None, "industry": "Restaurant", "city": "Boston",
     }]
     monkeypatch.setattr(ins_mod.providers, "fetch_insurance_leads",
-                        lambda segment, count: fixed if segment == "commercial" else [])
+                        lambda segment, count, **kw: fixed if segment == "commercial" else [])
 
     db = SessionLocal()
     try:
