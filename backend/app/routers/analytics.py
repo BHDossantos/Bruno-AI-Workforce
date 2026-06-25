@@ -100,7 +100,7 @@ def growth(db: Session = Depends(get_db), _=Depends(_read)):
     platform, per-channel content cadence + engagement, and the platform loops'
     target cadence — so you can see what the media engine is producing and how
     each channel is performing."""
-    from .. import content_analytics, platform_loops, social
+    from .. import content_analytics, platform_loops, posting_times, social
 
     # Per-platform connection + current followers, and 30-day follower delta.
     conn = social.status(db)
@@ -119,6 +119,7 @@ def growth(db: Session = Depends(get_db), _=Depends(_read)):
             {"date": when.date().isoformat() if when else None, "followers": foll})
 
     ch_summary = content_analytics.channel_summary(db)
+    times = posting_times.summary(db)
 
     # Per-channel content published in the last 14 days (cadence view).
     since = datetime.now(timezone.utc) - timedelta(days=14)
@@ -142,6 +143,8 @@ def growth(db: Session = Depends(get_db), _=Depends(_read)):
             "published_total": (ch_summary.get(name) or {}).get("published", 0),
             "avg_engagement": (ch_summary.get(name) or {}).get("avg_engagement", 0.0),
             "top_category": (ch_summary.get(name) or {}).get("top_category"),
+            "best_hour": (times.get(name) or {}).get("hour"),
+            "best_hour_learned": (times.get(name) or {}).get("learned", False),
         })
 
     total_followers = sum(v for v in last_by_plat.values())
@@ -157,3 +160,14 @@ def growth(db: Session = Depends(get_db), _=Depends(_read)):
         "by_category": content_analytics.category_performance(db),
         "top_content": content_analytics.top_performers(db, 10),
     }
+
+
+@router.get("/posting-times")
+def posting_times_view(db: Session = Depends(get_db), _=Depends(_read)):
+    """Best posting hour per platform (learned from engagement, default until
+    there's enough data) plus the full hour-by-hour engagement breakdown."""
+    from .. import posting_times
+    from ..config import settings
+    return {"timezone": settings.timezone,
+            "summary": posting_times.summary(db),
+            "detail": posting_times.learned_hours(db)}

@@ -14,6 +14,8 @@ type PlatformRow = {
   published_total: number;
   avg_engagement: number;
   top_category: string | null;
+  best_hour: number | null;
+  best_hour_learned: boolean;
 };
 type TopContent = {
   topic: string;
@@ -32,6 +34,13 @@ type Growth = {
 const ICON: Record<string, string> = {
   linkedin: "💼", instagram: "📸", facebook: "👍", x: "✖️", tiktok: "🎵", youtube: "▶️",
 };
+
+function fmtHour(h: number | null): string {
+  if (h === null || h === undefined) return "—";
+  const am = h < 12;
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}${am ? "am" : "pm"}`;
+}
 
 function Delta({ n }: { n: number | null }) {
   if (n === null) return <span className="text-gray-400">—</span>;
@@ -83,6 +92,7 @@ function GrowthView() {
               <th>30d</th>
               <th>Trend</th>
               <th>Cadence</th>
+              <th>Best time</th>
               <th>Published</th>
               <th>Avg engagement</th>
               <th>Top category</th>
@@ -100,6 +110,12 @@ function GrowthView() {
                 <td><Delta n={p.follower_delta} /></td>
                 <td className="text-brand"><Sparkline points={data.follower_series[p.platform] || []} /></td>
                 <td>{p.per_day_target}/day</td>
+                <td title={p.best_hour_learned ? "learned from engagement" : "default — not enough data yet"}>
+                  {fmtHour(p.best_hour)}
+                  {p.best_hour_learned
+                    ? <span className="ml-1 text-[10px] text-green-600">learned</span>
+                    : <span className="ml-1 text-[10px] text-gray-400">default</span>}
+                </td>
                 <td>{p.published_14d} <span className="text-gray-400">/ {p.published_total}</span></td>
                 <td>{p.avg_engagement}</td>
                 <td className="text-gray-600">{p.top_category || "—"}</td>
