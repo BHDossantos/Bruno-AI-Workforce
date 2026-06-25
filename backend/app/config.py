@@ -166,7 +166,7 @@ class Settings(BaseSettings):
     applicant_phone: str = "603-930-8272"
     applicant_linkedin: str = ""  # set to your LinkedIn URL
     applicant_github: str = "https://github.com/BHDossantos"
-    applicant_location: str = "Boston, MA"
+    applicant_location: str = "Hollis, NH"
     # Resume PDF baked into the backend image (see backend/assets/resume/); the
     # browser worker attaches it to file uploads. Override via env if needed.
     applicant_resume_path: str = "/app/assets/resume/Bruno_Dos_Santos_Resume.pdf"

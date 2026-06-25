@@ -55,18 +55,21 @@ def _screening_answers(job: Job) -> dict:
 
 
 def prepare_job_application(db: Session, job_id: str) -> BrowserTask | None:
+    from . import applicant_profile
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         return None
     name = settings.applicant_name.strip()
     first, _, last = name.partition(" ")
+    # Bruno's full profile is the authoritative answer source; screening answers
+    # come straight from the profile (no AI guessing on work-auth/salary/etc.).
     field_map = {
+        **applicant_profile.flat_fields(),
         "full_name": name, "first_name": first, "last_name": last,
-        "email": settings.applicant_email, "phone": settings.applicant_phone,
-        "linkedin": settings.applicant_linkedin,
         "resume_path": settings.applicant_resume_path,
         "cover_letter": job.cover_letter or "",
-        "answers": _screening_answers(job),
+        "answers": {**applicant_profile.SCREENING, **_screening_answers(job)},
+        "short_answers": applicant_profile.SHORT_ANSWERS,
     }
     # Ensure an Application row exists and reflects autopilot prep.
     app = db.query(Application).filter(Application.job_id == job.id).first()
@@ -91,6 +94,19 @@ _KEYWORDS = [
     ("first", "first_name"), ("last", "last_name"), ("surname", "last_name"),
     ("full name", "full_name"), ("fullname", "full_name"), ("your name", "full_name"),
     ("name", "full_name"),
+    ("github", "github"), ("portfolio", "github"),
+    ("street", "address"), ("address", "address"),
+    ("city", "city"), ("state", "state"), ("province", "state"),
+    ("zip", "zip"), ("postal", "zip"), ("country", "country"),
+    ("current title", "current_title"), ("current company", "current_employer"),
+    ("employer", "current_employer"), ("company", "current_employer"),
+    ("desired salary", "target_salary"), ("expected salary", "target_salary"),
+    ("salary", "target_salary"), ("compensation", "target_salary"),
+    ("start date", "available_start_date"), ("available", "available_start_date"),
+    ("years of experience", "years_experience"), ("experience", "years_experience"),
+    ("sponsor", "require_sponsorship"), ("visa", "require_sponsorship"),
+    ("authorized", "authorized_us"), ("work authorization", "authorized_us"),
+    ("citizen", "us_citizen"), ("relocat", "open_to_relocation"),
     ("cover", "cover_letter"), ("message", "cover_letter"), ("why", "cover_letter"),
 ]
 
