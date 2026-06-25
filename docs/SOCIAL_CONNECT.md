@@ -61,10 +61,22 @@ Read-only follower/top-track analytics via the Spotify Web API (Spotify has no
 post/upload API). Mint an OAuth token and grab your artist ID from your artist
 URL.
 
-## TikTok 🎵 / YouTube ▶️
-The Content Factory drafts these and they appear in your queue as **assist** items
-(you post them on-platform). Auto-publishing needs each platform's content-posting
-API approval, which we can wire later — for now they're ready-to-post drafts.
+## TikTok  🎵  (fields: `access_token`, `open_id`) — video auto-post
+TikTok publishing is wired (Content Posting API, Direct Post), but it's gated on
+TikTok's app audit and needs a produced video:
+1. **https://developers.tiktok.com/** → Developer Portal → **Manage apps** → create an app.
+2. Add products **Login Kit** + **Content Posting API** (enable **Direct Post**).
+3. Scopes: `user.info.basic`, `video.publish`, `video.upload`.
+4. OAuth to mint a user **access_token**; copy your **open_id**.
+5. Set the video-pipeline keys (`ELEVENLABS_API_KEY`, `VIDEO_API_KEY`) so the
+   engine can produce the clip TikTok requires.
+> Pre-audit, TikTok forces posts to **SELF_ONLY** (private). After your app passes
+> audit, set `TIKTOK_PRIVACY_LEVEL=PUBLIC_TO_EVERYONE`. Until then TikTok content
+> stays as ready-to-post drafts in the Content Factory.
+
+## YouTube ▶️
+Drafted as **assist** items (you upload on-platform). Auto-upload can be wired
+later via the YouTube Data API.
 
 ---
 

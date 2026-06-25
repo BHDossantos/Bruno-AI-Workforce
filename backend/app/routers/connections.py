@@ -136,7 +136,7 @@ def _live_check(db: Session, provider: str):
     Returns (ok: bool | None, detail: str). ok is None when there's no live
     check wired for that provider yet (token is stored but unverifiable here)."""
     from ..integrations import (facebook_api, instagram_api, linkedin_api,
-                                spotify_api, twitter_api)
+                                spotify_api, tiktok_api, twitter_api)
     try:
         if provider == "instagram":
             a = instagram_api.get_account(db)
@@ -156,6 +156,10 @@ def _live_check(db: Session, provider: str):
         if provider == "spotify":
             o = spotify_api.overview(db)
             return (bool(o), "analytics reachable" if o else "token rejected")
+        if provider == "tiktok":
+            u = tiktok_api.verify(db)
+            return (bool(u), f"{u.get('display_name')} · {u.get('followers')} followers" if u
+                    else "token rejected (needs video.publish scope / audited app)")
     except Exception as exc:  # pragma: no cover - defensive network guard
         return (False, str(exc)[:200])
     return (None, "no live check available for this provider — token stored as-is")
