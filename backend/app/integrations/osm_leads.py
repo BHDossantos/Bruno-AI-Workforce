@@ -244,6 +244,8 @@ def _all_commercial_selectors() -> list[str]:
 
 
 def fetch_commercial_leads(count: int, scope: str | None = None) -> list[dict]:
+    if not is_enabled():  # master gate (tests empty LEAD_STATES → no network)
+        return []
     areas = _scoped_areas(scope)
     if not areas:
         return []
@@ -251,6 +253,8 @@ def fetch_commercial_leads(count: int, scope: str | None = None) -> list[dict]:
 
 
 def fetch_restaurants(count: int, scope: str | None = None) -> list[dict]:
+    if not is_enabled():  # master gate (tests empty LEAD_STATES → no network)
+        return []
     areas = _scoped_areas(scope)
     if not areas:
         return []
