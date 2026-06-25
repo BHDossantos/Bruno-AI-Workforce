@@ -57,6 +57,18 @@ def sent_today_count(db: Session, account: str) -> int:
     ).scalar() or 0
 
 
+def effective_cap(db: Session, account: str) -> int:
+    """Daily send cap with deliverability warmup: a fresh mailbox starts low and
+    ramps up, so it isn't flagged as spam. Reaches the full cap over time."""
+    cap = settings.gmail_daily_send_cap
+    if not settings.email_warmup_enabled:
+        return cap
+    first = db.query(func.min(Message.sent_at)).filter(
+        Message.from_account == account, Message.sent_at.isnot(None)).scalar()
+    days = (date.today() - first.date()).days if first else 0
+    return min(cap, settings.email_warmup_start + settings.email_warmup_step * max(0, days))
+
+
 def already_contacted_today(db: Session, to_email: str) -> bool:
     return db.query(Message).filter(
         Message.to_email == to_email, Message.sent_at >= _day_start(),
@@ -93,8 +105,8 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
     if mode == "send" and already_contacted_today(db, to_email):
         _log(db, actor, "send_skipped_duplicate", msg, to=to_email)
         return msg
-    if mode == "send" and sent_today_count(db, account) >= settings.gmail_daily_send_cap:
-        mode = "draft"  # hit the daily cap — degrade to a draft
+    if mode == "send" and sent_today_count(db, account) >= effective_cap(db, account):
+        mode = "draft"  # hit the (warmup-aware) daily cap — degrade to a draft
 
     html = email_template.render(body, account)  # consistent template + compliant footer
     if mode == "send":

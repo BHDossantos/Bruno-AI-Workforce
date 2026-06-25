@@ -113,6 +113,13 @@ def commanders_status(db: Session = Depends(get_db), _=Depends(_read)):
     return commanders.status(db)
 
 
+@router.get("/admin/selftest")
+def admin_selftest(db: Session = Depends(get_db), _=Depends(_read)):
+    """Live health check — pings every configured/connected service."""
+    from .. import selftest
+    return selftest.run(db)
+
+
 @router.get("/scoreboard")
 def scoreboard(db: Session = Depends(get_db), _=Depends(_read)):
     """The six roll-up metrics everything else feeds into."""

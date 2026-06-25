@@ -17,9 +17,31 @@ function Money() {
   const [s, setS] = useState<Summary | null>(null);
   const [form, setForm] = useState({ name: "", kind: "asset", category: "checking", balance: "" });
   const [tx, setTx] = useState({ amount: "", category: "", description: "" });
+  const [plaid, setPlaid] = useState<{ configured: boolean; linked: boolean } | null>(null);
 
-  async function load() { setS(await api.get<Summary>("/finance/summary")); }
+  async function load() {
+    setS(await api.get<Summary>("/finance/summary"));
+    setPlaid(await api.get<{ configured: boolean; linked: boolean }>("/finance/plaid/status").catch(() => null));
+  }
   useEffect(() => { load().catch(() => {}); }, []);
+
+  async function connectBank() {
+    const { link_token } = await api.post<{ link_token?: string }>("/finance/plaid/link-token", {});
+    if (!link_token) { alert("Plaid isn't configured yet (set PLAID_CLIENT_ID / PLAID_SECRET)."); return; }
+    // Load the Plaid Link SDK on demand.
+    await new Promise<void>((resolve) => {
+      if ((window as unknown as { Plaid?: unknown }).Plaid) return resolve();
+      const sc = document.createElement("script");
+      sc.src = "https://cdn.plaid.com/link/v2/stable/link-initialize.js";
+      sc.onload = () => resolve();
+      document.body.appendChild(sc);
+    });
+    const Plaid = (window as unknown as { Plaid: { create: (o: unknown) => { open: () => void } } }).Plaid;
+    Plaid.create({
+      token: link_token,
+      onSuccess: async (public_token: string) => { await api.post("/finance/plaid/exchange", { public_token }); await load(); },
+    }).open();
+  }
 
   async function addAccount() {
     if (!form.name || !form.balance) return;
@@ -42,6 +64,14 @@ function Money() {
   return (
     <div>
       <PageHeader title="Money / Net Worth" subtitle="Accounts, cash flow, and net worth — feeds the Wealth Commander." />
+      {plaid && (
+        <div className="mb-4">
+          {plaid.linked
+            ? <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">🏦 Bank linked — balances sync daily</span>
+            : <button onClick={connectBank} className="btn">🏦 Connect bank (Plaid)</button>}
+          {!plaid.configured && !plaid.linked && <span className="ml-2 text-xs text-gray-400">set PLAID_CLIENT_ID / PLAID_SECRET to enable</span>}
+        </div>
+      )}
       {s && (
         <>
           <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">

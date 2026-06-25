@@ -72,6 +72,10 @@ def _tx_out(t: Transaction) -> dict:
 
 def upsert_account(db: Session, *, id=None, **fields) -> dict:
     acct = db.query(Account).filter(Account.id == id).first() if id else None
+    # Plaid re-syncs match an existing account by name so they don't duplicate.
+    if acct is None and fields.get("source") == "plaid" and fields.get("name"):
+        acct = db.query(Account).filter(Account.name == fields["name"],
+                                        Account.source == "plaid").first()
     if acct:
         for k, v in fields.items():
             if v is not None:
