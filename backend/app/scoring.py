@@ -17,6 +17,7 @@ from .models import ActionState, Application, Job, Lead, Message, Restaurant
 # Expected-value assumptions (tune freely; these are sensible defaults).
 _COMMERCIAL_VALUE = 5_000      # avg commercial insurance commission
 _PERSONAL_VALUE = 1_500
+_CONSULTING_VALUE = 20_000     # avg BnB Global tech-consulting engagement
 _RESTAURANT_ARR = 12_000       # SavoryMind annual contract
 _DEFAULT_SALARY = 275_000      # when a job posting hides salary
 _WARM_PROB = {"Interested": 0.5, "Replied": 0.35, "Follow-up Needed": 0.3}
@@ -49,10 +50,21 @@ def build_actions(db: Session) -> list[dict]:
             "link": j.url or "/apply", "why": f"${round(value/1000)}k role · fit {j.score}",
         })
 
-    # ── Wealth · warm insurance leads to follow up ───────────────────────────
-    for l in (db.query(Lead).filter(Lead.status.in_(list(_WARM_PROB))).limit(60)):
-        value = _COMMERCIAL_VALUE if l.segment == "commercial" else _PERSONAL_VALUE
+    # ── Warm leads to follow up — insurance (Wealth) + BnB Global (consulting) ─
+    for l in (db.query(Lead).filter(Lead.status.in_(list(_WARM_PROB))).limit(80)):
         prob = _WARM_PROB.get(l.status, 0.3)
+        if l.segment == "consulting":
+            value = _CONSULTING_VALUE
+            actions.append({
+                "key": f"follow_up:lead:{l.id}",
+                "title": f"BnB Global follow-up: {l.company_name or l.owner_name}",
+                "command_center": "business", "objective": "consulting", "action_type": "follow_up",
+                "value": float(value), "probability": prob, "effort": 2,
+                "priority": _score(value, prob, 2, w.get("consulting", 0.6), 1.3),
+                "link": "/bnbglobal", "why": f"{l.status} · ~${value} consulting engagement",
+            })
+            continue
+        value = _COMMERCIAL_VALUE if l.segment == "commercial" else _PERSONAL_VALUE
         actions.append({
             "key": f"follow_up:lead:{l.id}",
             "title": f"Follow up: {l.company_name or l.owner_name}",
