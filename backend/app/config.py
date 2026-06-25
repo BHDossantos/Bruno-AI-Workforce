@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-3-small"  # for the memory/knowledge layer
     image_model: str = "gpt-image-1"  # for auto-generated social post images
 
+    # Video pipeline (all optional; pipeline no-ops until keys are set).
+    elevenlabs_api_key: str = ""      # AI voiceover
+    elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"  # default ElevenLabs voice
+    video_provider: str = "luma"      # luma | runway
+    video_api_key: str = ""           # key for the chosen video-gen provider
+
     # Public GCS bucket for hosting generated media (e.g. Instagram post images,
     # which the IG API must fetch from a public URL). Leave blank to disable.
     gcs_bucket: str = ""

@@ -70,3 +70,16 @@ def analytics(db: Session = Depends(get_db), _=Depends(_read)):
     from .. import content_analytics
     return {"top": content_analytics.top_performers(db, 12),
             "by_category": content_analytics.category_performance(db)}
+
+
+@router.get("/video/status")
+def video_status(_=Depends(_read)):
+    from .. import video_pipeline
+    return video_pipeline.available()
+
+
+@router.post("/{content_id}/video")
+def make_video(content_id: str, db: Session = Depends(get_db), _=Depends(_write)):
+    """Produce media assets (voiceover, cover, AI video clip) for a content piece."""
+    from .. import video_pipeline
+    return video_pipeline.start_for_content(db, content_id)

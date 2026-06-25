@@ -55,6 +55,14 @@ def cron_sync_content_metrics(x_cron_token: str | None = Header(default=None), d
     return content_analytics.sync_metrics(db)
 
 
+@router.post("/sync-video")
+def cron_sync_video(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
+    """Poll in-flight AI video jobs and attach finished clips (no-op without keys)."""
+    _auth(x_cron_token)
+    from .. import video_pipeline
+    return video_pipeline.sync_pending(db)
+
+
 @router.post("/sync-bank")
 def cron_sync_bank(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
     """Pull bank balances + transactions from Plaid (no-op if no bank linked)."""

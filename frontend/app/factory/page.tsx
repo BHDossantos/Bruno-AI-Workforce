@@ -41,6 +41,16 @@ function Factory() {
   async function act(id: string, path: string) {
     await api.post(`/content/${id}/${path}`, {}); await load();
   }
+  async function makeVideo(id: string) {
+    setMsg("Producing media…");
+    try {
+      const r = await api.post<{ ok: boolean; available?: Record<string, boolean> }>(`/content/${id}/video`, {});
+      const a = r.available || {};
+      setMsg(r.ok
+        ? `🎬 Started. Voiceover:${a.voiceover ? "✓" : "—"} Video:${a.video ? "✓" : "—"} Hosting:${a.hosting ? "✓" : "—"}${!a.video ? " (add ELEVENLABS/VIDEO keys to enable)" : ""}`
+        : "❌ failed");
+    } catch (e) { setMsg(String(e)); }
+  }
 
   return (
     <div>
@@ -90,6 +100,8 @@ function Factory() {
                 <td className="p-3 text-right">
                   {(i.status === "needs_approval" || i.status === "ready") &&
                     <button onClick={() => act(i.id, "approve")} className="rounded border border-gray-300 px-2 py-1 text-xs">Approve</button>}
+                  {["instagram", "tiktok", "youtube"].includes(i.channel) &&
+                    <button onClick={() => makeVideo(i.id)} className="ml-1 rounded border border-gray-300 px-2 py-1 text-xs">🎬 Video</button>}
                   {i.status !== "dismissed" && i.status !== "published" &&
                     <button onClick={() => act(i.id, "dismiss")} className="ml-1 rounded border border-gray-300 px-2 py-1 text-xs text-gray-500">✕</button>}
                 </td>

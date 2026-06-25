@@ -389,6 +389,15 @@ def test_instagram_api_not_connected():
     assert instagram_api.publish_post(None, "http://x/i.jpg", "hi")["ok"] is False
 
 
+def test_video_pipeline_offline():
+    from app import video_pipeline
+    from app.integrations import elevenlabs, video_gen
+    assert elevenlabs.is_configured() is False and elevenlabs.tts("hi") is None
+    assert video_gen.is_configured() is False and video_gen.create("a clip") is None
+    assert video_gen.poll("job") == ("pending", None)
+    assert video_pipeline.available() == {"voiceover": False, "video": False, "hosting": False}
+
+
 def test_content_analytics_offline():
     from app import content_analytics
     assert content_analytics._engagement({"likes": 10, "comments": 2, "shares": 1}) == 17
