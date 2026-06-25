@@ -55,10 +55,16 @@ def summary(db: Session = Depends(get_db), _=Depends(_read)):
     sms_threads = db.query(func.count(func.distinct(Message.to_email))).filter(
         Message.channel == "sms").scalar() or 0
 
+    insurance_leads = db.query(func.count()).select_from(Lead).filter(
+        Lead.created_at >= start, Lead.segment.in_(["commercial", "personal"])).scalar() or 0
+    consulting_leads = db.query(func.count()).select_from(Lead).filter(
+        Lead.created_at >= start, Lead.segment == "consulting").scalar() or 0
+
     return {
         "date": date.today().isoformat(),
         "jobs_found": c(Job, Job.found_at),
-        "insurance_leads": c(Lead, Lead.created_at),
+        "insurance_leads": insurance_leads,
+        "consulting_leads": consulting_leads,
         "restaurant_prospects": c(Restaurant, Restaurant.created_at, kind="prospect"),
         "music_playlists": c(MusicPlaylist, MusicPlaylist.created_at),
         "instagram_targets": c(InstagramTarget, InstagramTarget.created_at),

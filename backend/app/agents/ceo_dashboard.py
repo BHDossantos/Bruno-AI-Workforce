@@ -47,9 +47,14 @@ class CEODashboardAgent(BaseAgent):
 
         emails_sent = self.db.query(func.count()).select_from(Message).filter(
             Message.channel == "email", Message.sent_at >= start).scalar() or 0
+        insurance_leads = self.db.query(func.count()).select_from(Lead).filter(
+            Lead.created_at >= start, Lead.segment.in_(["commercial", "personal"])).scalar() or 0
+        consulting_leads = self.db.query(func.count()).select_from(Lead).filter(
+            Lead.created_at >= start, Lead.segment == "consulting").scalar() or 0
         return {
             "jobs_found": count(Job, Job.found_at),
-            "insurance_leads": count(Lead, Lead.created_at),
+            "insurance_leads": insurance_leads,
+            "consulting_leads": consulting_leads,
             "restaurant_prospects": count(Restaurant, Restaurant.created_at, kind="prospect"),
             "music_playlists": count(MusicPlaylist, MusicPlaylist.created_at),
             "influencers": count(Influencer, Influencer.created_at),
