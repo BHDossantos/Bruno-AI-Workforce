@@ -54,13 +54,23 @@ def generate_pack(db: Session, topic: str, business: str = "executive",
                   channels: list[str] | None = None) -> dict:
     """Produce + store channel content for one idea. Returns a summary."""
     channels = [c for c in (channels or CHANNELS) if c in CHANNELS]
+    # Music is a fan-facing romance brand — never let it land on LinkedIn (the user
+    # explicitly asked for no music there). This guard is pure so it always applies.
+    if business == "music":
+        channels = [c for c in channels if c != "linkedin"]
     if not client.is_live():
         return {"ok": False, "reason": "generation unavailable (set OPENAI_API_KEY)", "topic": topic}
+    # Inject the Bruno D brand bible so output builds the universe + drives streams.
+    guidance = ""
+    if business == "music":
+        from . import music_brand
+        guidance = music_brand.promo_context(db)
     prior = covered_recently(db, topic)
     freshness = (f"We've already covered: {', '.join(prior)}. Take a clearly NEW angle."
                  if prior else "This is a fresh topic.")
     pack = client.complete_json(CONTENT_FACTORY.format(
-        brand=brand.context(db), business=business, topic=topic, freshness=freshness))
+        brand=brand.context(db), business=business, topic=topic,
+        freshness=freshness, guidance=guidance))
     pack = pack if isinstance(pack, dict) else {}
     if not pack:
         return {"ok": False, "reason": "generation unavailable (set OPENAI_API_KEY)", "topic": topic}

@@ -223,6 +223,7 @@ class BrandProfileOut(ORMModel):
     content_pillars: str | None = None
     music_artist: str | None = None
     music_genres: str | None = None
+    music_links: str | None = None
 
 
 class BrandProfileUpdate(BaseModel):
@@ -237,3 +238,4 @@ class BrandProfileUpdate(BaseModel):
     content_pillars: str | None = None
     music_artist: str | None = None
     music_genres: str | None = None
+    music_links: str | None = None

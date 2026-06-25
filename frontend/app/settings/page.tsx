@@ -8,6 +8,7 @@ type Profile = {
   business_name?: string; niche?: string; location?: string; audience?: string;
   value_prop?: string; website?: string; tone?: string; instagram_handle?: string;
   content_pillars?: string; music_artist?: string; music_genres?: string;
+  music_links?: string;
 };
 
 const FIELDS: { key: keyof Profile; label: string; hint?: string; area?: boolean }[] = [
@@ -21,8 +22,11 @@ const FIELDS: { key: keyof Profile; label: string; hint?: string; area?: boolean
   { key: "instagram_handle", label: "Instagram handle", hint: "without the @" },
   { key: "content_pillars", label: "Content pillars (comma-separated)", area: true,
     hint: "themes the Instagram calendar rotates through" },
-  { key: "music_artist", label: "Music artist name" },
-  { key: "music_genres", label: "Music genres (comma-separated)" },
+  { key: "music_artist", label: "Music artist name", hint: "stage name (e.g. Bruno D)" },
+  { key: "music_genres", label: "Music genre / category",
+    hint: "own a lane — e.g. Luxury Latin Soul: romantic R&B with alto sax" },
+  { key: "music_links", label: "Streaming / follow links", area: true,
+    hint: "Spotify, Apple Music, YouTube Music, Pandora — every music post drives fans here" },
 ];
 
 function Settings() {
