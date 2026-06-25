@@ -12,12 +12,12 @@ from datetime import date
 
 from . import media
 from .integrations import (facebook_api, instagram_api, linkedin_api, tiktok_api,
-                           twitter_api)
+                           twitter_api, youtube_api)
 
 log = logging.getLogger("bruno.social")
 
 # Platform → (connected_fn, publish_fn(db, caption, media_url), needs_image)
-# media_url is an image URL for image platforms and a video URL for TikTok.
+# media_url is an image URL for image platforms and a video URL for TikTok/YouTube.
 PLATFORMS = {
     "instagram": (instagram_api.is_connected,
                   lambda db, cap, img: instagram_api.publish_post(db, img, cap), True),
@@ -29,7 +29,12 @@ PLATFORMS = {
           lambda db, cap, img: twitter_api.post(db, cap, img), False),
     "tiktok": (tiktok_api.is_connected,
                lambda db, cap, vid: tiktok_api.post(db, cap, vid), False),
+    "youtube": (youtube_api.is_connected,
+                lambda db, cap, vid: youtube_api.post(db, cap, vid), False),
 }
+
+# Channels that publish a video (need a produced clip, not an image/text).
+VIDEO_CHANNELS = {"tiktok", "youtube"}
 
 
 def connected_platforms(db) -> list[str]:
@@ -74,6 +79,9 @@ def status(db) -> dict:
     tk = tiktok_api.get_account(db) if tiktok_api.is_connected(db) else None
     out["tiktok"] = {"connected": tiktok_api.is_connected(db),
                      "followers": tk.get("followers") if tk else None}
+    yt = youtube_api.get_account(db) if youtube_api.is_connected(db) else None
+    out["youtube"] = {"connected": youtube_api.is_connected(db),
+                      "followers": int(yt["subscribers"]) if yt and yt.get("subscribers") else None}
     return out
 
 

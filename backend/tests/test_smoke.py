@@ -540,6 +540,15 @@ def test_tiktok_oauth_state_and_config():
     assert tiktok_api.oauth_configured() is False
 
 
+def test_youtube_publisher_offline():
+    from app import social
+    from app.integrations import youtube_api
+    assert "youtube" in social.PLATFORMS and "youtube" in social.VIDEO_CHANNELS
+    assert youtube_api.is_connected(None) is False
+    assert youtube_api.verify(None) is None
+    assert youtube_api.post(None, "hi", "http://x/v.mp4")["ok"] is False
+
+
 def test_connection_live_check_offline():
     from app.integrations import twitter_api
     from app.routers import connections
