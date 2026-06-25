@@ -381,6 +381,20 @@ def test_media_hosting_disabled_offline():
     assert media.generate_and_host("a sunset", "test") is None
 
 
+def test_applicant_profile_and_field_matching():
+    from app import applicant_profile, browser
+    flat = applicant_profile.flat_fields()
+    # Key application fields are present + authoritative.
+    assert flat["city"] == "Hollis" and flat["state"] == "New Hampshire"
+    assert flat["require_sponsorship"] == "No" and flat["us_citizen"] == "Yes"
+    assert applicant_profile.SCREENING["authorized_to_work"] == "Yes"
+    assert "tell_us_about_yourself" in applicant_profile.SHORT_ANSWERS
+    # Form-field matcher resolves real ATS labels from the flat profile.
+    assert browser._match_field("Current City", flat) == "Hollis"
+    assert browser._match_field("Will you require visa sponsorship?", flat) == "No"
+    assert browser._match_field("Desired Salary", flat) == "180000"
+
+
 def test_instagram_api_not_connected():
     from app.integrations import instagram_api
     assert instagram_api.is_connected(None) is False

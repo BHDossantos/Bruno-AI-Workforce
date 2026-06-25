@@ -16,6 +16,14 @@ class RunIn(BaseModel):
     auto_submit: bool | None = None
 
 
+@router.get("/profile")
+def applicant_profile_view(_=Depends(_read)):
+    """The applicant profile the Autopilot uses to fill applications."""
+    from .. import applicant_profile
+    return {"profile": applicant_profile.PROFILE, "screening": applicant_profile.SCREENING,
+            "short_answers": applicant_profile.SHORT_ANSWERS}
+
+
 @router.get("/tasks")
 def list_tasks(db: Session = Depends(get_db), _=Depends(_read)):
     return browser.list_tasks(db)
