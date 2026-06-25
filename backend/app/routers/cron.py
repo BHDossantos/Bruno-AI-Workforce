@@ -138,6 +138,18 @@ def cron_contacts_insurance(x_cron_token: str | None = Header(default=None),
     return out
 
 
+@router.post("/referrals")
+def cron_referrals(x_cron_token: str | None = Header(default=None),
+                   db: Session = Depends(get_db)):
+    """Ask engaged insurance leads (replied/interested/won) for referrals — your
+    warmest source of new warm leads. One ask per lead."""
+    _auth(x_cron_token)
+    from .. import alerts, referrals
+    out = referrals.run(db)
+    alerts.check_run("referral requests", out)
+    return out
+
+
 @router.post("/followups")
 def cron_followups(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
     _auth(x_cron_token)
