@@ -550,6 +550,10 @@ def test_contacts_insurance_outreach_offline():
         name = "Jane Doe"
     subj, body = contacts_outreach._message_for(_C())
     assert subj and "Jane" in body and "Thrust" in body
+    # Family/opt-out emails are excluded (case-insensitive).
+    ex = contacts_outreach._exclude_set()
+    assert "brianadossantos@gmail.com" in ex
+    assert "BrianaDosSantosawx@statefarm.com".lower() in ex
 
 
 def test_youtube_publisher_offline():

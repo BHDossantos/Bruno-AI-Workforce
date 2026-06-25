@@ -23,7 +23,13 @@ from .models import ManualContact, Message
 log = logging.getLogger("bruno.contacts_outreach")
 
 _EMAILED = "insurance_emailed"
+_EXCLUDED = "do_not_contact"
 _SUBJECT = "Quick question about your insurance"
+
+
+def _exclude_set() -> set[str]:
+    return {e.strip().lower() for e in (settings.contacts_outreach_exclude or "").split(",")
+            if e.strip()}
 
 
 def _fallback_body(first: str) -> str:
@@ -61,13 +67,19 @@ def run(db: Session, limit: int | None = None, sms_enabled: bool | None = None) 
     with a warm insurance intro. Returns a per-run summary."""
     limit = limit or settings.contacts_outreach_batch
     sms_on = settings.contacts_sms_enabled if sms_enabled is None else sms_enabled
+    exclude = _exclude_set()
     contacts = (db.query(ManualContact)
                 .filter(ManualContact.kind == "contact",
                         ManualContact.email.isnot(None),
-                        or_(ManualContact.status.is_(None), ManualContact.status != _EMAILED))
+                        or_(ManualContact.status.is_(None),
+                            ManualContact.status.notin_([_EMAILED, _EXCLUDED])))
                 .limit(limit).all())
-    emailed = texted = 0
+    emailed = texted = excluded = 0
     for c in contacts:
+        if (c.email or "").lower() in exclude:
+            c.status = _EXCLUDED  # permanently skip (family / opt-out)
+            excluded += 1
+            continue
         if not outreach.is_real_email(c.email):
             continue
         subject, body = _message_for(c)
@@ -92,4 +104,4 @@ def run(db: Session, limit: int | None = None, sms_enabled: bool | None = None) 
                 texted += 1
     db.commit()
     return {"contacts": len(contacts), "emailed": emailed, "texted": texted,
-            "sms_enabled": sms_on}
+            "excluded": excluded, "sms_enabled": sms_on}

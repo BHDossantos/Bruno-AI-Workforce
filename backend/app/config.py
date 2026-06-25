@@ -206,6 +206,10 @@ class Settings(BaseSettings):
     # need prior consent (TCPA); only enable if your list has opted in.
     contacts_outreach_batch: int = 20
     contacts_sms_enabled: bool = False
+    # Emails to NEVER include in contacts outreach (family / personal). Comma-
+    # separated, case-insensitive. Override via env to add/remove.
+    contacts_outreach_exclude: str = (
+        "brianadossantos@gmail.com,salasb2006@yahoo.com,brianadossantosawx@statefarm.com")
 
 
 @lru_cache
