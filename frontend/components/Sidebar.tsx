@@ -41,7 +41,9 @@ export default function Sidebar() {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
 
-  if (pathname === "/login") return null;
+  // Public pages (login + legal) render without the app chrome so they're
+  // cleanly crawlable by TikTok/Meta app review without a login.
+  if (pathname === "/login" || pathname === "/terms" || pathname === "/privacy") return null;
 
   function search() {
     if (!q.trim()) return;
