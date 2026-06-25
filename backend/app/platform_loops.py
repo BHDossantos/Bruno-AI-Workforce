@@ -43,7 +43,7 @@ LOOPS: dict[str, dict] = {
     "x":         {"per_day": 2, "auto": True,
                   "businesses": ["bnbglobal", "executive", "music"]},
     "tiktok":    {"per_day": 1, "auto": False,
-                  "businesses": ["music", "savorymind"]},
+                  "businesses": ["music"]},
     "youtube":   {"per_day": 1, "auto": False,
                   "businesses": ["bnbglobal", "music"]},
 }
