@@ -389,6 +389,26 @@ def test_instagram_api_not_connected():
     assert instagram_api.publish_post(None, "http://x/i.jpg", "hi")["ok"] is False
 
 
+def test_video_pipeline_offline():
+    from app import video_pipeline
+    from app.integrations import elevenlabs, video_gen
+    assert elevenlabs.is_configured() is False and elevenlabs.tts("hi") is None
+    assert video_gen.is_configured() is False and video_gen.create("a clip") is None
+    assert video_gen.poll("job") == ("pending", None)
+    avail = video_pipeline.available()
+    assert avail["voiceover"] is False and avail["video"] is False and avail["hosting"] is False
+    assert "render" in avail  # depends on whether ffmpeg is installed
+
+
+def test_content_analytics_offline():
+    from app import content_analytics
+    assert content_analytics._engagement({"likes": 10, "comments": 2, "shares": 1}) == 17
+    assert content_analytics._engagement(None) == 0
+    # No DB needed for best_topic fallback path uses evergreen — guard with None-safe call.
+    from app import evergreen
+    assert evergreen.pick_topic("executive", 0)
+
+
 def test_content_factory_and_evergreen():
     from app import content_factory, evergreen
     # Evergreen library yields a topic per business line.

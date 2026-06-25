@@ -116,6 +116,17 @@ def publish_post(db, image_url: str, caption: str) -> dict:
         return {"ok": False, "reason": str(exc)}
 
 
+def get_media_insights(db, media_id: str) -> dict | None:
+    """Engagement for one published post (likes, comments)."""
+    c = _creds(db)
+    if not c or not media_id:
+        return None
+    data = _get(media_id, c["access_token"], fields="like_count,comments_count")
+    if data is None:
+        return None
+    return {"likes": data.get("like_count") or 0, "comments": data.get("comments_count") or 0}
+
+
 def overview(db) -> dict:
     """One call for the dashboard: connection status + live account + recent media."""
     if not is_connected(db):

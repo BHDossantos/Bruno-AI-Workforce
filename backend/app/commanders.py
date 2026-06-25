@@ -35,14 +35,14 @@ def _run_content_factory(db: Session) -> dict:
     line from the evergreen library (one idea → every platform)."""
     from datetime import date
 
-    from . import content_factory, evergreen
+    from . import content_analytics, content_factory
     if not settings.content_factory_enabled:
         return {}
     seed = date.today().timetuple().tm_yday
     out = {}
     for business in ("executive", "bnbglobal", "savorymind", "music"):
         try:
-            topic = evergreen.pick_topic(business, seed)
+            topic = content_analytics.best_topic(db, business, seed)  # bias to what performs
             out[business] = content_factory.generate_pack(db, topic, business)
         except Exception as exc:  # one line failing must not stop the rest
             out[business] = {"ok": False, "reason": str(exc)}

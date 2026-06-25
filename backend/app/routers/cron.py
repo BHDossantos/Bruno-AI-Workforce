@@ -47,6 +47,22 @@ def cron_publish_content(x_cron_token: str | None = Header(default=None), db: Se
     return content_factory.publish_due(db)
 
 
+@router.post("/sync-content-metrics")
+def cron_sync_content_metrics(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
+    """Refresh engagement metrics for published content (feeds the learning loop)."""
+    _auth(x_cron_token)
+    from .. import content_analytics
+    return content_analytics.sync_metrics(db)
+
+
+@router.post("/sync-video")
+def cron_sync_video(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
+    """Poll in-flight AI video jobs and attach finished clips (no-op without keys)."""
+    _auth(x_cron_token)
+    from .. import video_pipeline
+    return video_pipeline.sync_pending(db)
+
+
 @router.post("/sync-bank")
 def cron_sync_bank(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
     """Pull bank balances + transactions from Plaid (no-op if no bank linked)."""

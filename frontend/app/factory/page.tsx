@@ -19,7 +19,12 @@ function Factory() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
 
-  async function load() { setItems(await api.get<Item[]>("/content?limit=120")); }
+  const [top, setTop] = useState<{ topic: string; channel: string; engagement: number }[]>([]);
+  async function load() {
+    setItems(await api.get<Item[]>("/content?limit=120"));
+    const a = await api.get<{ top: typeof top }>("/content/analytics").catch(() => null);
+    if (a) setTop(a.top);
+  }
   useEffect(() => { load().catch(() => {}); }, []);
 
   async function run() {
@@ -35,6 +40,16 @@ function Factory() {
 
   async function act(id: string, path: string) {
     await api.post(`/content/${id}/${path}`, {}); await load();
+  }
+  async function makeVideo(id: string) {
+    setMsg("Producing media…");
+    try {
+      const r = await api.post<{ ok: boolean; available?: Record<string, boolean> }>(`/content/${id}/video`, {});
+      const a = r.available || {};
+      setMsg(r.ok
+        ? `🎬 Started. Voiceover:${a.voiceover ? "✓" : "—"} Video:${a.video ? "✓" : "—"} Hosting:${a.hosting ? "✓" : "—"}${!a.video ? " (add ELEVENLABS/VIDEO keys to enable)" : ""}`
+        : "❌ failed");
+    } catch (e) { setMsg(String(e)); }
   }
 
   return (
@@ -54,6 +69,20 @@ function Factory() {
       </div>
       {msg && <p className="mb-3 text-sm text-gray-600">{msg}</p>}
 
+      {top.length > 0 && (
+        <div className="card mb-4">
+          <h2 className="mb-2 text-sm font-semibold text-gray-700">🔥 Top performing content</h2>
+          <div className="flex flex-wrap gap-2">
+            {top.map((t, i) => (
+              <span key={i} className="rounded-full bg-green-50 px-3 py-1 text-xs text-green-700">
+                {t.topic} · {t.channel} · {t.engagement} eng
+              </span>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-gray-400">The factory makes more in the categories that perform best.</p>
+        </div>
+      )}
+
       <div className="card overflow-x-auto p-0">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-left text-xs text-gray-500">
@@ -71,6 +100,8 @@ function Factory() {
                 <td className="p-3 text-right">
                   {(i.status === "needs_approval" || i.status === "ready") &&
                     <button onClick={() => act(i.id, "approve")} className="rounded border border-gray-300 px-2 py-1 text-xs">Approve</button>}
+                  {["instagram", "tiktok", "youtube"].includes(i.channel) &&
+                    <button onClick={() => makeVideo(i.id)} className="ml-1 rounded border border-gray-300 px-2 py-1 text-xs">🎬 Video</button>}
                   {i.status !== "dismissed" && i.status !== "published" &&
                     <button onClick={() => act(i.id, "dismiss")} className="ml-1 rounded border border-gray-300 px-2 py-1 text-xs text-gray-500">✕</button>}
                 </td>
