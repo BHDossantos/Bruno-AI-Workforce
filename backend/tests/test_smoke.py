@@ -441,6 +441,45 @@ def test_content_factory_api_offline(client, auth_headers):
     assert isinstance(client.get("/content", headers=auth_headers).json(), list)
 
 
+def test_platform_loops_config_well_formed():
+    from app import platform_loops
+    from app.content_factory import CHANNELS
+    from app.evergreen import BUSINESS_CATEGORIES
+    assert set(platform_loops.LOOPS) <= set(CHANNELS)
+    # Every loop targets real channels, sane cadence, and valid business lines.
+    for plat, cfg in platform_loops.LOOPS.items():
+        assert cfg["per_day"] >= 1
+        assert isinstance(cfg["auto"], bool)
+        assert cfg["businesses"], f"{plat} has no business lines"
+        for b in cfg["businesses"]:
+            assert b in BUSINESS_CATEGORIES
+    # Only platforms with an official publish path auto-publish (ToS-respecting):
+    # tiktok / youtube have no publish API wired, so they must be assist-only.
+    assert platform_loops.LOOPS["tiktok"]["auto"] is False
+    assert platform_loops.LOOPS["youtube"]["auto"] is False
+    assert platform_loops.LOOPS["linkedin"]["auto"] is True
+
+
+@requires_db
+def test_platform_loops_offline_and_growth(client, auth_headers):
+    from app import platform_loops
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        # Offline (no OpenAI) a platform loop degrades gracefully and makes nothing.
+        res = platform_loops.run_platform(db, "instagram")
+        assert res["platform"] == "instagram" and res.get("made", 0) == 0
+        allres = platform_loops.run_all(db)
+        assert allres["made_total"] == 0 and "instagram" in allres["platforms"]
+    finally:
+        db.close()
+    # Growth dashboard endpoint returns the expected shape with one row per loop.
+    g = client.get("/analytics/growth", headers=auth_headers).json()
+    assert set(g["kpis"]) >= {"total_followers", "connected_platforms", "daily_target"}
+    assert {p["platform"] for p in g["platforms"]} == set(platform_loops.LOOPS)
+    assert g["kpis"]["daily_target"] == sum(c["per_day"] for c in platform_loops.LOOPS.values())
+
+
 def test_bnbglobal_agent_registered_and_scored():
     from app.agents import AGENTS, BnbGlobalAgent
     from app.commanders import COMMANDERS

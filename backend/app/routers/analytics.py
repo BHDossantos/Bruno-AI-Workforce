@@ -11,7 +11,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import Application, Lead, Message, Restaurant
+from ..models import Application, ContentItem, Lead, Message, Restaurant, SocialSnapshot
 from ..security import require_role
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
@@ -91,4 +91,69 @@ def overview(db: Session = Depends(get_db), _=Depends(_read)):
             "savorymind": _funnel(rest_statuses),
         },
         "activity_14d": activity,
+    }
+
+
+@router.get("/growth")
+def growth(db: Session = Depends(get_db), _=Depends(_read)):
+    """Content & audience growth across every platform: follower trend per
+    platform, per-channel content cadence + engagement, and the platform loops'
+    target cadence — so you can see what the media engine is producing and how
+    each channel is performing."""
+    from .. import content_analytics, platform_loops, social
+
+    # Per-platform connection + current followers, and 30-day follower delta.
+    conn = social.status(db)
+    snaps = db.query(SocialSnapshot.platform, SocialSnapshot.followers,
+                     SocialSnapshot.captured_at).order_by(
+        SocialSnapshot.captured_at.asc()).limit(2000).all()
+    first_by_plat: dict[str, int] = {}
+    last_by_plat: dict[str, int] = {}
+    series: dict[str, list[dict]] = {}
+    for plat, foll, when in snaps:
+        if foll is None:
+            continue
+        first_by_plat.setdefault(plat, foll)
+        last_by_plat[plat] = foll
+        series.setdefault(plat, []).append(
+            {"date": when.date().isoformat() if when else None, "followers": foll})
+
+    ch_summary = content_analytics.channel_summary(db)
+
+    # Per-channel content published in the last 14 days (cadence view).
+    since = datetime.now(timezone.utc) - timedelta(days=14)
+    pub_by_ch = dict(db.query(ContentItem.channel, func.count())
+                     .filter(ContentItem.status == "published",
+                             ContentItem.published_at >= since)
+                     .group_by(ContentItem.channel).all())
+
+    platforms = []
+    for name, cfg in platform_loops.LOOPS.items():
+        followers = (conn.get(name) or {}).get("followers")
+        platforms.append({
+            "platform": name,
+            "connected": bool((conn.get(name) or {}).get("connected")),
+            "followers": followers,
+            "follower_delta": (last_by_plat.get(name, 0) - first_by_plat.get(name, 0))
+                              if name in last_by_plat else None,
+            "per_day_target": cfg["per_day"],
+            "auto_publish": cfg["auto"],
+            "published_14d": int(pub_by_ch.get(name, 0)),
+            "published_total": (ch_summary.get(name) or {}).get("published", 0),
+            "avg_engagement": (ch_summary.get(name) or {}).get("avg_engagement", 0.0),
+            "top_category": (ch_summary.get(name) or {}).get("top_category"),
+        })
+
+    total_followers = sum(v for v in last_by_plat.values())
+    return {
+        "kpis": {
+            "total_followers": total_followers,
+            "connected_platforms": sum(1 for p in platforms if p["connected"]),
+            "published_14d": sum(p["published_14d"] for p in platforms),
+            "daily_target": sum(cfg["per_day"] for cfg in platform_loops.LOOPS.values()),
+        },
+        "platforms": platforms,
+        "follower_series": series,
+        "by_category": content_analytics.category_performance(db),
+        "top_content": content_analytics.top_performers(db, 10),
     }
