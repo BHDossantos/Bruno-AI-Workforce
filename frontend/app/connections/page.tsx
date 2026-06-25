@@ -21,8 +21,9 @@ type Plan = {
 };
 
 const CATEGORY_LABEL: Record<string, string> = {
-  social: "Social media", email: "Email", crm: "CRM", ads: "Advertising",
-  commerce: "Stores & payments", messaging: "Messaging", scheduling: "Scheduling",
+  social: "Social media", content: "Content & blogs", email: "Email", crm: "CRM",
+  ads: "Advertising", commerce: "Stores & payments", messaging: "Messaging",
+  scheduling: "Scheduling",
 };
 
 function Connections() {

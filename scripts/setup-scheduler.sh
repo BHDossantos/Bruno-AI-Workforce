@@ -64,6 +64,8 @@ upsert_job "bruno-sync-bank"      "30 5 * * *" "/cron/sync-bank"      "320s"
 upsert_job "bruno-platform-loops" "0 7 * * *" "/cron/platform-loops" "900s"
 # Publish scheduled Content-Factory pieces that are due, a few times a day.
 upsert_job "bruno-publish-content" "0 9,13,18 * * *" "/cron/publish-content" "600s"
+# Publish approved blog pieces to Medium daily (no-op if Medium isn't connected).
+upsert_job "bruno-publish-blog" "30 9 * * *" "/cron/publish-blog" "320s"
 # Refresh content engagement metrics nightly (feeds the learning loop).
 upsert_job "bruno-content-metrics" "0 23 * * *" "/cron/sync-content-metrics" "320s"
 # Poll AI video-generation jobs every 15 min and attach finished clips.

@@ -518,6 +518,16 @@ def test_tiktok_publisher_offline():
     assert tiktok_api.post(None, "hi", "http://x/v.mp4")["ok"] is False
 
 
+def test_medium_publisher_offline():
+    from app.integrations import medium_api, registry
+    # Medium is in the catalog and degrades gracefully with no creds.
+    assert registry.get_provider("medium") is not None
+    assert "integration_token" in registry.required_fields("medium")
+    assert medium_api.is_connected(None) is False
+    assert medium_api.verify(None) is None
+    assert medium_api.post_article(None, "T", "body")["ok"] is False
+
+
 def test_connection_live_check_offline():
     from app.integrations import twitter_api
     from app.routers import connections
