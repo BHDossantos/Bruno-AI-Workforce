@@ -47,6 +47,15 @@ def cron_publish_content(x_cron_token: str | None = Header(default=None), db: Se
     return content_factory.publish_due(db)
 
 
+@router.post("/selftest")
+def cron_selftest(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
+    """Full live health check across every service + connected channel — runnable
+    from the shell with the cron token (mirrors the dashboard System Status page)."""
+    _auth(x_cron_token)
+    from .. import selftest
+    return selftest.run(db)
+
+
 @router.post("/platform-loops")
 def cron_platform_loops(platform: str | None = None,
                         x_cron_token: str | None = Header(default=None),

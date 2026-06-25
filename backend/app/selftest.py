@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 from .ai import client
 from .config import settings
 from .integrations import (facebook_api, gmail, instagram_api, linkedin_api,
-                           spotify_api, storage, twitter_api)
+                           medium_api, spotify_api, storage, tiktok_api,
+                           twitter_api, youtube_api)
 
 
 def _ok(ok: bool, detail: str = "") -> dict:
@@ -48,7 +49,24 @@ def run(db: Session) -> dict:
     social("facebook", facebook_api.is_connected, lambda: facebook_api.get_page(db))
     social("linkedin", linkedin_api.is_connected, lambda: linkedin_api.get_profile(db))
     social("spotify", spotify_api.is_connected, lambda: spotify_api.overview(db).get("name"))
+    social("tiktok", tiktok_api.is_connected, lambda: tiktok_api.verify(db))
+    social("youtube", youtube_api.is_connected, lambda: youtube_api.verify(db))
+    social("medium", medium_api.is_connected, lambda: medium_api.verify(db))
     checks["x"] = _ok(twitter_api.is_connected(db), "connected" if twitter_api.is_connected(db) else "not connected")
+
+    # Video pipeline (voiceover + cover + render + hosting).
+    try:
+        from . import video_pipeline
+        v = video_pipeline.available()
+        can_render = v.get("voiceover") and v.get("hosting") and v.get("render")
+        checks["video_pipeline"] = _ok(bool(can_render),
+                                       "can produce video" if can_render else f"partial: {v}")
+    except Exception as exc:  # pragma: no cover
+        checks["video_pipeline"] = _ok(False, f"error: {exc}")
+
+    # Daily-cycle readiness (external cron auth + scheduler config).
+    checks["cron_auth"] = _ok(bool(settings.cron_secret),
+                              "CRON_SECRET set" if settings.cron_secret else "no CRON_SECRET (cron endpoints open/disabled)")
 
     ready = sum(1 for c in checks.values() if c["ok"])
     return {"ready": ready, "total": len(checks), "checks": checks}
