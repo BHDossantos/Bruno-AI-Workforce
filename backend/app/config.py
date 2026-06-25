@@ -200,6 +200,13 @@ class Settings(BaseSettings):
     email_warmup_start: int = 20
     email_warmup_step: int = 10
 
+    # Insurance outreach to your imported personal contacts (warm network). Each
+    # contact is emailed once; small daily batches drip through the list within
+    # the mailbox warmup cap. SMS is OFF by default — automated marketing texts
+    # need prior consent (TCPA); only enable if your list has opted in.
+    contacts_outreach_batch: int = 20
+    contacts_sms_enabled: bool = False
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -126,6 +126,18 @@ def cron_leads(x_cron_token: str | None = Header(default=None), db: Session = De
     return out
 
 
+@router.post("/contacts-insurance")
+def cron_contacts_insurance(x_cron_token: str | None = Header(default=None),
+                            db: Session = Depends(get_db)):
+    """Warm insurance outreach to your imported personal contacts (email; SMS only
+    if CONTACTS_SMS_ENABLED). Drips through the list in daily batches."""
+    _auth(x_cron_token)
+    from .. import alerts, contacts_outreach
+    out = contacts_outreach.run(db)
+    alerts.check_run("contacts insurance outreach", out)
+    return out
+
+
 @router.post("/followups")
 def cron_followups(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
     _auth(x_cron_token)

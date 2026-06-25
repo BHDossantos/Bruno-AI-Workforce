@@ -540,6 +540,18 @@ def test_tiktok_oauth_state_and_config():
     assert tiktok_api.oauth_configured() is False
 
 
+def test_contacts_insurance_outreach_offline():
+    from app import contacts_outreach
+    from app.config import settings
+    # SMS is off by default (TCPA — needs consent).
+    assert settings.contacts_sms_enabled is False
+    # Offline (no OpenAI) the message degrades to a warm fallback, never raises.
+    class _C:
+        name = "Jane Doe"
+    subj, body = contacts_outreach._message_for(_C())
+    assert subj and "Jane" in body and "Thrust" in body
+
+
 def test_youtube_publisher_offline():
     from app import social
     from app.integrations import youtube_api
