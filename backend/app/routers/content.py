@@ -63,3 +63,10 @@ def dismiss(content_id: str, db: Session = Depends(get_db), _=Depends(_write)):
 @router.post("/publish-due")
 def publish_due(db: Session = Depends(get_db), _=Depends(_write)):
     return content_factory.publish_due(db)
+
+
+@router.get("/analytics")
+def analytics(db: Session = Depends(get_db), _=Depends(_read)):
+    from .. import content_analytics
+    return {"top": content_analytics.top_performers(db, 12),
+            "by_category": content_analytics.category_performance(db)}

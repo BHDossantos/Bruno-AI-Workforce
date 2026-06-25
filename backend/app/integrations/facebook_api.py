@@ -44,6 +44,26 @@ def get_page(db) -> dict | None:
         return None
 
 
+def get_post_insights(db, post_id: str) -> dict | None:
+    """Engagement for one published Page post (likes, comments, shares)."""
+    c = _creds(db)
+    if not c or not post_id:
+        return None
+    try:
+        r = httpx.get(f"{_BASE}/{post_id}", params={
+            "fields": "likes.summary(true),comments.summary(true),shares",
+            "access_token": c["page_access_token"]}, timeout=_TIMEOUT)
+        if r.status_code != 200:
+            return None
+        d = r.json()
+        return {"likes": (d.get("likes") or {}).get("summary", {}).get("total_count", 0),
+                "comments": (d.get("comments") or {}).get("summary", {}).get("total_count", 0),
+                "shares": (d.get("shares") or {}).get("count", 0)}
+    except Exception as exc:  # pragma: no cover - network guard
+        log.warning("FB post insights failed: %s", exc)
+        return None
+
+
 def post(db, message: str, image_url: str | None = None) -> dict:
     """Publish a post to the Page. Text-only is allowed; an image is used when given."""
     c = _creds(db)

@@ -389,6 +389,15 @@ def test_instagram_api_not_connected():
     assert instagram_api.publish_post(None, "http://x/i.jpg", "hi")["ok"] is False
 
 
+def test_content_analytics_offline():
+    from app import content_analytics
+    assert content_analytics._engagement({"likes": 10, "comments": 2, "shares": 1}) == 17
+    assert content_analytics._engagement(None) == 0
+    # No DB needed for best_topic fallback path uses evergreen — guard with None-safe call.
+    from app import evergreen
+    assert evergreen.pick_topic("executive", 0)
+
+
 def test_content_factory_and_evergreen():
     from app import content_factory, evergreen
     # Evergreen library yields a topic per business line.

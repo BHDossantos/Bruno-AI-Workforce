@@ -19,7 +19,12 @@ function Factory() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
 
-  async function load() { setItems(await api.get<Item[]>("/content?limit=120")); }
+  const [top, setTop] = useState<{ topic: string; channel: string; engagement: number }[]>([]);
+  async function load() {
+    setItems(await api.get<Item[]>("/content?limit=120"));
+    const a = await api.get<{ top: typeof top }>("/content/analytics").catch(() => null);
+    if (a) setTop(a.top);
+  }
   useEffect(() => { load().catch(() => {}); }, []);
 
   async function run() {
@@ -53,6 +58,20 @@ function Factory() {
         <button className="btn" onClick={run} disabled={busy}>{busy ? "Producing…" : "Produce"}</button>
       </div>
       {msg && <p className="mb-3 text-sm text-gray-600">{msg}</p>}
+
+      {top.length > 0 && (
+        <div className="card mb-4">
+          <h2 className="mb-2 text-sm font-semibold text-gray-700">🔥 Top performing content</h2>
+          <div className="flex flex-wrap gap-2">
+            {top.map((t, i) => (
+              <span key={i} className="rounded-full bg-green-50 px-3 py-1 text-xs text-green-700">
+                {t.topic} · {t.channel} · {t.engagement} eng
+              </span>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-gray-400">The factory makes more in the categories that perform best.</p>
+        </div>
+      )}
 
       <div className="card overflow-x-auto p-0">
         <table className="w-full text-sm">

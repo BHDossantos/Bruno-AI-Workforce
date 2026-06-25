@@ -58,6 +58,8 @@ upsert_job "bruno-refresh-tokens" "0 4 * * *"  "/cron/refresh-tokens" "320s"
 upsert_job "bruno-sync-bank"      "30 5 * * *" "/cron/sync-bank"      "320s"
 # Publish scheduled Content-Factory pieces that are due, a few times a day.
 upsert_job "bruno-publish-content" "0 9,13,18 * * *" "/cron/publish-content" "600s"
+# Refresh content engagement metrics nightly (feeds the learning loop).
+upsert_job "bruno-content-metrics" "0 23 * * *" "/cron/sync-content-metrics" "320s"
 
 echo "✅ Scheduler jobs provisioned in ${LOCATION} (project ${PROJECT}, tz ${TZ})."
 echo "   List: gcloud scheduler jobs list --location ${LOCATION}"
