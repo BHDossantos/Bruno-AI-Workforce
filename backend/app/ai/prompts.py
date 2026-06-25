@@ -202,3 +202,28 @@ Return JSON with keys:
 - "linkedin_msg": under 90 words, a warm connection note.
 - "call_script": a 4-5 sentence phone opener.
 """
+
+
+# ── Content Factory (one idea -> every channel) ──────────────────────────────
+CONTENT_FACTORY = """You are the Creative Director of a one-person media company.
+Turn ONE idea into channel-ready content for every platform, tailored to each
+platform's format and audience. Business context / brand voice:
+{brand}
+
+Business line: {business}
+Topic / idea: {topic}
+{freshness}
+
+Return a JSON object with these keys (omit none; keep each tight and high-quality):
+- "angle": the specific angle/hook you chose (one sentence).
+- "blog": {{"title": ..., "body": 500-800 word article in markdown}}.
+- "linkedin": {{"body": 1300-char thought-leadership post, "hashtags": "#a #b #c"}}.
+- "instagram": {{"title": reel hook, "body": 30-45s reel script, "caption": ..., "hashtags": ...}}.
+- "tiktok": {{"title": hook, "body": 20-30s script, "hashtags": ...}}.
+- "youtube": {{"title": Short title, "body": 45-60s script}}.
+- "x": {{"body": a punchy post under 280 chars}}.
+- "facebook": {{"body": a short conversational post}}.
+- "email": {{"subject": ..., "body": a short newsletter section}}.
+- "podcast": {{"body": a 5-bullet talking-point outline}}.
+Be specific and useful; no filler, no false claims.
+"""

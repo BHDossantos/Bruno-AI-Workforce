@@ -147,6 +147,12 @@ class Settings(BaseSettings):
     # Facebook, …). instagram_auto_publish is kept as an alias. Off by default.
     instagram_auto_publish: bool = False
     social_auto_publish: bool = False
+    # Content Factory approval mode: 1 generate · 2 generate+approve ·
+    # 3 auto-schedule · 4 auto-publish · 5 fully autonomous.
+    content_approval_mode: int = 3
+    # When True, the Influence Commander runs the Content Factory daily from the
+    # evergreen library across your business lines.
+    content_factory_enabled: bool = True
     browser_auto_submit: bool = False  # human-in-the-loop by default — review before submit
     # Applicant identity used to fill application forms.
     applicant_name: str = "Bruno Dos Santos"

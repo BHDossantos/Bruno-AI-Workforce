@@ -39,6 +39,14 @@ def run_all(x_cron_token: str | None = Header(default=None), db: Session = Depen
     return result
 
 
+@router.post("/publish-content")
+def cron_publish_content(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
+    """Publish scheduled Content-Factory pieces that are due (to connected accounts)."""
+    _auth(x_cron_token)
+    from .. import content_factory
+    return content_factory.publish_due(db)
+
+
 @router.post("/sync-bank")
 def cron_sync_bank(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
     """Pull bank balances + transactions from Plaid (no-op if no bank linked)."""

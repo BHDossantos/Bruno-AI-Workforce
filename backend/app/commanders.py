@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from . import scoring
 from .agents import AGENTS
+from .config import settings
 from .models import InstagramTarget, Job, Lead, MusicPlaylist, Objective, Restaurant
 
 log = logging.getLogger("bruno.commanders")
@@ -27,6 +28,25 @@ COMMANDERS: dict[str, dict] = {
     "influence": {"name": "Influence Commander", "agents": ["music", "instagram"]},
     "life_ops":  {"name": "Life Commander",      "agents": []},
 }
+
+
+def _run_content_factory(db: Session) -> dict:
+    """Influence Commander: produce a fresh multi-channel content pack per business
+    line from the evergreen library (one idea → every platform)."""
+    from datetime import date
+
+    from . import content_factory, evergreen
+    if not settings.content_factory_enabled:
+        return {}
+    seed = date.today().timetuple().tm_yday
+    out = {}
+    for business in ("executive", "bnbglobal", "savorymind", "music"):
+        try:
+            topic = evergreen.pick_topic(business, seed)
+            out[business] = content_factory.generate_pack(db, topic, business)
+        except Exception as exc:  # one line failing must not stop the rest
+            out[business] = {"ok": False, "reason": str(exc)}
+    return out
 
 
 def _run_commander(db: Session, center: str) -> dict:
@@ -41,6 +61,9 @@ def _run_commander(db: Session, center: str) -> dict:
         except Exception as exc:  # one agent failing must not stop the commander
             log.exception("Agent %s failed under %s", key, center)
             out[key] = {"error": str(exc)}
+    # The Influence Commander also runs the Content Factory (one idea → every channel).
+    if center == "influence":
+        out["content_factory"] = _run_content_factory(db)
     return {"commander": spec["name"], "center": center, "agents": out}
 
 
