@@ -79,13 +79,23 @@ class Settings(BaseSettings):
     # target counts). Set False in production once real sourcing is in place.
     allow_synthetic_fallback: bool = True
     # Cities the lead-finder agents search for real businesses (free, via
-    # OpenStreetMap). Comma-separated. Drives commercial insurance + restaurant
-    # sourcing with real, deliverable emails at no cost.
+    # OpenStreetMap). Comma-separated. Fallback when no per-business scope is set.
     lead_cities: str = "Boston,New York,Miami,Chicago,Austin"
-    # Whole STATES to search (OSM names, comma-separated). When set, these take
-    # precedence over lead_cities and give a much wider lead pool — the engine
-    # pulls email-tagged businesses from across the entire state.
+    # Whole STATES to search (OSM names, comma-separated) — global fallback.
     lead_states: str = "Massachusetts,New Hampshire,Florida"
+
+    # Per-business lead geography (where each sales engine sources prospects).
+    # Insurance is licensed only in NH/MA/FL → keep it to those entire states.
+    # Consulting (BnB Global) + SavoryMind sell anywhere → US + Europe. Accepts
+    # "us", "eu", "us_eu", or a comma-separated list of state/country names.
+    insurance_lead_scope: str = "Massachusetts,New Hampshire,Florida"
+    consulting_lead_scope: str = "us_eu"
+    restaurant_lead_scope: str = "us_eu"
+    # How many areas each lead run sweeps. Big scopes (US+EU) rotate through the
+    # full list over days so a single run never times out Overpass.
+    lead_areas_per_run: int = 6
+    # Location bias for job-search queries (JSearch). Blank = no location filter.
+    job_location: str = "United States"
     # How many leads each lead-finder agent produces per run. Small batches keep
     # every run fast and well under Cloud Run's request timeout; run the agent
     # more often to accumulate more. Insurance splits this across commercial +
@@ -160,6 +170,9 @@ class Settings(BaseSettings):
     # evergreen library across your business lines.
     content_factory_enabled: bool = True
     browser_auto_submit: bool = False  # human-in-the-loop by default — review before submit
+    # When True, the daily job hunter pre-builds each top job's fill package
+    # (résumé + answers + cover letter) so the Apply Queue is submit-ready.
+    auto_prepare_applications: bool = True
     # TikTok Content Posting API visibility. Pre-audit, TikTok forces SELF_ONLY
     # (private to your account); after your app passes audit, set this to
     # PUBLIC_TO_EVERYONE (or MUTUAL_FOLLOW_FRIENDS / FOLLOWER_OF_CREATOR).

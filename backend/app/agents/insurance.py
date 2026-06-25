@@ -41,9 +41,10 @@ class InsuranceAgent(BaseAgent):
         batch = max(1, settings.lead_batch_size)
         commercial_target = (batch + 1) // 2
         personal_target = batch // 2
+        scope = settings.insurance_lead_scope  # licensed states only (NH/MA/FL)
         prospects = (
-            providers.fetch_insurance_leads("commercial", commercial_target)
-            + providers.fetch_insurance_leads("personal", personal_target)
+            providers.fetch_insurance_leads("commercial", commercial_target, scope=scope)
+            + providers.fetch_insurance_leads("personal", personal_target, scope=scope)
         )
 
         # Never duplicate an existing lead — we keep history (incl. how many times

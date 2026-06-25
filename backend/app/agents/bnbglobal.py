@@ -42,7 +42,9 @@ class BnbGlobalAgent(BaseAgent):
         batch = max(1, settings.lead_batch_size)
         # Real businesses with deliverable emails (same proven source as commercial
         # insurance) — valid prospects for managed IT / cloud / security consulting.
-        prospects = providers.fetch_insurance_leads("commercial", batch)
+        # Consulting sells anywhere → sweep the US + Europe (rotating by day).
+        prospects = providers.fetch_insurance_leads(
+            "commercial", batch, scope=settings.consulting_lead_scope)
 
         existing = {e for (e,) in self.db.query(Lead.email).filter(Lead.email.isnot(None)).all()}
 

@@ -72,6 +72,57 @@ def _areas() -> list[tuple[str, str]]:
     return [(c, f'area["name"="{c}"]["admin_level"="8"]->.a;') for c in _cities()]
 
 
+# ── Geography scopes (US + Europe) ──────────────────────────────────────────
+US_STATES = [
+    "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado",
+    "Connecticut", "Delaware", "Florida", "Georgia", "Hawaii", "Idaho", "Illinois",
+    "Indiana", "Iowa", "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland",
+    "Massachusetts", "Michigan", "Minnesota", "Mississippi", "Missouri", "Montana",
+    "Nebraska", "Nevada", "New Hampshire", "New Jersey", "New Mexico", "New York",
+    "North Carolina", "North Dakota", "Ohio", "Oklahoma", "Oregon", "Pennsylvania",
+    "Rhode Island", "South Carolina", "South Dakota", "Tennessee", "Texas", "Utah",
+    "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming",
+]
+EUROPE_COUNTRIES = [
+    "United Kingdom", "Ireland", "Germany", "France", "Spain", "Italy",
+    "Netherlands", "Portugal", "Belgium", "Switzerland", "Austria", "Sweden",
+    "Denmark", "Norway", "Finland", "Poland", "Czechia",
+]
+
+
+def _spec(name: str, level: str) -> tuple[str, str]:
+    return (name, f'area["name"="{name}"]["admin_level"="{level}"]->.a;')
+
+
+def scope_areas(scope: str) -> list[tuple[str, str]]:
+    """Expand a scope keyword/list into Overpass areas. Countries are admin_level
+    2, US states level 4. Accepts 'us' | 'eu' | 'us_eu' | comma-separated names."""
+    s = (scope or "").strip().lower()
+    if s in ("us", "usa", "united states"):
+        return [_spec(x, "4") for x in US_STATES]
+    if s in ("eu", "europe"):
+        return [_spec(x, "2") for x in EUROPE_COUNTRIES]
+    if s in ("us_eu", "us+eu", "global", "worldwide"):
+        return [_spec(x, "4") for x in US_STATES] + [_spec(x, "2") for x in EUROPE_COUNTRIES]
+    return [_spec(x.strip(), "4") for x in (scope or "").split(",") if x.strip()]
+
+
+def _rotate(areas: list, n: int) -> list:
+    """Pick a rotating window of n areas (by day-of-year) so a large scope sweeps
+    everything over time without timing out a single Overpass run."""
+    if n <= 0 or len(areas) <= n:
+        return areas
+    from datetime import date
+    start = (date.today().timetuple().tm_yday * n) % len(areas)
+    return [areas[(start + i) % len(areas)] for i in range(n)]
+
+
+def _scoped_areas(scope: str | None) -> list[tuple[str, str]]:
+    if scope:
+        return _rotate(scope_areas(scope), settings.lead_areas_per_run)
+    return _areas()
+
+
 def _clean_email(e: str | None) -> str | None:
     return email_finder.clean_email(e)
 
@@ -121,8 +172,10 @@ def _category_for(t: dict, default: str = "Commercial") -> str:
     return default
 
 
-def _harvest(selectors: list[str], segment: str, count: int) -> list[dict]:
-    """Pull up to ``count`` leads with real emails across the configured areas.
+def _harvest(selectors: list[str], segment: str, count: int,
+             areas: list[tuple[str, str]] | None = None) -> list[dict]:
+    """Pull up to ``count`` leads with real emails across the given areas (or the
+    configured fallback areas).
 
     Pass 1 grabs email-tagged businesses (instant, and selective enough to be
     fast even statewide). Pass 2 fills any shortfall by scraping website-only
@@ -130,7 +183,7 @@ def _harvest(selectors: list[str], segment: str, count: int) -> list[dict]:
     """
     seen: set[str] = set()
     out: list[dict] = []
-    areas = _areas()
+    areas = areas if areas is not None else _areas()
 
     # Pass 1 — email-tagged businesses across each area (no scraping needed).
     for label, head in areas:
@@ -190,16 +243,22 @@ def _all_commercial_selectors() -> list[str]:
     return sels
 
 
-def fetch_commercial_leads(count: int) -> list[dict]:
-    if not is_enabled():
+def fetch_commercial_leads(count: int, scope: str | None = None) -> list[dict]:
+    if not is_enabled():  # master gate (tests empty LEAD_STATES → no network)
         return []
-    return _harvest(_all_commercial_selectors(), "commercial", count)
+    areas = _scoped_areas(scope)
+    if not areas:
+        return []
+    return _harvest(_all_commercial_selectors(), "commercial", count, areas)
 
 
-def fetch_restaurants(count: int) -> list[dict]:
-    if not is_enabled():
+def fetch_restaurants(count: int, scope: str | None = None) -> list[dict]:
+    if not is_enabled():  # master gate (tests empty LEAD_STATES → no network)
         return []
-    rows = _harvest(RESTAURANT_OSM, "commercial", count)
+    areas = _scoped_areas(scope)
+    if not areas:
+        return []
+    rows = _harvest(RESTAURANT_OSM, "commercial", count, areas)
     return [{
         "kind": "prospect", "name": r["company_name"], "owner_manager": None,
         "website": r["website"], "menu_url": None, "instagram": None,

@@ -540,6 +540,47 @@ def test_tiktok_oauth_state_and_config():
     assert tiktok_api.oauth_configured() is False
 
 
+def test_browser_field_map_and_autoprepare_api():
+    from app import browser
+    from app.config import settings
+    # Auto-prepare is on by default and the field-map builder is reusable.
+    assert settings.auto_prepare_applications is True
+    assert hasattr(browser, "autoprepare_for_job")
+
+    class _J:
+        url = "https://x/apply"
+        cover_letter = "Dear team"
+        title = "Head of SRE"
+        company = "Acme"
+        location = "Remote"
+    fm = browser._field_map_for(_J())
+    assert fm["city"] == "Hollis" and fm["resume_path"] and fm["cover_letter"] == "Dear team"
+    assert fm["answers"]["require_sponsorship"] == "No"
+
+
+def test_lead_geography_scopes():
+    from app.integrations import osm_leads
+    # US = 50 states, EU = country list, us_eu = both.
+    us = osm_leads.scope_areas("us")
+    eu = osm_leads.scope_areas("eu")
+    both = osm_leads.scope_areas("us_eu")
+    assert len(us) == 50 and len(eu) >= 10 and len(both) == len(us) + len(eu)
+    # US states use admin_level 4, countries level 2.
+    assert 'admin_level"="4"' in us[0][1]
+    assert 'admin_level"="2"' in eu[0][1]
+    # Explicit comma list → those areas (insurance stays NH/MA/FL).
+    ins = osm_leads.scope_areas("Massachusetts,New Hampshire,Florida")
+    assert {a[0] for a in ins} == {"Massachusetts", "New Hampshire", "Florida"}
+    # Rotation keeps a single run bounded.
+    assert len(osm_leads._rotate(both, 6)) == 6
+
+
+def test_bnbglobal_in_sales_cron():
+    import inspect
+    from app.routers import cron
+    assert '"bnbglobal"' in inspect.getsource(cron.cron_leads)
+
+
 def test_contacts_insurance_outreach_offline():
     from app import contacts_outreach
     from app.config import settings
@@ -833,7 +874,7 @@ def test_leads_are_not_duplicated_across_runs(client, auth_headers, monkeypatch)
         "website": "https://x.com", "linkedin": None, "industry": "Restaurant", "city": "Boston",
     }]
     monkeypatch.setattr(ins_mod.providers, "fetch_insurance_leads",
-                        lambda segment, count: fixed if segment == "commercial" else [])
+                        lambda segment, count, **kw: fixed if segment == "commercial" else [])
 
     db = SessionLocal()
     try:
