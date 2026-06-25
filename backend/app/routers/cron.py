@@ -58,6 +58,14 @@ def cron_platform_loops(platform: str | None = None,
     return platform_loops.run_all(db, [platform] if platform else None)
 
 
+@router.post("/publish-blog")
+def cron_publish_blog(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
+    """Publish approved blog pieces to Medium (no-op if Medium isn't connected)."""
+    _auth(x_cron_token)
+    from .. import content_factory
+    return content_factory.publish_blog_due(db)
+
+
 @router.post("/sync-content-metrics")
 def cron_sync_content_metrics(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
     """Refresh engagement metrics for published content (feeds the learning loop)."""

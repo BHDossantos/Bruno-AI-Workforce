@@ -125,3 +125,27 @@ def publish_due(db: Session) -> dict:
             published += 1
     db.commit()
     return {"due": len(due), "published": published}
+
+
+def publish_blog_due(db: Session) -> dict:
+    """Publish approved blog pieces to Medium (when connected). Blog items are
+    'ready' drafts until you approve one (→ scheduled); this posts those. The
+    Medium connection's publish_status (default 'draft') controls whether they go
+    out live or land as a Medium draft for final review."""
+    from .integrations import medium_api
+    if not medium_api.is_connected(db):
+        return {"due": 0, "published": 0, "reason": "Medium not connected"}
+    now = datetime.now(timezone.utc)
+    due = (db.query(ContentItem).filter(ContentItem.status == "scheduled",
+           ContentItem.channel == "blog").limit(25).all())
+    published = 0
+    for item in due:
+        tags = [t.strip("# ") for t in (item.hashtags or "").split() if t.strip("# ")]
+        res = medium_api.post_article(db, item.title or item.topic, item.body or "", tags)
+        item.status = "published" if res.get("ok") else "failed"
+        item.meta = {**(item.meta or {}), "result": res}
+        if res.get("ok"):
+            item.published_at = now
+            published += 1
+    db.commit()
+    return {"due": len(due), "published": published}

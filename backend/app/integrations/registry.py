@@ -133,6 +133,21 @@ PROVIDERS: list[dict] = [
         "goals": ["leads", "sales"],
     },
 
+    # ── Content / blogs ───────────────────────────────────────────────────────
+    {
+        "key": "medium", "name": "Medium", "category": "content", "icon": "✍️",
+        "auth_type": "api_key",
+        "fields": [_field("integration_token", "Integration token", secret=True),
+                   _field("publish_status", "draft | public | unlisted",
+                          required=False, placeholder="draft")],
+        "capabilities": ["publish_auto", "analytics"],
+        "stages": ["attract", "nurture"],
+        "compliance": "Publishes long-form articles to your Medium account via the "
+                      "official Medium API using a personal Integration Token "
+                      "(Medium → Settings → Security and apps).",
+        "goals": ["followers", "leads"],
+    },
+
     # ── Email / ESP ───────────────────────────────────────────────────────────
     {
         "key": "gmail", "name": "Gmail", "category": "email", "icon": "✉️",
