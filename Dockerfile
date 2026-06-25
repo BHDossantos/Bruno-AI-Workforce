@@ -5,7 +5,7 @@ FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends gcc curl \
+RUN apt-get update && apt-get install -y --no-install-recommends gcc curl ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 COPY backend/requirements.txt .

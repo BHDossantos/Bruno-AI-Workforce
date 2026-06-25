@@ -395,7 +395,9 @@ def test_video_pipeline_offline():
     assert elevenlabs.is_configured() is False and elevenlabs.tts("hi") is None
     assert video_gen.is_configured() is False and video_gen.create("a clip") is None
     assert video_gen.poll("job") == ("pending", None)
-    assert video_pipeline.available() == {"voiceover": False, "video": False, "hosting": False}
+    avail = video_pipeline.available()
+    assert avail["voiceover"] is False and avail["video"] is False and avail["hosting"] is False
+    assert "render" in avail  # depends on whether ffmpeg is installed
 
 
 def test_content_analytics_offline():
