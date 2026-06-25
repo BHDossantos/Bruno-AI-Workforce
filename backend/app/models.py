@@ -327,6 +327,7 @@ class BrandProfile(Base):
     content_pillars: Mapped[str | None] = mapped_column(Text)  # comma-separated themes
     music_artist: Mapped[str | None] = mapped_column(String)
     music_genres: Mapped[str | None] = mapped_column(String)
+    music_links: Mapped[str | None] = mapped_column(Text)  # streaming/follow links for fan CTAs
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
