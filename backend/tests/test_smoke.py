@@ -507,6 +507,19 @@ def test_posting_times_next_slot_and_endpoint(client, auth_headers):
     assert pt["summary"]["instagram"]["hour"] == posting_times.DEFAULT_HOURS["instagram"]
 
 
+def test_connection_live_check_offline():
+    from app.integrations import twitter_api
+    from app.routers import connections
+    # No connection / no creds → verify is None (degrades, never raises).
+    assert twitter_api.verify(None) is None
+    # Unknown provider has no live check → ok is None (token stored as-is).
+    ok, detail = connections._live_check(None, "totally_unknown")
+    assert ok is None and isinstance(detail, str)
+    # A real social provider with no creds → ok False (token rejected/absent).
+    ok2, _ = connections._live_check(None, "x")
+    assert ok2 is False
+
+
 def test_bnbglobal_agent_registered_and_scored():
     from app.agents import AGENTS, BnbGlobalAgent
     from app.commanders import COMMANDERS
