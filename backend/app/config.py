@@ -175,6 +175,9 @@ class Settings(BaseSettings):
     # Where to send the browser back after OAuth completes (your frontend's
     # /connections page). If blank, the callback shows a simple success page.
     frontend_url: str = ""
+    # YouTube upload visibility. Until your Google OAuth app is verified, uploads
+    # are forced to 'private'; set to 'public' (or 'unlisted') after verification.
+    youtube_privacy_status: str = "private"
     # Applicant identity used to fill application forms.
     applicant_name: str = "Bruno Dos Santos"
     applicant_email: str = "brunodossantos707@gmail.com"

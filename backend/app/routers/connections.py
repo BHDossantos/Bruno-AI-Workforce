@@ -141,7 +141,8 @@ def _live_check(db: Session, provider: str):
     Returns (ok: bool | None, detail: str). ok is None when there's no live
     check wired for that provider yet (token is stored but unverifiable here)."""
     from ..integrations import (facebook_api, instagram_api, linkedin_api,
-                                medium_api, spotify_api, tiktok_api, twitter_api)
+                                medium_api, spotify_api, tiktok_api, twitter_api,
+                                youtube_api)
     try:
         if provider == "instagram":
             a = instagram_api.get_account(db)
@@ -169,6 +170,10 @@ def _live_check(db: Session, provider: str):
             m = medium_api.verify(db)
             return (bool(m), f"@{m.get('username')}" if m
                     else "integration token rejected")
+        if provider == "youtube":
+            y = youtube_api.verify(db)
+            return (bool(y), f"{y.get('title')} · {y.get('subscribers')} subs" if y
+                    else "token rejected (needs youtube.upload scope)")
     except Exception as exc:  # pragma: no cover - defensive network guard
         return (False, str(exc)[:200])
     return (None, "no live check available for this provider — token stored as-is")

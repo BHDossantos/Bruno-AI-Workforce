@@ -109,8 +109,8 @@ def publish_due(db: Session) -> dict:
         if not is_conn or not is_conn(db):
             item.status = "needs_connection"
             continue
-        # TikTok is video-only — it needs a produced clip, not an image.
-        if item.channel == "tiktok":
+        # Video channels (TikTok/YouTube) need a produced clip, not an image.
+        if item.channel in social.VIDEO_CHANNELS:
             video_url = (item.meta or {}).get("video_url")
             if not video_url:
                 item.status = "needs_video"

@@ -74,9 +74,16 @@ TikTok's app audit and needs a produced video:
 > audit, set `TIKTOK_PRIVACY_LEVEL=PUBLIC_TO_EVERYONE`. Until then TikTok content
 > stays as ready-to-post drafts in the Content Factory.
 
-## YouTube ▶️
-Drafted as **assist** items (you upload on-platform). Auto-upload can be wired
-later via the YouTube Data API.
+## YouTube  ▶️  (fields: Google OAuth `client_id` + `client_secret` + `refresh_token`) — video auto-upload
+Uploads videos via the YouTube Data API v3 (`youtube.upload`):
+1. In Google Cloud Console, enable the **YouTube Data API v3** and create an
+   **OAuth client** (Desktop or Web).
+2. Run an OAuth consent for the **`https://www.googleapis.com/auth/youtube.upload`**
+   scope and capture the **refresh token** (e.g. via the OAuth Playground).
+3. Connect with `client_id`, `client_secret`, `refresh_token` (tokens
+   auto-refresh). `channel_id` optional.
+> Until your Google OAuth app is **verified**, uploads are forced to **private**.
+> After verification, set `YOUTUBE_PRIVACY_STATUS=public`.
 
 ---
 

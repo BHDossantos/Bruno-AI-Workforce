@@ -117,12 +117,16 @@ PROVIDERS: list[dict] = [
     },
     {
         "key": "youtube", "name": "YouTube", "category": "social", "icon": "▶️",
-        "auth_type": "api_key",
-        "fields": [_field("access_token", "YouTube Data API token", secret=True),
+        "auth_type": "oauth",
+        "fields": [_field("client_id", "Google OAuth client ID", secret=True, required=False),
+                   _field("client_secret", "Google OAuth client secret", secret=True, required=False),
+                   _field("refresh_token", "OAuth refresh token (youtube.upload)", secret=True, required=False),
+                   _field("access_token", "OAuth access token (optional)", secret=True, required=False),
                    _field("channel_id", "Channel ID", required=False)],
-        "capabilities": ["publish_assist", "analytics"],
+        "capabilities": ["publish_auto", "analytics"],
         "stages": ["attract"],
-        "compliance": "Video uploads are assisted; analytics pull via the YouTube Data API.",
+        "compliance": "Uploads videos via the YouTube Data API v3 (youtube.upload). "
+                      "Until your Google OAuth app is verified, uploads are private.",
         "goals": ["followers"],
     },
     {
