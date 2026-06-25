@@ -507,6 +507,17 @@ def test_posting_times_next_slot_and_endpoint(client, auth_headers):
     assert pt["summary"]["instagram"]["hour"] == posting_times.DEFAULT_HOURS["instagram"]
 
 
+def test_tiktok_publisher_offline():
+    from app import social
+    from app.integrations import tiktok_api
+    # Wired into the unified publisher + degrades gracefully with no creds.
+    assert "tiktok" in social.PLATFORMS
+    assert tiktok_api.is_connected(None) is False
+    assert tiktok_api.verify(None) is None
+    # Not connected → clear reason, never raises.
+    assert tiktok_api.post(None, "hi", "http://x/v.mp4")["ok"] is False
+
+
 def test_connection_live_check_offline():
     from app.integrations import twitter_api
     from app.routers import connections

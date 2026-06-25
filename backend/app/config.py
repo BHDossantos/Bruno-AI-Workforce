@@ -160,6 +160,10 @@ class Settings(BaseSettings):
     # evergreen library across your business lines.
     content_factory_enabled: bool = True
     browser_auto_submit: bool = False  # human-in-the-loop by default — review before submit
+    # TikTok Content Posting API visibility. Pre-audit, TikTok forces SELF_ONLY
+    # (private to your account); after your app passes audit, set this to
+    # PUBLIC_TO_EVERYONE (or MUTUAL_FOLLOW_FRIENDS / FOLLOWER_OF_CREATOR).
+    tiktok_privacy_level: str = "SELF_ONLY"
     # Applicant identity used to fill application forms.
     applicant_name: str = "Bruno Dos Santos"
     applicant_email: str = "brunodossantos707@gmail.com"

@@ -11,11 +11,13 @@ import logging
 from datetime import date
 
 from . import media
-from .integrations import facebook_api, instagram_api, linkedin_api, twitter_api
+from .integrations import (facebook_api, instagram_api, linkedin_api, tiktok_api,
+                           twitter_api)
 
 log = logging.getLogger("bruno.social")
 
-# Platform → (connected_fn, publish_fn(db, caption, image_url), needs_image)
+# Platform → (connected_fn, publish_fn(db, caption, media_url), needs_image)
+# media_url is an image URL for image platforms and a video URL for TikTok.
 PLATFORMS = {
     "instagram": (instagram_api.is_connected,
                   lambda db, cap, img: instagram_api.publish_post(db, img, cap), True),
@@ -25,6 +27,8 @@ PLATFORMS = {
                  lambda db, cap, img: linkedin_api.post(db, cap, img), False),
     "x": (twitter_api.is_connected,
           lambda db, cap, img: twitter_api.post(db, cap, img), False),
+    "tiktok": (tiktok_api.is_connected,
+               lambda db, cap, vid: tiktok_api.post(db, cap, vid), False),
 }
 
 
@@ -67,6 +71,9 @@ def status(db) -> dict:
     li = linkedin_api.get_profile(db) if linkedin_api.is_connected(db) else None
     out["linkedin"] = {"connected": li is not None, "followers": None}
     out["x"] = {"connected": twitter_api.is_connected(db), "followers": None}
+    tk = tiktok_api.get_account(db) if tiktok_api.is_connected(db) else None
+    out["tiktok"] = {"connected": tiktok_api.is_connected(db),
+                     "followers": tk.get("followers") if tk else None}
     return out
 
 
