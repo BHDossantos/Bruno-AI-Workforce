@@ -558,6 +558,15 @@ def test_browser_field_map_and_autoprepare_api():
     assert fm["answers"]["require_sponsorship"] == "No"
 
 
+@requires_db
+def test_sales_pipeline_endpoint(client, auth_headers):
+    p = client.get("/analytics/pipeline", headers=auth_headers).json()
+    assert set(p["businesses"]) == {"insurance", "consulting", "savorymind"}
+    assert p["businesses"]["insurance"]["scope"] == "NH · MA · FL"
+    assert p["businesses"]["consulting"]["scope"] == "US + Europe"
+    assert "funnel" in p["businesses"]["savorymind"]
+
+
 def test_lead_geography_scopes():
     from app.integrations import osm_leads
     # US = 50 states, EU = country list, us_eu = both.

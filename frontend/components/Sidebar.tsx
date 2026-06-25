@@ -17,6 +17,7 @@ const NAV = [
   { href: "/objectives", label: "Objectives", icon: "🎯" },
   { href: "/analytics", label: "Funnel Analytics", icon: "📊" },
   { href: "/growth", label: "Growth Analytics", icon: "📈" },
+  { href: "/pipeline", label: "Sales Pipeline", icon: "💰" },
   { href: "/jobs", label: "Jobs", icon: "💼" },
   { href: "/apply", label: "Apply Queue", icon: "✅" },
   { href: "/insurance", label: "Insurance Leads", icon: "🛡️" },

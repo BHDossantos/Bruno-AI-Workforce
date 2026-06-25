@@ -162,6 +162,66 @@ def growth(db: Session = Depends(get_db), _=Depends(_read)):
     }
 
 
+@router.get("/pipeline")
+def pipeline(db: Session = Depends(get_db), _=Depends(_read)):
+    """Sales pipeline across all three lead businesses — Insurance (NH/MA/FL),
+    BnB Global consulting (US+EU), and SavoryMind (US+EU) — with funnel stages,
+    pipeline value, top industries, and SavoryMind geography."""
+    from .. import scoring
+
+    def _lead_block(segments: list[str]) -> dict:
+        rows = db.query(Lead.status, Lead.industry, Lead.score).filter(
+            Lead.segment.in_(segments)).all()
+        statuses = [s for (s, _i, _sc) in rows]
+        inds: dict[str, int] = {}
+        for _s, ind, _sc in rows:
+            if ind:
+                inds[ind] = inds.get(ind, 0) + 1
+        top_industries = sorted(inds.items(), key=lambda kv: kv[1], reverse=True)[:6]
+        return {
+            "total": len(rows),
+            "funnel": _funnel(statuses),
+            "emailed": sum(1 for s in statuses if _STAGE_INDEX.get(s, 0) >= 2),
+            "replied": sum(1 for s in statuses if _STAGE_INDEX.get(s, 0) >= 4),
+            "won": sum(1 for s in statuses if s == "Closed Won"),
+            "avg_score": round(sum(sc for _s, _i, sc in rows) / len(rows), 1) if rows else 0,
+            "top_industries": [{"name": n, "count": c} for n, c in top_industries],
+        }
+
+    rest_rows = db.query(Restaurant.status, Restaurant.city).filter(
+        Restaurant.kind == "prospect").all()
+    rest_statuses = [s for (s, _c) in rest_rows]
+    cities: dict[str, int] = {}
+    for _s, c in rest_rows:
+        if c:
+            cities[c] = cities.get(c, 0) + 1
+    top_cities = sorted(cities.items(), key=lambda kv: kv[1], reverse=True)[:8]
+
+    # Expected pipeline value (value × probability) per objective, from scoring.
+    actions = scoring.build_actions(db)
+
+    def _value(objective: str) -> int:
+        return round(sum(a["value"] * a["probability"] for a in actions
+                         if a.get("objective") == objective))
+
+    return {
+        "businesses": {
+            "insurance": {**_lead_block(["commercial", "personal"]),
+                          "scope": "NH · MA · FL", "value": _value("insurance")},
+            "consulting": {**_lead_block(["consulting"]),
+                           "scope": "US + Europe", "value": _value("consulting")},
+            "savorymind": {
+                "total": len(rest_rows), "funnel": _funnel(rest_statuses),
+                "emailed": sum(1 for s in rest_statuses if _STAGE_INDEX.get(s, 0) >= 2),
+                "replied": sum(1 for s in rest_statuses if _STAGE_INDEX.get(s, 0) >= 4),
+                "won": sum(1 for s in rest_statuses if s == "Closed Won"),
+                "scope": "US + Europe",
+                "top_cities": [{"name": n, "count": c} for n, c in top_cities],
+            },
+        },
+    }
+
+
 @router.get("/posting-times")
 def posting_times_view(db: Session = Depends(get_db), _=Depends(_read)):
     """Best posting hour per platform (learned from engagement, default until
