@@ -13,6 +13,12 @@ type Brand = {
   genres: string; links: string; cities: string[]; eras: string[];
   playlist_targets: string[]; content_angles: string[]; channels: string[]; not_on: string[];
 };
+type Release = {
+  id: string; title: string; era: string | null; release_date: string | null;
+  city: string | null; story: string | null; key_line: string | null;
+  language: string | null; status: string;
+};
+type Piece = { id: string; topic: string; channel: string; title: string | null; body: string | null; hashtags: string | null; status: string };
 
 function Music() {
   const [refresh, setRefresh] = useState(0);
@@ -21,8 +27,43 @@ function Music() {
   const { data: influencers } = useFetch<Influencer[]>(() => api.get<Influencer[]>("/music/influencers?limit=100"), [refresh]);
   const { data: content } = useFetch<Campaign[]>(() => api.get<Campaign[]>("/music/content?limit=5"));
   const { data: spotify } = useFetch<Spotify>(() => api.get<Spotify>("/music/spotify"));
+  const { data: releases } = useFetch<Release[]>(() => api.get<Release[]>("/music/releases"), [refresh]);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
+  const [form, setForm] = useState({ title: "", era: "", city: "", story: "" });
+  const [pieces, setPieces] = useState<Record<string, Piece[]>>({});
+
+  async function createRelease() {
+    if (!form.title.trim()) { setMsg("Add a song title first."); return; }
+    setBusy("new"); setMsg("");
+    try {
+      await api.post("/music/releases", {
+        title: form.title.trim(), era: form.era.trim() || undefined,
+        city: form.city.trim() || undefined, story: form.story.trim() || undefined,
+      });
+      setForm({ title: "", era: "", city: "", story: "" });
+      setMsg("✅ Song added — generate its kit below.");
+      setRefresh((n) => n + 1);
+    } catch (e) { setMsg(String(e)); }
+    finally { setBusy(null); }
+  }
+
+  async function buildKit(id: string) {
+    setBusy(`kit-${id}`); setMsg("");
+    try {
+      const r = await api.post<{ ok: boolean; pieces?: number; key_line?: string; reason?: string }>(`/music/releases/${id}/kit`, {});
+      setMsg(r.ok ? `✅ Built ${r.pieces} pieces${r.key_line ? ` · hook: "${r.key_line}"` : ""}` : `❌ ${r.reason || "failed"}`);
+      setRefresh((n) => n + 1);
+      if (r.ok) viewPieces(id);
+    } catch (e) { setMsg(String(e)); }
+    finally { setBusy(null); }
+  }
+
+  async function viewPieces(id: string) {
+    if (pieces[id]) { setPieces((p) => { const c = { ...p }; delete c[id]; return c; }); return; }
+    const data = await api.get<Piece[]>(`/music/releases/${id}/pieces`);
+    setPieces((p) => ({ ...p, [id]: data }));
+  }
 
   async function send(path: string, id: string) {
     setBusy(id); setMsg("");
@@ -94,6 +135,68 @@ function Music() {
       ) : (
         <div className="card bg-gray-50 text-sm text-gray-500">🎧 Connect Spotify in Connections to see your live follower count and top tracks.</div>
       )}
+
+      <div className="card">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="font-semibold">💿 Releases — one song → a full era kit</h2>
+          <span className="text-xs text-gray-400">music video · lyric video · sax / acoustic / piano · behind-the-song · TikTok hook · reels · cross-posts</span>
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
+            placeholder="Song title (e.g. Marry Me In This Lifetime)" className="rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+          <input value={form.era} onChange={(e) => setForm({ ...form, era: e.target.value })}
+            placeholder="Era (optional)" className="rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+          <input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })}
+            placeholder="City / setting (Rome, Naples…)" className="rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+          <input value={form.story} onChange={(e) => setForm({ ...form, story: e.target.value })}
+            placeholder="The true story behind it (optional)" className="rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+        </div>
+        <button onClick={createRelease} disabled={busy === "new"} className="btn mt-3">
+          {busy === "new" ? "Adding…" : "Add song"}
+        </button>
+
+        <div className="mt-4 space-y-3">
+          {(releases || []).map((r) => (
+            <div key={r.id} className="rounded-lg border border-gray-200 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <span className="font-medium">{r.title}</span>
+                  {r.era && <span className="ml-2 text-xs text-gray-400">· {r.era}</span>}
+                  <span className={`ml-2 badge ${r.status === "Kit Built" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>{r.status}</span>
+                  {r.key_line && <p className="mt-0.5 text-xs italic text-brand-dark">&ldquo;{r.key_line}&rdquo;</p>}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => buildKit(r.id)} disabled={busy === `kit-${r.id}`}
+                    className="rounded-lg bg-brand px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
+                    {busy === `kit-${r.id}` ? "Building…" : r.status === "Kit Built" ? "Rebuild kit" : "Generate kit"}
+                  </button>
+                  {r.status === "Kit Built" && (
+                    <button onClick={() => viewPieces(r.id)} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm">
+                      {pieces[r.id] ? "Hide" : "View pieces"}
+                    </button>
+                  )}
+                </div>
+              </div>
+              {pieces[r.id] && (
+                <div className="mt-3 space-y-2">
+                  {pieces[r.id].map((pc) => (
+                    <details key={pc.id} className="rounded border border-gray-100 bg-gray-50 p-2 text-xs">
+                      <summary className="cursor-pointer font-medium">
+                        <span className="text-gray-400">[{pc.channel}]</span> {pc.title}
+                      </summary>
+                      <pre className="mt-1 whitespace-pre-wrap text-gray-600">{pc.body}</pre>
+                      {pc.hashtags && <p className="mt-1 text-brand-dark">{pc.hashtags}</p>}
+                    </details>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+          {releases && releases.length === 0 && (
+            <p className="text-sm text-gray-400">No releases yet — add a song to spin up its full content kit.</p>
+          )}
+        </div>
+      </div>
 
       {content && content[0]?.content && (
         <div className="card">

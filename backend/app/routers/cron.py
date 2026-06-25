@@ -150,6 +150,18 @@ def cron_referrals(x_cron_token: str | None = Header(default=None),
     return out
 
 
+@router.post("/music-releases")
+def cron_music_releases(x_cron_token: str | None = Header(default=None),
+                        db: Session = Depends(get_db)):
+    """Release-as-eras cadence: auto-build the full content kit for any planned
+    release whose date is within the next 4 weeks and has no kit yet."""
+    _auth(x_cron_token)
+    from .. import alerts, music_release
+    out = music_release.run_due(db)
+    alerts.check_run("music release kits", out)
+    return out
+
+
 @router.post("/followups")
 def cron_followups(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
     _auth(x_cron_token)

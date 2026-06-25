@@ -128,6 +128,39 @@ class InfluencerOut(ORMModel):
     status: str
 
 
+class MusicReleaseCreate(BaseModel):
+    title: str
+    era: str | None = None
+    release_date: date | None = None
+    city: str | None = None
+    story: str | None = None
+    key_line: str | None = None
+    language: str | None = None
+
+
+class MusicReleaseOut(ORMModel):
+    id: uuid.UUID
+    title: str
+    era: str | None = None
+    release_date: date | None = None
+    city: str | None = None
+    story: str | None = None
+    key_line: str | None = None
+    language: str | None = None
+    status: str
+
+
+class ReleasePieceOut(ORMModel):
+    id: uuid.UUID
+    topic: str
+    channel: str
+    title: str | None = None
+    body: str | None = None
+    hashtags: str | None = None
+    status: str
+    meta: dict | None = None
+
+
 class InstagramTargetOut(ORMModel):
     id: uuid.UUID
     handle: str

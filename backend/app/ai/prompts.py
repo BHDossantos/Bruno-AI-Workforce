@@ -116,6 +116,34 @@ Return JSON with keys:
 - "story": 1 personal story post idea (the city, the love story, or the saxophone behind a song).
 """
 
+MUSIC_RELEASE_KIT = """Turn ONE song into a complete release content kit for the artist.
+The goal is an ERA, not a single post — every piece reinforces the same identity and
+drives people to stream/follow. Story-first, cinematic, signature alto sax. NOT for LinkedIn.
+
+{brand}
+{promo}
+
+SONG: "{title}"
+Era: {era}. Story / inspiration: {story}. Setting/city: {city}. Language(s): {language}.
+
+Return a JSON object. First, "key_line": the ONE short, repeatable lyric/line fans will
+quote (the TikTok hook). Then one object per deliverable below, each with keys
+"title", "body", and (for social pieces) "hashtags":
+- "music_video": cinematic mini-movie treatment (scene-by-scene, the city, sax, wardrobe, mood).
+- "lyric_video": concept + on-screen lyric styling notes.
+- "behind_the_song": 45-60s script telling the true story behind the song.
+- "sax_version": 20-30s reel script foregrounding the saxophone, + caption ending in a stream CTA.
+- "acoustic_version": stripped reel concept + caption with CTA.
+- "piano_version": piano reel concept + caption with CTA.
+- "story_version": a personal caption telling who/what inspired it, ending in a stream CTA.
+- "teaser": pre-release snippet idea that builds anticipation, + caption.
+- "tiktok_hook": how to use the key_line as a trend (prompt for duets/uses), + caption.
+- "reel_1", "reel_2", "reel_3": three distinct short reel cuts (different hook each), + caption + hashtags.
+- "x_post": a punchy post under 280 chars with the key_line and a link CTA.
+- "facebook_post": a warm, conversational post with a stream CTA.
+Be specific and emotionally resonant; make a listener FEEL it and press play.
+"""
+
 # ── Agent 5: Instagram Growth ────────────────────────────────────────────────
 INSTAGRAM_ENGAGEMENT = """Generate engagement suggestions for an Instagram target account,
 on behalf of this brand:

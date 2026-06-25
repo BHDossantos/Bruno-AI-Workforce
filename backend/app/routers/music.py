@@ -2,11 +2,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from .. import outreach
+from .. import music_release, outreach
 from ..database import get_db
 from ..integrations import spotify_api
-from ..models import Campaign, Influencer, MusicPlaylist
-from ..schemas import CampaignOut, InfluencerOut, PlaylistOut
+from ..models import Campaign, Influencer, MusicPlaylist, MusicRelease
+from ..schemas import (CampaignOut, InfluencerOut, MusicReleaseCreate, MusicReleaseOut,
+                       PlaylistOut, ReleasePieceOut)
 from ..security import require_role
 
 router = APIRouter(prefix="/music", tags=["music"])
@@ -57,6 +58,34 @@ def send_influencer_pitch(influencer_id: str, db: Session = Depends(get_db), _=D
         inf.status = "Sent"
     db.commit()
     return {"ok": True, "status": msg.status, "to": inf.email}
+
+
+@router.get("/releases", response_model=list[MusicReleaseOut])
+def releases(db: Session = Depends(get_db), _=Depends(_read)):
+    return db.query(MusicRelease).order_by(MusicRelease.created_at.desc()).limit(100).all()
+
+
+@router.post("/releases", response_model=MusicReleaseOut)
+def create_release(payload: MusicReleaseCreate, db: Session = Depends(get_db), _=Depends(_write)):
+    r = MusicRelease(**payload.model_dump(exclude_none=True))
+    db.add(r)
+    db.commit()
+    db.refresh(r)
+    return r
+
+
+@router.post("/releases/{release_id}/kit")
+def build_release_kit(release_id: str, db: Session = Depends(get_db), _=Depends(_write)):
+    """Generate the full 15-20 piece content kit for this song (one era moment)."""
+    r = db.query(MusicRelease).filter(MusicRelease.id == release_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Release not found")
+    return music_release.build_kit(db, r)
+
+
+@router.get("/releases/{release_id}/pieces", response_model=list[ReleasePieceOut])
+def release_pieces(release_id: str, db: Session = Depends(get_db), _=Depends(_read)):
+    return music_release.pieces_for(db, release_id)
 
 
 @router.get("/brand")
