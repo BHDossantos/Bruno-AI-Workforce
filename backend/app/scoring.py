@@ -7,12 +7,14 @@ comparable:
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from . import objectives
-from .models import ActionState, Application, Job, Lead, Message, Restaurant
+from .models import (ActionState, Application, Contact, ContentItem, Job, Lead,
+                     Message, Restaurant)
 
 # Expected-value assumptions (tune freely; these are sensible defaults).
 _COMMERCIAL_VALUE = 5_000      # avg commercial insurance commission
@@ -120,6 +122,34 @@ def _unanswered_sms(db: Session) -> list[str]:
     return out
 
 
+def recap(db: Session, hours: int = 24) -> list[dict]:
+    """What your digital team accomplished in the last `hours` — the "Yesterday"
+    line on the home screen. Pulled from real activity, so it's never theater."""
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    out: list[dict] = []
+
+    def add(icon: str, label: str, count) -> None:
+        if count:
+            out.append({"icon": icon, "label": label, "count": int(count)})
+
+    def c(model, *filters) -> int:
+        return int(db.query(func.count()).select_from(model).filter(*filters).scalar() or 0)
+
+    add("💼", "jobs sourced", c(Job, Job.created_at >= since))
+    add("✅", "applications submitted", c(Application, Application.applied_at >= since))
+    add("📧", "outreach emails sent", c(Message, Message.channel == "email",
+        Message.direction == "outbound", Message.created_at >= since))
+    add("💬", "texts sent", c(Message, Message.channel == "sms",
+        Message.direction == "outbound", Message.created_at >= since))
+    add("📥", "replies received", c(Message, Message.direction == "inbound",
+        Message.created_at >= since))
+    add("📣", "posts published", c(ContentItem, ContentItem.published_at >= since))
+    add("📝", "content pieces created", c(ContentItem, ContentItem.created_at >= since,
+        ContentItem.status.in_(["ready", "needs_approval", "generated", "scheduled"])))
+    add("👥", "CRM contacts added", c(Contact, Contact.created_at >= since))
+    return out
+
+
 def brief(db: Session, top_n: int = 3) -> dict:
     """The morning Chief-of-Staff brief: top N actions, value, focus score."""
     actions = build_actions(db)
@@ -150,4 +180,5 @@ def brief(db: Session, top_n: int = 3) -> dict:
         "summary": summary,
         "total_actions": len(actions),
         "hidden_count": max(0, len(actions) - len(top)),
+        "recap": recap(db),
     }
