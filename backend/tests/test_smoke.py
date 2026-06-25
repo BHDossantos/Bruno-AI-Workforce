@@ -590,6 +590,16 @@ def test_bnbglobal_in_sales_cron():
     assert '"bnbglobal"' in inspect.getsource(cron.cron_leads)
 
 
+def test_adaptive_learning_bandit():
+    from app import learning
+    # Untried arms are explored first — so it adapts to new options/changes.
+    assert learning.pick({"new": (0.0, 0), "old": (50.0, 8)}) == "new"
+    # Once all are tried, it exploits the clearly-better arm.
+    assert learning.pick({"a": (1.0, 20), "b": (9.0, 20)}) == "b"
+    # Degrades safely.
+    assert learning.pick({}) is None
+
+
 def test_referral_engine_offline():
     from app import referrals
     from app.routers import cron

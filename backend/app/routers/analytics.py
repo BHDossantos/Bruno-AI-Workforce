@@ -222,6 +222,14 @@ def pipeline(db: Session = Depends(get_db), _=Depends(_read)):
     }
 
 
+@router.get("/learnings")
+def learnings(db: Session = Depends(get_db), _=Depends(_read)):
+    """What the adaptive layer has learned — per-channel category performance with
+    sample sizes, the bandit's next pick, and learned posting hours."""
+    from .. import learning
+    return learning.learnings(db)
+
+
 @router.get("/posting-times")
 def posting_times_view(db: Session = Depends(get_db), _=Depends(_read)):
     """Best posting hour per platform (learned from engagement, default until

@@ -92,10 +92,16 @@ def best_topic(db: Session, business: str, seed: int) -> str:
 
 
 def best_topic_for_channel(db: Session, channel: str, business: str, seed: int) -> str:
-    """Channel-aware topic pick: bias to the category that performs best on THIS
-    platform, then fall back to the cross-channel pick, then round-robin."""
-    perf = category_performance(db, channel) or category_performance(db)
-    return _best_from_categories(perf, business, seed)
+    """Channel-aware topic pick. Uses the adaptive bandit to choose the category
+    (exploit best-performing on THIS platform + keep exploring so it adapts), then
+    rotates an idea within it. Falls back to the cross-channel pick."""
+    from . import learning
+    cat = learning.pick_category(db, channel, business)
+    ideas = evergreen.CATEGORIES.get(cat) if cat else None
+    if ideas:
+        return ideas[seed % len(ideas)]
+    return _best_from_categories(category_performance(db, channel) or category_performance(db),
+                                 business, seed)
 
 
 def channel_summary(db: Session) -> dict[str, dict]:
