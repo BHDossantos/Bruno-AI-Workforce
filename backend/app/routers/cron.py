@@ -47,6 +47,17 @@ def cron_publish_content(x_cron_token: str | None = Header(default=None), db: Se
     return content_factory.publish_due(db)
 
 
+@router.post("/platform-loops")
+def cron_platform_loops(platform: str | None = None,
+                        x_cron_token: str | None = Header(default=None),
+                        db: Session = Depends(get_db)):
+    """Run the per-platform content loops: top each platform up to its daily
+    cadence with channel-optimized content. Pass ?platform=instagram to run one."""
+    _auth(x_cron_token)
+    from .. import platform_loops
+    return platform_loops.run_all(db, [platform] if platform else None)
+
+
 @router.post("/sync-content-metrics")
 def cron_sync_content_metrics(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
     """Refresh engagement metrics for published content (feeds the learning loop)."""

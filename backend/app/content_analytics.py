@@ -54,11 +54,17 @@ def top_performers(db: Session, limit: int = 10) -> list[dict]:
              "metrics": (r.meta or {}).get("metrics")} for r in scored[:limit]]
 
 
-def category_performance(db: Session) -> dict[str, float]:
-    """Average engagement per evergreen category (topic → category mapping)."""
+def category_performance(db: Session, channel: str | None = None) -> dict[str, float]:
+    """Average engagement per evergreen category (topic → category mapping).
+
+    Pass ``channel`` to scope to a single platform — what lands on Instagram is
+    not what lands on LinkedIn, so each platform loop optimizes on its own data."""
     topic_to_cat = {t: cat for cat, ideas in evergreen.CATEGORIES.items() for t in ideas}
+    q = db.query(ContentItem).filter(ContentItem.status == "published")
+    if channel:
+        q = q.filter(ContentItem.channel == channel)
     sums: dict[str, list[int]] = {}
-    for r in db.query(ContentItem).filter(ContentItem.status == "published").limit(1000).all():
+    for r in q.limit(1000).all():
         eng = (r.meta or {}).get("engagement")
         cat = topic_to_cat.get(r.topic)
         if eng is not None and cat:
@@ -66,10 +72,9 @@ def category_performance(db: Session) -> dict[str, float]:
     return {c: round(sum(v) / len(v), 1) for c, v in sums.items() if v}
 
 
-def best_topic(db: Session, business: str, seed: int) -> str:
-    """Pick the next topic, biased toward the best-performing category for this
-    business; falls back to the round-robin evergreen pick."""
-    perf = category_performance(db)
+def _best_from_categories(perf: dict[str, float], business: str, seed: int) -> str:
+    """Pick a topic from the best-performing category among a business's categories;
+    fall back to the round-robin evergreen pick when there's no signal yet."""
     cats = evergreen.BUSINESS_CATEGORIES.get(business) or list(evergreen.CATEGORIES)
     ranked = [c for c in cats if c in perf]
     if ranked:
@@ -78,3 +83,46 @@ def best_topic(db: Session, business: str, seed: int) -> str:
         if ideas:
             return ideas[seed % len(ideas)]
     return evergreen.pick_topic(business, seed)
+
+
+def best_topic(db: Session, business: str, seed: int) -> str:
+    """Pick the next topic, biased toward the best-performing category for this
+    business (across all channels); falls back to the round-robin evergreen pick."""
+    return _best_from_categories(category_performance(db), business, seed)
+
+
+def best_topic_for_channel(db: Session, channel: str, business: str, seed: int) -> str:
+    """Channel-aware topic pick: bias to the category that performs best on THIS
+    platform, then fall back to the cross-channel pick, then round-robin."""
+    perf = category_performance(db, channel) or category_performance(db)
+    return _best_from_categories(perf, business, seed)
+
+
+def channel_summary(db: Session) -> dict[str, dict]:
+    """Per-channel performance rollup for the growth dashboard: how many pieces
+    we've published, average engagement, and the top-performing category."""
+    topic_to_cat = {t: cat for cat, ideas in evergreen.CATEGORIES.items() for t in ideas}
+    rows = db.query(ContentItem).filter(ContentItem.status == "published").limit(2000).all()
+    by_ch: dict[str, dict] = {}
+    cat_eng: dict[str, dict[str, list[int]]] = {}
+    for r in rows:
+        ch = r.channel
+        d = by_ch.setdefault(ch, {"published": 0, "engagements": []})
+        d["published"] += 1
+        eng = (r.meta or {}).get("engagement")
+        if eng is not None:
+            d["engagements"].append(int(eng))
+            cat = topic_to_cat.get(r.topic)
+            if cat:
+                cat_eng.setdefault(ch, {}).setdefault(cat, []).append(int(eng))
+    out: dict[str, dict] = {}
+    for ch, d in by_ch.items():
+        engs = d["engagements"]
+        cats = {c: round(sum(v) / len(v), 1) for c, v in cat_eng.get(ch, {}).items() if v}
+        out[ch] = {
+            "published": d["published"],
+            "avg_engagement": round(sum(engs) / len(engs), 1) if engs else 0.0,
+            "total_engagement": sum(engs),
+            "top_category": max(cats, key=cats.get) if cats else None,
+        }
+    return out

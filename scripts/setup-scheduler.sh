@@ -56,6 +56,9 @@ upsert_job "bruno-followups"  "0 9,14 * * 1-5" "/cron/followups" "320s"
 upsert_job "bruno-refresh-tokens" "0 4 * * *"  "/cron/refresh-tokens" "320s"
 # Pull bank balances + transactions from Plaid daily (no-op if no bank linked).
 upsert_job "bruno-sync-bank"      "30 5 * * *" "/cron/sync-bank"      "320s"
+# Per-platform content loops: top each platform up to its daily cadence with
+# channel-optimized content. Runs early so pieces are ready before publishing.
+upsert_job "bruno-platform-loops" "0 7 * * *" "/cron/platform-loops" "900s"
 # Publish scheduled Content-Factory pieces that are due, a few times a day.
 upsert_job "bruno-publish-content" "0 9,13,18 * * *" "/cron/publish-content" "600s"
 # Refresh content engagement metrics nightly (feeds the learning loop).

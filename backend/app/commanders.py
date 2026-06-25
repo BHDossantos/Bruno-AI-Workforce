@@ -30,9 +30,15 @@ COMMANDERS: dict[str, dict] = {
 }
 
 
+# Long-form channels produced per business by the broad factory pass; the social
+# channels are handled by the per-platform loops (cadence + per-platform tuning).
+_LONGFORM_CHANNELS = ["blog", "email", "podcast"]
+
+
 def _run_content_factory(db: Session) -> dict:
-    """Influence Commander: produce a fresh multi-channel content pack per business
-    line from the evergreen library (one idea → every platform)."""
+    """Influence Commander: produce fresh long-form drafts (blog/email/podcast)
+    per business line from the evergreen library. Social channels are handled
+    separately by the per-platform loops."""
     from datetime import date
 
     from . import content_analytics, content_factory
@@ -43,7 +49,8 @@ def _run_content_factory(db: Session) -> dict:
     for business in ("executive", "bnbglobal", "savorymind", "music"):
         try:
             topic = content_analytics.best_topic(db, business, seed)  # bias to what performs
-            out[business] = content_factory.generate_pack(db, topic, business)
+            out[business] = content_factory.generate_pack(
+                db, topic, business, channels=_LONGFORM_CHANNELS)
         except Exception as exc:  # one line failing must not stop the rest
             out[business] = {"ok": False, "reason": str(exc)}
     return out
@@ -61,9 +68,16 @@ def _run_commander(db: Session, center: str) -> dict:
         except Exception as exc:  # one agent failing must not stop the commander
             log.exception("Agent %s failed under %s", key, center)
             out[key] = {"error": str(exc)}
-    # The Influence Commander also runs the Content Factory (one idea → every channel).
+    # The Influence Commander runs the long-form factory pass AND each platform's
+    # own cadence-aware loop (one idea → the right content for every channel).
     if center == "influence":
+        from . import platform_loops
         out["content_factory"] = _run_content_factory(db)
+        try:
+            out["platform_loops"] = platform_loops.run_all(db)
+        except Exception as exc:
+            log.exception("platform loops failed")
+            out["platform_loops"] = {"ok": False, "reason": str(exc)}
     return {"commander": spec["name"], "center": center, "agents": out}
 
 
