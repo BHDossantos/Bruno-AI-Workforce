@@ -49,10 +49,29 @@ def _set_status(db, content_id, status, scheduled=False):
     return content_factory.out(item)
 
 
+class ScheduleIn(BaseModel):
+    when: str  # ISO datetime
+
+
 @router.post("/{content_id}/approve")
 def approve(content_id: str, db: Session = Depends(get_db), _=Depends(_write)):
     """Approve a piece → queue it to publish on the next content tick."""
     return _set_status(db, content_id, "scheduled", scheduled=True)
+
+
+@router.post("/{content_id}/schedule")
+def schedule(content_id: str, body: ScheduleIn, db: Session = Depends(get_db), _=Depends(_write)):
+    """Reschedule a piece to a specific time (and mark it scheduled)."""
+    item = db.query(ContentItem).filter(ContentItem.id == content_id).first()
+    if not item:
+        raise HTTPException(404, "content not found")
+    try:
+        item.scheduled_for = datetime.fromisoformat(body.when)
+    except ValueError:
+        raise HTTPException(400, "invalid datetime (use ISO format)")
+    item.status = "scheduled"
+    db.commit()
+    return content_factory.out(item)
 
 
 @router.post("/{content_id}/dismiss")
