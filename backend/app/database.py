@@ -40,6 +40,7 @@ _MIGRATIONS = [
     "ALTER TABLE leads ADD COLUMN IF NOT EXISTS last_contacted_at TIMESTAMPTZ",
     "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS times_contacted INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS last_contacted_at TIMESTAMPTZ",
+    "ALTER TABLE brand_profile ADD COLUMN IF NOT EXISTS music_links TEXT",
 ]
 
 

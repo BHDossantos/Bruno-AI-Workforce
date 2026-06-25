@@ -13,30 +13,36 @@ from .base import BaseAgent
 
 log = logging.getLogger("bruno.agents.music")
 
-ARTIST_GENRES = {"samba", "pagode", "brazilian jazz", "latin romance", "r&b",
-                 "romantic", "italian", "spanish", "portuguese"}
+# Playlists worth pitching for "Luxury Latin Soul": romance, R&B, Latin, and the
+# date-night / wedding / late-night lanes the brand wants to own.
+ARTIST_GENRES = {"r&b", "rnb", "romantic", "romance", "latin", "latin soul", "soul",
+                 "pagode", "bachata", "love", "date night", "wedding", "proposal",
+                 "late night", "heartbreak", "spanish", "portuguese", "saxophone", "jazz"}
 PLAYLIST_TARGET = 50
 INFLUENCER_TARGET = 25
 
 
-def _fallback_content(artist: str, genres: str) -> dict:
-    """A usable content package so the Music page is never empty without AI."""
-    g = genres.split(",")[0].strip() if genres else "your sound"
+def _fallback_content(artist: str, genres: str, cta: str) -> dict:
+    """A usable content package so the Music page is never empty without AI.
+    Story-first and pointed at streams — on-brand for the Bruno D universe."""
     return {
         "reels": [
-            f"15s studio teaser of {artist}'s next {g} track — hook on the drop.",
-            f"Behind-the-scenes: how {artist} writes a {g} melody.",
-            f"Fan-duet prompt: stitch your verse over {artist}'s chorus.",
+            f"Sax-only version of the new hook — caption it with the one line: "
+            f"\"I already saw our future…\" ({artist}).",
+            f"\"A song I wrote walking through Rome\" — 20s, streets + saxophone, "
+            f"then the chorus drops.",
+            f"Studio at 2 AM: the moment the melody clicked. Let it breathe, then the line.",
         ],
         "captions": [
-            f"New {g} energy dropping soon. 🎶 Save this. — {artist}",
-            f"Made for late nights and good company. {artist} x {g}.",
-            f"Tag someone who needs this {g} vibe today.",
+            f"The true story behind this lyric. 🎷 {cta}",
+            f"Made for late-night drives and someone you love. {cta}",
+            f"I wrote this in Naples, for her. 🎷 {cta}",
         ],
-        "hashtags": [f"#{g.replace(' ', '')}", "#newmusic", "#indieartist", "#musicpromo",
-                     "#nowplaying", "#musician", "#singersongwriter", "#brazilianmusic",
-                     "#latinmusic", "#spotify"],
-        "story": f"Poll: which unreleased {artist} snippet should drop first? A or B.",
+        "hashtags": ["#luxurylatinsoul", "#romanticrnb", "#rnb", "#latinsoul",
+                     "#saxophone", "#lovesongs", "#datenight", "#newmusic",
+                     "#nowplaying", "#spotify"],
+        "story": f"Poll: which {artist} snippet should drop first — the Rome verse or "
+                 f"the sax-only hook? A or B.",
     }
 
 
@@ -53,17 +59,20 @@ class MusicAgent(BaseAgent):
     # _fallback_content is defined at module level below.
 
     def execute(self) -> dict:
+        from .. import music_brand
         p = brand.get_profile(self.db)
         brand_ctx = brand.context(self.db)
-        artist = p.music_artist or p.business_name or "the artist"
-        genres = p.music_genres or "Brazilian/Latin/romantic"
+        artist = music_brand.artist(self.db) or p.business_name or "the artist"
+        genres = music_brand.genres(self.db)
+        cta = music_brand.cta(self.db)
 
         # Daily content package is the core deliverable — always generate it first.
         content = client.complete_json(
-            MUSIC_DAILY_CONTENT.format(brand=brand_ctx, artist=artist, genres=genres),
+            MUSIC_DAILY_CONTENT.format(brand=brand_ctx, artist=artist, genres=genres,
+                                       promo=music_brand.promo_context(self.db)),
             system=skills.system_prompt("social"))
         if not isinstance(content, dict) or not content:
-            content = _fallback_content(artist, genres)  # never leave it empty
+            content = _fallback_content(artist, genres, cta)  # never leave it empty
         self.db.add(Campaign(channel="music", title=f"Music content {date.today()}",
                              content=content, scheduled_for=date.today()))
         self.db.commit()

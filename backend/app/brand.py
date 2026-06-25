@@ -19,8 +19,10 @@ _DEFAULTS = dict(
     tone="warm, confident, concise, professional",
     instagram_handle="",
     content_pillars="behind-the-scenes, client wins, tips & how-tos, industry insight, social proof, offers",
-    music_artist="Bruno Dos Santos",
-    music_genres="Samba, Pagode, Brazilian jazz, Latin romance, R&B",
+    music_artist="Bruno D",
+    music_genres=("Luxury Latin Soul — romantic R&B with signature alto sax; "
+                  "English, Spanish & Portuguese vocals; deep voice; cinematic love stories"),
+    music_links="Spotify: https://open.spotify.com/artist/1NoggpCXnG7WctASlZU1UG",
 )
 
 

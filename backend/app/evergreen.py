@@ -17,8 +17,12 @@ CATEGORIES: dict[str, list[str]] = {
                   "key-person coverage explained"],
     "savorymind": ["menu engineering that lifts margin", "restaurant data you're ignoring",
                    "turning reviews into revenue"],
-    "music": ["independent artist growth loops", "pitching playlists that convert",
-              "turning a release into 30 pieces of content"],
+    # Fan-facing, story-first promo angles for the Bruno D universe (NOT music-
+    # industry thought leadership). Kept in sync with music_brand.CONTENT_ANGLES.
+    "music": ["the true story behind this lyric", "the girl who inspired this song",
+              "a song I wrote walking through Rome", "sax-only version of the hook",
+              "studio at 2 AM building this song", "the one line everyone repeats",
+              "the city that inspired this song", "behind the song: who she was"],
     "fitness": ["training around a founder's schedule", "recovery as a performance lever"],
     "italy": ["lessons from Italian craftsmanship", "la dolce vita as an operating principle"],
     "travel": ["working remotely across continents", "systems for a location-independent life"],

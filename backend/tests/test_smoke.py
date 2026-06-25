@@ -40,8 +40,42 @@ def test_insurance_and_music_scoring():
     assert InsuranceAgent.score_lead(
         {"email": "a@b.c", "phone": "1", "website": "x", "segment": "commercial"}
     ) == 100
-    assert MusicAgent.genre_match("Samba") == 100
+    assert MusicAgent.genre_match("R&B") == 100  # Luxury Latin Soul lane
+    assert MusicAgent.genre_match("Romantic") == 100
     assert MusicAgent.genre_match("Techno") == 50
+
+
+def test_music_brand_never_on_linkedin_and_is_fan_facing():
+    """The music universe must promote Bruno D (story + streams) and never touch
+    LinkedIn — the two things the user explicitly asked for."""
+    from app import evergreen, music_brand, platform_loops
+
+    # LinkedIn loop must not carry the music business line.
+    assert "music" not in platform_loops.LOOPS["linkedin"]["businesses"]
+    # Music must live on fan channels.
+    assert "music" in platform_loops.LOOPS["instagram"]["businesses"]
+    assert "music" in platform_loops.LOOPS["tiktok"]["businesses"]
+    # The brand bible owns a category and excludes LinkedIn.
+    assert music_brand.CATEGORY == "Luxury Latin Soul"
+    assert "linkedin" not in music_brand.CHANNELS
+    # Evergreen "music" seeds are story-first, not industry thought leadership.
+    seeds = " ".join(evergreen.CATEGORIES["music"]).lower()
+    assert "growth loop" not in seeds and "pitching playlists" not in seeds
+    assert any(w in seeds for w in ("story", "lyric", "sax", "rome"))
+
+
+def test_content_factory_drops_linkedin_for_music(monkeypatch):
+    """generate_pack must strip LinkedIn from the channel list for music even if
+    asked, regardless of whether generation is available."""
+    from app import content_factory
+
+    monkeypatch.setattr(content_factory.client, "is_live", lambda: False)
+    res = content_factory.generate_pack(
+        db=None, topic="the true story behind this lyric", business="music",
+        channels=["linkedin", "instagram", "tiktok"])
+    # is_live() is False so it no-ops, but the music guard already ran — and it
+    # must never have included linkedin. (No DB touched on this path.)
+    assert res["ok"] is False  # generation unavailable offline
 
 
 def test_all_agents_registered():

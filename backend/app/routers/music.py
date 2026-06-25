@@ -59,6 +59,29 @@ def send_influencer_pitch(influencer_id: str, db: Session = Depends(get_db), _=D
     return {"ok": True, "status": msg.status, "to": inf.email}
 
 
+@router.get("/brand")
+def brand_bible(db: Session = Depends(get_db), _=Depends(_read)):
+    """The Bruno D brand bible the content engine is built on — identity, category,
+    signature, the era arc, playlist lanes to own, and the story angles every post
+    draws from. This is what keeps the music universe consistent across channels."""
+    from .. import music_brand
+    return {
+        "artist": music_brand.artist(db),
+        "category": music_brand.CATEGORY,
+        "identity": music_brand.IDENTITY,
+        "edge": music_brand.EDGE,
+        "signature": music_brand.SIGNATURE,
+        "genres": music_brand.genres(db),
+        "links": music_brand.links(db),
+        "cities": music_brand.CITIES,
+        "eras": music_brand.ERAS,
+        "playlist_targets": music_brand.PLAYLIST_TARGETS,
+        "content_angles": music_brand.CONTENT_ANGLES,
+        "channels": music_brand.CHANNELS,
+        "not_on": ["linkedin"],
+    }
+
+
 @router.get("/spotify")
 def spotify(db: Session = Depends(get_db), _=Depends(_read)):
     """Live Spotify artist analytics (followers, top tracks) when connected."""

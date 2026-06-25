@@ -82,11 +82,14 @@ Return JSON with keys:
 """
 
 # ── Agent 4: Music Marketing ─────────────────────────────────────────────────
-PLAYLIST_PITCH = """Write a playlist submission pitch for a Brazilian/Latin/romantic artist.
+PLAYLIST_PITCH = """Write a playlist submission pitch for Bruno D — a "Luxury Latin Soul"
+artist: romantic R&B with a signature alto sax, deep voice, sung in English, Spanish &
+Portuguese; cinematic love songs (think Usher/Ne-Yo meets Romeo Santos/Belo, with sax).
 
 Playlist: {name} (genre: {genre}, curator: {curator})
 Return JSON with keys:
 - "pitch": a concise, respectful pitch (max 120 words) tailored to the playlist's genre.
+  Lead with the feeling/story and the saxophone signature; make the fit obvious.
 """
 
 INFLUENCER_PITCH = """Write outreach to a music/culture influencer for an artist collaboration.
@@ -97,16 +100,20 @@ Return JSON with keys:
 - "collab_pitch": a 2-sentence collaboration proposal.
 """
 
-MUSIC_DAILY_CONTENT = """Create a daily music-promotion content package for this artist.
+MUSIC_DAILY_CONTENT = """Create a daily fan-facing content package that PROMOTES this
+artist's music — the goal is to make people FEEL something and go stream/follow. Build
+the brand (a romantic-music universe), not generic "music" posts. Never mention the music
+industry, marketing, or growth in the abstract. This is NOT for LinkedIn.
 
 {brand}
-Artist: {artist}. Genres: {genres}.
+Artist: {artist}. Sound: {genres}.
+{promo}
 
 Return JSON with keys:
-- "reels": 3 short reel ideas.
-- "captions": 3 captions.
-- "hashtags": 10 hashtags.
-- "story": 1 artist story post idea.
+- "reels": 3 short reel ideas, each built around ONE repeatable line a listener would quote.
+- "captions": 3 story-first captions, each ending with a stream/follow call-to-action + link.
+- "hashtags": 10 hashtags (mix romance/R&B/Latin/sax + discovery tags).
+- "story": 1 personal story post idea (the city, the love story, or the saxophone behind a song).
 """
 
 # ── Agent 5: Instagram Growth ────────────────────────────────────────────────
@@ -213,6 +220,7 @@ platform's format and audience. Business context / brand voice:
 Business line: {business}
 Topic / idea: {topic}
 {freshness}
+{guidance}
 
 Return a JSON object with these keys (omit none; keep each tight and high-quality):
 - "angle": the specific angle/hook you chose (one sentence).
