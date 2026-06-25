@@ -215,6 +215,23 @@ class Influencer(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class MusicRelease(Base):
+    """A song/single release in the Bruno D era strategy. One release fans out
+    into a full content kit (music video, lyric video, sax/acoustic/piano versions,
+    behind-the-song, the repeatable TikTok line, reel cuts) on a 4-week cadence."""
+    __tablename__ = "music_releases"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    title: Mapped[str] = mapped_column(String, nullable=False)      # the song
+    era: Mapped[str | None] = mapped_column(String)                # which era it belongs to
+    release_date: Mapped[date | None] = mapped_column(Date)        # drives the cadence
+    city: Mapped[str | None] = mapped_column(String)               # story location (Rome/Naples/…)
+    story: Mapped[str | None] = mapped_column(Text)                # the real story behind it
+    key_line: Mapped[str | None] = mapped_column(String)           # the one repeatable line
+    language: Mapped[str | None] = mapped_column(String)           # EN / ES / PT / mix
+    status: Mapped[str] = mapped_column(String, default="Planned")  # Planned|Kit Built|Released
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class InstagramTarget(Base):
     __tablename__ = "instagram_targets"
     id: Mapped[uuid.UUID] = _uuid_pk()

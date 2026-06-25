@@ -41,6 +41,14 @@ _MIGRATIONS = [
     "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS times_contacted INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS last_contacted_at TIMESTAMPTZ",
     "ALTER TABLE brand_profile ADD COLUMN IF NOT EXISTS music_links TEXT",
+    # Backfill streaming links onto an already-seeded profile — only when it still
+    # holds the original Spotify-only seed, so user edits are never clobbered.
+    ("UPDATE brand_profile SET music_links = "
+     "'Spotify: https://open.spotify.com/artist/1NoggpCXnG7WctASlZU1UG\n"
+     "Apple Music: https://music.apple.com/us/artist/bruno-d/1875998863\n"
+     "YouTube Music: https://music.youtube.com/channel/UCCR-WCik-Gex9JojTRGS_hw' "
+     "WHERE music_links IS NULL OR music_links = "
+     "'Spotify: https://open.spotify.com/artist/1NoggpCXnG7WctASlZU1UG'"),
 ]
 
 

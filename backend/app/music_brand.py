@@ -43,8 +43,13 @@ PLAYLIST_TARGETS = [
 ]
 
 # Default streaming links — editable in the Brand Profile. Goal of every post is
-# to send the listener to ONE of these to stream/follow.
-DEFAULT_LINKS = "Spotify: https://open.spotify.com/artist/1NoggpCXnG7WctASlZU1UG"
+# to send the listener to ONE of these to stream/follow. (Pandora omitted — not
+# accessible from the artist's current region.)
+DEFAULT_LINKS = (
+    "Spotify: https://open.spotify.com/artist/1NoggpCXnG7WctASlZU1UG\n"
+    "Apple Music: https://music.apple.com/us/artist/bruno-d/1875998863\n"
+    "YouTube Music: https://music.youtube.com/channel/UCCR-WCik-Gex9JojTRGS_hw"
+)
 
 # Fan-facing, story-first content angles — this is the "universe," NOT music-
 # industry thought leadership. These seed the Content Factory's "music" line.
@@ -96,9 +101,15 @@ def artist(db: Session) -> str:
     return (p.music_artist or "").strip() or ARTIST
 
 
+def primary_link(db: Session) -> str:
+    """The first streaming link — used for compact, single-line CTAs."""
+    first = (links(db).splitlines() or [""])[0].strip()
+    return first
+
+
 def cta(db: Session) -> str:
     """A single streaming call-to-action line for captions/scripts."""
-    return f"Stream {artist(db)} — {links(db)}"
+    return f"Stream {artist(db)} — {primary_link(db)}"
 
 
 def promo_context(db: Session) -> str:

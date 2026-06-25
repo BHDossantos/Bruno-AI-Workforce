@@ -78,6 +78,38 @@ def test_content_factory_drops_linkedin_for_music(monkeypatch):
     assert res["ok"] is False  # generation unavailable offline
 
 
+def test_music_links_include_all_platforms():
+    """Apple Music + YouTube Music wired alongside Spotify (Pandora intentionally
+    omitted — region-restricted)."""
+    from app import music_brand
+    from app.brand import _DEFAULTS
+    links = _DEFAULTS["music_links"]
+    assert "open.spotify.com" in links
+    assert "music.apple.com" in links
+    assert "music.youtube.com" in links
+    assert "pandora" not in links.lower()
+    assert music_brand.DEFAULT_LINKS.splitlines()[0].startswith("Spotify:")
+
+
+def test_release_kit_shape_and_offline():
+    """The era kit has the full deliverable set and degrades gracefully offline."""
+    from app import music_release
+    from app.models import MusicRelease
+
+    keys = [k for k, _l, _c in music_release.DELIVERABLES]
+    for must in ("music_video", "lyric_video", "behind_the_song", "sax_version",
+                 "acoustic_version", "piano_version", "tiktok_hook", "reel_1"):
+        assert must in keys
+    # No music deliverable targets LinkedIn.
+    assert all(c != "linkedin" for _k, _l, c in music_release.DELIVERABLES)
+    # _piece normalizes any AI shape.
+    assert music_release._piece("just a string")["body"] == "just a string"
+    assert music_release._piece({"script": "s", "hashtags": ["#a", "#b"]})["hashtags"] == "#a #b"
+    # Offline (no OpenAI) it no-ops cleanly without a DB.
+    res = music_release.build_kit(db=None, release=MusicRelease(title="Test Song"))
+    assert res["ok"] is False
+
+
 def test_all_agents_registered():
     assert set(AGENTS) == {
         "job_hunter", "insurance", "bnbglobal", "savorymind", "music", "instagram", "ceo_dashboard"

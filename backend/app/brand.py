@@ -22,7 +22,9 @@ _DEFAULTS = dict(
     music_artist="Bruno D",
     music_genres=("Luxury Latin Soul — romantic R&B with signature alto sax; "
                   "English, Spanish & Portuguese vocals; deep voice; cinematic love stories"),
-    music_links="Spotify: https://open.spotify.com/artist/1NoggpCXnG7WctASlZU1UG",
+    music_links=("Spotify: https://open.spotify.com/artist/1NoggpCXnG7WctASlZU1UG\n"
+                 "Apple Music: https://music.apple.com/us/artist/bruno-d/1875998863\n"
+                 "YouTube Music: https://music.youtube.com/channel/UCCR-WCik-Gex9JojTRGS_hw"),
 )
 
 

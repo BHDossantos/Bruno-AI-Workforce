@@ -60,6 +60,9 @@ upsert_job "bruno-followups"  "0 9,14 * * 1-5" "/cron/followups" "320s"
 upsert_job "bruno-contacts-insurance" "15 10 * * *" "/cron/contacts-insurance" "600s"
 # Referral asks to engaged insurance leads (warmest source) — weekly, Mondays.
 upsert_job "bruno-referrals" "0 11 * * 1" "/cron/referrals" "320s"
+# Release-as-eras: auto-build the full content kit for upcoming planned songs
+# (within 4 weeks). Daily check so a release is never under-prepared.
+upsert_job "bruno-music-releases" "30 6 * * *" "/cron/music-releases" "900s"
 # Auto-refresh OAuth tokens daily so social connections never expire.
 upsert_job "bruno-refresh-tokens" "0 4 * * *"  "/cron/refresh-tokens" "320s"
 # Pull bank balances + transactions from Plaid daily (no-op if no bank linked).
