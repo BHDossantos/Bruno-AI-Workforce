@@ -27,6 +27,26 @@ def is_connected(db) -> bool:
     return _creds(db) is not None
 
 
+def verify(db) -> dict | None:
+    """Confirm the token actually works (GET /2/users/me). Returns the account
+    handle on success, None on failure — used by the connection tester."""
+    c = _creds(db)
+    if not c:
+        return None
+    try:
+        r = httpx.get("https://api.twitter.com/2/users/me",
+                      headers={"Authorization": f"Bearer {c['access_token']}"},
+                      timeout=_TIMEOUT)
+        if r.status_code == 200:
+            d = (r.json() or {}).get("data") or {}
+            return {"username": d.get("username"), "name": d.get("name")}
+        log.warning("X verify -> %s: %s", r.status_code, r.text[:200])
+        return None
+    except Exception as exc:  # pragma: no cover - network guard
+        log.warning("X verify failed: %s", exc)
+        return None
+
+
 def post(db, message: str, image_url: str | None = None) -> dict:
     """Publish a tweet (text). image_url is ignored for now."""
     c = _creds(db)

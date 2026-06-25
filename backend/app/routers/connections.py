@@ -128,3 +128,52 @@ def funnel_overview(db: Session = Depends(get_db),
     """Aggregate funnel coverage across all connected accounts + gaps to fill."""
     conns = db.query(Connection).filter(Connection.funnel_enabled.is_(True)).all()
     return funnel.overview(conns)
+
+
+# ── Live verification ──────────────────────────────────────────────────────────
+def _live_check(db: Session, provider: str):
+    """Call the provider's API to confirm the stored token actually works.
+    Returns (ok: bool | None, detail: str). ok is None when there's no live
+    check wired for that provider yet (token is stored but unverifiable here)."""
+    from ..integrations import (facebook_api, instagram_api, linkedin_api,
+                                spotify_api, twitter_api)
+    try:
+        if provider == "instagram":
+            a = instagram_api.get_account(db)
+            return (bool(a), f"@{a.get('username')} · {a.get('followers')} followers" if a
+                    else "token rejected or no IG business account")
+        if provider == "facebook":
+            p = facebook_api.get_page(db)
+            return (bool(p), f"{p.get('name')} · {p.get('followers')} followers" if p
+                    else "page token rejected")
+        if provider == "linkedin":
+            pr = linkedin_api.get_profile(db)
+            return (bool(pr), (pr.get("name") or "profile loaded") if pr
+                    else "token rejected (needs w_member_social)")
+        if provider == "x":
+            u = twitter_api.verify(db)
+            return (bool(u), f"@{u.get('username')}" if u else "token rejected (needs a paid X API tier)")
+        if provider == "spotify":
+            o = spotify_api.overview(db)
+            return (bool(o), "analytics reachable" if o else "token rejected")
+    except Exception as exc:  # pragma: no cover - defensive network guard
+        return (False, str(exc)[:200])
+    return (None, "no live check available for this provider — token stored as-is")
+
+
+@router.post("/{conn_id}/test")
+def test_connection(conn_id: str, db: Session = Depends(get_db),
+                    _=Depends(require_role("admin", "operator"))):
+    """Verify a connection's credentials against the live provider API and update
+    its status (connected/error) so you know it actually works before relying on it."""
+    conn = db.query(Connection).filter(Connection.id == conn_id).first()
+    if not conn:
+        raise HTTPException(status_code=404, detail="Connection not found")
+    ok, detail = _live_check(db, conn.provider)
+    if ok is True:
+        conn.status = "connected"
+    elif ok is False:
+        conn.status = "error"
+    db.commit()
+    return {"ok": ok, "detail": detail, "status": conn.status, "provider": conn.provider}
+

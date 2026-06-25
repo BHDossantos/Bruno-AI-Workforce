@@ -85,6 +85,19 @@ function Connections() {
     await reload();
   }
 
+  async function test(id: string) {
+    setMsg("Testing connection…");
+    try {
+      const r = await api.post<{ ok: boolean | null; detail: string }>(`/connections/${id}/test`, {});
+      setMsg(r.ok === true ? `✅ Live: ${r.detail}`
+        : r.ok === false ? `❌ Not working: ${r.detail}`
+        : `ℹ️ ${r.detail}`);
+      await reload();
+    } catch (e) {
+      setMsg(`❌ ${e}`);
+    }
+  }
+
   const byCat: Record<string, Provider[]> = {};
   providers.forEach((p) => { (byCat[p.category] ||= []).push(p); });
 
@@ -116,8 +129,12 @@ function Connections() {
                     </span>
                   </div>
                   <p className="mt-1 text-xs text-gray-500">Goal: {c.goal || "—"}{c.account_ref ? ` · ${c.account_ref}` : ""}</p>
-                  <button onClick={() => disconnect(c.id)}
-                          className="mt-2 text-xs text-red-600 hover:underline">Disconnect</button>
+                  <div className="mt-2 flex gap-3">
+                    <button onClick={() => test(c.id)}
+                            className="text-xs text-brand hover:underline">Test</button>
+                    <button onClick={() => disconnect(c.id)}
+                            className="text-xs text-red-600 hover:underline">Disconnect</button>
+                  </div>
                 </div>
               );
             })}
