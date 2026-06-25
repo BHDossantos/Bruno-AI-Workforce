@@ -23,18 +23,33 @@ jobs:
         with:
           ref: main
 
+      # Skip cleanly (green) when auto-deploy isn't configured yet, so a missing
+      # secret never shows up as a failed check. Set GCP_SA_KEY + GCP_PROJECT_ID
+      # to enable (see docs/DEPLOY.md).
+      - name: Check auto-deploy is configured
+        id: gate
+        run: echo "ready=${{ secrets.GCP_SA_KEY != '' && secrets.GCP_PROJECT_ID != '' }}" >> "$GITHUB_OUTPUT"
+
       - name: Authenticate to Google Cloud
+        if: steps.gate.outputs.ready == 'true'
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Set up gcloud
+        if: steps.gate.outputs.ready == 'true'
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
       - name: Deploy backend (ai-workforce, europe-west1)
+        if: steps.gate.outputs.ready == 'true'
         run: gcloud builds submit --config cloudbuild.backend.yaml --substitutions=_TAG="${GITHUB_SHA::7}" .
 
       - name: Deploy frontend (bruno-ai-workforce-front, northamerica-northeast1)
+        if: steps.gate.outputs.ready == 'true'
         run: gcloud builds submit --config cloudbuild.frontend.yaml --substitutions=_TAG="${GITHUB_SHA::7}" .
+
+      - name: Note when skipped
+        if: steps.gate.outputs.ready != 'true'
+        run: echo "Auto-deploy not configured (GCP_SA_KEY / GCP_PROJECT_ID unset) — skipping. Deploy manually with ./deploy.sh."

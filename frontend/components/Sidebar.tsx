@@ -10,6 +10,7 @@ const NAV = [
   { href: "/search", label: "Search", icon: "🔍" },
   { href: "/autopilot", label: "Application Autopilot", icon: "🤖" },
   { href: "/crm", label: "Universal CRM", icon: "👥" },
+  { href: "/factory", label: "Content Factory", icon: "🏭" },
   { href: "/centers", label: "Command Centers", icon: "🎖️" },
   { href: "/money", label: "Money / Net Worth", icon: "💵" },
   { href: "/objectives", label: "Objectives", icon: "🎯" },

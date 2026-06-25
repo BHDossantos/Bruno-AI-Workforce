@@ -17,6 +17,7 @@ from .routers import (
     instagram,
     jobs,
     browser,
+    content,
     crm,
     finance,
     leads,
@@ -87,6 +88,7 @@ app.include_router(crm.router)
 app.include_router(browser.router)
 app.include_router(social.router)
 app.include_router(finance.router)
+app.include_router(content.router)
 
 
 @app.get("/health", tags=["system"])

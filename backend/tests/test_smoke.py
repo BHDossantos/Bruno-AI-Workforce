@@ -389,6 +389,24 @@ def test_instagram_api_not_connected():
     assert instagram_api.publish_post(None, "http://x/i.jpg", "hi")["ok"] is False
 
 
+def test_content_factory_and_evergreen():
+    from app import content_factory, evergreen
+    # Evergreen library yields a topic per business line.
+    assert evergreen.pick_topic("bnbglobal", 1)
+    assert evergreen.pick_topic("music", 2)
+    # Offline (no OpenAI) the factory degrades gracefully, never raises.
+    r = content_factory.generate_pack(None, "cutting cloud spend", "bnbglobal")
+    assert r["ok"] is False and "topic" in r
+
+
+@requires_db
+def test_content_factory_api_offline(client, auth_headers):
+    r = client.post("/content/factory", headers=auth_headers,
+                    json={"topic": "SLOs explained", "business": "executive"}).json()
+    assert "ok" in r  # offline -> ok False, but endpoint works
+    assert isinstance(client.get("/content", headers=auth_headers).json(), list)
+
+
 def test_bnbglobal_agent_registered_and_scored():
     from app.agents import AGENTS, BnbGlobalAgent
     from app.commanders import COMMANDERS

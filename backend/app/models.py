@@ -358,6 +358,26 @@ class Transaction(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class ContentItem(Base):
+    """One piece of channel-ready content from the Content Factory, and the
+    content-memory record (with an embedding for 'have we covered this?' dedup).
+    Status: generated → needs_approval → scheduled → published (per approval mode)."""
+    __tablename__ = "content_items"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    topic: Mapped[str] = mapped_column(String, index=True)
+    business: Mapped[str | None] = mapped_column(String, index=True)   # executive|insurance|savorymind|music|bnbglobal|personal
+    channel: Mapped[str] = mapped_column(String, index=True)           # linkedin|instagram|tiktok|youtube|x|facebook|blog|email|podcast
+    title: Mapped[str | None] = mapped_column(String)
+    body: Mapped[str | None] = mapped_column(Text)
+    hashtags: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String, default="generated", index=True)
+    embedding: Mapped[list | None] = mapped_column(JSONB)              # topic embedding for dedup
+    meta: Mapped[dict | None] = mapped_column(JSONB)                   # views/likes/etc + result
+    scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class SocialSnapshot(Base):
     """A point-in-time follower/reach reading per platform, for growth charts."""
     __tablename__ = "social_snapshots"
