@@ -135,7 +135,7 @@ def recap(db: Session, hours: int = 24) -> list[dict]:
     def c(model, *filters) -> int:
         return int(db.query(func.count()).select_from(model).filter(*filters).scalar() or 0)
 
-    add("💼", "jobs sourced", c(Job, Job.created_at >= since))
+    add("💼", "jobs sourced", c(Job, Job.found_at >= since))
     add("✅", "applications submitted", c(Application, Application.applied_at >= since))
     add("📧", "outreach emails sent", c(Message, Message.channel == "email",
         Message.direction == "outbound", Message.created_at >= since))

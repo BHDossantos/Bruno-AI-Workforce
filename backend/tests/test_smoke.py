@@ -110,6 +110,18 @@ def test_release_kit_shape_and_offline():
     assert res["ok"] is False
 
 
+def test_recap_references_real_columns():
+    """Guard: the home recap touches several models' timestamp columns — assert
+    they exist so a renamed/missing column fails here, not in a live DB test."""
+    from app.models import Application, Contact, ContentItem, Job, Message
+    assert hasattr(Job, "found_at")                 # NOT created_at
+    assert hasattr(Application, "applied_at")
+    for attr in ("channel", "direction", "created_at"):
+        assert hasattr(Message, attr)
+    assert hasattr(ContentItem, "published_at") and hasattr(ContentItem, "created_at")
+    assert hasattr(Contact, "created_at")
+
+
 def test_all_agents_registered():
     assert set(AGENTS) == {
         "job_hunter", "insurance", "bnbglobal", "savorymind", "music", "instagram", "ceo_dashboard"
