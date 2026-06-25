@@ -302,6 +302,26 @@ def test_browser_field_matching_and_default_mode():
     assert browser.is_automation_ready() is False  # off by default -> safe assist mode
 
 
+def test_plaid_offline_noop():
+    from app.integrations import plaid_api
+    assert plaid_api.is_configured() is False
+    assert plaid_api.create_link_token() is None
+    assert plaid_api.sync(None)["ok"] is False
+
+
+@requires_db
+def test_email_warmup_caps_fresh_mailbox(client, auth_headers):
+    from app import outreach
+    from app.config import settings
+    from app.database import SessionLocal
+    db = SessionLocal()
+    cap = outreach.effective_cap(db, "personal")
+    db.close()
+    # A fresh/low-history mailbox is capped at the warmup start, not the full cap.
+    assert cap <= settings.gmail_daily_send_cap
+    assert cap >= settings.email_warmup_start
+
+
 def test_autonomy_helpers_offline():
     from app import alerts
     from app.integrations import oauth_refresh

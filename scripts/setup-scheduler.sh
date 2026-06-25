@@ -54,6 +54,8 @@ upsert_job "bruno-inbound"    "*/30 * * * *" "/cron/inbound"  "320s"
 upsert_job "bruno-followups"  "0 9,14 * * 1-5" "/cron/followups" "320s"
 # Auto-refresh OAuth tokens daily so social connections never expire.
 upsert_job "bruno-refresh-tokens" "0 4 * * *"  "/cron/refresh-tokens" "320s"
+# Pull bank balances + transactions from Plaid daily (no-op if no bank linked).
+upsert_job "bruno-sync-bank"      "30 5 * * *" "/cron/sync-bank"      "320s"
 
 echo "✅ Scheduler jobs provisioned in ${LOCATION} (project ${PROJECT}, tz ${TZ})."
 echo "   List: gcloud scheduler jobs list --location ${LOCATION}"

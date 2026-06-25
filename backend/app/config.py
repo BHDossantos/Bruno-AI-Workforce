@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     # which the IG API must fetch from a public URL). Leave blank to disable.
     gcs_bucket: str = ""
 
+    # Plaid bank connection — auto-populates the Money page (accounts + income).
+    # Leave blank to keep money manual. env: sandbox | development | production.
+    plaid_client_id: str = ""
+    plaid_secret: str = ""
+    plaid_env: str = "production"
+
     # Scheduler
     enable_scheduler: bool = True
     timezone: str = "America/New_York"
@@ -158,6 +164,11 @@ class Settings(BaseSettings):
     # Safety cap on auto-sent outreach per day, per account (protects the mailbox).
     # Sized for the 3×/day lead passes; lower it if a fresh mailbox gets flagged.
     gmail_daily_send_cap: int = 120
+    # Deliverability warmup: ramp volume on a fresh mailbox so it isn't flagged
+    # as spam. Effective cap = min(gmail_daily_send_cap, start + step × days_active).
+    email_warmup_enabled: bool = True
+    email_warmup_start: int = 20
+    email_warmup_step: int = 10
 
 
 @lru_cache

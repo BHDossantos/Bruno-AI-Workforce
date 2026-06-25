@@ -69,6 +69,38 @@ def add_transaction(body: TxIn, db: Session = Depends(get_db), _=Depends(_write)
                                    category=body.category, description=body.description)
 
 
+class PublicToken(BaseModel):
+    public_token: str
+
+
+@router.get("/plaid/status")
+def plaid_status(db: Session = Depends(get_db), _=Depends(_read)):
+    from ..integrations import connectors, plaid_api
+    return {"configured": plaid_api.is_configured(), "linked": connectors.is_connected(db, "plaid")}
+
+
+@router.post("/plaid/link-token")
+def plaid_link_token(_=Depends(_write)):
+    from ..integrations import plaid_api
+    tok = plaid_api.create_link_token()
+    return {"link_token": tok} if tok else {"error": "Plaid not configured"}
+
+
+@router.post("/plaid/exchange")
+def plaid_exchange(body: PublicToken, db: Session = Depends(get_db), _=Depends(_write)):
+    from ..integrations import plaid_api
+    ok = plaid_api.exchange_public_token(db, body.public_token)
+    if ok:
+        plaid_api.sync(db)
+    return {"ok": ok}
+
+
+@router.post("/plaid/sync")
+def plaid_sync(db: Session = Depends(get_db), _=Depends(_write)):
+    from ..integrations import plaid_api
+    return plaid_api.sync(db)
+
+
 @router.post("/import")
 async def import_transactions(file: UploadFile = File(...), db: Session = Depends(get_db), _=Depends(_write)):
     content = (await file.read()).decode("utf-8-sig", errors="ignore")

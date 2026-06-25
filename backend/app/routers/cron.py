@@ -39,6 +39,14 @@ def run_all(x_cron_token: str | None = Header(default=None), db: Session = Depen
     return result
 
 
+@router.post("/sync-bank")
+def cron_sync_bank(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
+    """Pull bank balances + transactions from Plaid (no-op if no bank linked)."""
+    _auth(x_cron_token)
+    from ..integrations import plaid_api
+    return plaid_api.sync(db)
+
+
 @router.post("/refresh-tokens")
 def cron_refresh_tokens(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
     """Auto-refresh OAuth tokens so social connections never silently expire."""
