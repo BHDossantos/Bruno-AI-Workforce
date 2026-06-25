@@ -10,9 +10,11 @@ type Action = {
   value: number; probability: number; effort: number; priority: number;
   link: string; why: string;
 };
+type RecapItem = { icon: string; label: string; count: number };
 type Brief = {
   greeting: string; focus_score: number; estimated_value_today: number;
   top_actions: Action[]; summary: string[]; total_actions: number; hidden_count: number;
+  recap: RecapItem[];
 };
 type Score = {
   monthly_income: number; pipeline_value: number; net_worth: number;
@@ -60,6 +62,30 @@ function Home() {
         action={<button className="btn" onClick={runAll} disabled={running}>{running ? "Running…" : "Refresh opportunities"}</button>}
       />
       {msg && <p className="mb-4 rounded bg-brand/10 p-3 text-sm text-brand-dark">{msg}</p>}
+
+      {/* Yesterday — what your team did while you were away */}
+      {b && (
+        <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+            While you were away (last 24h)
+          </div>
+          {b.recap.length > 0 ? (
+            <div className="flex flex-wrap gap-x-6 gap-y-2">
+              {b.recap.map((r) => (
+                <div key={r.label} className="flex items-baseline gap-1.5">
+                  <span>{r.icon}</span>
+                  <span className="font-bold text-gray-900">{r.count.toLocaleString()}</span>
+                  <span className="text-sm text-gray-500">{r.label}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500">
+              Your team is standing by. Hit <b>Refresh opportunities</b> to put it to work.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Focus + value */}
       <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
