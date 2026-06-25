@@ -46,7 +46,7 @@ def test_insurance_and_music_scoring():
 
 def test_all_agents_registered():
     assert set(AGENTS) == {
-        "job_hunter", "insurance", "savorymind", "music", "instagram", "ceo_dashboard"
+        "job_hunter", "insurance", "bnbglobal", "savorymind", "music", "instagram", "ceo_dashboard"
     }
 
 
@@ -387,6 +387,15 @@ def test_instagram_api_not_connected():
     assert instagram_api.overview(None) == {"connected": False}
     assert instagram_api.get_account(None) is None
     assert instagram_api.publish_post(None, "http://x/i.jpg", "hi")["ok"] is False
+
+
+def test_bnbglobal_agent_registered_and_scored():
+    from app.agents import AGENTS, BnbGlobalAgent
+    from app.commanders import COMMANDERS
+    assert AGENTS["bnbglobal"] is BnbGlobalAgent
+    assert "bnbglobal" in COMMANDERS["business"]["agents"]
+    # A consulting prospect scores higher than a personal-insurance lead.
+    assert BnbGlobalAgent.score_lead({"email": "a@b.com", "website": "x", "phone": "1"}) >= 90
 
 
 def test_commanders_map_to_real_agents():

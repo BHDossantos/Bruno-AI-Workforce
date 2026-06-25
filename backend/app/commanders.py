@@ -23,7 +23,7 @@ log = logging.getLogger("bruno.commanders")
 # Commander → the agents it directs. (Life has no agents yet — placeholder.)
 COMMANDERS: dict[str, dict] = {
     "wealth":    {"name": "Wealth Commander",    "agents": ["job_hunter", "insurance"]},
-    "business":  {"name": "Business Commander",  "agents": ["savorymind"]},
+    "business":  {"name": "Business Commander",  "agents": ["savorymind", "bnbglobal"]},
     "influence": {"name": "Influence Commander", "agents": ["music", "instagram"]},
     "life_ops":  {"name": "Life Commander",      "agents": []},
 }
@@ -56,6 +56,8 @@ def rollup_objectives(db: Session) -> None:
         "exec_role": pipeline("wealth"),
         "insurance": round(sum(a["value"] * a["probability"] for a in actions
                                if a["objective"] == "insurance")),
+        "consulting": round(sum(a["value"] * a["probability"] for a in actions
+                                if a["objective"] == "consulting")),
         "savorymind": float(db.query(func.count()).select_from(Restaurant)
                             .filter(Restaurant.kind == "prospect").scalar() or 0),
         "music": float(db.query(func.coalesce(func.sum(MusicPlaylist.followers), 0)).scalar() or 0)

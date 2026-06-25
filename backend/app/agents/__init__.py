@@ -1,4 +1,5 @@
 """Daily agents. Each exposes ``run(db) -> dict`` and a cron schedule."""
+from .bnbglobal import BnbGlobalAgent
 from .ceo_dashboard import CEODashboardAgent
 from .instagram import InstagramAgent
 from .insurance import InsuranceAgent
@@ -10,6 +11,7 @@ from .savorymind import SavoryMindAgent
 AGENTS = {
     "job_hunter": JobHunterAgent,
     "insurance": InsuranceAgent,
+    "bnbglobal": BnbGlobalAgent,
     "savorymind": SavoryMindAgent,
     "music": MusicAgent,
     "instagram": InstagramAgent,

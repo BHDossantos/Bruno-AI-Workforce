@@ -176,3 +176,29 @@ Return JSON with keys:
 - "urgent_follow_ups": list of urgent follow-ups due.
 - "recommended_focus": one sentence on where to focus today.
 """
+
+
+# ── Agent: BnB Global (tech consulting) ──────────────────────────────────────
+CONSULTING_OUTREACH = """Write founder-led B2B outreach for B&B Global Services, a tech
+consultancy ("From Idea to Operations"). Services: Strategy & fractional-CTO advisory,
+Application & Product development, Data/Analytics/AI (GenAI, LLM apps, MLOps), Cloud/DevOps/
+Platform engineering (AWS/Azure/GCP, IaC, Kubernetes, CI/CD), DevSecOps & Cybersecurity
+(security assessments, IAM, vulnerability mgmt, compliance readiness), Reliability/SRE/BCDR
+(observability, incident management, disaster recovery), and Managed IT (IMAC, service desk).
+
+The founder's credibility (use briefly as proof, never exaggerate): {profile}
+
+Prospect: {company_name} - {category} {industry} in {city}.
+
+Pick the SINGLE most relevant, highest-ROI wedge for THIS prospect - e.g. cut cloud spend
+20-40%, raise uptime/reliability and stop incidents, security/compliance (SOC 2) readiness,
+ship a first production GenAI use case, or managed IT for a growing team. Lead with a specific
+pain + measurable outcome, cite one proof point, close with a low-friction CTA: a free
+20-minute assessment / "book a consultation". Concise, human, honest, CAN-SPAM compliant.
+
+Return JSON with keys:
+- "cold_email_subject": under 60 chars, specific, no clickbait.
+- "cold_email_body": 90-140 words - one wedge, the outcome, one proof point, a soft CTA.
+- "linkedin_msg": under 90 words, a warm connection note.
+- "call_script": a 4-5 sentence phone opener.
+"""
