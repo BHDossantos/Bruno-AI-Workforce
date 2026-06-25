@@ -13,7 +13,7 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
-from . import outreach
+from . import memory, outreach
 from .ai import client, skills
 from .ai.prompts import FOLLOWUP_EMAIL
 from .models import FollowUp, Influencer, Lead, Message, MusicPlaylist, Restaurant
@@ -68,8 +68,11 @@ def process_due_followups(db: Session, limit: int = 400) -> dict:
 
         account = msgs[0].from_account
         name, context = _entity_context(db, fu.entity_type, fu.entity_id)
+        # Recall what we know about them so the follow-up is personal + well-timed.
+        memory_block = memory.entity_context(db, name=name, email=to_email)
         art = client.complete_json(
-            FOLLOWUP_EMAIL.format(step=fu.step, name=name or "there", context=context),
+            FOLLOWUP_EMAIL.format(step=fu.step, name=name or "there", context=context,
+                                  memory=memory_block),
             system=sysp)
         subject = (art.get("subject") if isinstance(art, dict) else None) or f"Following up ({fu.step})"
         body = art.get("body") if isinstance(art, dict) else None
@@ -81,6 +84,13 @@ def process_due_followups(db: Session, limit: int = 400) -> dict:
         fu.completed = True
         if msg.status == "Sent":
             sent += 1
+            # Remember the touch so the next follow-up never repeats it.
+            try:
+                memory.add(db, f"Sent follow-up #{fu.step} about {context}"
+                           + (f' — "{subject}"' if subject else ""),
+                           kind="event", subject=name or to_email, source="followups")
+            except Exception:  # memory must never break sending
+                log.debug("follow-up memory capture skipped", exc_info=True)
 
     db.commit()
     log.info("Follow-ups: due=%d sent=%d skipped_replied=%d", len(due), sent, skipped)

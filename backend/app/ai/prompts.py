@@ -167,10 +167,11 @@ Return JSON with key "calendar": a list of 7 objects {{"day", "pillar", "idea", 
 # ── Automated follow-ups ─────────────────────────────────────────────────────
 FOLLOWUP_EMAIL = """Write follow-up email #{step} (of 7) to {name}, who has not replied yet.
 Context of the original outreach: {context}
-
+{memory}
 Keep it under 80 words, polite and value-add (don't be pushy), reference that you
 reached out before, and end with a soft CTA plus a one-line unsubscribe note.
-Return JSON with keys "subject" and "body".
+Use anything you remember above to make it personal and well-timed — never repeat
+yourself or contradict what you already know. Return JSON with keys "subject" and "body".
 """
 
 # ── Warm SMS (sent after a lead replies to our email) ────────────────────────
