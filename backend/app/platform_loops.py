@@ -35,7 +35,7 @@ log = logging.getLogger("bruno.platform_loops")
 #   businesses— business lines that feed this platform, rotated day-to-day
 LOOPS: dict[str, dict] = {
     "linkedin":  {"per_day": 1, "auto": True,
-                  "businesses": ["executive", "bnbglobal", "music"]},
+                  "businesses": ["executive", "bnbglobal"]},
     "instagram": {"per_day": 1, "auto": True,
                   "businesses": ["music", "savorymind", "bnbglobal"]},
     "facebook":  {"per_day": 1, "auto": True,
