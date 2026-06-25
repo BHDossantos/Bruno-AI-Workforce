@@ -82,8 +82,11 @@ PROVIDERS: list[dict] = [
     {
         "key": "spotify", "name": "Spotify for Artists", "category": "social", "icon": "🎧",
         "auth_type": "oauth",
-        "fields": [_field("access_token", "OAuth access token", secret=True),
-                   _field("artist_id", "Spotify artist ID")],
+        "fields": [_field("artist_id", "Spotify artist ID",
+                          placeholder="from open.spotify.com/artist/…"),
+                   _field("client_id", "App Client ID", secret=True, required=False),
+                   _field("client_secret", "App Client Secret", secret=True, required=False),
+                   _field("access_token", "OAuth access token (optional)", secret=True, required=False)],
         "capabilities": ["analytics"],
         "stages": ["attract", "retain"],
         "compliance": "Read-only analytics (followers, top tracks) via the Spotify Web API. "

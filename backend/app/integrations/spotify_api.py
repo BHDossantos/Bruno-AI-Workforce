@@ -19,7 +19,10 @@ _TIMEOUT = httpx.Timeout(20.0, connect=5.0)
 
 def _creds(db) -> dict | None:
     c = connectors.get_credentials(db, "spotify")
-    if c and c.get("access_token") and c.get("artist_id"):
+    # Need an artist + a way to authenticate: either client_id/secret (preferred,
+    # auto-refreshing) or a stored access_token.
+    if c and c.get("artist_id") and (
+            c.get("access_token") or (c.get("client_id") and c.get("client_secret"))):
         return c
     return None
 
@@ -28,22 +31,27 @@ def is_connected(db) -> bool:
     return _creds(db) is not None
 
 
-def _access_token(db, c: dict) -> str:
-    """Spotify access tokens expire hourly — mint a fresh one from the refresh
-    token when we have one, and persist it; otherwise use the stored token."""
-    if not (c.get("refresh_token") and c.get("client_id") and c.get("client_secret")):
-        return c["access_token"]
+def _access_token(db, c: dict) -> str | None:
+    """Spotify access tokens expire hourly. Mint a fresh one and persist it:
+    via refresh-token grant if we have one, else via client-credentials (enough
+    for public artist analytics); fall back to any stored token."""
+    cid, csec = c.get("client_id"), c.get("client_secret")
+    if c.get("refresh_token") and cid and csec:
+        data = {"grant_type": "refresh_token", "refresh_token": c["refresh_token"],
+                "client_id": cid, "client_secret": csec}
+    elif cid and csec:
+        data = {"grant_type": "client_credentials", "client_id": cid, "client_secret": csec}
+    else:
+        return c.get("access_token")
     try:
-        r = httpx.post("https://accounts.spotify.com/api/token", timeout=_TIMEOUT, data={
-            "grant_type": "refresh_token", "refresh_token": c["refresh_token"],
-            "client_id": c["client_id"], "client_secret": c["client_secret"]})
+        r = httpx.post("https://accounts.spotify.com/api/token", timeout=_TIMEOUT, data=data)
         tok = (r.json() or {}).get("access_token") if r.status_code == 200 else None
         if tok:
             connectors.update_credentials(db, "spotify", {**c, "access_token": tok})
             return tok
     except Exception as exc:  # pragma: no cover - network guard
-        log.warning("Spotify token refresh failed: %s", exc)
-    return c["access_token"]
+        log.warning("Spotify token mint failed: %s", exc)
+    return c.get("access_token")
 
 
 def _get(path: str, token: str, **params) -> dict | None:
