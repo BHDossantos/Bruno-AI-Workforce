@@ -10,6 +10,7 @@ value once approved. Guarded throughout — degrades to a clear reason, never ra
 from __future__ import annotations
 
 import logging
+import urllib.parse
 
 import httpx
 
@@ -19,6 +20,49 @@ from . import connectors
 log = logging.getLogger("bruno.tiktok_api")
 _TIMEOUT = httpx.Timeout(30.0, connect=5.0)
 _BASE = "https://open.tiktokapis.com/v2"
+_AUTH_URL = "https://www.tiktok.com/v2/auth/authorize/"
+_SCOPES = "user.info.basic,video.publish,video.upload"
+
+
+# ── Login Kit (OAuth) ──────────────────────────────────────────────────────────
+def oauth_configured() -> bool:
+    return bool(settings.tiktok_client_key and settings.tiktok_client_secret
+                and settings.tiktok_redirect_uri)
+
+
+def build_auth_url(state: str) -> str:
+    """The TikTok consent URL to send the user to (Login Kit)."""
+    params = {
+        "client_key": settings.tiktok_client_key,
+        "scope": _SCOPES,
+        "response_type": "code",
+        "redirect_uri": settings.tiktok_redirect_uri,
+        "state": state,
+    }
+    return f"{_AUTH_URL}?{urllib.parse.urlencode(params)}"
+
+
+def exchange_code(code: str) -> dict | None:
+    """Exchange an authorization code for tokens. Returns the creds dict to store
+    (access_token, refresh_token, open_id, scope) or None on failure."""
+    try:
+        r = httpx.post(f"{_BASE}/oauth/token/",
+                       data={"client_key": settings.tiktok_client_key,
+                             "client_secret": settings.tiktok_client_secret,
+                             "code": code, "grant_type": "authorization_code",
+                             "redirect_uri": settings.tiktok_redirect_uri},
+                       headers={"Content-Type": "application/x-www-form-urlencoded"},
+                       timeout=_TIMEOUT)
+        d = r.json() if r.content else {}
+        if r.status_code == 200 and d.get("access_token"):
+            return {"access_token": d["access_token"],
+                    "refresh_token": d.get("refresh_token"),
+                    "open_id": d.get("open_id"), "scope": d.get("scope")}
+        log.warning("TikTok token exchange -> %s: %s", r.status_code, r.text[:200])
+        return None
+    except Exception as exc:  # pragma: no cover - network guard
+        log.warning("TikTok token exchange failed: %s", exc)
+        return None
 
 
 def _creds(db) -> dict | None:

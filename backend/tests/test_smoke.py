@@ -528,6 +528,18 @@ def test_medium_publisher_offline():
     assert medium_api.post_article(None, "T", "body")["ok"] is False
 
 
+def test_tiktok_oauth_state_and_config():
+    from app.integrations import tiktok_api
+    from app.routers import connections
+    # State token round-trips and rejects tampering / garbage.
+    s = connections._sign_state()
+    assert connections._valid_state(s) is True
+    assert connections._valid_state("123.deadbeef") is False
+    assert connections._valid_state("") is False
+    # OAuth is gated on configuration (off by default → no auth URL built blindly).
+    assert tiktok_api.oauth_configured() is False
+
+
 def test_connection_live_check_offline():
     from app.integrations import twitter_api
     from app.routers import connections

@@ -45,7 +45,12 @@ function Connections() {
     setProviders(p);
     setConns(c);
   }
-  useEffect(() => { reload().catch((e) => setMsg(`❌ ${e}`)); }, []);
+  useEffect(() => {
+    reload().catch((e) => setMsg(`❌ ${e}`));
+    const tk = new URLSearchParams(window.location.search).get("tiktok");
+    if (tk === "connected") setMsg("✅ TikTok connected via official login. Click Test to verify.");
+    else if (tk === "error") setMsg("❌ TikTok connection failed — try again or paste a token manually.");
+  }, []);
 
   async function openProvider(p: Provider) {
     setSelected(p);
@@ -56,6 +61,15 @@ function Connections() {
     try {
       setPlan(await api.get<Plan>(`/connections/funnel/preview/${p.key}`));
     } catch { setPlan(null); }
+  }
+
+  async function tiktokOauth() {
+    try {
+      const { url } = await api.get<{ url: string }>("/connections/tiktok/oauth/start");
+      window.location.href = url;
+    } catch (e) {
+      setMsg(`❌ TikTok OAuth isn't configured yet (${e}). Set TIKTOK_CLIENT_KEY / SECRET / REDIRECT_URI, or paste a token below.`);
+    }
   }
 
   async function connect() {
@@ -174,6 +188,17 @@ function Connections() {
             </div>
 
             <p className="mb-4 rounded bg-blue-50 p-3 text-xs text-blue-800">{selected.compliance}</p>
+
+            {selected.key === "tiktok" && (
+              <div className="mb-4 rounded-lg border border-gray-200 p-3">
+                <button onClick={tiktokOauth} className="btn w-full">
+                  Connect with TikTok (recommended)
+                </button>
+                <p className="mt-2 text-xs text-gray-500">
+                  Authorizes via TikTok&apos;s official login. Or paste a token manually below.
+                </p>
+              </div>
+            )}
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="sm:col-span-2">
