@@ -122,6 +122,13 @@ def test_followups_are_memory_aware():
     assert "prefers mornings" in out
 
 
+def test_memory_recall_entity_merges_safely():
+    """recall_entity merges name+email and is safe with nothing to recall."""
+    from app import memory
+    assert memory.recall_entity(db=None, name=None, email=None) == []
+    assert memory.entity_context(db=None, name=None, email=None) == ""
+
+
 def test_recap_references_real_columns():
     """Guard: the home recap touches several models' timestamp columns — assert
     they exist so a renamed/missing column fails here, not in a live DB test."""

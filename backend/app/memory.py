@@ -88,21 +88,28 @@ def context_block(db: Session, query: str, k: int = 6) -> str:
     return f"What you remember that may be relevant:\n{lines}"
 
 
+def recall_entity(db: Session, *, name: str | None = None, email: str | None = None,
+                  k: int = 25) -> list[dict]:
+    """Everything we know about one person/company, recalled by name AND email and
+    merged — so a note saved under a name and a reply captured under an email both
+    surface on the same record. Newest first."""
+    seen: dict[str, dict] = {}
+    for subj in (email, name):
+        if subj:
+            for h in recall(db, subj, k=k):
+                seen[h["id"]] = h
+    return sorted(seen.values(), key=lambda h: h.get("created_at") or "", reverse=True)[:k]
+
+
 def entity_context(db: Session, *, name: str | None = None, email: str | None = None,
                    k: int = 6) -> str:
     """Everything the workforce remembers about one person/company — recalled by
     name and/or email — as a compact block to inject before writing to them. This
     is what makes outreach memory-aware: it never repeats itself or forgets a
     preference, objection, or the right time to reach out."""
-    seen: dict[str, dict] = {}
-    for subj in (email, name):
-        if not subj:
-            continue
-        for h in recall(db, subj, k=k):
-            seen[h["id"]] = h
-    if not seen:
+    rows = recall_entity(db, name=name, email=email, k=k)
+    if not rows:
         return ""
-    rows = sorted(seen.values(), key=lambda h: h.get("created_at") or "", reverse=True)[:k]
     who = name or email
     lines = "\n".join(f"- {h['content']}" for h in rows)
     return f"What you remember about {who}:\n{lines}"
