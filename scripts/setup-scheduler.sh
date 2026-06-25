@@ -23,21 +23,24 @@ if [ -z "${CRON_SECRET:-}" ]; then echo "❌ Set CRON_SECRET (must match the bac
 gcloud services enable cloudscheduler.googleapis.com --project "${PROJECT}" >/dev/null 2>&1 || true
 
 # upsert_job <name> <schedule> <path> [attempt_deadline]
+# NB: `create http` takes --headers, but `update http` takes --update-headers —
+# so the header flag is set per-branch, not shared.
 upsert_job() {
   local name="$1" schedule="$2" path="$3" deadline="${4:-320s}"
   local common=(
     --project "${PROJECT}" --location "${LOCATION}"
     --schedule "${schedule}" --time-zone "${TZ}"
     --uri "${API_URL}${path}" --http-method POST
-    --headers "X-Cron-Token=${CRON_SECRET}"
     --attempt-deadline "${deadline}"
   )
   if gcloud scheduler jobs describe "${name}" --project "${PROJECT}" --location "${LOCATION}" >/dev/null 2>&1; then
     echo "↻ updating ${name} (${schedule})"
-    gcloud scheduler jobs update http "${name}" "${common[@]}" >/dev/null
+    gcloud scheduler jobs update http "${name}" "${common[@]}" \
+      --update-headers "X-Cron-Token=${CRON_SECRET}" >/dev/null
   else
     echo "✚ creating ${name} (${schedule})"
-    gcloud scheduler jobs create http "${name}" "${common[@]}" >/dev/null
+    gcloud scheduler jobs create http "${name}" "${common[@]}" \
+      --headers "X-Cron-Token=${CRON_SECRET}" >/dev/null
   fi
 }
 
