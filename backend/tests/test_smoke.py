@@ -590,6 +590,26 @@ def test_bnbglobal_in_sales_cron():
     assert '"bnbglobal"' in inspect.getsource(cron.cron_leads)
 
 
+def test_adaptive_learning_bandit():
+    from app import learning
+    # Untried arms are explored first — so it adapts to new options/changes.
+    assert learning.pick({"new": (0.0, 0), "old": (50.0, 8)}) == "new"
+    # Once all are tried, it exploits the clearly-better arm.
+    assert learning.pick({"a": (1.0, 20), "b": (9.0, 20)}) == "b"
+    # Degrades safely.
+    assert learning.pick({}) is None
+
+
+def test_referral_engine_offline():
+    from app import referrals
+    from app.routers import cron
+    # Targets engaged (warm) statuses, and degrades to a warm fallback offline.
+    assert "Closed Won" in referrals._WARM and "Interested" in referrals._WARM
+    body = referrals._body("Sam", "Acme")
+    assert "Sam" in body and "referral" in body.lower()
+    assert any("referrals" in getattr(r, "path", "") for r in cron.router.routes)
+
+
 def test_contacts_insurance_outreach_offline():
     from app import contacts_outreach
     from app.config import settings
