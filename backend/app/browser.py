@@ -54,16 +54,14 @@ def _screening_answers(job: Job) -> dict:
     return ans if isinstance(ans, dict) else {}
 
 
-def prepare_job_application(db: Session, job_id: str) -> BrowserTask | None:
+def _field_map_for(job: Job) -> dict:
+    """Build the ready-to-submit fill package from Bruno's authoritative profile."""
     from . import applicant_profile
-    job = db.query(Job).filter(Job.id == job_id).first()
-    if not job:
-        return None
     name = settings.applicant_name.strip()
     first, _, last = name.partition(" ")
-    # Bruno's full profile is the authoritative answer source; screening answers
-    # come straight from the profile (no AI guessing on work-auth/salary/etc.).
-    field_map = {
+    # Screening answers come straight from the profile (no AI guessing on
+    # work-auth/salary/etc.); per-job AI fills any extras.
+    return {
         **applicant_profile.flat_fields(),
         "full_name": name, "first_name": first, "last_name": last,
         "resume_path": settings.applicant_resume_path,
@@ -71,6 +69,13 @@ def prepare_job_application(db: Session, job_id: str) -> BrowserTask | None:
         "answers": {**applicant_profile.SCREENING, **_screening_answers(job)},
         "short_answers": applicant_profile.SHORT_ANSWERS,
     }
+
+
+def prepare_job_application(db: Session, job_id: str) -> BrowserTask | None:
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        return None
+    field_map = _field_map_for(job)
     # Ensure an Application row exists and reflects autopilot prep.
     app = db.query(Application).filter(Application.job_id == job.id).first()
     if not app:
@@ -79,6 +84,25 @@ def prepare_job_application(db: Session, job_id: str) -> BrowserTask | None:
     app.status = "Preparing"
     task = BrowserTask(kind="job_application", target_url=job.url, entity_type="job",
                        entity_id=job.id, status="prepared", field_map=field_map)
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    return task
+
+
+def autoprepare_for_job(db: Session, job: Job) -> BrowserTask | None:
+    """Pre-build the fill package for a freshly-sourced job so it lands in the
+    Apply Queue genuinely one-click — WITHOUT touching the Application status
+    (the job hunter owns that). Skips jobs that already have a task. Best-effort."""
+    if not job or not job.url:
+        return None
+    existing = (db.query(BrowserTask)
+                .filter(BrowserTask.entity_type == "job", BrowserTask.entity_id == job.id)
+                .first())
+    if existing:
+        return existing
+    task = BrowserTask(kind="job_application", target_url=job.url, entity_type="job",
+                       entity_id=job.id, status="prepared", field_map=_field_map_for(job))
     db.add(task)
     db.commit()
     db.refresh(task)

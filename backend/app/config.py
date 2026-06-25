@@ -170,6 +170,9 @@ class Settings(BaseSettings):
     # evergreen library across your business lines.
     content_factory_enabled: bool = True
     browser_auto_submit: bool = False  # human-in-the-loop by default — review before submit
+    # When True, the daily job hunter pre-builds each top job's fill package
+    # (résumé + answers + cover letter) so the Apply Queue is submit-ready.
+    auto_prepare_applications: bool = True
     # TikTok Content Posting API visibility. Pre-audit, TikTok forces SELF_ONLY
     # (private to your account); after your app passes audit, set this to
     # PUBLIC_TO_EVERYONE (or MUTUAL_FOLLOW_FRIENDS / FOLLOWER_OF_CREATOR).

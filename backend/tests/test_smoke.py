@@ -540,6 +540,24 @@ def test_tiktok_oauth_state_and_config():
     assert tiktok_api.oauth_configured() is False
 
 
+def test_browser_field_map_and_autoprepare_api():
+    from app import browser
+    from app.config import settings
+    # Auto-prepare is on by default and the field-map builder is reusable.
+    assert settings.auto_prepare_applications is True
+    assert hasattr(browser, "autoprepare_for_job")
+
+    class _J:
+        url = "https://x/apply"
+        cover_letter = "Dear team"
+        title = "Head of SRE"
+        company = "Acme"
+        location = "Remote"
+    fm = browser._field_map_for(_J())
+    assert fm["city"] == "Hollis" and fm["resume_path"] and fm["cover_letter"] == "Dear team"
+    assert fm["answers"]["require_sponsorship"] == "No"
+
+
 def test_lead_geography_scopes():
     from app.integrations import osm_leads
     # US = 50 states, EU = country list, us_eu = both.

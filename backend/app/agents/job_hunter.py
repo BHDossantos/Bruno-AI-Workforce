@@ -114,6 +114,14 @@ class JobHunterAgent(BaseAgent):
                 self.db.add(Application(job_id=row.id, status=app_status, applied_at=applied_at, notes=notes))
                 enriched += 1
                 self.db.commit()
+                # Pre-build the one-click fill package (résumé + answers + cover
+                # letter) so the Apply Queue is submit-ready, not just listed.
+                if settings.auto_prepare_applications:
+                    try:
+                        from .. import browser
+                        browser.autoprepare_for_job(self.db, row)
+                    except Exception:
+                        self.db.rollback()
             except Exception:  # one bad job must not drop the rest
                 self.db.rollback()
 
