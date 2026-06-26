@@ -143,6 +143,19 @@ def test_bulk_dispatch_endpoints(client, auth_headers):
     assert r2.status_code == 200 and r2.json()["ok"] is True
 
 
+def test_newsletter_funnel_mapping():
+    """Warm-reply → funnel mapping + funnel set are correct (CAN-SPAM: opt-in only)."""
+    from app import newsletters
+    assert newsletters.funnel_for_segment("commercial") == "insurance"
+    assert newsletters.funnel_for_segment("personal") == "insurance"
+    assert newsletters.funnel_for_segment("consulting") == "bnbglobal"
+    assert newsletters.funnel_for_segment("other") is None
+    assert set(newsletters.FUNNELS) == {"insurance", "bnbglobal", "savorymind", "music"}
+    # subscribe() ignores unknown funnels / empty email (db not touched on those paths).
+    assert newsletters.subscribe(db=None, funnel="nope", email="a@b.c") is False
+    assert newsletters.subscribe(db=None, funnel="insurance", email=None) is False
+
+
 def test_bulk_outreach_helpers_exist():
     """The shared dispatch module powers both the buttons and the auto cron."""
     from app import bulk_outreach

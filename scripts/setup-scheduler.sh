@@ -65,6 +65,8 @@ upsert_job "bruno-contacts-insurance" "15 10 * * *" "/cron/contacts-insurance" "
 upsert_job "bruno-auto-outreach" "0 9,15 * * 1-5" "/cron/auto-outreach" "900s"
 # Referral asks to engaged insurance leads (warmest source) — weekly, Mondays.
 upsert_job "bruno-referrals" "0 11 * * 1" "/cron/referrals" "320s"
+# Per-funnel newsletters to warm repliers — 3x/week (Mon/Wed/Fri, 11 AM).
+upsert_job "bruno-newsletters" "0 11 * * 1,3,5" "/cron/newsletters" "900s"
 # Release-as-eras: auto-build the full content kit for upcoming planned songs
 # (within 4 weeks). Daily check so a release is never under-prepared.
 upsert_job "bruno-music-releases" "30 6 * * *" "/cron/music-releases" "900s"
