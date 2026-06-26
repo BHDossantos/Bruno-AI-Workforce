@@ -22,6 +22,14 @@ type Score = {
   monthly_income: number; pipeline_value: number; net_worth: number;
   leads: number; users: number; reach: number; fitness_score: number;
 };
+type Goal = { area: string; target: number; today: number; status: string };
+type Mission = {
+  paused: boolean; approvals_pending: number; goals: Goal[];
+  today: {
+    posts: number; insurance_leads: number; bnb_leads: number; savorymind_leads: number;
+    outreach_sent: number; replies: number; applications: number; jobs_found: number;
+  };
+};
 
 const CENTER_ICON: Record<string, string> = {
   wealth: "💰", business: "🏢", influence: "📣", personal: "💪", life_ops: "🗂️",
@@ -36,6 +44,7 @@ function Home() {
   const { data: b } = useFetch<Brief>(() => api.get<Brief>("/brief/today"), [refresh]);
   const { data: score } = useFetch<Score>(() => api.get<Score>("/scoreboard"), [refresh]);
   const { data: golive } = useFetch<Activation>(() => api.get<Activation>("/activation"), [refresh]);
+  const { data: mission } = useFetch<Mission>(() => api.get<Mission>("/mission/control"), [refresh]);
   const [running, setRunning] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
@@ -65,6 +74,53 @@ function Home() {
         action={<button className="btn" onClick={runAll} disabled={running}>{running ? "Running…" : "Refresh opportunities"}</button>}
       />
       {msg && <p className="mb-4 rounded bg-brand/10 p-3 text-sm text-brand-dark">{msg}</p>}
+
+      {/* Mission Control — today's status, approvals, paused state */}
+      {mission?.paused && (
+        <div className="mb-4 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-700">
+          ⛔ <b>Agents are paused</b> (Emergency Stop). Nothing is posting or sending. Resume from the sidebar when ready.
+        </div>
+      )}
+      {mission && mission.approvals_pending > 0 && (
+        <Link href="/approvals" className="mb-4 flex items-center justify-between rounded-xl border border-amber-300 bg-amber-50 p-4 hover:bg-amber-100">
+          <span className="text-sm text-amber-800">
+            ☑️ <b>{mission.approvals_pending}</b> item{mission.approvals_pending === 1 ? "" : "s"} need your approval.
+          </span>
+          <span className="text-sm font-medium text-amber-800">Review now →</span>
+        </Link>
+      )}
+      {mission && (
+        <div className="mb-6">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Today&apos;s AI workforce</div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
+            {[
+              ["Posts", mission.today.posts], ["Insurance", mission.today.insurance_leads],
+              ["BnB", mission.today.bnb_leads], ["SavoryMind", mission.today.savorymind_leads],
+              ["Outreach", mission.today.outreach_sent], ["Replies", mission.today.replies],
+              ["Apps", mission.today.applications], ["Jobs", mission.today.jobs_found],
+            ].map(([label, n]) => (
+              <div key={label as string} className="rounded-lg border border-gray-200 bg-white p-2 text-center">
+                <div className="text-xl font-bold">{n as number}</div>
+                <div className="text-[11px] text-gray-500">{label as string}</div>
+              </div>
+            ))}
+          </div>
+          {/* Goal score */}
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {mission.goals.map((g) => (
+              <div key={g.area} className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm">
+                <span className="text-gray-700">{g.area}</span>
+                <span className="flex items-center gap-2">
+                  <b>{g.today}</b><span className="text-gray-400">/ {g.target}</span>
+                  <span className={`badge ${g.status === "on track" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+                    {g.status}
+                  </span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Go-live activation — only while not fully live */}
       {golive && !golive.live && (

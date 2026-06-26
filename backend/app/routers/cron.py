@@ -23,6 +23,12 @@ def _auth(token: str | None) -> None:
         raise HTTPException(status_code=401, detail="Invalid or missing cron token")
 
 
+def _paused(db) -> bool:
+    """True when the Emergency Stop is engaged — autonomous cron work should skip."""
+    from .. import control
+    return control.is_paused_safe(db)
+
+
 def _safe(label: str, fn):
     """Run a cron worker; never let a top-level failure 500 — external schedulers
     retry on 5xx and would hot-loop. Log it and return a 200 with the error so the
@@ -47,6 +53,8 @@ def run_agent(key: str, x_cron_token: str | None = Header(default=None),
 @router.post("/run-all")
 def run_all(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
     _auth(x_cron_token)
+    if _paused(db):
+        return {"paused": True, "skipped": "run-all"}
 
     def _do():
         from .. import alerts, commanders
@@ -80,6 +88,8 @@ def cron_platform_loops(platform: str | None = None,
     """Run the per-platform content loops: top each platform up to its daily
     cadence with channel-optimized content. Pass ?platform=instagram to run one."""
     _auth(x_cron_token)
+    if _paused(db):
+        return {"paused": True, "skipped": "platform-loops"}
     from .. import platform_loops
     return platform_loops.run_all(db, [platform] if platform else None)
 
@@ -130,6 +140,8 @@ def cron_leads(x_cron_token: str | None = Header(default=None), db: Session = De
     agents each find fresh prospects AND send their cold emails in one run.
     Schedule this a few times a day so you wake up to outreach already sent."""
     _auth(x_cron_token)
+    if _paused(db):
+        return {"paused": True, "skipped": "leads"}
     out = {}
     for key in ("insurance", "savorymind", "bnbglobal"):
         cls = AGENTS.get(key)

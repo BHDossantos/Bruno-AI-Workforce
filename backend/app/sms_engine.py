@@ -31,6 +31,9 @@ def _has_prior_sms(db: Session, phone: str) -> bool:
 def maybe_warm_text(db: Session, *, entity_type: str, entity_id, name: str | None,
                     phone: str | None, context: str, account: str) -> str | None:
     """Auto-send one warm intro SMS to a freshly-warm lead. Returns the SID or None."""
+    from . import control
+    if control.is_paused_safe(db):
+        return None  # emergency stop — no autonomous texts
     # Send via Twilio if configured, else queue for the Mac iMessage bridge.
     use_bridge = not sms.is_configured() and bool(settings.bridge_token)
     if not settings.sms_auto_on_reply or not phone or not (sms.is_configured() or use_bridge):

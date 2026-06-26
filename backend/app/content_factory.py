@@ -177,7 +177,9 @@ def out(i: ContentItem) -> dict:
 
 def publish_due(db: Session) -> dict:
     """Publish scheduled social content that's due, via the unified social publisher."""
-    from . import social
+    from . import control, social
+    if control.is_paused_safe(db):
+        return {"due": 0, "published": 0, "paused": True}
     now = datetime.now(timezone.utc)
     due = (db.query(ContentItem).filter(ContentItem.status == "scheduled",
            ContentItem.channel.in_(list(_PUBLISHABLE)),
