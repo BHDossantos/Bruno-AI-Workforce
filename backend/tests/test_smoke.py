@@ -132,6 +132,22 @@ def test_memory_slot_prompts_format_cleanly():
     INFLUENCER_PITCH.format(name="N", niche="n", platform="ig", handle="h", memory="m")
 
 
+def test_board_report_trend_and_fallback():
+    """Board report computes WoW trends and always yields actionable recs offline."""
+    from app import board_report
+    up = board_report._trend(10, 5)
+    assert up["trend"] == "up" and up["delta_pct"] == 100.0
+    down = board_report._trend(0, 4)
+    assert down["trend"] == "down"
+    flat = board_report._trend(0, 0)
+    assert flat["trend"] == "flat" and flat["delta_pct"] == 0.0
+    # Offline fallback still returns recommendations + a challenge.
+    metrics = [{"key": "replies", "label": "Replies received", "this_week": 0,
+                "last_week": 6, "delta_pct": -100.0, "trend": "down"}]
+    fb = board_report._fallback(metrics, 120000)
+    assert fb["recommendations"] and fb["challenge"] and fb["headline"]
+
+
 def test_opportunity_scoring_formula():
     """An opportunity scores on the same value×prob÷effort×weight×urgency formula
     as jobs/leads, so everything is comparable in one ranked brief."""

@@ -269,3 +269,21 @@ Return a JSON object with these keys (omit none; keep each tight and high-qualit
 - "podcast": {{"body": a 5-bullet talking-point outline}}.
 Be specific and useful; no filler, no false claims.
 """
+
+
+# ── Weekly Board Report (recommends + challenges, like a board meeting) ────────
+BOARD_REPORT = """You are Bruno's Chief of Staff presenting the weekly board review.
+You are given this week's metrics vs last week (JSON) and the objective priorities.
+
+{metrics}
+
+Objective priorities (higher = matters more): {objectives}
+
+Don't just restate numbers — act like a sharp board member. Decide where to FOCUS
+and what to PAUSE or CUT, and be willing to challenge. Tie every call to the data
+and the priorities. Return JSON with keys:
+- "headline": one punchy sentence summarizing the week.
+- "recommendations": a list of 3-5 objects {{"action": "<imperative, specific>",
+  "rationale": "<one sentence tied to the numbers>", "confidence": <0-100 integer>}}.
+- "challenge": one hard question or pushback Bruno should sit with this week.
+"""
