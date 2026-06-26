@@ -52,16 +52,22 @@ _NAV = {
 _INTENT_PROMPT = """You route a spoken order for an AI marketing/sales workforce to ONE action.
 Order: "{text}"
 
-Return JSON {{"intent","target","mode","path","reply"}}:
-- intent: one of run_agent | generate_content | run_all | pause | resume | set_mode | status | navigate | unknown
+Return JSON {{"intent","target","mode","path","topic","channel","business","reply"}}:
+- intent: one of run_agent | generate_content | write_content | approve_safe | metrics |
+  run_all | pause | resume | set_mode | status | navigate | unknown
 - target: for run_agent, the business/topic (e.g. "commercial", "grants", "music")
 - mode: for set_mode, one of "semi" | "auto" | "manual"
 - path: for navigate, where to go (e.g. "approvals", "calendar", "foundation")
+- topic: for write_content, the subject to write about
+- channel: for write_content, one of linkedin | instagram | facebook | blog | x (default linkedin)
+- business: for write_content, one of executive | bnbglobal | insurance | savorymind | music | foundation
 - reply: a short, friendly spoken confirmation (one sentence)
-Map "find/source/get X leads" or "run the X agent" to run_agent. "make/create content"
-to generate_content. "run everything / daily cycle" to run_all. "pause/stop everything"
-to pause; "resume" to resume. "switch to autopilot/semi/manual" to set_mode. "what's my
-status / brief" to status. "open/show/go to X" to navigate. Anything unclear: unknown."""
+Mapping: "find/source/get X leads" or "run the X agent" -> run_agent. "make/create today's
+content" -> generate_content. "write a <channel> post about <topic>" -> write_content.
+"approve everything safe / approve all content" -> approve_safe. "how many leads today /
+what's the pipeline / numbers" -> metrics. "run everything / daily cycle" -> run_all.
+"pause/stop everything" -> pause; "resume" -> resume. "switch to autopilot/semi/manual"
+-> set_mode. "status / brief" -> status. "open/show/go to X" -> navigate. Unclear -> unknown."""
 
 
 class VoiceIn(BaseModel):
@@ -92,6 +98,12 @@ def _interpret(text: str) -> dict:
         return {"intent": "set_mode", "mode": "auto", "reply": "Switching to autopilot."}
     if "status" in t or "brief" in t:
         return {"intent": "status", "reply": "Here's your status."}
+    if "approve" in t and ("safe" in t or "all" in t or "everything" in t):
+        return {"intent": "approve_safe", "reply": "Approving the safe items."}
+    if any(w in t for w in ("how many", "pipeline", "numbers", "metrics", "how much")):
+        return {"intent": "metrics", "reply": "Here are your numbers."}
+    if t.startswith("write ") or "write a" in t or "post about" in t:
+        return {"intent": "write_content", "topic": text, "reply": "Writing it now."}
     agent = _match_alias(t, _AGENT_ALIASES)
     if agent:
         return {"intent": "run_agent", "target": text, "reply": "On it."}
@@ -138,6 +150,48 @@ def command(body: VoiceIn, db: Session = Depends(get_db),
             res = platform_loops.run_all(db)
             return {"ok": True, "intent": intent,
                     "reply": f"Generated {res.get('made_total', 0)} pieces into the queue.", "navigate": "/calendar"}
+        if intent == "write_content":
+            from .. import content_factory
+            topic = (spec.get("topic") or text).strip()
+            for w in ("write", "a ", "post", "about", "linkedin", "instagram", "facebook", "blog", "tweet", "jarvis"):
+                topic = re.sub(rf"\b{w}\b", "", topic, flags=re.I)
+            topic = topic.strip(" ,.-") or "an update"
+            channel = (spec.get("channel") or "linkedin").lower()
+            channel = channel if channel in ("linkedin", "instagram", "facebook", "blog", "x") else "linkedin"
+            business = (spec.get("business") or "executive").lower()
+            res = content_factory.generate_pack(db, topic, business, channels=[channel])
+            ok = res.get("ok")
+            return {"ok": bool(ok), "intent": intent,
+                    "reply": (f"Drafted a {channel} post about {topic}; it's in the queue."
+                              if ok else f"Couldn't write it: {res.get('reason', 'try again')}."),
+                    "navigate": "/calendar" if ok else None}
+        if intent == "approve_safe":
+            # Approve low-risk items only: content awaiting approval.
+            from datetime import datetime, timezone
+
+            from ..models import ContentItem
+            items = db.query(ContentItem).filter(ContentItem.status == "needs_approval").all()
+            now = datetime.now(timezone.utc)
+            for it in items:
+                it.status = "scheduled"
+                it.scheduled_for = it.scheduled_for or now
+            db.commit()
+            return {"ok": True, "intent": intent,
+                    "reply": f"Approved {len(items)} content piece(s) — they'll publish on schedule."}
+        if intent == "metrics":
+            from datetime import date, datetime, timezone
+
+            from .. import scoring
+            from ..models import Lead, Message
+            start = datetime.combine(date.today(), datetime.min.time(), tzinfo=timezone.utc)
+            actions = scoring.build_actions(db)
+            pipeline = round(sum(a["value"] * a["probability"] for a in actions))
+            leads_today = db.query(Lead).filter(Lead.created_at >= start).count()
+            replies = db.query(Message).filter(Message.direction == "inbound",
+                                                Message.created_at >= start).count()
+            return {"ok": True, "intent": intent,
+                    "reply": f"Pipeline is about ${pipeline:,}. {leads_today} new leads today, "
+                             f"{replies} replies in."}
         if intent == "run_all":
             from .. import commanders
             commanders.run_ceo(db)

@@ -1520,3 +1520,15 @@ def test_grant_fit_scoring_prioritizes_mission():
     off_score, _ = score_fit("Highway bridge maintenance contract")
     assert music_score > off_score
     assert pillar in ("Music & Arts", "Education & Scholarships")
+
+
+def test_voice_interpreter_keyword_fallback():
+    """Offline (no AI key) the voice router still maps common orders correctly."""
+    from app.routers.voice import _interpret
+    assert _interpret("pause everything")["intent"] == "pause"
+    assert _interpret("switch to autopilot")["intent"] == "set_mode"
+    assert _interpret("approve everything safe")["intent"] == "approve_safe"
+    assert _interpret("how many leads today")["intent"] == "metrics"
+    assert _interpret("source commercial leads")["intent"] == "run_agent"
+    assert _interpret("open approvals")["intent"] == "navigate"
+    assert _interpret("write a linkedin post about cloud savings")["intent"] == "write_content"
