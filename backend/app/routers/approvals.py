@@ -5,6 +5,7 @@ approval, drafted insurance/consulting leads, and drafted SavoryMind restaurant
 pitches. Approve → it goes out (or gets scheduled); Reject → it's skipped. Keeps
 the human in the loop without hunting through five different pages.
 """
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,6 +17,7 @@ from ..models import ContentItem, Lead, Message, Restaurant
 from ..security import require_role
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
+log = logging.getLogger("bruno.approvals")
 _read = require_role("admin", "operator", "viewer")
 _write = require_role("admin", "operator")
 
@@ -123,24 +125,30 @@ def act(item_type: str, item_id: str, action: str,
             m.status = "Skipped"
             db.commit()
             return {"ok": True, "type": "reply", "status": "Skipped"}
-        # Send the drafted reply now (in place, no duplicate record).
+        # Send the drafted reply now (in place, no duplicate record). A send
+        # failure must never 500 — mark it approved (kept) with a clear note.
         from datetime import datetime, timezone
 
         from .. import email_template
         from ..integrations import gmail
         sent = False
-        if gmail.is_configured(m.from_account):
-            html = email_template.render(m.body or "", m.from_account)
-            mid = gmail.send_message(m.to_email, m.subject or "", html or "", account=m.from_account)
-            if mid:
-                m.provider_id = mid
-                m.sent_at = datetime.now(timezone.utc)
-                sent = True
+        note = "Marked approved — connect that Gmail mailbox to actually send."
+        try:
+            if gmail.is_configured(m.from_account):
+                html = email_template.render(m.body or "", m.from_account)
+                mid = gmail.send_message(m.to_email, m.subject or "", html or "", account=m.from_account)
+                if mid:
+                    m.provider_id = mid
+                    m.sent_at = datetime.now(timezone.utc)
+                    sent = True
+                    note = None
+        except Exception as exc:  # token expired / API error — don't lose the item
+            log.warning("reply send failed: %s", exc)
+            note = f"Approved, but sending failed ({str(exc)[:80]}). Reconnect Gmail and resend."
         m.status = "Sent" if sent else "Approved"
         m.approved = True
         db.commit()
-        return {"ok": True, "type": "reply", "status": m.status, "sent": sent,
-                "note": None if sent else "Marked approved — connect that Gmail mailbox to actually send."}
+        return {"ok": True, "type": "reply", "status": m.status, "sent": sent, "note": note}
 
     if item_type == "content":
         c = db.query(ContentItem).filter(ContentItem.id == item_id).first()
@@ -170,16 +178,23 @@ def act(item_type: str, item_id: str, action: str,
             db.commit()
             return {"ok": True, "type": item_type, "status": "Skipped"}
         # Explicit approval → send now (autonomous=False bypasses semi-auto drafting).
-        msg = outreach.dispatch_email(db, entity_type=etype, entity_id=row.id,
-                                      to_email=row.email, subject=subject, body=body,
-                                      account=account, actor="approval", autonomous=False)
+        # A send failure must never 500 — mark it approved (kept) with a clear note.
+        note = "Marked approved — connect a Gmail mailbox to actually send."
+        sent = False
+        try:
+            msg = outreach.dispatch_email(db, entity_type=etype, entity_id=row.id,
+                                          to_email=row.email, subject=subject, body=body,
+                                          account=account, actor="approval", autonomous=False)
+            sent = msg.status == "Sent"
+            if sent:
+                note = None
+        except Exception as exc:  # token expired / API error — don't lose the item
+            log.warning("%s send failed: %s", item_type, exc)
+            note = f"Approved, but sending failed ({str(exc)[:80]}). Reconnect Gmail and resend."
         # Always leave the queue: "Sent" if it actually went, else "Approved"
-        # (e.g. Gmail not connected yet) so the same item never reappears.
-        row.status = "Sent" if msg.status == "Sent" else "Approved"
+        # so the same item never reappears.
+        row.status = "Sent" if sent else "Approved"
         db.commit()
-        sent = msg.status == "Sent"
-        return {"ok": True, "type": item_type, "status": row.status,
-                "sent": sent,
-                "note": None if sent else "Marked approved — connect a Gmail mailbox to actually send."}
+        return {"ok": True, "type": item_type, "status": row.status, "sent": sent, "note": note}
 
     raise HTTPException(400, f"unknown item type '{item_type}'")

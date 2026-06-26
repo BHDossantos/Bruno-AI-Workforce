@@ -24,14 +24,20 @@ export default function VoiceCommand() {
   const [supported, setSupported] = useState(false);
   const [on, setOn] = useState(false);
   const [line, setLine] = useState<string | null>(null);
+  const [lang, setLang] = useState<string>("en-US");
   const recRef = useRef<Rec | null>(null);
   const onRef = useRef(false);          // latest "on" for async callbacks
+  const langRef = useRef("en-US");      // latest lang for the recognizer
   const armedRef = useRef(false);       // heard "Jarvis", waiting for the order
   const armTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const busyRef = useRef(false);
   const speakingRef = useRef(false);    // mute the mic to itself while Jarvis talks
 
   useEffect(() => { onRef.current = on; }, [on]);
+  useEffect(() => {
+    const saved = typeof window !== "undefined" ? localStorage.getItem("jarvis_lang") : null;
+    if (saved) { setLang(saved); langRef.current = saved; }
+  }, []);
 
   // Speak a reply, suppressing recognition of our own voice while we talk.
   function speak(text: string) {
@@ -70,7 +76,7 @@ export default function VoiceCommand() {
     if (!Ctor || !getToken()) return;
     setSupported(true);
     const rec = new Ctor();
-    rec.lang = "en-US"; rec.interimResults = false; rec.continuous = true; rec.maxAlternatives = 1;
+    rec.lang = langRef.current; rec.interimResults = false; rec.continuous = true; rec.maxAlternatives = 1;
     rec.onresult = (e) => {
       // CRITICAL: only look at results new to THIS event. In continuous mode
       // e.results is cumulative, so iterating from 0 reprocesses old phrases.
@@ -86,7 +92,11 @@ export default function VoiceCommand() {
         } else if (WAKE.test(text)) {
           const after = text.replace(WAKE, "").replace(/^[\s,]+/, "").trim();
           if (after) handle(after);                     // "Jarvis, source leads" in one breath
-          else { arm(); setLine("Yes? I'm listening…"); speak("Yes?"); }
+          else {
+            arm();
+            setLine(langRef.current.startsWith("pt") ? "Sim? Estou ouvindo…" : "Yes? I'm listening…");
+            speak(langRef.current.startsWith("pt") ? "Sim?" : "Yes?");
+          }
         }
         // No wake word and not armed → ambient speech, ignored.
       }
@@ -118,6 +128,8 @@ export default function VoiceCommand() {
     } finally { busyRef.current = false; }
   }
 
+  const PT = () => langRef.current.startsWith("pt");
+
   function toggle() {
     const rec = recRef.current;
     if (!rec) return;
@@ -128,9 +140,22 @@ export default function VoiceCommand() {
     } else {
       setOn(true); onRef.current = true;
       try { rec.start(); } catch { /* already */ }
-      setLine('Hey Jarvis is listening… say “Jarvis, …”');
-      speak("Jarvis online.");
+      setLine(PT() ? "Jarvis está ouvindo… diga “Jarvis, …”" : 'Hey Jarvis is listening… say “Jarvis, …”');
+      speak(PT() ? "Jarvis online." : "Jarvis online.");
     }
+  }
+
+  // Switch the recognition language (English ⇄ Portuguese) for bilingual use.
+  function toggleLang() {
+    const next = langRef.current.startsWith("pt") ? "en-US" : "pt-BR";
+    langRef.current = next; setLang(next);
+    try { localStorage.setItem("jarvis_lang", next); } catch { /* */ }
+    const rec = recRef.current;
+    if (rec) {
+      rec.lang = next;
+      if (onRef.current) { try { rec.abort(); } catch { /* */ } /* onend restarts with new lang */ }
+    }
+    setLine(next.startsWith("pt") ? "Idioma: Português 🇧🇷" : "Language: English 🇺🇸");
   }
 
   if (!supported) return null;
@@ -141,12 +166,18 @@ export default function VoiceCommand() {
           {line}
         </div>
       )}
-      <button onClick={toggle} title='Toggle "Hey Jarvis"'
-        className={`flex items-center gap-2 rounded-full px-4 py-3 text-sm font-semibold text-white shadow-xl transition ${
-          on ? "animate-pulse bg-red-600" : "bg-brand hover:bg-brand-dark"
-        }`}>
-        🎙️ {on ? "Jarvis on" : "Hey Jarvis"}
-      </button>
+      <div className="flex items-center gap-2">
+        <button onClick={toggleLang} title="Switch language (English / Português)"
+          className="rounded-full bg-white px-3 py-3 text-sm font-semibold text-gray-700 shadow-xl ring-1 ring-gray-200 hover:bg-gray-50">
+          {lang.startsWith("pt") ? "🇧🇷 PT" : "🇺🇸 EN"}
+        </button>
+        <button onClick={toggle} title='Toggle "Hey Jarvis"'
+          className={`flex items-center gap-2 rounded-full px-4 py-3 text-sm font-semibold text-white shadow-xl transition ${
+            on ? "animate-pulse bg-red-600" : "bg-brand hover:bg-brand-dark"
+          }`}>
+          🎙️ {on ? "Jarvis on" : "Hey Jarvis"}
+        </button>
+      </div>
     </div>
   );
 }

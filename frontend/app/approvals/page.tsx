@@ -24,8 +24,11 @@ function Approvals() {
   async function act(it: Item, action: "approve" | "reject") {
     setBusy(it.id); setMsg("");
     try {
-      const r = await api.post<{ status?: string }>(`/approvals/${it.type}/${it.id}/${action}`, {});
-      setMsg(action === "approve" ? `✅ Approved — ${r.status || "done"}.` : "🗑️ Rejected.");
+      const r = await api.post<{ status?: string; sent?: boolean; note?: string }>(
+        `/approvals/${it.type}/${it.id}/${action}`, {});
+      if (action === "reject") setMsg("🗑️ Rejected.");
+      else if (r.sent) setMsg("✅ Approved & sent.");
+      else setMsg(`✅ Approved. ${r.note || ""}`.trim());
       setRefresh((n) => n + 1);
     } catch (e) { setMsg(`❌ ${e}`); }
     finally { setBusy(null); }
