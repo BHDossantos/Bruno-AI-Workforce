@@ -604,23 +604,6 @@ class Grant(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-class FoundationDeadline(Base):
-    """A compliance / grant / filing deadline the foundation must hit. The
-    Compliance agent auto-creates grant-report deadlines and standard annual
-    reminders; alerts surface on the board report + Mission Control. This TRACKS
-    and ALERTS — it does not file anything (you/your attorney handle filings)."""
-    __tablename__ = "foundation_deadlines"
-    id: Mapped[uuid.UUID] = _uuid_pk()
-    title: Mapped[str] = mapped_column(String, nullable=False)
-    kind: Mapped[str] = mapped_column(String, index=True)  # filing|grant_report|board|registration|other
-    due_date: Mapped[date | None] = mapped_column(Date, index=True)
-    status: Mapped[str] = mapped_column(String, default="Open", index=True)  # Open|Done
-    source: Mapped[str | None] = mapped_column(String)  # auto|manual
-    external_id: Mapped[str | None] = mapped_column(String, index=True)  # dedupe (e.g. grant id)
-    notes: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-
 class Setting(Base):
     """Runtime key/value settings that change without a redeploy — e.g. the global
     'agents_paused' kill-switch behind the Emergency Stop button."""

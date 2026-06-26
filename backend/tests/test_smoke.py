@@ -379,7 +379,7 @@ def test_all_agents_registered():
         "job_hunter", "insurance", "commercial_finder", "homeowner", "referral_partner",
         "follow_up_agent", "review_referral", "bnbglobal", "savorymind", "music",
         "instagram", "grant_research", "foundation_outreach", "school_partner",
-        "compliance", "ceo_dashboard",
+        "ceo_dashboard",
     }
 
 

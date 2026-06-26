@@ -30,8 +30,7 @@ COMMANDERS: dict[str, dict] = {
     "influence": {"name": "Influence Commander", "agents": ["music", "instagram"]},
     "life_ops":  {"name": "Life Commander",      "agents": []},
     "foundation": {"name": "Foundation Commander",
-                   "agents": ["grant_research", "foundation_outreach",
-                              "school_partner", "compliance"]},
+                   "agents": ["grant_research", "foundation_outreach", "school_partner"]},
 }
 
 

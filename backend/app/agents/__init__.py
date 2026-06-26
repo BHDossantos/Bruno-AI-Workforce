@@ -2,7 +2,6 @@
 from .bnbglobal import BnbGlobalAgent
 from .ceo_dashboard import CEODashboardAgent
 from .commercial_finder import CommercialLeadFinderAgent
-from .compliance import ComplianceAgent
 from .followup import FollowUpAgent
 from .foundation_outreach import FoundationOutreachAgent
 from .grant_research import GrantResearchAgent
@@ -34,7 +33,6 @@ AGENTS = {
     "grant_research": GrantResearchAgent,
     "foundation_outreach": FoundationOutreachAgent,
     "school_partner": SchoolPartnershipAgent,
-    "compliance": ComplianceAgent,
     "ceo_dashboard": CEODashboardAgent,
 }
 
