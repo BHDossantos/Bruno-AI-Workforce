@@ -89,8 +89,9 @@ class Settings(BaseSettings):
     # Consulting (BnB Global) + SavoryMind sell anywhere → US + Europe. Accepts
     # "us", "eu", "us_eu", or a comma-separated list of state/country names.
     insurance_lead_scope: str = "Massachusetts,New Hampshire,Florida"
-    consulting_lead_scope: str = "us_eu"
-    restaurant_lead_scope: str = "us_eu"
+    # BnB Global consulting + SavoryMind sell worldwide → source leads globally.
+    consulting_lead_scope: str = "global"
+    restaurant_lead_scope: str = "global"
     # When True, lead sourcing runs for any business that passes an explicit scope
     # (consulting/SavoryMind sweep US+EU) even if LEAD_STATES is set only for
     # insurance. Off in tests so no network calls. On in prod so every business
@@ -98,7 +99,7 @@ class Settings(BaseSettings):
     wider_lead_sourcing: bool = True
     # How many areas each lead run sweeps. Big scopes (US+EU) rotate through the
     # full list over days so a single run never times out Overpass.
-    lead_areas_per_run: int = 6
+    lead_areas_per_run: int = 10
     # Location bias for job-search queries (JSearch). Blank = no location filter.
     job_location: str = "United States"
     # How many leads each lead-finder agent produces per run. Small batches keep

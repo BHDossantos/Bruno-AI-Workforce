@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { AuthGate, Expandable, PageHeader, useFetch } from "@/components/ui";
+import { AuthGate, Expandable, PageHeader, useFetch, LoadState } from "@/components/ui";
 
 type Playlist = { id: string; name: string; curator_name: string; genre: string; followers: number; genre_match: number; submission_link: string; pitch: string | null };
 type Influencer = { id: string; name: string; niche: string; handle: string; followers: number; dm_pitch: string | null; collab_pitch: string | null };
@@ -22,7 +22,7 @@ type Piece = { id: string; topic: string; channel: string; title: string | null;
 
 function Music() {
   const [refresh, setRefresh] = useState(0);
-  const { data: brand } = useFetch<Brand>(() => api.get<Brand>("/music/brand"));
+  const { data: brand, loading, error, reload } = useFetch<Brand>(() => api.get<Brand>("/music/brand"));
   const { data: playlists } = useFetch<Playlist[]>(() => api.get<Playlist[]>("/music/playlists?limit=100"), [refresh]);
   const { data: influencers } = useFetch<Influencer[]>(() => api.get<Influencer[]>("/music/influencers?limit=100"), [refresh]);
   const { data: content } = useFetch<Campaign[]>(() => api.get<Campaign[]>("/music/content?limit=5"));
@@ -79,6 +79,7 @@ function Music() {
     <div className="space-y-8">
       <PageHeader title="Music Campaigns" subtitle="Playlists, influencers, and daily content package" />
       {msg && <p className="text-sm text-gray-600">{msg}</p>}
+      {(loading || error) && <LoadState loading={loading} error={error} onRetry={reload} />}
 
       {brand && (
         <div className="card bg-gradient-to-br from-brand/5 to-transparent">

@@ -59,16 +59,26 @@ def maybe_warm_text(db: Session, *, entity_type: str, entity_id, name: str | Non
     return "queued" if use_bridge else sid
 
 
+def _norm_phone(phone: str | None) -> str:
+    import re
+    return re.sub(r"\D", "", phone or "")[-10:]
+
+
 def record_inbound(db: Session, *, phone: str, body: str) -> Message:
-    """Store an inbound SMS, classify it, and link it to a known contact by phone."""
+    """Store an inbound SMS, classify it, and link it to a known contact by phone
+    (matched on the normalized last-10 digits so format differences never miss)."""
     from . import classify
     from .models import Lead, Restaurant
 
     cls = classify.classify_reply(body)
     msg = Message(channel="sms", direction="inbound", to_email=phone, body=body, status=cls["status"])
-    # Best-effort link + apply the classified status.
+    # Best-effort link + apply the classified status (leads/restaurants advance).
+    key = _norm_phone(phone)
     for model, etype in ((Lead, "lead"), (Restaurant, "restaurant")):
-        row = db.query(model).filter(model.phone == phone).first()
+        if not key:
+            break
+        row = next((r for r in db.query(model).filter(model.phone.isnot(None)).all()
+                    if _norm_phone(r.phone) == key), None)
         if row:
             msg.entity_type, msg.entity_id = etype, row.id
             if row.status not in ("Closed Won", "Closed Lost"):

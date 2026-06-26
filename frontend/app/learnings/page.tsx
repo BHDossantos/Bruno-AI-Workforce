@@ -1,7 +1,7 @@
 "use client";
 
 import { api } from "@/lib/api";
-import { AuthGate, PageHeader, useFetch } from "@/components/ui";
+import { AuthGate, PageHeader, useFetch, LoadState } from "@/components/ui";
 
 type Arm = { category: string; avg_engagement: number; samples: number };
 type ChannelLearning = { channel: string; samples: number; next_pick: string | null; arms: Arm[] };
@@ -23,8 +23,8 @@ function fmtHour(h: number): string {
 }
 
 function LearningsView() {
-  const { data } = useFetch<Learnings>(() => api.get<Learnings>("/analytics/learnings"));
-  if (!data) return <div className="p-4 text-gray-400">Loading learnings…</div>;
+  const { data, loading, error, reload } = useFetch<Learnings>(() => api.get<Learnings>("/analytics/learnings"));
+  if (!data) return <LoadState loading={loading} error={error} onRetry={reload} />;
 
   return (
     <div className="space-y-8">

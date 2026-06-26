@@ -106,14 +106,24 @@ def parse_vcards(text: str) -> list[dict]:
 
 
 def process_contacts_csv(db: Session, rows: list[dict]) -> dict:
-    """Import a personal contact list (e.g. a Google Contacts export) into the
-    Universal CRM. These are NOT auto-emailed — they become searchable contacts
-    you can choose to reach out to. Handles Google's 'First Name', 'E-mail 1 -
-    Value', 'Phone 1 - Value', 'Organization Name/Title' columns."""
-    imported = skipped = 0
+    """Import a personal contact list (e.g. a Google Contacts export).
+
+    Each contact becomes (a) a ManualContact, worked by the warm insurance
+    contacts-outreach engine, AND (b) a visible personal Lead so it shows up on
+    the Leads/Insurance page (the user's mental model is "these are my leads").
+    The Lead is created with status 'contact' (a non-pending status) so the bulk
+    cold-email path never double-sends — the warm contacts_outreach engine stays
+    the single sender. Family / opt-out emails are skipped entirely from both.
+    Handles Google's 'First Name', 'E-mail 1 - Value', 'Phone 1 - Value',
+    'Organization Name/Title' columns."""
+    from . import contacts_outreach
+    exclude = contacts_outreach._exclude_set()
+    imported = leads_added = skipped = 0
     seen: set[str] = set()
     existing = {e.lower() for (e,) in db.query(ManualContact.email)
                 .filter(ManualContact.email.isnot(None)).all()}
+    existing_leads = {e.lower() for (e,) in db.query(Lead.email)
+                      .filter(Lead.email.isnot(None)).all()}
     for row in rows:
         c = normalize_contact(row)
         email, phone = c["email"], c["phone"]
@@ -131,11 +141,22 @@ def process_contacts_csv(db: Session, rows: list[dict]) -> dict:
             company=c["company"], title=c["title"],
             kind="contact", notes=c["notes"]))
         imported += 1
+        # Surface as a personal Lead too (visibility), unless it's an excluded
+        # (family/opt-out) address or already a lead.
+        elow = (email or "").lower()
+        if elow and elow not in exclude and elow not in existing_leads:
+            existing_leads.add(elow)
+            db.add(Lead(segment="personal", category="Personal contact",
+                        owner_name=name, email=email, phone=phone,
+                        company_name=c["company"], industry=c["title"],
+                        reason="Imported personal contact — warm insurance network.",
+                        score=70, status="contact"))
+            leads_added += 1
         if imported % 500 == 0:
             db.commit()
     db.commit()
-    log.info("Imported %d contacts (%d skipped)", imported, skipped)
-    return {"imported": imported, "skipped": skipped}
+    log.info("Imported %d contacts (%d as leads, %d skipped)", imported, leads_added, skipped)
+    return {"imported": imported, "leads_added": leads_added, "skipped": skipped}
 
 
 def _schedule_followups(db: Session, entity_type: str, entity_id) -> None:

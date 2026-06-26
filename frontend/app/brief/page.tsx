@@ -1,7 +1,7 @@
 "use client";
 
 import { api } from "@/lib/api";
-import { AuthGate, PageHeader, useFetch } from "@/components/ui";
+import { AuthGate, PageHeader, useFetch, LoadState } from "@/components/ui";
 
 type Report = {
   report_date: string;
@@ -17,9 +17,9 @@ type Report = {
 };
 
 function Brief() {
-  const { data: report, loading } = useFetch<Report | null>(() => api.get<Report | null>("/reports/latest"));
+  const { data: report, loading, error, reload } = useFetch<Report | null>(() => api.get<Report | null>("/reports/latest"));
 
-  if (loading) return <p className="text-gray-400">Loading…</p>;
+  if (loading || error) return <LoadState loading={loading} error={error} onRetry={reload} />;
   if (!report) return <div><PageHeader title="Daily Brief" /><p className="text-gray-500">No report yet. Run the CEO Dashboard agent.</p></div>;
 
   const b = report.top_actions;

@@ -1,7 +1,7 @@
 "use client";
 
 import { api } from "@/lib/api";
-import { AuthGate, PageHeader, KpiCard, useFetch } from "@/components/ui";
+import { AuthGate, PageHeader, KpiCard, useFetch, LoadState } from "@/components/ui";
 
 type Stage = { stage: string; count: number };
 type Overview = {
@@ -31,8 +31,8 @@ function Funnel({ stages }: { stages: Stage[] }) {
 }
 
 function Analytics() {
-  const { data } = useFetch<Overview>(() => api.get<Overview>("/analytics/overview"));
-  if (!data) return <div className="p-4 text-gray-400">Loading analytics…</div>;
+  const { data, loading, error, reload } = useFetch<Overview>(() => api.get<Overview>("/analytics/overview"));
+  if (!data) return <LoadState loading={loading} error={error} onRetry={reload} />;
   const k = data.kpis;
   const maxAct = Math.max(1, ...data.activity_14d.map((a) => Math.max(a.sent, a.replied)));
 

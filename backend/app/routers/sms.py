@@ -1,4 +1,5 @@
 """SMS endpoints: send, inbound webhook, and WhatsApp-style threads."""
+import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Request, Response
@@ -9,7 +10,7 @@ from sqlalchemy.orm import Session
 from .. import sms_engine
 from ..database import get_db
 from ..integrations import sms
-from ..models import Lead, Message, Restaurant
+from ..models import Lead, ManualContact, Message, Restaurant
 from ..security import require_role
 
 router = APIRouter(tags=["sms"])
@@ -25,12 +26,29 @@ class SmsSend(BaseModel):
     entity_id: str | None = None
 
 
+def _norm(phone: str | None) -> str:
+    """Last 10 digits — so '+1 (617) 555-1234', '6175551234' and '1-617-555-1234'
+    all match regardless of how the number was stored/sourced."""
+    return re.sub(r"\D", "", phone or "")[-10:]
+
+
 def _contact_name(db: Session, phone: str) -> str | None:
-    lead = db.query(Lead).filter(Lead.phone == phone).first()
-    if lead:
-        return lead.company_name or lead.owner_name
-    rest = db.query(Restaurant).filter(Restaurant.phone == phone).first()
-    return rest.name if rest else None
+    """Resolve a display name for a phone across leads, restaurants AND imported
+    contacts, matching on the normalized (last-10-digit) number."""
+    key = _norm(phone)
+    if not key:
+        return None
+    # ManualContact first — imported personal contacts carry real names.
+    for c in db.query(ManualContact).filter(ManualContact.phone.isnot(None)).all():
+        if _norm(c.phone) == key:
+            return c.name
+    for l in db.query(Lead).filter(Lead.phone.isnot(None)).all():
+        if _norm(l.phone) == key:
+            return l.owner_name or l.company_name
+    for r in db.query(Restaurant).filter(Restaurant.phone.isnot(None)).all():
+        if _norm(r.phone) == key:
+            return r.name
+    return None
 
 
 @router.get("/sms/threads")

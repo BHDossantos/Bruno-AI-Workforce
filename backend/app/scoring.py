@@ -13,8 +13,8 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from . import objectives
-from .models import (ActionState, Application, Contact, ContentItem, Job, Lead,
-                     Message, Opportunity, Restaurant)
+from .models import (ActionState, Application, Contact, ContentItem,
+                     InstagramTarget, Job, Lead, Message, Opportunity, Restaurant)
 
 # Expected-value assumptions (tune freely; these are sensible defaults).
 _COMMERCIAL_VALUE = 5_000      # avg commercial insurance commission
@@ -99,6 +99,30 @@ def build_actions(db: Session) -> list[dict]:
             "value": 3_000.0, "probability": 0.6, "effort": 1,
             "priority": _score(3_000, 0.6, 1, w.get("insurance", 0.8), 1.6),
             "link": "/texts", "why": "Warm — replied to your text",
+        })
+
+    # ── Influence · Instagram engagement + queued music content ───────────────
+    for t in (db.query(InstagramTarget)
+              .filter(InstagramTarget.status.in_(["New", "Drafted"])).limit(25)):
+        actions.append({
+            "key": f"engage:ig:{t.id}",
+            "title": f"Engage @{t.handle}",
+            "command_center": "influence", "objective": "music", "action_type": "engage",
+            "value": 300.0, "probability": 0.2, "effort": 1,
+            "priority": _score(300, 0.2, 1, w.get("music", 0.25), 1.0),
+            "link": "/instagram", "why": f"{t.category or 'target'} · grow audience",
+        })
+    for it in (db.query(ContentItem)
+               .filter(ContentItem.business == "music",
+                       ContentItem.status.in_(["scheduled", "needs_approval", "ready", "generated"]))
+               .order_by(ContentItem.created_at.desc()).limit(20)):
+        actions.append({
+            "key": f"music_content:{it.id}",
+            "title": f"Music post: {it.title or it.topic}",
+            "command_center": "influence", "objective": "music", "action_type": "content",
+            "value": 250.0, "probability": 0.3, "effort": 1,
+            "priority": _score(250, 0.3, 1, w.get("music", 0.25), 1.1),
+            "link": "/calendar", "why": f"{it.channel} · drives streams + audience",
         })
 
     # ── Universal opportunities — investors, podcasts, collabs, speaking, etc. ─

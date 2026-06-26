@@ -113,6 +113,84 @@ def commanders_status(db: Session = Depends(get_db), _=Depends(_read)):
     return commanders.status(db)
 
 
+@router.post("/commanders/{center}/run")
+def commander_run(center: str, db: Session = Depends(get_db), _=Depends(_write)):
+    """Run this commander's agents now (don't wait for the daily cycle)."""
+    from .. import commanders
+    res = commanders.run_center(db, center)
+    if res.get("ok") is False:
+        raise HTTPException(404, res.get("reason", "unknown commander"))
+    return res
+
+
+class CommanderTarget(BaseModel):
+    objective_key: str
+    target_value: float
+
+
+@router.post("/commanders/{center}/target")
+def commander_target(center: str, body: CommanderTarget,
+                     db: Session = Depends(get_db), _=Depends(_write)):
+    """Set the target amount for one of a commander's objectives (pick the amount)."""
+    o = (db.query(Objective)
+         .filter(Objective.key == body.objective_key,
+                 Objective.command_center == center).first())
+    if not o:
+        raise HTTPException(404, "objective not found for this commander")
+    o.target_value = body.target_value
+    db.commit()
+    return {"ok": True, "objective": o.key, "target_value": float(o.target_value or 0)}
+
+
+class CommanderOrderIn(BaseModel):
+    order: str
+    amount: float | None = None
+    objective_key: str | None = None
+    run_now: bool = True
+
+
+@router.post("/commanders/{center}/order")
+def commander_order(center: str, body: CommanderOrderIn,
+                    db: Session = Depends(get_db), _=Depends(_write)):
+    """Give a commander a direct order (optionally with a target amount). Records
+    the order, applies the amount to the named objective, and runs the commander
+    now so the order is acted on — not just logged."""
+    from .. import commanders
+    from ..models import CommanderOrder
+    if center not in commanders.COMMANDERS:
+        raise HTTPException(404, f"unknown commander '{center}'")
+    if body.amount is not None and body.objective_key:
+        o = (db.query(Objective)
+             .filter(Objective.key == body.objective_key,
+                     Objective.command_center == center).first())
+        if o:
+            o.target_value = body.amount
+    rec = CommanderOrder(center=center, order=body.order, amount=body.amount,
+                         status="received")
+    db.add(rec)
+    db.commit()
+    result = None
+    if body.run_now:
+        result = commanders.run_center(db, center)
+        rec.status = "run" if result.get("ok") else "failed"
+        rec.result = {"summary": (result.get("agents") and "ran") or result.get("reason")}
+        db.commit()
+    return {"ok": True, "order_id": str(rec.id), "center": center,
+            "amount": body.amount, "ran": bool(body.run_now), "result": result}
+
+
+@router.get("/commanders/orders")
+def commander_orders(limit: int = 20, db: Session = Depends(get_db), _=Depends(_read)):
+    """Recent orders given to commanders (newest first)."""
+    from ..models import CommanderOrder
+    rows = (db.query(CommanderOrder)
+            .order_by(CommanderOrder.created_at.desc()).limit(limit).all())
+    return [{"id": str(r.id), "center": r.center, "order": r.order,
+             "amount": float(r.amount) if r.amount is not None else None,
+             "status": r.status,
+             "created_at": r.created_at.isoformat() if r.created_at else None} for r in rows]
+
+
 @router.get("/admin/selftest")
 def admin_selftest(db: Session = Depends(get_db), _=Depends(_read)):
     """Live health check — pings every configured/connected service."""

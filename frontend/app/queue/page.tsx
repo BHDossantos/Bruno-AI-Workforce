@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { AuthGate, PageHeader, useFetch } from "@/components/ui";
+import { AuthGate, PageHeader, useFetch, LoadState } from "@/components/ui";
 
 type Item = {
   entity_type: string;
@@ -19,7 +19,7 @@ type Item = {
 function Queue() {
   const [channel, setChannel] = useState("");
   const [tick, setTick] = useState(0);
-  const { data, loading } = useFetch<Item[]>(
+  const { data, loading, error, reload } = useFetch<Item[]>(
     () => api.get<Item[]>(`/outreach/social${channel ? `?channel=${channel}` : ""}`),
     [channel, tick]
   );
@@ -64,7 +64,7 @@ function Queue() {
         These are sent <b>manually</b> by you (platform rules forbid auto-DMs) — but the message and
         profile link are prepared, so it&apos;s ~2 clicks each: <b>Copy</b> → <b>Open profile</b> → paste &amp; send → <b>Mark sent</b>.
       </p>
-      {loading && <p className="text-gray-400">Loading…</p>}
+      {(loading || error) && <LoadState loading={loading} error={error} onRetry={reload} />}
       <div className="space-y-3">
         {(data || []).map((it) => (
           <div key={it.entity_type + it.entity_id} className="card flex items-start justify-between gap-4">

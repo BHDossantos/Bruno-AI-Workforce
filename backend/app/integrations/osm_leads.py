@@ -88,6 +88,16 @@ EUROPE_COUNTRIES = [
     "Netherlands", "Portugal", "Belgium", "Switzerland", "Austria", "Sweden",
     "Denmark", "Norway", "Finland", "Poland", "Czechia",
 ]
+# Worldwide reach for businesses that sell globally (BnB Global consulting +
+# SavoryMind). English-friendly, high-business-density countries across every
+# region, so a "global" scope truly sweeps the world (rotated over days).
+WORLD_COUNTRIES = EUROPE_COUNTRIES + [
+    "Canada", "Mexico", "Brazil", "Argentina", "Chile", "Colombia",
+    "Australia", "New Zealand", "Singapore", "India", "Japan", "South Korea",
+    "United Arab Emirates", "Israel", "South Africa", "Nigeria", "Kenya",
+    "Philippines", "Indonesia", "Malaysia", "Thailand", "Vietnam",
+    "Greece", "Romania", "Hungary", "Croatia", "Estonia", "Lithuania",
+]
 
 
 def _spec(name: str, level: str) -> tuple[str, str]:
@@ -102,7 +112,10 @@ def scope_areas(scope: str) -> list[tuple[str, str]]:
         return [_spec(x, "4") for x in US_STATES]
     if s in ("eu", "europe"):
         return [_spec(x, "2") for x in EUROPE_COUNTRIES]
-    if s in ("us_eu", "us+eu", "global", "worldwide"):
+    if s in ("global", "worldwide", "world"):
+        # Truly worldwide: US states + a broad set of countries across every region.
+        return [_spec(x, "4") for x in US_STATES] + [_spec(x, "2") for x in WORLD_COUNTRIES]
+    if s in ("us_eu", "us+eu"):
         return [_spec(x, "4") for x in US_STATES] + [_spec(x, "2") for x in EUROPE_COUNTRIES]
     return [_spec(x.strip(), "4") for x in (scope or "").split(",") if x.strip()]
 

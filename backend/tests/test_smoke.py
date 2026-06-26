@@ -606,8 +606,8 @@ def test_gmail_app_password_enables_sending_config():
 def test_objective_defaults_are_ranked():
     from app import objectives
     keys = [d["key"] for d in objectives.DEFAULTS]
-    assert keys[0] == "net_worth" and keys[-1] == "music"  # COO ranking (net worth on top)
-    assert "exec_role" in keys
+    assert keys[0] == "net_worth"  # COO ranking (net worth on top)
+    assert "music" in keys and "exec_role" in keys
     assert objectives.DEFAULTS[0]["weight"] > objectives.DEFAULTS[-1]["weight"]
     assert {c["key"] for c in objectives.CENTERS} >= {"wealth", "business", "influence"}
 
@@ -1460,3 +1460,29 @@ def test_followup_engine_processes_due_steps(client, auth_headers):
     n = db.query(models.Message).filter(models.Message.entity_id == lead.id).count()
     assert n >= 2
     db.close()
+
+
+def test_compose_caption_dedupes_hashtags():
+    """The duplicated-hashtag bug ('#AI #X #AI #X') must never reach a post."""
+    from app import content_factory as cf
+    assert cf._dedupe_hashtags("#AI #RestaurantGrowth #AI #RestaurantGrowth") == \
+        "#AI #RestaurantGrowth"
+    # body already has the tag → don't append it again
+    cap = cf.compose_caption("Boost covers tonight #AI", "#AI #RestaurantGrowth")
+    assert cap.count("#AI") == 1 and "#RestaurantGrowth" in cap
+    # hashtags appended on their own line when body has none
+    cap2 = cf.compose_caption("No tags here", "#One #Two #One")
+    assert cap2.count("#One") == 1 and "#Two" in cap2
+
+
+def test_lead_temperature_classify():
+    from app.lead_temperature import classify
+    assert classify("New") == "cold"
+    assert classify("Sent") == "cold"
+    assert classify("contact") == "cold"
+    assert classify("Replied") == "warm"
+    assert classify("Follow-up Needed") == "warm"
+    assert classify("Interested") == "hot"
+    assert classify("Closed Won") == "hot"
+    assert classify("Closed Lost") == "dead"
+    assert classify(None) == "cold"

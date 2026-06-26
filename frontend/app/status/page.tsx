@@ -1,7 +1,7 @@
 "use client";
 
 import { api } from "@/lib/api";
-import { AuthGate, PageHeader, useFetch } from "@/components/ui";
+import { AuthGate, PageHeader, useFetch, LoadState } from "@/components/ui";
 
 type Check = { ok: boolean; detail: string };
 type SelfTest = { ready: number; total: number; checks: Record<string, Check> };
@@ -13,11 +13,11 @@ const LABELS: Record<string, string> = {
 };
 
 function Status() {
-  const { data, loading } = useFetch<SelfTest>(() => api.get<SelfTest>("/admin/selftest"));
+  const { data, loading, error, reload } = useFetch<SelfTest>(() => api.get<SelfTest>("/admin/selftest"));
   return (
     <div>
       <PageHeader title="System Status" subtitle="Live health of every service. Green = working; amber = not connected/needs a key." />
-      {loading && <p className="text-gray-400">Checking…</p>}
+      {(loading || error) && <LoadState loading={loading} error={error} onRetry={reload} />}
       {data && (
         <>
           <div className="mb-4 text-sm text-gray-500">{data.ready} of {data.total} services live.</div>

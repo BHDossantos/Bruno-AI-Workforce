@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { AuthGate, Expandable, PageHeader, StatusBadge, useFetch } from "@/components/ui";
+import { AuthGate, Expandable, PageHeader, StatusBadge, TempBadge, TempFilter, useFetch, LoadState } from "@/components/ui";
 
 type Restaurant = {
   id: string;
@@ -18,12 +18,16 @@ type Restaurant = {
   linkedin_msg: string | null;
   follow_up: string | null;
   status: string;
+  temperature: string;
 };
+type Temp = { cold: number; warm: number; hot: number; dead: number };
 
 function SavoryMind() {
   const [refresh, setRefresh] = useState(0);
-  const { data, loading } = useFetch<Restaurant[]>(
-    () => api.get<Restaurant[]>("/restaurants?kind=prospect&limit=200"), [refresh]);
+  const [temp, setTemp] = useState("");
+  const { data, loading, error, reload } = useFetch<Restaurant[]>(
+    () => api.get<Restaurant[]>(`/restaurants?kind=prospect&limit=200${temp ? `&temperature=${temp}` : ""}`), [temp, refresh]);
+  const { data: counts } = useFetch<Temp>(() => api.get<Temp>("/restaurants/summary"), [refresh]);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
   const [sourcing, setSourcing] = useState(false);
@@ -67,13 +71,15 @@ function SavoryMind() {
           <button className="btn" onClick={dispatchAll} disabled={busy === "all"}>{busy === "all" ? "Sending…" : "Send all pending"}</button>
         </div>} />
       {msg && <p className="mb-2 text-sm text-gray-600">{msg}</p>}
-      {loading && <p className="text-gray-400">Loading…</p>}
+      <div className="mb-3"><TempFilter counts={counts} value={temp} onChange={setTemp} /></div>
+      {(loading || error) && <LoadState loading={loading} error={error} onRetry={reload} />}
       <div className="card overflow-x-auto">
         <table className="w-full">
           <thead>
             <tr>
               <th className="th">Restaurant</th>
               <th className="th">Cuisine / City</th>
+              <th className="th">Temp</th>
               <th className="th">Contact</th>
               <th className="th">Pain points</th>
               <th className="th">Menu analysis</th>
@@ -87,6 +93,7 @@ function SavoryMind() {
               <tr key={r.id} className="border-t border-gray-100">
                 <td className="td"><div className="font-medium">{r.name}</div><div className="text-xs text-gray-400">{r.owner_manager}</div></td>
                 <td className="td">{r.cuisine}<div className="text-xs text-gray-400">{r.city}</div></td>
+                <td className="td"><TempBadge t={r.temperature} /></td>
                 <td className="td text-xs">{r.email}<br />{r.instagram}</td>
                 <td className="td text-xs">{r.pain_points}</td>
                 <td className="td"><Expandable label="Analysis" text={r.menu_analysis ? JSON.stringify(r.menu_analysis, null, 2) : null} /></td>
@@ -105,7 +112,7 @@ function SavoryMind() {
               </tr>
             ))}
             {!loading && (data || []).length === 0 && (
-              <tr><td colSpan={8} className="td text-center text-gray-400">No restaurants yet — hit “Source restaurants now” to find prospects.</td></tr>
+              <tr><td colSpan={9} className="td text-center text-gray-400">No restaurants yet — hit “Source restaurants now” to find prospects.</td></tr>
             )}
           </tbody>
         </table>

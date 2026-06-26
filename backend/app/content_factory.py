@@ -9,6 +9,7 @@ and stores each piece with a status driven by the approval mode:
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
@@ -27,15 +28,48 @@ _PUBLISHABLE = {"linkedin", "instagram", "facebook", "x"}  # via the social publ
 _SIMILAR = 0.88  # cosine above this == "we've covered this"
 
 
+def _dedupe_hashtags(s: str | None) -> str | None:
+    """Keep only the first occurrence of each hashtag (case-insensitive), so a
+    post never shows '#AI #Growth #AI #Growth'."""
+    if not s:
+        return s
+    seen, out = set(), []
+    for tok in re.findall(r"#\w+", s):
+        k = tok.lower()
+        if k not in seen:
+            seen.add(k)
+            out.append(tok)
+    return " ".join(out) if out else None
+
+
+def compose_caption(body: str | None, hashtags: str | None) -> str:
+    """Build a publish-ready caption: body + only the hashtags not already present
+    in the body, de-duplicated — so tags are never doubled."""
+    body = (body or "").strip()
+    in_body = {t.lower() for t in re.findall(r"#\w+", body)}
+    tags, seen = [], set()
+    for tok in re.findall(r"#\w+", hashtags or ""):
+        k = tok.lower()
+        if k in in_body or k in seen:
+            continue
+        seen.add(k)
+        tags.append(tok)
+    return (f"{body}\n\n{' '.join(tags)}".strip() if tags else body)
+
+
 def _status_for_mode(db: Session, channel: str) -> tuple[str, datetime | None]:
+    # Always assign a concrete posting slot so EVERY generated piece lands on a
+    # specific day/time in the content calendar (today vs tomorrow vs later),
+    # regardless of approval mode.
+    from . import posting_times
     mode = settings.content_approval_mode
+    slot = posting_times.next_slot(db, channel)
     if mode <= 1:
-        return "generated", None
+        return "generated", slot
     if mode == 2:
-        return "needs_approval", None
+        return "needs_approval", slot
     if mode == 3:  # auto-schedule into the channel's learned best posting window
-        from . import posting_times
-        return "scheduled", posting_times.next_slot(db, channel)
+        return "scheduled", slot
     return "scheduled", datetime.now(timezone.utc)  # 4/5: publish on next content-cron tick
 
 
@@ -83,18 +117,55 @@ def generate_pack(db: Session, topic: str, business: str = "executive",
             continue
         status, sched = _status_for_mode(db, ch)
         if ch not in _PUBLISHABLE and status == "scheduled":
-            status, sched = "ready", None  # non-social pieces are drafts to use
+            status = "ready"  # non-social pieces (blog/email/podcast) are drafts to
+            # grab manually — keep the date so they still show by day on the calendar
         item = ContentItem(
             topic=topic, business=business, channel=ch,
             title=data.get("title") or data.get("subject"),
             body=data.get("body") or data.get("caption") or data.get("script"),
-            hashtags=data.get("hashtags"), status=status, embedding=emb,
+            hashtags=_dedupe_hashtags(data.get("hashtags")), status=status, embedding=emb,
             meta={"angle": pack.get("angle")}, scheduled_for=sched)
         db.add(item)
         created.append(ch)
     db.commit()
     return {"ok": True, "topic": topic, "business": business, "angle": pack.get("angle"),
             "channels": created, "fresh_angle": bool(prior)}
+
+
+# Planned-but-not-published statuses — the drafts a "regenerate" should replace.
+_REGEN_STATUSES = ["generated", "needs_approval", "ready", "scheduled"]
+
+
+def regenerate_item(db: Session, content_id: str) -> dict:
+    """Dismiss one stale draft and rewrite it (same topic/business/channel) at the
+    current quality bar."""
+    item = db.query(ContentItem).filter(ContentItem.id == content_id).first()
+    if not item:
+        return {"ok": False, "reason": "content not found"}
+    topic, business, channel = item.topic, item.business or "executive", item.channel
+    item.status = "dismissed"
+    db.commit()
+    return generate_pack(db, topic, business, channels=[channel])
+
+
+def regenerate_stale(db: Session, business: str | None = None,
+                     channel: str | None = None) -> dict:
+    """Clear the un-published draft backlog and let the engine rewrite fresh
+    content at the new quality bar. Dismisses planned (not yet published) pieces,
+    then re-runs the per-platform loops + music cadence to refill the cadence."""
+    from . import platform_loops
+    q = db.query(ContentItem).filter(ContentItem.status.in_(_REGEN_STATUSES))
+    if business:
+        q = q.filter(ContentItem.business == business)
+    if channel:
+        q = q.filter(ContentItem.channel == channel)
+    stale = q.all()
+    for it in stale:
+        it.status = "dismissed"
+    db.commit()
+    result = platform_loops.run_all(db, [channel] if channel else None)
+    return {"ok": True, "cleared": len(stale),
+            "regenerated": result.get("made_total", 0), "detail": result}
 
 
 def out(i: ContentItem) -> dict:
@@ -113,7 +184,7 @@ def publish_due(db: Session) -> dict:
            ContentItem.scheduled_for <= now).limit(50).all())
     published = 0
     for item in due:
-        caption = " ".join(filter(None, [item.body, item.hashtags]))
+        caption = compose_caption(item.body, item.hashtags)
         # Only post to the ONE platform this piece targets.
         is_conn, fn, _ = social.PLATFORMS.get(item.channel, (None, None, None))
         if not is_conn or not is_conn(db):

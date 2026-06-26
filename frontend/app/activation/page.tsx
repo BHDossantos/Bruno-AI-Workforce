@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { AuthGate, PageHeader, useFetch } from "@/components/ui";
+import { AuthGate, PageHeader, useFetch, LoadState } from "@/components/ui";
 
 type Item = { key: string; label: string; required: boolean; status: string; detail: string; action: string };
 type Activation = { ready_pct: number; live: boolean; done: number; required_total: number; next_step: Item | null; checklist: Item[] };
@@ -10,8 +10,8 @@ type Activation = { ready_pct: number; live: boolean; done: number; required_tot
 const ICON: Record<string, string> = { done: "✅", todo: "⬜", optional: "○" };
 
 function Activation() {
-  const { data } = useFetch<Activation>(() => api.get<Activation>("/activation"));
-  if (!data) return <div className="p-4 text-gray-400">Checking readiness…</div>;
+  const { data, loading, error, reload } = useFetch<Activation>(() => api.get<Activation>("/activation"));
+  if (!data) return <LoadState loading={loading} error={error} onRetry={reload} />;
 
   const required = data.checklist.filter((c) => c.required);
   const optional = data.checklist.filter((c) => !c.required);

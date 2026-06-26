@@ -30,6 +30,16 @@ def subscribers(funnel: str | None = None, limit: int = 500,
              "created_at": s.created_at.isoformat() if s.created_at else None} for s in rows]
 
 
+@router.get("/{funnel}/preview")
+def preview(funnel: str, db: Session = Depends(get_db), _=Depends(_read)):
+    """Generate this funnel's next issue without sending — so you can see a
+    newsletter on demand (works even with zero warm subscribers)."""
+    res = nl.preview(db, funnel)
+    if res.get("ok") is False:
+        raise HTTPException(400, res.get("reason", "preview failed"))
+    return res
+
+
 @router.post("/{funnel}/send")
 def send(funnel: str, db: Session = Depends(get_db), _=Depends(_write)):
     """Send this funnel's newsletter now to its warm subscribers."""

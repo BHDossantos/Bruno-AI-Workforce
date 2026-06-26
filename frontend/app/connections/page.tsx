@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { AuthGate, PageHeader } from "@/components/ui";
 
-type Field = { key: string; label: string; secret: boolean; required: boolean; placeholder?: string };
+type Field = { key: string; label: string; secret: boolean; required: boolean; placeholder?: string; help?: string };
 type Provider = {
   key: string; name: string; category: string; icon: string; auth_type: string;
   fields: Field[]; capabilities: string[]; stages: string[]; compliance: string; goals: string[];
@@ -218,6 +218,7 @@ function Connections() {
                   <label className="text-sm font-medium text-gray-700">
                     {f.label}{f.required && <span className="text-red-500"> *</span>}
                   </label>
+                  {f.help && <p className="mt-0.5 text-xs text-gray-500">Where to get it: {f.help}</p>}
                   <input
                     type={f.secret ? "password" : "text"}
                     placeholder={f.placeholder}

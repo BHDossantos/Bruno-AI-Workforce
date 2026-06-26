@@ -100,9 +100,13 @@ def simulate(db: Session, target: int) -> dict:
         meets = projected >= target
         score = prob if meets else round(prob * projected / target, 3)
         current_expected = sum(c["current_pipeline"] for c in comps)
+        # Target-relative figures so the output visibly changes with the amount.
+        coverage = round(min(1.0, projected / target), 3)
+        gap = max(0, target - projected)
         paths.append({
             "name": name, "description": desc,
             "projected_annual": projected, "current_expected": current_expected,
+            "coverage": coverage, "gap": gap,
             "probability": prob, "meets_target": meets, "score": score,
             "components": [{"label": c["label"], "annual_potential": c["annual_potential"],
                             "current_pipeline": c["current_pipeline"],

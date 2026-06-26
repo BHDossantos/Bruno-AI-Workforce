@@ -30,9 +30,11 @@ from __future__ import annotations
 STAGES = ["attract", "capture", "nurture", "convert", "retain"]
 
 
-def _field(key, label, secret=False, required=True, placeholder=""):
+def _field(key, label, secret=False, required=True, placeholder="", help=""):
+    # `help` says exactly WHERE to get this credential, so the connect form isn't
+    # confusing ("which token is this and where do I find it?").
     return {"key": key, "label": label, "secret": secret, "required": required,
-            "placeholder": placeholder}
+            "placeholder": placeholder, "help": help}
 
 
 PROVIDERS: list[dict] = [
@@ -40,8 +42,14 @@ PROVIDERS: list[dict] = [
     {
         "key": "instagram", "name": "Instagram", "category": "social", "icon": "📸",
         "auth_type": "api_key",
-        "fields": [_field("access_token", "Graph API access token", secret=True),
-                   _field("ig_user_id", "Instagram business account ID", placeholder="1784xxxxxxxx")],
+        "fields": [_field("access_token", "Graph API access token", secret=True,
+                          help="developers.facebook.com → your app → Tools → Graph API Explorer "
+                               "(or a long-lived Page token). Needs instagram_basic + "
+                               "instagram_content_publish + pages_show_list."),
+                   _field("ig_user_id", "Instagram business account ID", placeholder="1784xxxxxxxx",
+                          help="Graph API Explorer: GET me/accounts → your Page → "
+                               "instagram_business_account.id. Your IG must be a Business/Creator "
+                               "account linked to a Facebook Page.")],
         "capabilities": ["publish_auto", "dm_assist", "analytics"],
         "stages": ["attract", "capture", "nurture"],
         "compliance": "Posts/Reels publish via the official Instagram Graph API (Business/Creator accounts). DMs are one-click assisted — never bot-sent.",
@@ -50,8 +58,13 @@ PROVIDERS: list[dict] = [
     {
         "key": "facebook", "name": "Facebook Page", "category": "social", "icon": "👍",
         "auth_type": "api_key",
-        "fields": [_field("access_token", "Page access token", secret=True),
-                   _field("page_id", "Page ID")],
+        "fields": [_field("access_token", "Page access token", secret=True,
+                          help="developers.facebook.com → Graph API Explorer → select your Page → "
+                               "generate a Page token with pages_manage_posts + pages_read_engagement. "
+                               "(With FACEBOOK_APP_ID/SECRET set, it's auto-upgraded to ~60 days.)"),
+                   _field("page_id", "Page ID",
+                          help="Your Facebook Page → About → Page transparency, or "
+                               "Graph API Explorer: GET me/accounts.")],
         "capabilities": ["publish_auto", "analytics", "lead_capture"],
         "stages": ["attract", "capture"],
         "compliance": "Publishes to your Page via the official Meta Graph API. Lead Ads forms ingest automatically.",
@@ -60,9 +73,14 @@ PROVIDERS: list[dict] = [
     {
         "key": "linkedin", "name": "LinkedIn", "category": "social", "icon": "💼",
         "auth_type": "oauth",
-        "fields": [_field("access_token", "OAuth access token (w_member_social)", secret=True),
-                   _field("author_urn", "Author URN", placeholder="urn:li:person:xxxx or urn:li:organization:xxxx"),
-                   _field("profile_url", "Your profile / company URL", secret=False, required=False)],
+        "fields": [_field("access_token", "OAuth access token (w_member_social)", secret=True,
+                          help="linkedin.com/developers → your app → Auth tab → generate a token "
+                               "with the w_member_social scope (3-legged OAuth)."),
+                   _field("author_urn", "Author URN", placeholder="urn:li:person:xxxx or urn:li:organization:xxxx",
+                          help="GET https://api.linkedin.com/v2/userinfo (the 'sub' field) for a "
+                               "person URN, or your Company Page admin URL for an organization URN."),
+                   _field("profile_url", "Your profile / company URL", secret=False, required=False,
+                          help="Just your public LinkedIn URL — used for display only.")],
         "capabilities": ["publish_auto", "dm_assist", "analytics"],
         "stages": ["attract", "nurture", "convert"],
         "compliance": "Auto-publishes YOUR OWN posts via the official LinkedIn API "
@@ -73,7 +91,9 @@ PROVIDERS: list[dict] = [
     {
         "key": "x", "name": "X (Twitter)", "category": "social", "icon": "𝕏",
         "auth_type": "oauth",
-        "fields": [_field("access_token", "OAuth2 user token (tweet.write)", secret=True)],
+        "fields": [_field("access_token", "OAuth2 user token (tweet.write)", secret=True,
+                          help="developer.x.com → your Project/App → Keys and tokens → generate "
+                               "an OAuth 2.0 user token with the tweet.write scope (paid API tier).")],
         "capabilities": ["publish_auto", "analytics"],
         "stages": ["attract"],
         "compliance": "Auto-posts to your X account via API v2 (requires a paid X API tier).",
@@ -83,10 +103,15 @@ PROVIDERS: list[dict] = [
         "key": "spotify", "name": "Spotify for Artists", "category": "social", "icon": "🎧",
         "auth_type": "oauth",
         "fields": [_field("artist_id", "Spotify artist ID",
-                          placeholder="from open.spotify.com/artist/…"),
-                   _field("client_id", "App Client ID", secret=True, required=False),
-                   _field("client_secret", "App Client Secret", secret=True, required=False),
-                   _field("access_token", "OAuth access token (optional)", secret=True, required=False)],
+                          placeholder="from open.spotify.com/artist/…",
+                          help="Open your artist page on open.spotify.com — the ID is the code in "
+                               "the URL after /artist/."),
+                   _field("client_id", "App Client ID", secret=True, required=False,
+                          help="developer.spotify.com/dashboard → create an app → Client ID."),
+                   _field("client_secret", "App Client Secret", secret=True, required=False,
+                          help="Same Spotify dashboard app → Client Secret."),
+                   _field("access_token", "OAuth access token (optional)", secret=True, required=False,
+                          help="Optional — only if you already have a user token; otherwise leave blank.")],
         "capabilities": ["analytics"],
         "stages": ["attract", "retain"],
         "compliance": "Read-only analytics (followers, top tracks) via the Spotify Web API. "
@@ -96,8 +121,13 @@ PROVIDERS: list[dict] = [
     {
         "key": "tiktok", "name": "TikTok", "category": "social", "icon": "🎵",
         "auth_type": "api_key",
-        "fields": [_field("access_token", "TikTok API access token", secret=True),
-                   _field("open_id", "Open ID", required=False)],
+        "fields": [_field("access_token", "TikTok API access token", secret=True,
+                          help="Easiest: use the 'Connect with TikTok' button above. Manual: "
+                               "developers.tiktok.com → your app → get a user access token with "
+                               "video.publish."),
+                   _field("open_id", "Open ID", required=False,
+                          help="Returned alongside the access token by TikTok's OAuth — leave blank "
+                               "if you used the Connect button.")],
         "capabilities": ["publish_auto", "analytics"],
         "stages": ["attract"],
         "compliance": "Publishes via the official TikTok Content Posting API.",
@@ -118,11 +148,18 @@ PROVIDERS: list[dict] = [
     {
         "key": "youtube", "name": "YouTube", "category": "social", "icon": "▶️",
         "auth_type": "oauth",
-        "fields": [_field("client_id", "Google OAuth client ID", secret=True, required=False),
-                   _field("client_secret", "Google OAuth client secret", secret=True, required=False),
-                   _field("refresh_token", "OAuth refresh token (youtube.upload)", secret=True, required=False),
-                   _field("access_token", "OAuth access token (optional)", secret=True, required=False),
-                   _field("channel_id", "Channel ID", required=False)],
+        "fields": [_field("client_id", "Google OAuth client ID", secret=True, required=False,
+                          help="console.cloud.google.com → APIs & Services → Credentials → OAuth "
+                               "client ID (enable the YouTube Data API v3 first)."),
+                   _field("client_secret", "Google OAuth client secret", secret=True, required=False,
+                          help="Same Google Cloud OAuth client → client secret."),
+                   _field("refresh_token", "OAuth refresh token (youtube.upload)", secret=True, required=False,
+                          help="From the OAuth consent flow (e.g. OAuth Playground) with the "
+                               "youtube.upload scope."),
+                   _field("access_token", "OAuth access token (optional)", secret=True, required=False,
+                          help="Optional short-lived token; the refresh token is what's used long-term."),
+                   _field("channel_id", "Channel ID", required=False,
+                          help="youtube.com → Settings → Advanced settings → Channel ID.")],
         "capabilities": ["publish_auto", "analytics"],
         "stages": ["attract"],
         "compliance": "Uploads videos via the YouTube Data API v3 (youtube.upload). "
@@ -144,9 +181,14 @@ PROVIDERS: list[dict] = [
     {
         "key": "medium", "name": "Medium", "category": "content", "icon": "✍️",
         "auth_type": "api_key",
-        "fields": [_field("integration_token", "Integration token", secret=True),
+        "fields": [_field("integration_token", "Integration token", secret=True,
+                          help="medium.com → click your avatar → Settings → Security and apps → "
+                               "Integration tokens → enter a description (e.g. 'Bruno AI') → "
+                               "Get integration token, then paste it here."),
                    _field("publish_status", "draft | public | unlisted",
-                          required=False, placeholder="draft")],
+                          required=False, placeholder="draft",
+                          help="How posts land on Medium: 'draft' (default — review before "
+                               "publishing), 'public' (auto-publish live), or 'unlisted'.")],
         "capabilities": ["publish_auto", "analytics"],
         "stages": ["attract", "nurture"],
         "compliance": "Publishes long-form articles to your Medium account via the "

@@ -33,13 +33,19 @@ function Decisions() {
       await api.post("/decisions", f);
       setF({ title: "", category: "business", decision: "", reasoning: "", expected_outcome: "", confidence: 60 });
       setOpen(false); setRefresh((n) => n + 1);
+    } catch (e) {
+      alert(`Couldn't save decision: ${e}\n\n(If this says 403/forbidden, your account needs operator or admin access to write.)`);
     } finally { setBusy(false); }
   }
 
   async function record(id: string, outcome: string) {
     const note = window.prompt(`Outcome note for this decision (${outcome}):`) || undefined;
-    await api.post(`/decisions/${id}/outcome`, { outcome, outcome_note: note });
-    setRefresh((n) => n + 1);
+    try {
+      await api.post(`/decisions/${id}/outcome`, { outcome, outcome_note: note });
+      setRefresh((n) => n + 1);
+    } catch (e) {
+      alert(`Couldn't record outcome: ${e}`);
+    }
   }
 
   return (

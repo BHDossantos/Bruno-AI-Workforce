@@ -1,7 +1,7 @@
 "use client";
 
 import { api } from "@/lib/api";
-import { AuthGate, PageHeader, KpiCard, useFetch } from "@/components/ui";
+import { AuthGate, PageHeader, KpiCard, useFetch, LoadState } from "@/components/ui";
 
 type PlatformRow = {
   platform: string;
@@ -65,8 +65,8 @@ function Sparkline({ points }: { points: { followers: number }[] }) {
 }
 
 function GrowthView() {
-  const { data } = useFetch<Growth>(() => api.get<Growth>("/analytics/growth"));
-  if (!data) return <div className="p-4 text-gray-400">Loading growth…</div>;
+  const { data, loading, error, reload } = useFetch<Growth>(() => api.get<Growth>("/analytics/growth"));
+  if (!data) return <LoadState loading={loading} error={error} onRetry={reload} />;
   const k = data.kpis;
   const cats = Object.entries(data.by_category).sort((a, b) => b[1] - a[1]);
   const maxCat = Math.max(1, ...cats.map(([, v]) => v));

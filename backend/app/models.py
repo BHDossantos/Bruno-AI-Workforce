@@ -138,6 +138,21 @@ class Decision(Base):
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class CommanderOrder(Base):
+    """A direct order the user gives a Commander from the Command Centers page —
+    optionally with a target amount. Stored for the record and executed (the
+    commander runs its agents now). Lets the user 'pick the amount and give them
+    orders' instead of only watching."""
+    __tablename__ = "commander_orders"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    center: Mapped[str] = mapped_column(String, index=True)  # wealth|business|influence|life_ops
+    order: Mapped[str | None] = mapped_column(Text)          # free-text instruction
+    amount: Mapped[float | None] = mapped_column(Numeric)    # optional target amount
+    status: Mapped[str] = mapped_column(String, default="received")  # received|run|failed
+    result: Mapped[dict | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Opportunity(Base):
     """Any scored opportunity — investor, podcast, collab, speaking slot, brand
     deal, partnership, press. Makes EVERYTHING comparable on one economics formula

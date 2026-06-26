@@ -7,6 +7,7 @@ import { AuthGate, PageHeader, useFetch } from "@/components/ui";
 type Component = { label: string; annual_potential: number; current_pipeline: number; probability: number };
 type Path = {
   name: string; description: string; projected_annual: number; current_expected: number;
+  coverage: number; gap: number;
   probability: number; meets_target: boolean; score: number; components: Component[]; key_moves: string[];
 };
 type Sim = {
@@ -23,7 +24,7 @@ function money(n: number) {
 function Planning() {
   const [target, setTarget] = useState(1_000_000);
   const [applied, setApplied] = useState(1_000_000);
-  const { data } = useFetch<Sim>(() => api.get<Sim>(`/planning/simulate?target=${applied}`), [applied]);
+  const { data, error, loading } = useFetch<Sim>(() => api.get<Sim>(`/planning/simulate?target=${applied}`), [applied]);
 
   return (
     <div className="space-y-8">
@@ -42,7 +43,9 @@ function Planning() {
         {data?.recommended && <span className="text-sm text-gray-500">Recommended path: <b className="text-brand-dark">{data.recommended}</b></span>}
       </div>
 
-      {!data ? <div className="p-4 text-gray-400">Simulating…</div> : (
+      {error && <div className="card text-sm text-red-600">Couldn&apos;t simulate: {error}</div>}
+      {loading && <div className="p-4 text-gray-400">Simulating…</div>}
+      {!loading && !error && data && (
         <>
           <div className="space-y-4">
             {data.paths.map((p, i) => (
@@ -60,6 +63,10 @@ function Planning() {
                   <div className="text-right">
                     <div className="text-2xl font-bold">{money(p.projected_annual)}<span className="text-sm text-gray-400">/yr potential</span></div>
                     <div className="text-xs text-gray-500">now: <b>{money(p.current_expected)}</b> expected pipeline</div>
+                    <div className={`text-xs font-medium ${p.meets_target ? "text-green-600" : "text-amber-600"}`}>
+                      {Math.round(p.coverage * 100)}% of {money(data.target)} target
+                      {p.gap > 0 && <span className="text-gray-400"> · {money(p.gap)} gap</span>}
+                    </div>
                     <div className="text-xs text-gray-400">{Math.round(p.probability * 100)}% feasibility</div>
                   </div>
                 </div>

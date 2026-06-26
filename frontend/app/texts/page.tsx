@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { AuthGate, PageHeader, useFetch } from "@/components/ui";
+import { AuthGate, PageHeader, useFetch, LoadState } from "@/components/ui";
 
 type Thread = { phone: string; name: string | null; count: number; last_at: string | null; last_body: string | null; last_direction: string | null };
 type Msg = { direction: string; body: string; status: string; at: string | null };
@@ -14,7 +14,7 @@ function Texts() {
   const [draft, setDraft] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [newPhone, setNewPhone] = useState("");
-  const { data: threads } = useFetch<Thread[]>(() => api.get<Thread[]>("/sms/threads"), [refresh]);
+  const { data: threads, loading, error, reload } = useFetch<Thread[]>(() => api.get<Thread[]>("/sms/threads"), [refresh]);
   const { data: detail } = useFetch<ThreadDetail | null>(
     () => (active ? api.get<ThreadDetail>(`/sms/thread?phone=${encodeURIComponent(active)}`) : Promise.resolve(null)),
     [active, refresh]
@@ -52,6 +52,7 @@ function Texts() {
               placeholder="+1 617 555 1234" className="min-w-0 flex-1 rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
             <button onClick={startNew} className="shrink-0 rounded-lg bg-brand px-3 py-1.5 text-sm font-medium text-white">New</button>
           </div>
+          {(loading || error) && <LoadState loading={loading} error={error} onRetry={reload} />}
           {(threads || []).map((t) => (
             <button
               key={t.phone}
@@ -67,7 +68,7 @@ function Texts() {
               </div>
             </button>
           ))}
-          {!threads?.length && <p className="p-4 text-sm text-gray-400">No conversations yet.</p>}
+          {!loading && !error && !threads?.length && <p className="p-4 text-sm text-gray-400">No conversations yet.</p>}
         </div>
 
         {/* Conversation */}

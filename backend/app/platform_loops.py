@@ -104,6 +104,41 @@ def run_platform(db: Session, platform: str, seed: int | None = None) -> dict:
             "auto": cfg["auto"], "per_day": cfg["per_day"], "queued": have + made}
 
 
+# Music gets a guaranteed minimum cadence of its own (the user wants ≥3 music
+# campaigns/day automatically), posted across these channels — never LinkedIn.
+MUSIC_CHANNELS = ["instagram", "facebook", "x"]
+MUSIC_MIN_PER_DAY = 3
+
+
+def _music_made_today(db: Session) -> int:
+    start = datetime.combine(date.today(), datetime.min.time(), tzinfo=timezone.utc)
+    return int(db.query(func.count()).select_from(ContentItem).filter(
+        ContentItem.business == "music",
+        ContentItem.status.in_(_ACTIVE),
+        ContentItem.created_at >= start).scalar() or 0)
+
+
+def ensure_music_cadence(db: Session, target: int = MUSIC_MIN_PER_DAY) -> dict:
+    """Guarantee at least `target` music pieces are produced today, regardless of
+    where music landed in the per-platform rotation."""
+    if not settings.content_factory_enabled:
+        return {"ok": False, "reason": "content factory disabled"}
+    have = _music_made_today(db)
+    need = max(0, target - have)
+    seed = date.today().timetuple().tm_yday
+    made = 0
+    for i in range(need):
+        channel = MUSIC_CHANNELS[(seed + i) % len(MUSIC_CHANNELS)]
+        topic = content_analytics.best_topic_for_channel(db, channel, "music", seed + i)
+        res = content_factory.generate_pack(db, topic, "music", channels=[channel])
+        if res.get("ok") and channel in (res.get("channels") or []):
+            made += 1
+        else:
+            return {"ok": False, "made": made, "had": have,
+                    "reason": res.get("reason", "generation failed")}
+    return {"ok": True, "made": made, "had": have, "target": target}
+
+
 def run_all(db: Session, platforms: list[str] | None = None) -> dict:
     """Run every platform loop (failure-isolated). Used by the Influence Commander
     and the /cron/platform-loops trigger."""
@@ -116,5 +151,11 @@ def run_all(db: Session, platforms: list[str] | None = None) -> dict:
         except Exception as exc:  # one platform must never stop the rest
             log.exception("platform loop failed for %s", p)
             out[p] = {"platform": p, "ok": False, "reason": str(exc)}
+    # Guarantee the daily music minimum on top of the rotation.
+    try:
+        out["music_cadence"] = ensure_music_cadence(db)
+    except Exception as exc:
+        log.exception("music cadence failed")
+        out["music_cadence"] = {"ok": False, "reason": str(exc)}
     total = sum(r.get("made", 0) for r in out.values())
     return {"made_total": total, "platforms": out}

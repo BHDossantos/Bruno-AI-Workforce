@@ -1,7 +1,7 @@
 "use client";
 
 import { api } from "@/lib/api";
-import { AuthGate, Expandable, PageHeader, StatusBadge, useFetch } from "@/components/ui";
+import { AuthGate, Expandable, PageHeader, StatusBadge, useFetch, LoadState } from "@/components/ui";
 
 type Job = {
   id: string;
@@ -21,12 +21,12 @@ type Job = {
 };
 
 function Jobs() {
-  const { data, loading } = useFetch<Job[]>(() => api.get<Job[]>("/jobs?limit=100"));
+  const { data, loading, error, reload } = useFetch<Job[]>(() => api.get<Job[]>("/jobs?limit=100"));
   return (
     <div>
       <PageHeader title="Jobs" subtitle="Scored executive opportunities with application artifacts"
         action={<button className="btn-ghost" onClick={() => api.download("/export/jobs.csv", "jobs.csv")}>Export CSV</button>} />
-      {loading && <p className="text-gray-400">Loading…</p>}
+      {(loading || error) && <LoadState loading={loading} error={error} onRetry={reload} />}
       <div className="card overflow-x-auto">
         <table className="w-full">
           <thead>

@@ -91,6 +91,19 @@ def _issue(funnel: str) -> tuple[str, str]:
             "Reply anytime — I read every message.")
 
 
+def preview(db: Session, funnel: str) -> dict:
+    """Generate (but DON'T send) this funnel's next issue, so the user can see a
+    newsletter on demand even before there are warm subscribers."""
+    if funnel not in _FUNNEL:
+        return {"funnel": funnel, "ok": False, "reason": "unknown funnel"}
+    subject, body = _issue(funnel)
+    active = (db.query(NewsletterSubscriber)
+              .filter(NewsletterSubscriber.funnel == funnel,
+                      NewsletterSubscriber.unsubscribed.is_(False)).count())
+    return {"funnel": funnel, "ok": True, "label": _FUNNEL[funnel]["label"],
+            "subject": subject, "body": body, "subscribers": int(active)}
+
+
 def send_funnel(db: Session, funnel: str) -> dict:
     if funnel not in _FUNNEL:
         return {"funnel": funnel, "ok": False, "reason": "unknown funnel"}
