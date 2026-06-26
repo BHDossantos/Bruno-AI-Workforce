@@ -91,6 +91,11 @@ class Settings(BaseSettings):
     insurance_lead_scope: str = "Massachusetts,New Hampshire,Florida"
     consulting_lead_scope: str = "us_eu"
     restaurant_lead_scope: str = "us_eu"
+    # When True, lead sourcing runs for any business that passes an explicit scope
+    # (consulting/SavoryMind sweep US+EU) even if LEAD_STATES is set only for
+    # insurance. Off in tests so no network calls. On in prod so every business
+    # sources from its own geography.
+    wider_lead_sourcing: bool = True
     # How many areas each lead run sweeps. Big scopes (US+EU) rotate through the
     # full list over days so a single run never times out Overpass.
     lead_areas_per_run: int = 6

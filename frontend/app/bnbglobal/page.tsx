@@ -16,6 +16,17 @@ function BnbGlobal() {
     () => api.get<Lead[]>("/leads?segment=consulting&limit=200"), [refresh]);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
+  const [sourcing, setSourcing] = useState(false);
+
+  async function sourceNow() {
+    setSourcing(true); setMsg("Sourcing prospects… this can take a minute.");
+    try {
+      const r = await api.post<{ result?: { summary?: string } }>("/agents/bnbglobal/run", {});
+      setMsg(`✅ ${r.result?.summary || "Done"}`);
+      setRefresh((n) => n + 1);
+    } catch (e) { setMsg(`❌ ${e}`); }
+    finally { setSourcing(false); }
+  }
 
   async function send(id: string) {
     setBusy(id); setMsg("");
@@ -30,7 +41,8 @@ function BnbGlobal() {
   return (
     <div>
       <PageHeader title="BnB Global — Tech Consulting"
-        subtitle="B2B prospects for cloud, SRE, security, AI & managed IT. Founder-led outreach + follow-ups, auto-sent daily." />
+        subtitle="B2B prospects for cloud, SRE, security, AI & managed IT. Founder-led outreach + follow-ups, auto-sent daily."
+        action={<button className="btn" onClick={sourceNow} disabled={sourcing}>{sourcing ? "Sourcing…" : "Source prospects now"}</button>} />
       {msg && <p className="mb-2 text-sm text-gray-600">{msg}</p>}
       {loading && <p className="text-gray-400">Loading…</p>}
       <div className="card overflow-x-auto">

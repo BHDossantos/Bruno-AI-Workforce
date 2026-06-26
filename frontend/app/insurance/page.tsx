@@ -25,10 +25,35 @@ type Lead = {
 
 function Insurance() {
   const [segment, setSegment] = useState("");
+  const [refresh, setRefresh] = useState(0);
   const { data, loading } = useFetch<Lead[]>(
     () => api.get<Lead[]>(`/leads?limit=200${segment ? `&segment=${segment}` : ""}`),
-    [segment]
+    [segment, refresh]
   );
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState("");
+  const [sourcing, setSourcing] = useState(false);
+
+  async function sourceNow() {
+    setSourcing(true); setMsg("Sourcing insurance leads… this can take a minute.");
+    try {
+      const r = await api.post<{ result?: { summary?: string } }>("/agents/insurance/run", {});
+      setMsg(`✅ ${r.result?.summary || "Done"}`);
+      setRefresh((n) => n + 1);
+    } catch (e) { setMsg(`❌ ${e}`); }
+    finally { setSourcing(false); }
+  }
+
+  async function send(id: string) {
+    setBusy(id); setMsg("");
+    try {
+      const r = await api.post<{ ok: boolean; status?: string; reason?: string }>(`/leads/${id}/send`, {});
+      setMsg(r.ok ? `✅ ${r.status?.toLowerCase() || "queued"}` : `❌ ${r.reason || "failed"}`);
+      setRefresh((n) => n + 1);
+    } catch (e) { setMsg(String(e)); }
+    finally { setBusy(null); }
+  }
+
   return (
     <div>
       <PageHeader
@@ -42,9 +67,11 @@ function Insurance() {
               <option value="personal">Personal</option>
             </select>
             <button className="btn-ghost" onClick={() => api.download("/export/leads.csv", "leads.csv")}>Export CSV</button>
+            <button className="btn" onClick={sourceNow} disabled={sourcing}>{sourcing ? "Sourcing…" : "Source leads now"}</button>
           </div>
         }
       />
+      {msg && <p className="mb-2 text-sm text-gray-600">{msg}</p>}
       {loading && <p className="text-gray-400">Loading…</p>}
       <div className="card overflow-x-auto">
         <table className="w-full">
@@ -58,6 +85,7 @@ function Insurance() {
               <th className="th">Status</th>
               <th className="th">Touches</th>
               <th className="th">Scripts</th>
+              <th className="th">Action</th>
             </tr>
           </thead>
           <tbody>
@@ -79,6 +107,12 @@ function Insurance() {
                   <Expandable label="Cold email" text={l.cold_email} />
                   <Expandable label="Call script" text={l.call_script} />
                   <Expandable label="LinkedIn msg" text={l.linkedin_msg} />
+                </td>
+                <td className="td">
+                  <button onClick={() => send(l.id)} disabled={busy === l.id || !l.email}
+                    className="rounded-lg bg-brand px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
+                    {busy === l.id ? "Sending…" : "Reach out"}
+                  </button>
                 </td>
               </tr>
             ))}
