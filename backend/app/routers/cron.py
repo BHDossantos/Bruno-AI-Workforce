@@ -126,6 +126,23 @@ def cron_leads(x_cron_token: str | None = Header(default=None), db: Session = De
     return out
 
 
+@router.post("/auto-outreach")
+def cron_auto_outreach(x_cron_token: str | None = Header(default=None),
+                       db: Session = Depends(get_db)):
+    """Fully automatic outreach: email every pending lead + restaurant prospect +
+    warm imported contacts, daily. Each send respects the mailbox daily cap +
+    warmup, so a big backlog drains safely over a few days rather than all at once."""
+    _auth(x_cron_token)
+    from .. import alerts, bulk_outreach, contacts_outreach
+    out = {
+        "leads": bulk_outreach.dispatch_leads(db),
+        "restaurants": bulk_outreach.dispatch_restaurants(db),
+        "contacts": contacts_outreach.run(db),
+    }
+    alerts.check_run("auto outreach", out)
+    return out
+
+
 @router.post("/contacts-insurance")
 def cron_contacts_insurance(x_cron_token: str | None = Header(default=None),
                             db: Session = Depends(get_db)):
