@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { AuthGate, PageHeader, useFetch, LoadState } from "@/components/ui";
+import { AuthGate, PageHeader, TempBadge, useFetch, LoadState } from "@/components/ui";
 
 type Item = {
   type: string; id: string; risk: string; title: string;
   business: string | null; preview: string; to?: string; created_at: string | null;
+  temperature?: string; fit?: number;
 };
 type Queue = { count: number; items: Item[] };
 
@@ -34,7 +35,7 @@ function Approvals() {
   return (
     <div>
       <PageHeader title="Approval Queue"
-        subtitle="Everything the AI prepared and is waiting on you. Approve to send/schedule, or reject to skip." />
+        subtitle="Everything the AI prepared, highest-priority first (replies → hot/warm → strongest leads). Approve to send/schedule, or reject to skip." />
       {msg && <p className="mb-3 text-sm text-gray-600">{msg}</p>}
       {(loading || error) && <LoadState loading={loading} error={error} onRetry={reload} />}
 
@@ -49,6 +50,8 @@ function Approvals() {
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className={`badge ${RISK[it.risk] || "bg-gray-100 text-gray-600"}`}>{it.risk}</span>
+                  {it.temperature && <TempBadge t={it.temperature} />}
+                  {typeof it.fit === "number" && <span className="badge bg-brand/10 text-brand-dark">fit {it.fit}</span>}
                   <span className="font-medium">{it.title}</span>
                 </div>
                 <div className="mt-1 text-xs text-gray-400">

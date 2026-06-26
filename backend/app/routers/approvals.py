@@ -25,9 +25,23 @@ def _preview(text: str | None, n: int = 220) -> str:
     return t[:n] + ("…" if len(t) > n else "")
 
 
+_TEMP_WEIGHT = {"hot": 3000, "warm": 2000, "cold": 0, "dead": -1000}
+
+
+def _priority(item: dict) -> int:
+    """Rank what to 'hit send' on first: an engaged human waiting on a reply,
+    then hot/warm prospects, then strongest cold ones; content sits below outreach."""
+    if item["type"] == "reply":
+        return 4000  # someone replied — answer them first
+    return _TEMP_WEIGHT.get(item.get("temperature") or "cold", 0) + int(item.get("fit") or 0)
+
+
 @router.get("")
 def list_approvals(limit: int = 100, db: Session = Depends(get_db), _=Depends(_read)):
-    """Everything awaiting your approval, newest first, with a preview + risk."""
+    """Everything awaiting your approval, highest-priority first, with a preview + risk."""
+    from ..lead_fit import score as _lead_fit
+    from ..lead_temperature import classify as _temp
+    from ..restaurant_fit import score as _rest_fit
     items: list[dict] = []
 
     for c in (db.query(ContentItem).filter(ContentItem.status == "needs_approval")
@@ -46,7 +60,8 @@ def list_approvals(limit: int = 100, db: Session = Depends(get_db), _=Depends(_r
             "type": "lead", "id": str(l.id), "risk": "medium",
             "title": f"{seg} email — {l.company_name or l.owner_name}",
             "business": l.segment, "preview": _preview(l.cold_email),
-            "to": l.email, "created_at": l.created_at.isoformat() if l.created_at else None,
+            "to": l.email, "temperature": _temp(l.status), "fit": _lead_fit(l),
+            "created_at": l.created_at.isoformat() if l.created_at else None,
         })
 
     for r in (db.query(Restaurant).filter(Restaurant.kind == "prospect",
@@ -56,7 +71,8 @@ def list_approvals(limit: int = 100, db: Session = Depends(get_db), _=Depends(_r
             "type": "restaurant", "id": str(r.id), "risk": "medium",
             "title": f"SavoryMind pitch — {r.name}",
             "business": "savorymind", "preview": _preview(r.pitch_email),
-            "to": r.email, "created_at": r.created_at.isoformat() if r.created_at else None,
+            "to": r.email, "temperature": _temp(r.status), "fit": _rest_fit(r),
+            "created_at": r.created_at.isoformat() if r.created_at else None,
         })
 
     # AI-drafted replies to inbound messages — approve to send.
@@ -71,7 +87,8 @@ def list_approvals(limit: int = 100, db: Session = Depends(get_db), _=Depends(_r
             "created_at": m.created_at.isoformat() if m.created_at else None,
         })
 
-    items.sort(key=lambda i: i.get("created_at") or "", reverse=True)
+    # Highest-priority first (engaged replies → hot/warm → strongest cold), then newest.
+    items.sort(key=lambda i: (_priority(i), i.get("created_at") or ""), reverse=True)
     return {"count": len(items), "items": items}
 
 
