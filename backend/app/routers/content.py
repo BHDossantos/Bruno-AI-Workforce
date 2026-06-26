@@ -79,6 +79,28 @@ def dismiss(content_id: str, db: Session = Depends(get_db), _=Depends(_write)):
     return _set_status(db, content_id, "dismissed")
 
 
+@router.post("/{content_id}/regenerate")
+def regenerate(content_id: str, db: Session = Depends(get_db), _=Depends(_write)):
+    """Rewrite one stale draft at the current quality bar (dismisses the old one)."""
+    res = content_factory.regenerate_item(db, content_id)
+    if res.get("ok") is False:
+        raise HTTPException(404, res.get("reason", "content not found"))
+    return res
+
+
+class RegenIn(BaseModel):
+    business: str | None = None
+    channel: str | None = None
+
+
+@router.post("/regenerate")
+def regenerate_stale(body: RegenIn | None = None, db: Session = Depends(get_db), _=Depends(_write)):
+    """Clear the un-published draft backlog and regenerate fresh content at the new
+    quality bar (optionally filtered by business/channel)."""
+    body = body or RegenIn()
+    return content_factory.regenerate_stale(db, business=body.business, channel=body.channel)
+
+
 @router.post("/publish-due")
 def publish_due(db: Session = Depends(get_db), _=Depends(_write)):
     return content_factory.publish_due(db)

@@ -131,6 +131,42 @@ def generate_pack(db: Session, topic: str, business: str = "executive",
             "channels": created, "fresh_angle": bool(prior)}
 
 
+# Planned-but-not-published statuses — the drafts a "regenerate" should replace.
+_REGEN_STATUSES = ["generated", "needs_approval", "ready", "scheduled"]
+
+
+def regenerate_item(db: Session, content_id: str) -> dict:
+    """Dismiss one stale draft and rewrite it (same topic/business/channel) at the
+    current quality bar."""
+    item = db.query(ContentItem).filter(ContentItem.id == content_id).first()
+    if not item:
+        return {"ok": False, "reason": "content not found"}
+    topic, business, channel = item.topic, item.business or "executive", item.channel
+    item.status = "dismissed"
+    db.commit()
+    return generate_pack(db, topic, business, channels=[channel])
+
+
+def regenerate_stale(db: Session, business: str | None = None,
+                     channel: str | None = None) -> dict:
+    """Clear the un-published draft backlog and let the engine rewrite fresh
+    content at the new quality bar. Dismisses planned (not yet published) pieces,
+    then re-runs the per-platform loops + music cadence to refill the cadence."""
+    from . import platform_loops
+    q = db.query(ContentItem).filter(ContentItem.status.in_(_REGEN_STATUSES))
+    if business:
+        q = q.filter(ContentItem.business == business)
+    if channel:
+        q = q.filter(ContentItem.channel == channel)
+    stale = q.all()
+    for it in stale:
+        it.status = "dismissed"
+    db.commit()
+    result = platform_loops.run_all(db, [channel] if channel else None)
+    return {"ok": True, "cleared": len(stale),
+            "regenerated": result.get("made_total", 0), "detail": result}
+
+
 def out(i: ContentItem) -> dict:
     return {"id": str(i.id), "topic": i.topic, "business": i.business, "channel": i.channel,
             "title": i.title, "body": i.body, "hashtags": i.hashtags, "status": i.status,

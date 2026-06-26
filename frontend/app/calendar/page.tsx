@@ -26,6 +26,7 @@ function dayLabel(day: string): string {
 function Calendar() {
   const [items, setItems] = useState<Item[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
 
   async function load() { setItems(await api.get<Item[]>("/content?limit=300")); }
   useEffect(() => { load().catch(() => {}); }, []);
@@ -33,6 +34,17 @@ function Calendar() {
   async function act(id: string, path: string, body?: unknown) {
     setBusy(id);
     try { await api.post(`/content/${id}/${path}`, body || {}); await load(); }
+    finally { setBusy(null); }
+  }
+
+  async function regenerateAll() {
+    if (!confirm("Clear the current unpublished drafts and have the engine rewrite fresh content at the new quality bar?")) return;
+    setBusy("all"); setMsg(null);
+    try {
+      const r = await api.post<{ cleared: number; regenerated: number }>("/content/regenerate", {});
+      setMsg(`✅ Cleared ${r.cleared} old draft(s), generated ${r.regenerated} fresh piece(s).`);
+      await load();
+    } catch (e) { setMsg(`❌ ${e}`); }
     finally { setBusy(null); }
   }
 
@@ -46,8 +58,12 @@ function Calendar() {
   return (
     <div>
       <PageHeader title="Content Calendar"
-        subtitle="Everything queued to post, by day. Approve, reschedule, or drop — before it goes live." />
-      {days.length === 0 && <p className="text-sm text-gray-400">Nothing queued. Produce content in the Content Factory.</p>}
+        subtitle="Everything queued to post, by day. Approve, reschedule, or drop — before it goes live."
+        action={<button className="btn" disabled={busy === "all"} onClick={regenerateAll}>
+          {busy === "all" ? "Regenerating…" : "↻ Regenerate all"}
+        </button>} />
+      {msg && <p className="mb-3 text-sm text-gray-600">{msg}</p>}
+      {days.length === 0 && <p className="text-sm text-gray-400">Nothing queued. Produce content in the Content Factory, or hit “Regenerate all”.</p>}
       <div className="space-y-5">
         {days.map((day) => (
           <div key={day}>
@@ -65,6 +81,9 @@ function Calendar() {
                     {i.status !== "scheduled" &&
                       <button disabled={busy === i.id} onClick={() => act(i.id, "approve")}
                         className="rounded border border-gray-300 px-2 py-1 text-xs">Approve</button>}
+                    <button disabled={busy === i.id} onClick={() => act(i.id, "regenerate")}
+                      title="Rewrite at the new quality bar"
+                      className="rounded border border-gray-300 px-2 py-1 text-xs">↻</button>
                     <input type="datetime-local" className="rounded border border-gray-300 px-1 py-1 text-xs"
                       onChange={(e) => e.target.value && act(i.id, "schedule", { when: new Date(e.target.value).toISOString() })} />
                     <button disabled={busy === i.id} onClick={() => act(i.id, "dismiss")}
