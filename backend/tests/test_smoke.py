@@ -221,6 +221,19 @@ def test_planning_paths_rank_and_meet_target():
     assert planning._PROB["insurance"] > planning._PROB["music"]
 
 
+@requires_db
+def test_planning_simulate_returns_real_and_potential(client, auth_headers):
+    """Simulate returns sane numbers and both current pipeline + potential per path."""
+    r = client.get("/planning/simulate?target=1000000", headers=auth_headers)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["target"] == 1000000 and d["paths"]
+    p = d["paths"][0]
+    assert p["projected_annual"] > 0  # never NaN/zero (floored potential)
+    assert "current_expected" in p and p["current_expected"] >= 0
+    assert all("current_pipeline" in c for c in p["components"])
+
+
 def test_board_report_trend_and_fallback():
     """Board report computes WoW trends and always yields actionable recs offline."""
     from app import board_report

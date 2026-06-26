@@ -4,10 +4,10 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import { AuthGate, PageHeader, useFetch } from "@/components/ui";
 
-type Component = { label: string; annual_potential: number; probability: number };
+type Component = { label: string; annual_potential: number; current_pipeline: number; probability: number };
 type Path = {
-  name: string; description: string; projected_annual: number; probability: number;
-  meets_target: boolean; score: number; components: Component[]; key_moves: string[];
+  name: string; description: string; projected_annual: number; current_expected: number;
+  probability: number; meets_target: boolean; score: number; components: Component[]; key_moves: string[];
 };
 type Sim = {
   target: number; recommended: string | null; assumptions: string;
@@ -58,7 +58,8 @@ function Planning() {
                     <div className="text-sm text-gray-500">{p.description}</div>
                   </div>
                   <div className="text-right">
-                    <div className="text-2xl font-bold">{money(p.projected_annual)}<span className="text-sm text-gray-400">/yr</span></div>
+                    <div className="text-2xl font-bold">{money(p.projected_annual)}<span className="text-sm text-gray-400">/yr potential</span></div>
+                    <div className="text-xs text-gray-500">now: <b>{money(p.current_expected)}</b> expected pipeline</div>
                     <div className="text-xs text-gray-400">{Math.round(p.probability * 100)}% feasibility</div>
                   </div>
                 </div>
@@ -66,7 +67,7 @@ function Planning() {
                   {p.components.map((c) => (
                     <div key={c.label} className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-1.5 text-sm">
                       <span>{c.label}</span>
-                      <span className="text-gray-500">{money(c.annual_potential)} · {Math.round(c.probability * 100)}%</span>
+                      <span className="text-gray-500">{money(c.annual_potential)} potential · now {money(c.current_pipeline)} · {Math.round(c.probability * 100)}%</span>
                     </div>
                   ))}
                 </div>
