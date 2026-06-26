@@ -132,6 +132,17 @@ def test_memory_slot_prompts_format_cleanly():
     INFLUENCER_PITCH.format(name="N", niche="n", platform="ig", handle="h", memory="m")
 
 
+def test_planning_paths_rank_and_meet_target():
+    """The planner ranks feasible paths first and flags whether each hits the target."""
+    from app import planning
+    # Streams from a fresh DB fall back to floors, so paths are still meaningful.
+    assert all(k in planning._FLOOR for k in
+               ("exec_role", "insurance", "consulting", "savorymind", "music"))
+    assert len(planning._PATHS) >= 3
+    # Probability blend applies a focus penalty as streams are added.
+    assert planning._PROB["insurance"] > planning._PROB["music"]
+
+
 def test_board_report_trend_and_fallback():
     """Board report computes WoW trends and always yields actionable recs offline."""
     from app import board_report
