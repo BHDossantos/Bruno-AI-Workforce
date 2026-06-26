@@ -10,7 +10,7 @@ import logging
 
 from sqlalchemy.orm import Session
 
-from . import classify, sms_engine
+from . import classify, newsletters, sms_engine
 from .integrations import gmail
 from .models import ActionLog, Lead, Message, Restaurant
 
@@ -59,6 +59,10 @@ def sync_replies(db: Session, newer_than_days: int = 3) -> dict:
                     db, entity_type="lead", entity_id=lead.id,
                     name=lead.company_name or lead.owner_name, phone=lead.phone,
                     context=lead.reason or "insurance", account="insurance")
+                # Warm reply → subscribe to that funnel's newsletter (CAN-SPAM: opt-in).
+                f = newsletters.funnel_for_segment(lead.segment)
+                if f:
+                    newsletters.subscribe(db, f, sender, lead.company_name or lead.owner_name)
                 hit = True
             for rest in db.query(Restaurant).filter(Restaurant.email == sender).all():
                 if rest.status not in _TERMINAL:
@@ -66,6 +70,7 @@ def sync_replies(db: Session, newer_than_days: int = 3) -> dict:
                 sms_engine.maybe_warm_text(
                     db, entity_type="restaurant", entity_id=rest.id, name=rest.name,
                     phone=rest.phone, context=rest.pain_points or "SavoryMind", account="personal")
+                newsletters.subscribe(db, "savorymind", sender, rest.name)
                 hit = True
             for msg in db.query(Message).filter(Message.to_email == sender).all():
                 msg.status = "Replied"

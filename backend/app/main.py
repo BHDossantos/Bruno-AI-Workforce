@@ -26,6 +26,7 @@ from .routers import (
     leads,
     memory,
     messages,
+    newsletters,
     social,
     music,
     opportunities,
@@ -95,6 +96,7 @@ app.include_router(opportunities.router)
 app.include_router(planning.router)
 app.include_router(decisions.router)
 app.include_router(activation.router)
+app.include_router(newsletters.router)
 app.include_router(browser.router)
 app.include_router(social.router)
 app.include_router(finance.router)

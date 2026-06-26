@@ -126,6 +126,17 @@ def cron_leads(x_cron_token: str | None = Header(default=None), db: Session = De
     return out
 
 
+@router.post("/newsletters")
+def cron_newsletters(x_cron_token: str | None = Header(default=None),
+                     db: Session = Depends(get_db)):
+    """Send each funnel's newsletter to its warm subscribers (3x/week)."""
+    _auth(x_cron_token)
+    from .. import alerts, newsletters
+    out = newsletters.run(db)
+    alerts.check_run("newsletters", out)
+    return out
+
+
 @router.post("/auto-outreach")
 def cron_auto_outreach(x_cron_token: str | None = Header(default=None),
                        db: Session = Depends(get_db)):

@@ -94,6 +94,30 @@ class Relationship(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class NewsletterSubscriber(Base):
+    """A warm reply auto-subscribed to a funnel's newsletter. Only people who
+    replied are added (CAN-SPAM friendly); each has a token for one-click
+    unsubscribe."""
+    __tablename__ = "newsletter_subscribers"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    funnel: Mapped[str] = mapped_column(String, index=True)  # insurance|bnbglobal|savorymind|music
+    email: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    name: Mapped[str | None] = mapped_column(String)
+    unsubscribed: Mapped[bool] = mapped_column(Boolean, default=False)
+    token: Mapped[str] = mapped_column(String, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class NewsletterSend(Base):
+    """A record of one newsletter issue sent to a funnel's list (for tracking)."""
+    __tablename__ = "newsletter_sends"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    funnel: Mapped[str] = mapped_column(String, index=True)
+    subject: Mapped[str | None] = mapped_column(String)
+    sent_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Decision(Base):
     """A logged major decision — what was decided, the reasoning, the expected
     outcome and confidence — later marked with the ACTUAL outcome. Over time the

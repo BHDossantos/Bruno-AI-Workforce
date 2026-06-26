@@ -36,6 +36,7 @@ const NAV = [
   { href: "/status", label: "System Status", icon: "🩺" },
   { href: "/import", label: "Import Contacts", icon: "📥" },
   { href: "/outbox", label: "Outbox", icon: "📧" },
+  { href: "/newsletters", label: "Newsletters", icon: "📰" },
   { href: "/texts", label: "Texts", icon: "💬" },
   { href: "/queue", label: "Outreach Queue", icon: "✋" },
   { href: "/brief", label: "Daily Brief", icon: "📋" },
