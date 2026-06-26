@@ -173,6 +173,26 @@ Return JSON with keys:
   to personalize — never repeat a pitch they already declined.
 """
 
+MUSIC_PR_PITCH = """Write a concise press pitch for Bruno D — a "Luxury Latin Soul" artist
+(romantic R&B with a signature alto sax, sung in English/Spanish/Portuguese).
+
+Outlet: {name} ({kind}) — covers {focus}. Contact: {contact}
+{memory}
+Return JSON with key "pitch": a respectful 90-130 word pitch tailored to this outlet's
+audience, leading with the story/angle (not a hard sell), with one clear ask (premiere,
+feature, interview, or add to rotation). Never repeat a pitch they already declined.
+"""
+
+COLLAB_PITCH = """Write artist-to-artist outreach from Bruno D ("Luxury Latin Soul":
+romantic R&B with saxophone) proposing a collaboration with a similarly-sized indie artist.
+
+Artist: {name} — {genre}, ~{listeners} monthly listeners on {platform}.
+{memory}
+Return JSON with key "pitch": a warm, peer 70-110 word note proposing ONE concrete
+collab (feature, duet, song swap, playlist swap, or joint live), genuine and specific
+to their music. No hype, no mass-blast tone.
+"""
+
 INFLUENCER_PITCH = """Write outreach to a music/culture influencer for an artist collaboration.
 
 Influencer: {name} — {niche} on {platform} (@{handle})

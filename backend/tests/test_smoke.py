@@ -378,8 +378,8 @@ def test_all_agents_registered():
     assert set(AGENTS) == {
         "job_hunter", "insurance", "commercial_finder", "homeowner", "referral_partner",
         "follow_up_agent", "review_referral", "bnbglobal", "savorymind", "music",
-        "instagram", "grant_research", "foundation_outreach", "school_partner",
-        "ceo_dashboard",
+        "music_pr", "music_collab", "instagram", "grant_research", "foundation_outreach",
+        "school_partner", "ceo_dashboard",
     }
 
 

@@ -133,7 +133,7 @@ class Settings(BaseSettings):
     wider_lead_sourcing: bool = True
     # How many areas each lead run sweeps. Big scopes (US+EU) rotate through the
     # full list over days so a single run never times out Overpass.
-    lead_areas_per_run: int = 10
+    lead_areas_per_run: int = 16
     # Location bias for job-search queries (JSearch). Blank = no location filter.
     job_location: str = "United States"
     # How many leads each lead-finder agent produces per run. Small batches keep
