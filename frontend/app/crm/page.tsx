@@ -39,10 +39,22 @@ function CRM() {
   }
   useEffect(() => { load().catch(() => {}); }, [source]);  // eslint-disable-line react-hooks/exhaustive-deps
 
+  const [note, setNote] = useState("");
+  const [savingNote, setSavingNote] = useState(false);
+
   async function expand(c: Contact) {
     if (open === c.id) { setOpen(null); setDetail(null); return; }
-    setOpen(c.id); setDetail(null);
+    setOpen(c.id); setDetail(null); setNote("");
     setDetail(await api.get<Detail>(`/crm/${encodeURIComponent(c.id)}`));
+  }
+
+  async function saveNote(cid: string) {
+    if (!note.trim()) return;
+    setSavingNote(true);
+    try {
+      const updated = await api.post<Detail>(`/crm/${encodeURIComponent(cid)}/note`, { content: note.trim() });
+      setDetail(updated); setNote("");
+    } finally { setSavingNote(false); }
   }
 
   async function addContact() {
@@ -118,6 +130,20 @@ function CRM() {
                             <li key={m.id} className="text-sm">• {m.content}</li>
                           ))}
                         </ul>
+                        {detail && (
+                          <div className="mt-3 flex gap-2">
+                            <input
+                              value={open === c.id ? note : ""}
+                              onChange={(e) => setNote(e.target.value)}
+                              onKeyDown={(e) => e.key === "Enter" && saveNote(c.id)}
+                              placeholder="Teach the AI something (e.g. prefers WhatsApp, met at conference)…"
+                              className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+                            <button onClick={() => saveNote(c.id)} disabled={savingNote || !note.trim()}
+                              className="rounded-lg bg-brand px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
+                              {savingNote ? "Saving…" : "Remember"}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </td>
                   </tr>

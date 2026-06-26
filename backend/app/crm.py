@@ -86,11 +86,26 @@ def list_contacts(db: Session, *, q: str | None = None, source: str | None = Non
 
 
 def get_contact(db: Session, cid: str) -> dict | None:
-    """Resolve one aggregated contact and attach its memory-graph entries."""
+    """Resolve one aggregated contact and attach its memory-graph entries (merged
+    across the contact's name AND email, so auto-captured replies show too)."""
     src = next((c for c in list_contacts(db) if c["id"] == cid), None)
     if not src:
         return None
-    src["memories"] = memory.recall(db, src.get("subject") or src["name"], k=25)
+    src["memories"] = memory.recall_entity(
+        db, name=src.get("subject") or src.get("name"), email=src.get("email"), k=25)
+    return src
+
+
+def add_note(db: Session, cid: str, content: str) -> dict | None:
+    """Teach the workforce something about a contact — saved to the memory graph
+    under the contact's name so every agent recalls it from now on."""
+    src = next((c for c in list_contacts(db) if c["id"] == cid), None)
+    if not src:
+        return None
+    subject = src.get("subject") or src.get("name")
+    memory.add(db, (content or "").strip(), kind="note", subject=subject, source="manual")
+    src["memories"] = memory.recall_entity(
+        db, name=subject, email=src.get("email"), k=25)
     return src
 
 

@@ -14,7 +14,7 @@ import logging
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from . import outreach
+from . import memory, outreach
 from .ai import client
 from .config import settings
 from .integrations import sms
@@ -41,16 +41,19 @@ def _fallback_body(first: str) -> str:
             "Just reply here and we'll find a time.\n\nBest,\nBruno")
 
 
-def _message_for(contact: ManualContact) -> tuple[str, str]:
+def _message_for(db: Session, contact: ManualContact) -> tuple[str, str]:
     first = (contact.name or "there").split()[0]
     if not client.is_live():
         return _SUBJECT, _fallback_body(first)
+    mem = memory.entity_context(db, name=contact.name, email=contact.email)
     prompt = (f"Write a SHORT, warm, personal email from Bruno Dos Santos to {first}, "
               "someone in Bruno's personal network (NOT a cold lead). Bruno now offers "
               "insurance through Thrust Insurance (home, auto, life, business). Offer a "
               "free, no-pressure review / second opinion of their current coverage and ask "
               "to find a time. Friendly, brief, no hype. "
-              'Return JSON: {"subject": "...", "body": "..."}.')
+              + (f"\n{mem}\nUse anything you remember to make it genuinely personal "
+                 "(reference the relationship naturally); never contradict it.\n" if mem else "")
+              + 'Return JSON: {"subject": "...", "body": "..."}.')
     out = client.complete_json(prompt, system="You output only valid JSON.")
     if isinstance(out, dict) and out.get("body"):
         return out.get("subject") or _SUBJECT, out["body"]
@@ -82,13 +85,18 @@ def run(db: Session, limit: int | None = None, sms_enabled: bool | None = None) 
             continue
         if not outreach.is_real_email(c.email):
             continue
-        subject, body = _message_for(c)
+        subject, body = _message_for(db, c)
         msg = outreach.dispatch_email(db, entity_type="contact", entity_id=c.id,
                                       to_email=c.email, subject=subject, body=body,
                                       account="insurance", actor="contacts_insurance")
         if msg.status in ("Sent", "Drafted"):
             c.status = _EMAILED  # one outreach per contact (sent now, or a draft to send)
             emailed += 1
+            try:  # remember the touch so follow-ups never repeat the intro
+                memory.add(db, "Sent a warm Thrust insurance intro (free policy review).",
+                           kind="event", subject=c.name or c.email, source="contacts_insurance")
+            except Exception:
+                log.debug("contact memory capture skipped", exc_info=True)
         # Optional warm SMS — only when explicitly enabled (consent/TCPA), Twilio is
         # configured, and we haven't texted this number before.
         if sms_on and c.phone and sms.is_configured() and not _has_prior_sms(db, c.phone):

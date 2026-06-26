@@ -40,3 +40,18 @@ def get_contact(cid: str, db: Session = Depends(get_db), _=Depends(_read)):
     if not c:
         raise HTTPException(404, "contact not found")
     return c
+
+
+class NoteIn(BaseModel):
+    content: str
+
+
+@router.post("/{cid}/note")
+def add_note(cid: str, body: NoteIn, db: Session = Depends(get_db), _=Depends(_write)):
+    """Teach the workforce something about this contact (saved to the memory graph)."""
+    if not body.content.strip():
+        raise HTTPException(400, "empty note")
+    c = crm.add_note(db, cid, body.content)
+    if not c:
+        raise HTTPException(404, "contact not found")
+    return c

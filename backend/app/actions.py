@@ -41,10 +41,9 @@ def _send_followup(db: Session, entity_type: str, row, account: str) -> dict:
             or getattr(row, "name", None) or "there")
     context = (getattr(row, "reason", None) or getattr(row, "pain_points", None) or "our earlier note")
     sysp = skills.system_prompt("cold-email")
-    mem_ctx = memory.context_block(db, name)
-    if mem_ctx:
-        sysp = f"{sysp}\n\n{mem_ctx}"
-    art = client.complete_json(FOLLOWUP_EMAIL.format(step=1, name=name, context=context), system=sysp)
+    mem_ctx = memory.entity_context(db, name=name, email=getattr(row, "email", None))
+    art = client.complete_json(
+        FOLLOWUP_EMAIL.format(step=1, name=name, context=context, memory=mem_ctx), system=sysp)
     art = art if isinstance(art, dict) else {}
     subject = art.get("subject") or f"Following up — {name}"
     msg = outreach.dispatch_email(db, entity_type=entity_type, entity_id=row.id,
