@@ -78,6 +78,16 @@ def execute(db: Session, key: str) -> dict:
             rest = db.query(Restaurant).filter(Restaurant.id == key.split(":")[-1]).first()
             res = _send_followup(db, "restaurant", rest, "personal") if rest else {"ok": False, "reason": "not found"}
 
+        elif key.startswith("opportunity:"):
+            from .models import Opportunity
+            opp = db.query(Opportunity).filter(Opportunity.id == key.split(":", 1)[1]).first()
+            if opp:
+                opp.status = "Won"
+                db.commit()
+                res = {"ok": True, "message": f"Marked '{opp.title}' won", "link": opp.link}
+            else:
+                res = {"ok": False, "reason": "not found"}
+
         elif key.startswith("reply:"):
             # Replies need human nuance — open the thread; mark handled.
             res = {"ok": True, "message": "Open Texts to reply", "link": "/texts"}

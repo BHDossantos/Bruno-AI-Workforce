@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from . import objectives
 from .models import (ActionState, Application, Contact, ContentItem, Job, Lead,
-                     Message, Restaurant)
+                     Message, Opportunity, Restaurant)
 
 # Expected-value assumptions (tune freely; these are sensible defaults).
 _COMMERCIAL_VALUE = 5_000      # avg commercial insurance commission
@@ -99,6 +99,24 @@ def build_actions(db: Session) -> list[dict]:
             "value": 3_000.0, "probability": 0.6, "effort": 1,
             "priority": _score(3_000, 0.6, 1, w.get("insurance", 0.8), 1.6),
             "link": "/texts", "why": "Warm — replied to your text",
+        })
+
+    # ── Universal opportunities — investors, podcasts, collabs, speaking, etc. ─
+    for o in db.query(Opportunity).filter(Opportunity.status == "Open").limit(100):
+        value = float(o.value or 0)
+        prob = float(o.probability if o.probability is not None else 0.3)
+        effort = int(o.effort or 2)
+        urgency = float(o.urgency if o.urgency is not None else 1.0)
+        weight = w.get(o.objective or "", 0.6)
+        actions.append({
+            "key": f"opportunity:{o.id}",
+            "title": f"{(o.kind or 'opportunity').replace('_', ' ').title()}: {o.title}",
+            "command_center": o.command_center or "business",
+            "objective": o.objective or "opportunity", "action_type": "opportunity",
+            "value": value, "probability": round(prob, 2), "effort": effort,
+            "priority": _score(value, prob, effort, weight, urgency),
+            "link": o.link or "/opportunities",
+            "why": f"{o.kind or 'opportunity'} · ~${round(value/1000)}k @ {round(prob*100)}%",
         })
 
     # Drop actions already executed or dismissed (state overlay).
