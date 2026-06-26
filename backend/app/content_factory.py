@@ -117,7 +117,8 @@ def generate_pack(db: Session, topic: str, business: str = "executive",
             continue
         status, sched = _status_for_mode(db, ch)
         if ch not in _PUBLISHABLE and status == "scheduled":
-            status, sched = "ready", None  # non-social pieces are drafts to use
+            status = "ready"  # non-social pieces (blog/email/podcast) are drafts to
+            # grab manually — keep the date so they still show by day on the calendar
         item = ContentItem(
             topic=topic, business=business, channel=ch,
             title=data.get("title") or data.get("subject"),
