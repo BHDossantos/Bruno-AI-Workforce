@@ -123,6 +123,14 @@ def generate_pack(db: Session, topic: str, business: str = "executive",
                     f"Pillars: {settings.foundation_pillars}. Lead with impact and people "
                     "(students, communities, artists); invite support (donate/volunteer/partner). "
                     "Warm, credible, never salesy; no fundraising guarantees or financial claims.")
+    elif business == "personal":
+        guidance = ("This is Bruno D's PERSONAL brand — a multi-hyphenate operator: "
+                    "executive/entrepreneur, AI builder, athlete, investor, and musician, "
+                    "based between the US and Rome. First-person, authentic, story-driven. "
+                    "Pillars: entrepreneurship & lessons learned, AI/tech building in public, "
+                    "fitness & discipline, Rome/Italy life, books & ideas, fatherhood & "
+                    "resilience. Build authority + relatability; not a product pitch. End with "
+                    "a question or reflection that invites conversation.")
     prior = covered_recently(db, topic)
     freshness = (f"We've already covered: {', '.join(prior)}. Take a clearly NEW angle."
                  if prior else "This is a fresh topic.")

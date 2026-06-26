@@ -34,19 +34,20 @@ log = logging.getLogger("bruno.platform_loops")
 #               False → assist mode (drafts only, a human posts on-platform)
 #   businesses— business lines that feed this platform, rotated day-to-day
 LOOPS: dict[str, dict] = {
-    # Instagram + Facebook: 3/day each, rotating music · BnB Global · insurance.
+    # Instagram + Facebook: 3/day each — music · BnB Global · insurance · Bruno D.
     "instagram": {"per_day": 3, "auto": True,
-                  "businesses": ["music", "bnbglobal", "insurance"]},
+                  "businesses": ["music", "bnbglobal", "insurance", "personal"]},
     "facebook":  {"per_day": 3, "auto": True,
-                  "businesses": ["music", "bnbglobal", "insurance"]},
-    # LinkedIn: 1/day — BnB + insurance + foundation (no music on LinkedIn, per the rule).
+                  "businesses": ["music", "bnbglobal", "insurance", "personal"]},
+    # LinkedIn: 1/day — BnB + insurance + foundation + Bruno D personal brand
+    # (no music on LinkedIn, per the rule).
     "linkedin":  {"per_day": 1, "auto": True,
-                  "businesses": ["bnbglobal", "insurance", "foundation"]},
-    # Medium (blog): 1/day long-form — BnB + insurance + foundation impact stories.
+                  "businesses": ["bnbglobal", "insurance", "foundation", "personal"]},
+    # Medium (blog): 1/day long-form — BnB + insurance + foundation + personal.
     "blog":      {"per_day": 1, "auto": False,
-                  "businesses": ["bnbglobal", "insurance", "foundation"]},
+                  "businesses": ["bnbglobal", "insurance", "foundation", "personal"]},
     "x":         {"per_day": 2, "auto": True,
-                  "businesses": ["bnbglobal", "executive", "music"]},
+                  "businesses": ["bnbglobal", "personal", "music"]},
     "tiktok":    {"per_day": 1, "auto": False,
                   "businesses": ["music"]},
     "youtube":   {"per_day": 1, "auto": False,

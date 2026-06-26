@@ -51,7 +51,7 @@ def _run_content_factory(db: Session) -> dict:
         return {}
     seed = date.today().timetuple().tm_yday
     out = {}
-    for business in ("executive", "bnbglobal", "savorymind", "music", "foundation"):
+    for business in ("executive", "bnbglobal", "savorymind", "music", "foundation", "personal"):
         try:
             topic = content_analytics.best_topic(db, business, seed)  # bias to what performs
             out[business] = content_factory.generate_pack(
