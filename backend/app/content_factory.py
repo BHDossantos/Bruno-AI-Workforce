@@ -59,11 +59,14 @@ def compose_caption(body: str | None, hashtags: str | None) -> str:
 
 def _status_for_mode(db: Session, channel: str) -> tuple[str, datetime | None]:
     # Always assign a concrete posting slot so EVERY generated piece lands on a
-    # specific day/time in the content calendar (today vs tomorrow vs later),
-    # regardless of approval mode.
-    from . import posting_times
-    mode = settings.content_approval_mode
+    # specific day/time in the content calendar (today vs tomorrow vs later).
+    from . import control, posting_times
     slot = posting_times.next_slot(db, channel)
+    # Semi/manual mode: content waits in the Approval Queue until you approve it.
+    # Only full-auto mode auto-schedules to publish without review.
+    if control.get_mode(db) != "auto":
+        return "needs_approval", slot
+    mode = settings.content_approval_mode
     if mode <= 1:
         return "generated", slot
     if mode == 2:

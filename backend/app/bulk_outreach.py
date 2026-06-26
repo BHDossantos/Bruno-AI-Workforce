@@ -16,7 +16,8 @@ from .models import Lead, Restaurant
 _PENDING = (None, "New", "Drafted")
 
 
-def dispatch_leads(db: Session, segment: str | None = None, limit: int = 1000) -> dict:
+def dispatch_leads(db: Session, segment: str | None = None, limit: int = 1000,
+                   autonomous: bool = True) -> dict:
     q = db.query(Lead).filter(Lead.status.in_(_PENDING), Lead.email.isnot(None))
     if segment:
         q = q.filter(Lead.segment == segment)
@@ -28,7 +29,8 @@ def dispatch_leads(db: Session, segment: str | None = None, limit: int = 1000) -
         try:
             msg = outreach.dispatch_email(db, entity_type="lead", entity_id=lead.id,
                                           to_email=lead.email, subject=subject,
-                                          body=lead.cold_email, account=account, actor="bulk")
+                                          body=lead.cold_email, account=account, actor="bulk",
+                                          autonomous=autonomous)
             if msg.status in ("Sent", "Drafted"):
                 if msg.status == "Sent" and lead.status in (None, "New", "Drafted"):
                     lead.status = "Sent"
@@ -41,7 +43,7 @@ def dispatch_leads(db: Session, segment: str | None = None, limit: int = 1000) -
     return {"pending": len(rows), "dispatched": sent, "failed": failed}
 
 
-def dispatch_restaurants(db: Session, limit: int = 1000) -> dict:
+def dispatch_restaurants(db: Session, limit: int = 1000, autonomous: bool = True) -> dict:
     rows = (db.query(Restaurant).filter(
         Restaurant.kind == "prospect", Restaurant.status.in_(_PENDING),
         Restaurant.email.isnot(None)).limit(limit).all())
@@ -51,7 +53,8 @@ def dispatch_restaurants(db: Session, limit: int = 1000) -> dict:
         try:
             msg = outreach.dispatch_email(db, entity_type="restaurant", entity_id=r.id,
                                           to_email=r.email, subject=subject,
-                                          body=r.pitch_email, account="personal", actor="bulk")
+                                          body=r.pitch_email, account="personal", actor="bulk",
+                                          autonomous=autonomous)
             if msg.status in ("Sent", "Drafted"):
                 if msg.status == "Sent" and r.status in (None, "New", "Drafted"):
                     r.status = "Sent"

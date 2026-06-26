@@ -54,7 +54,8 @@ def send_outreach(lead_id: str, db: Session = Depends(get_db),
     account = "insurance" if lead.segment == "commercial" or lead.segment == "personal" else "personal"
     subject = f"A quick idea for {lead.company_name or lead.owner_name}"
     msg = outreach.dispatch_email(db, entity_type="lead", entity_id=lead.id, to_email=lead.email,
-                                  subject=subject, body=lead.cold_email, account=account, actor="manual")
+                                  subject=subject, body=lead.cold_email, account=account,
+                                  actor="manual", autonomous=False)
     if msg.status == "Sent" and lead.status in (None, "New", "Drafted"):
         lead.status = "Sent"
     db.commit()
@@ -67,7 +68,7 @@ def dispatch_pending(segment: str | None = None, db: Session = Depends(get_db),
     """Send the cold email to every pending lead at once (status New/Drafted with an
     email). Optional ?segment= for insurance (commercial/personal) or consulting."""
     from .. import bulk_outreach
-    return {"ok": True, **bulk_outreach.dispatch_leads(db, segment=segment)}
+    return {"ok": True, **bulk_outreach.dispatch_leads(db, segment=segment, autonomous=False)}
 
 
 @router.post("/{lead_id}/status")
