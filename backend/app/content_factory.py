@@ -76,6 +76,21 @@ def _status_for_mode(db: Session, channel: str) -> tuple[str, datetime | None]:
     return "scheduled", datetime.now(timezone.utc)  # 4/5: publish on next content-cron tick
 
 
+def _whats_working(db: Session) -> str:
+    """A learning signal for the generator: the angles/topics currently earning the
+    most engagement, so new content leans into what's proven to resonate."""
+    try:
+        from . import content_analytics
+        top = content_analytics.top_performers(db, 5)
+    except Exception:  # pragma: no cover - learning is best-effort
+        return ""
+    winners = [t.get("topic") for t in top if t.get("engagement")]
+    if not winners:
+        return ""
+    return ("WHAT'S WORKING (lean into these proven angles, don't copy them): "
+            + "; ".join(w for w in winners if w))
+
+
 def covered_recently(db: Session, topic: str) -> list[str]:
     """Titles of prior content on a very similar topic (for a fresh-angle nudge)."""
     qv = client.embed(topic)
@@ -111,9 +126,16 @@ def generate_pack(db: Session, topic: str, business: str = "executive",
     prior = covered_recently(db, topic)
     freshness = (f"We've already covered: {', '.join(prior)}. Take a clearly NEW angle."
                  if prior else "This is a fresh topic.")
+    # Learn & act: lean into what's actually earning engagement.
+    guidance = (guidance + "\n\n" + _whats_working(db)).strip()
+    # Apply best-practice marketing frameworks (copywriting, social, psychology,
+    # content strategy) from the packaged skills.
+    from .ai import skills
+    sysp = skills.system_prompt("copywriting", "social", "marketing-psychology",
+                                "content-strategy")
     pack = client.complete_json(CONTENT_FACTORY.format(
         brand=brand.context(db), business=business, topic=topic,
-        freshness=freshness, guidance=guidance))
+        freshness=freshness, guidance=guidance), system=sysp)
     pack = pack if isinstance(pack, dict) else {}
     if not pack:
         return {"ok": False, "reason": "generation unavailable (set OPENAI_API_KEY)", "topic": topic}

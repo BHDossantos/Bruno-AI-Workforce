@@ -72,7 +72,7 @@ class BnbGlobalAgent(BaseAgent):
         sent = enriched = 0
         for row, p in pairs:
             try:
-                sysp = skills.system_prompt("cold-email", "marketing-psychology")
+                sysp = skills.system_prompt("cold-email", "marketing-psychology", "offers")
                 mem_ctx = memory.context_block(self.db, p.get("company_name") or "")
                 if mem_ctx:
                     sysp = f"{sysp}\n\n{mem_ctx}"

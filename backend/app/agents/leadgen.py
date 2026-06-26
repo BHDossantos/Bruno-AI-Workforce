@@ -66,7 +66,7 @@ def run_batch(agent, prospects: list[dict], *, account: str, build_prompt,
     enriched = sent = 0
     for row, p in pairs:
         try:
-            sysp = skills.system_prompt("cold-email", "marketing-psychology")
+            sysp = skills.system_prompt("cold-email", "marketing-psychology", "offers")
             mem_ctx = memory.context_block(db, p.get("company_name") or "")
             if mem_ctx:
                 sysp = f"{sysp}\n\n{mem_ctx}"
