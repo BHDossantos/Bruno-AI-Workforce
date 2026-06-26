@@ -163,6 +163,11 @@ class Settings(BaseSettings):
     # Facebook, …). instagram_auto_publish is kept as an alias. Off by default.
     instagram_auto_publish: bool = False
     social_auto_publish: bool = False
+    # Meta app credentials — when set, any IG/FB token pasted on the Connections
+    # page is auto-upgraded to a long-lived (~60-day) token on connect, so a
+    # short-lived token can never silently expire after a couple of hours.
+    facebook_app_id: str = ""
+    facebook_app_secret: str = ""
     # Content Factory approval mode: 1 generate · 2 generate+approve ·
     # 3 auto-schedule · 4 auto-publish · 5 fully autonomous.
     content_approval_mode: int = 3

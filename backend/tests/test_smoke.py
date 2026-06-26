@@ -146,6 +146,18 @@ def test_activation_checklist(client, auth_headers):
     assert d["live"] is False
 
 
+def test_meta_token_upgrade_is_safe():
+    """Auto-upgrade is a no-op for non-Meta providers and when app creds are absent,
+    so connecting never breaks; it never downgrades a token."""
+    from app.integrations import meta_tokens
+    # Non-Meta provider: untouched.
+    creds = {"access_token": "x"}
+    assert meta_tokens.upgrade("linkedin", creds) == creds
+    # Meta provider but no app id/secret available → returned unchanged (no network).
+    out = meta_tokens.upgrade("facebook", {"access_token": "short"})
+    assert out == {"access_token": "short"}
+
+
 def test_agent_health_suggestions():
     """Agent self-report turns its track record into an actionable nudge."""
     from app.routers.agents import _suggest
