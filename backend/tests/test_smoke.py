@@ -143,6 +143,13 @@ def test_bulk_dispatch_endpoints(client, auth_headers):
     assert r2.status_code == 200 and r2.json()["ok"] is True
 
 
+def test_bulk_outreach_helpers_exist():
+    """The shared dispatch module powers both the buttons and the auto cron."""
+    from app import bulk_outreach
+    assert hasattr(bulk_outreach, "dispatch_leads")
+    assert hasattr(bulk_outreach, "dispatch_restaurants")
+
+
 @requires_db
 def test_activation_checklist(client, auth_headers):
     """The go-live checklist returns a readiness score, required items, and a next step."""

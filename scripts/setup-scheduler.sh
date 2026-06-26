@@ -58,6 +58,9 @@ upsert_job "bruno-followups"  "0 9,14 * * 1-5" "/cron/followups" "320s"
 # Warm insurance outreach to imported personal contacts — one daily batch that
 # drips through your contact list within the mailbox warmup cap.
 upsert_job "bruno-contacts-insurance" "15 10 * * *" "/cron/contacts-insurance" "600s"
+# Fully automatic outreach: drain ALL pending leads + restaurants + contacts each
+# business day (paced by the mailbox cap). Hands-off sending.
+upsert_job "bruno-auto-outreach" "0 9,15 * * 1-5" "/cron/auto-outreach" "900s"
 # Referral asks to engaged insurance leads (warmest source) — weekly, Mondays.
 upsert_job "bruno-referrals" "0 11 * * 1" "/cron/referrals" "320s"
 # Release-as-eras: auto-build the full content kit for upcoming planned songs

@@ -38,30 +38,11 @@ def send_pitch(restaurant_id: str, db: Session = Depends(get_db),
 
 
 @router.post("/dispatch")
-def dispatch_pending(limit: int = 500, db: Session = Depends(get_db),
+def dispatch_pending(db: Session = Depends(get_db),
                      _=Depends(require_role("admin", "operator"))):
     """Send the SavoryMind pitch to every pending restaurant prospect at once."""
-    rows = (db.query(Restaurant).filter(
-        Restaurant.kind == "prospect",
-        Restaurant.status.in_((None, "New", "Drafted")),
-        Restaurant.email.isnot(None)).limit(limit).all())
-    sent = failed = 0
-    for r in rows:
-        subject = f"Growing revenue at {r.name} with SavoryMind"
-        try:
-            msg = outreach.dispatch_email(db, entity_type="restaurant", entity_id=r.id,
-                                          to_email=r.email, subject=subject,
-                                          body=r.pitch_email, account="personal", actor="bulk")
-            if msg.status in ("Sent", "Drafted"):
-                if r.status in (None, "New", "Drafted") and msg.status == "Sent":
-                    r.status = "Sent"
-                sent += 1
-            else:
-                failed += 1
-        except Exception:
-            failed += 1
-    db.commit()
-    return {"ok": True, "pending": len(rows), "dispatched": sent, "failed": failed}
+    from .. import bulk_outreach
+    return {"ok": True, **bulk_outreach.dispatch_restaurants(db)}
 
 
 @router.post("/{restaurant_id}/status")
