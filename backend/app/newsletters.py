@@ -56,6 +56,7 @@ def subscribe(db: Session, funnel: str, email: str | None, name: str | None = No
         return False
     db.add(NewsletterSubscriber(funnel=funnel, email=email, name=name,
                                 token=secrets.token_urlsafe(16)))
+    db.flush()  # make this add visible to the next dedupe check in the same batch
     return True
 
 

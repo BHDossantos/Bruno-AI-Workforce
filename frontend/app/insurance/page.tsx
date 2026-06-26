@@ -128,6 +128,9 @@ function Insurance() {
                 </td>
               </tr>
             ))}
+            {!loading && (data || []).length === 0 && (
+              <tr><td colSpan={9} className="td text-center text-gray-400">No leads yet — hit “Source leads now” to find prospects.</td></tr>
+            )}
           </tbody>
         </table>
       </div>
