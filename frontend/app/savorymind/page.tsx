@@ -38,6 +38,17 @@ function SavoryMind() {
     finally { setSourcing(false); }
   }
 
+  async function dispatchAll() {
+    if (!confirm("Send the SavoryMind pitch to all pending restaurants now?")) return;
+    setBusy("all"); setMsg("Dispatching all pending restaurants…");
+    try {
+      const r = await api.post<{ dispatched: number; pending: number; failed: number }>("/restaurants/dispatch", {});
+      setMsg(`✅ Dispatched ${r.dispatched}/${r.pending} pending${r.failed ? `, ${r.failed} failed` : ""}.`);
+      setRefresh((n) => n + 1);
+    } catch (e) { setMsg(`❌ ${e}`); }
+    finally { setBusy(null); }
+  }
+
   async function send(id: string) {
     setBusy(id); setMsg("");
     try {
@@ -51,7 +62,10 @@ function SavoryMind() {
   return (
     <div>
       <PageHeader title="SavoryMind Leads" subtitle="Restaurant prospects with AI menu analysis and pitch"
-        action={<button className="btn" onClick={sourceNow} disabled={sourcing}>{sourcing ? "Sourcing…" : "Source restaurants now"}</button>} />
+        action={<div className="flex gap-2">
+          <button className="btn" onClick={sourceNow} disabled={sourcing}>{sourcing ? "Sourcing…" : "Source restaurants now"}</button>
+          <button className="btn" onClick={dispatchAll} disabled={busy === "all"}>{busy === "all" ? "Sending…" : "Send all pending"}</button>
+        </div>} />
       {msg && <p className="mb-2 text-sm text-gray-600">{msg}</p>}
       {loading && <p className="text-gray-400">Loading…</p>}
       <div className="card overflow-x-auto">

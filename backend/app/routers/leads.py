@@ -42,6 +42,40 @@ def send_outreach(lead_id: str, db: Session = Depends(get_db),
     return {"ok": True, "status": msg.status, "to": lead.email}
 
 
+_PENDING = (None, "New", "Drafted")
+
+
+@router.post("/dispatch")
+def dispatch_pending(segment: str | None = None, limit: int = 500,
+                     db: Session = Depends(get_db),
+                     _=Depends(require_role("admin", "operator"))):
+    """Send the cold email to every pending lead at once (status New/Drafted with an
+    email). Optional ?segment= to dispatch just insurance (commercial/personal) or
+    consulting. Skips anyone already contacted/replied."""
+    q = db.query(Lead).filter(Lead.status.in_(_PENDING), Lead.email.isnot(None))
+    if segment:
+        q = q.filter(Lead.segment == segment)
+    rows = q.order_by(Lead.score.desc()).limit(limit).all()
+    sent = failed = 0
+    for lead in rows:
+        account = "insurance" if lead.segment in ("commercial", "personal") else "personal"
+        subject = f"A quick idea for {lead.company_name or lead.owner_name}"
+        try:
+            msg = outreach.dispatch_email(db, entity_type="lead", entity_id=lead.id,
+                                          to_email=lead.email, subject=subject,
+                                          body=lead.cold_email, account=account, actor="bulk")
+            if msg.status in ("Sent", "Drafted"):
+                if lead.status in (None, "New", "Drafted"):
+                    lead.status = "Sent" if msg.status == "Sent" else lead.status
+                sent += 1
+            else:
+                failed += 1
+        except Exception:
+            failed += 1
+    db.commit()
+    return {"ok": True, "pending": len(rows), "dispatched": sent, "failed": failed}
+
+
 @router.post("/{lead_id}/status")
 def set_status(lead_id: str, body: StatusUpdate, db: Session = Depends(get_db),
                _=Depends(require_role("admin", "operator"))):

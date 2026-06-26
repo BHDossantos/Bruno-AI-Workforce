@@ -133,6 +133,17 @@ def test_memory_slot_prompts_format_cleanly():
 
 
 @requires_db
+def test_bulk_dispatch_endpoints(client, auth_headers):
+    """Bulk dispatch returns a clean summary for leads and restaurants."""
+    r = client.post("/leads/dispatch", headers=auth_headers)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["ok"] is True and "dispatched" in d and "pending" in d
+    r2 = client.post("/restaurants/dispatch", headers=auth_headers)
+    assert r2.status_code == 200 and r2.json()["ok"] is True
+
+
+@requires_db
 def test_activation_checklist(client, auth_headers):
     """The go-live checklist returns a readiness score, required items, and a next step."""
     r = client.get("/activation", headers=auth_headers)

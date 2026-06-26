@@ -54,6 +54,17 @@ function Insurance() {
     finally { setBusy(null); }
   }
 
+  async function dispatchAll() {
+    if (!confirm("Send the cold email to all pending leads now?")) return;
+    setBusy("all"); setMsg("Dispatching all pending leads…");
+    try {
+      const r = await api.post<{ dispatched: number; pending: number; failed: number }>("/leads/dispatch", {});
+      setMsg(`✅ Dispatched ${r.dispatched}/${r.pending} pending leads${r.failed ? `, ${r.failed} failed` : ""}.`);
+      setRefresh((n) => n + 1);
+    } catch (e) { setMsg(`❌ ${e}`); }
+    finally { setBusy(null); }
+  }
+
   return (
     <div>
       <PageHeader
@@ -68,6 +79,7 @@ function Insurance() {
             </select>
             <button className="btn-ghost" onClick={() => api.download("/export/leads.csv", "leads.csv")}>Export CSV</button>
             <button className="btn" onClick={sourceNow} disabled={sourcing}>{sourcing ? "Sourcing…" : "Source leads now"}</button>
+            <button className="btn" onClick={dispatchAll} disabled={busy === "all"}>{busy === "all" ? "Sending…" : "Send all pending"}</button>
           </div>
         }
       />
