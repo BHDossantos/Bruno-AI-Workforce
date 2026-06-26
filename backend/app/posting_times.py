@@ -23,7 +23,7 @@ log = logging.getLogger("bruno.posting_times")
 # engagement data to learn from — rough best-practice windows per platform.
 DEFAULT_HOURS: dict[str, int] = {
     "linkedin": 8, "instagram": 11, "facebook": 13,
-    "x": 9, "tiktok": 19, "youtube": 17,
+    "x": 9, "tiktok": 19, "youtube": 17, "blog": 10,
 }
 _FALLBACK_HOUR = 9
 _MIN_SAMPLES = 3  # need at least this many posts on a channel to trust learned timing
