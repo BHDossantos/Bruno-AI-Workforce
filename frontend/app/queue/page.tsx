@@ -10,6 +10,7 @@ type Item = {
   name: string;
   channel: string;
   profile_url: string | null;
+  dm_url?: string | null;
   handle: string | null;
   message: string;
   status: string;
@@ -33,6 +34,17 @@ function Queue() {
   async function markSent(it: Item) {
     await api.post("/outreach/social/mark", { entity_type: it.entity_type, entity_id: it.entity_id, status: "Sent" });
     setTick((t) => t + 1);
+  }
+
+  async function skip(it: Item) {
+    await api.post("/outreach/social/mark", { entity_type: it.entity_type, entity_id: it.entity_id, status: "Closed Lost" });
+    setTick((t) => t + 1);
+  }
+
+  async function copyAndOpenDM(it: Item) {
+    try { await navigator.clipboard.writeText(it.message); setCopied(it.entity_id); } catch { /* clipboard blocked */ }
+    window.open(it.dm_url || it.profile_url || "#", "_blank", "noreferrer");
+    setTimeout(() => setCopied((c) => (c === it.entity_id ? null : c)), 1500);
   }
 
   return (
@@ -67,13 +79,20 @@ function Queue() {
               <p className="whitespace-pre-wrap rounded bg-gray-50 p-2 text-sm text-gray-700">{it.message}</p>
             </div>
             <div className="flex shrink-0 flex-col gap-2">
-              <button className="btn-ghost" onClick={() => copy(it.entity_id, it.message)}>
-                {copied === it.entity_id ? "Copied ✓" : "Copy"}
-              </button>
+              {it.channel === "instagram" && (it.dm_url || it.profile_url) ? (
+                <button className="btn" onClick={() => copyAndOpenDM(it)}>
+                  {copied === it.entity_id ? "Copied ✓ — opening" : "Copy & open DM"}
+                </button>
+              ) : (
+                <button className="btn-ghost" onClick={() => copy(it.entity_id, it.message)}>
+                  {copied === it.entity_id ? "Copied ✓" : "Copy"}
+                </button>
+              )}
               {it.profile_url && (
                 <a className="btn-ghost text-center" href={it.profile_url} target="_blank" rel="noreferrer">Open profile</a>
               )}
               <button className="btn" onClick={() => markSent(it)}>Mark sent</button>
+              <button className="btn-ghost text-gray-400" onClick={() => skip(it)}>Skip</button>
             </div>
           </div>
         ))}
