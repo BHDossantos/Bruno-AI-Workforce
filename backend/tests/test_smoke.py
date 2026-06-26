@@ -376,7 +376,9 @@ def test_recap_references_real_columns():
 
 def test_all_agents_registered():
     assert set(AGENTS) == {
-        "job_hunter", "insurance", "bnbglobal", "savorymind", "music", "instagram", "ceo_dashboard"
+        "job_hunter", "insurance", "commercial_finder", "homeowner", "referral_partner",
+        "follow_up_agent", "review_referral", "bnbglobal", "savorymind", "music",
+        "instagram", "ceo_dashboard",
     }
 
 

@@ -137,6 +137,39 @@ def fetch_insurance_leads(segment: str, count: int, scope: str | None = None) ->
     return out[:count]
 
 
+# ── Referral partners (mortgage brokers, realtors, lenders, CPAs, attorneys) ──
+REFERRAL_PARTNER_CATEGORIES = [
+    "Mortgage Broker", "Real Estate Agency", "Mortgage Lender", "CPA / Accounting Firm",
+    "Law Firm", "Title Company", "Property Management", "Financial Advisor",
+]
+
+
+def fetch_referral_partners(count: int, scope: str | None = None) -> list[dict]:
+    """Referral-partner prospects — businesses whose clients routinely need
+    insurance (a new mortgage needs home insurance, a new business needs liability).
+    Real businesses from OSM where available, topped up with synthetic partners in
+    the target referral categories. Same shape as commercial leads."""
+    out: list[dict] = list(osm_leads.fetch_commercial_leads(count, scope=scope))
+    for lead in out:
+        lead["segment"] = "referral_partner"
+        lead.setdefault("category", "Referral Partner")
+    if len(out) >= count or not settings.allow_synthetic_fallback:
+        return out[:count]
+    for i in range(count - len(out)):
+        cat = _rng.choice(REFERRAL_PARTNER_CATEGORIES)
+        owner = _person()
+        company = f"{owner.split()[1]} {cat}"
+        out.append({
+            "segment": "referral_partner", "category": cat, "company_name": company,
+            "owner_name": owner, "email": f"{_slug(owner)}-partner{i}@example.com",
+            "phone": f"+1{_rng.randint(2000000000, 9999999999)}",
+            "website": f"https://{_slug(company)}.com",
+            "linkedin": f"https://linkedin.com/in/{_slug(owner)}",
+            "industry": cat, "city": _rng.choice(_CITIES),
+        })
+    return out[:count]
+
+
 # ── Agent 3: SavoryMind restaurants + consumers ──────────────────────────────
 RESTAURANT_TYPES = ["Fine dining", "Wine bar", "Cafe", "Family restaurant",
                     "Hospitality group", "Food truck", "Hotel restaurant"]
