@@ -34,12 +34,17 @@ log = logging.getLogger("bruno.platform_loops")
 #               False → assist mode (drafts only, a human posts on-platform)
 #   businesses— business lines that feed this platform, rotated day-to-day
 LOOPS: dict[str, dict] = {
+    # Instagram + Facebook: 3/day each, rotating music · BnB Global · insurance.
+    "instagram": {"per_day": 3, "auto": True,
+                  "businesses": ["music", "bnbglobal", "insurance"]},
+    "facebook":  {"per_day": 3, "auto": True,
+                  "businesses": ["music", "bnbglobal", "insurance"]},
+    # LinkedIn: 1/day — BnB + insurance only (no music on LinkedIn, per the rule).
     "linkedin":  {"per_day": 1, "auto": True,
-                  "businesses": ["bnbglobal", "savorymind"]},
-    "instagram": {"per_day": 1, "auto": True,
-                  "businesses": ["music", "savorymind", "bnbglobal"]},
-    "facebook":  {"per_day": 1, "auto": True,
-                  "businesses": ["savorymind", "bnbglobal", "music"]},
+                  "businesses": ["bnbglobal", "insurance"]},
+    # Medium (blog): 1/day long-form — BnB + insurance.
+    "blog":      {"per_day": 1, "auto": False,
+                  "businesses": ["bnbglobal", "insurance"]},
     "x":         {"per_day": 2, "auto": True,
                   "businesses": ["bnbglobal", "executive", "music"]},
     "tiktok":    {"per_day": 1, "auto": False,
