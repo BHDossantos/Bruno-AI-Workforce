@@ -11,6 +11,7 @@ from .routers import (
     auth,
     connections,
     cron,
+    decisions,
     executive,
     export,
     graph,
@@ -91,6 +92,7 @@ app.include_router(crm.router)
 app.include_router(graph.router)
 app.include_router(opportunities.router)
 app.include_router(planning.router)
+app.include_router(decisions.router)
 app.include_router(browser.router)
 app.include_router(social.router)
 app.include_router(finance.router)

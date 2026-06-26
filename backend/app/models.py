@@ -94,6 +94,26 @@ class Relationship(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class Decision(Base):
+    """A logged major decision — what was decided, the reasoning, the expected
+    outcome and confidence — later marked with the ACTUAL outcome. Over time the
+    journal surfaces patterns (win-rate by category/confidence) so the workforce
+    learns how Bruno decides and can calibrate its own recommendations."""
+    __tablename__ = "decisions"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    category: Mapped[str | None] = mapped_column(String, index=True)  # career|business|insurance|music|financial|personal|other
+    decision: Mapped[str | None] = mapped_column(Text)            # what was decided
+    reasoning: Mapped[str | None] = mapped_column(Text)           # why
+    expected_outcome: Mapped[str | None] = mapped_column(Text)
+    confidence: Mapped[int] = mapped_column(Integer, default=50)  # 0..100 at decision time
+    status: Mapped[str] = mapped_column(String, default="Open", index=True)  # Open|Reviewed
+    outcome: Mapped[str | None] = mapped_column(String)           # success|failure|mixed
+    outcome_note: Mapped[str | None] = mapped_column(Text)
+    decided_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class Opportunity(Base):
     """Any scored opportunity — investor, podcast, collab, speaking slot, brand
     deal, partnership, press. Makes EVERYTHING comparable on one economics formula
