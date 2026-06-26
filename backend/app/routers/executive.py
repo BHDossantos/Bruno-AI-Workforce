@@ -169,14 +169,46 @@ def commander_order(center: str, body: CommanderOrderIn,
                          status="received")
     db.add(rec)
     db.commit()
+
+    # Let the commander figure out HOW: turn the order + amount into a short plan
+    # over its own agents, then execute. The plan is what the commander will do.
+    plan = _commander_plan(center, commanders.COMMANDERS[center], body.order, body.amount)
+
     result = None
     if body.run_now:
         result = commanders.run_center(db, center)
         rec.status = "run" if result.get("ok") else "failed"
-        rec.result = {"summary": (result.get("agents") and "ran") or result.get("reason")}
+        rec.result = {"plan": plan, "ran": bool(result and result.get("ok"))}
+        db.commit()
+    else:
+        rec.result = {"plan": plan}
         db.commit()
     return {"ok": True, "order_id": str(rec.id), "center": center,
-            "amount": body.amount, "ran": bool(body.run_now), "result": result}
+            "amount": body.amount, "plan": plan, "ran": bool(body.run_now), "result": result}
+
+
+def _commander_plan(center: str, spec: dict, order: str | None, amount: float | None) -> str:
+    """A short, concrete plan for how the commander's agents will pursue the order."""
+    agents = ", ".join(spec.get("agents") or []) or "its agents"
+    fallback = (f"{spec['name']} will direct {agents} toward "
+                f"{('$' + format(int(amount), ',')) if amount else 'the goal'}"
+                + (f": {order}" if order else "."))
+    from ..ai import client
+    if not client.is_live():
+        return fallback
+    try:
+        out = client.complete_json(
+            f"You are the {spec['name']} for an AI marketing/sales workforce. Its agents: "
+            f"{agents}. The order: \"{order or 'grow this area'}\""
+            + (f" with a target of ${int(amount):,}." if amount else ".")
+            + " Give a SHORT plan (3-4 steps) for how these agents will pursue it. "
+              'Return JSON {"plan": "<steps as one short paragraph>"}.',
+            system="You output only valid JSON.")
+        if isinstance(out, dict) and out.get("plan"):
+            return out["plan"]
+    except Exception:  # pragma: no cover - planning is best-effort
+        pass
+    return fallback
 
 
 @router.get("/commanders/orders")

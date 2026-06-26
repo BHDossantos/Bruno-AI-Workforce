@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { AuthGate, PageHeader, useFetch } from "@/components/ui";
+import LiveClock from "@/components/LiveClock";
 
 type Action = {
   key: string; title: string; command_center: string; objective: string; action_type: string;
@@ -71,7 +72,12 @@ function Home() {
       <PageHeader
         title={b?.greeting || "Good morning, Bruno"}
         subtitle="Your chief of staff has ranked today. Do the top 3 — the rest can wait."
-        action={<button className="btn" onClick={runAll} disabled={running}>{running ? "Running…" : "Refresh opportunities"}</button>}
+        action={
+          <div className="flex items-center gap-3">
+            <LiveClock className="hidden text-sm text-gray-500 sm:inline" />
+            <button className="btn" onClick={runAll} disabled={running}>{running ? "Running…" : "Refresh opportunities"}</button>
+          </div>
+        }
       />
       {msg && <p className="mb-4 rounded bg-brand/10 p-3 text-sm text-brand-dark">{msg}</p>}
 
