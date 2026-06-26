@@ -82,3 +82,67 @@ def work_pipeline(db: Session = Depends(get_db), _=Depends(_rr("admin", "operato
     """Source + draft across every revenue line and queue it all for approval."""
     from .. import pipeline_run
     return pipeline_run.work_pipeline(db)
+
+
+@router.get("/brands")
+def brands(db: Session = Depends(get_db), _=Depends(_read)):
+    """Per-brand scoreboard — each brand's own numbers for Mission Control."""
+    from ..lead_temperature import classify
+    from ..models import Grant, Influencer, MusicPlaylist
+
+    def lead_temps(*segments):
+        rows = db.query(Lead.status).filter(Lead.segment.in_(segments)).all()
+        cold = warm = hot = 0
+        for (s,) in rows:
+            t = classify(s)
+            if t == "hot":
+                hot += 1
+            elif t == "warm":
+                warm += 1
+            elif t == "cold":
+                cold += 1
+        return {"total": len(rows), "cold": cold, "warm": warm, "hot": hot}
+
+    out = []
+
+    ins = lead_temps("commercial", "personal")
+    out.append({"key": "insurance", "name": "Thrust Insurance", "icon": "🛡️",
+                "metric": "leads", "value": ins["total"], "warm": ins["warm"], "hot": ins["hot"],
+                "link": "/insurance"})
+
+    bnb = lead_temps("consulting")
+    out.append({"key": "bnbglobal", "name": "BnB Global", "icon": "💻",
+                "metric": "leads", "value": bnb["total"], "warm": bnb["warm"], "hot": bnb["hot"],
+                "link": "/bnbglobal"})
+
+    rest_rows = db.query(Restaurant.status).filter(Restaurant.kind == "prospect").all()
+    rw = sum(1 for (s,) in rest_rows if classify(s) == "warm")
+    rh = sum(1 for (s,) in rest_rows if classify(s) == "hot")
+    out.append({"key": "savorymind", "name": "SavoryMind", "icon": "🍽️",
+                "metric": "restaurants", "value": len(rest_rows), "warm": rw, "hot": rh,
+                "link": "/savorymind"})
+
+    playlists = db.query(func.count()).select_from(MusicPlaylist).scalar() or 0
+    influencers = db.query(func.count()).select_from(Influencer).scalar() or 0
+    out.append({"key": "music", "name": "Bruno D — Music", "icon": "🎵",
+                "metric": "pitches", "value": int(playlists + influencers),
+                "warm": 0, "hot": 0, "link": "/music"})
+
+    grant_pipeline = float(db.query(func.coalesce(func.sum(Grant.amount), 0))
+                           .filter(Grant.status.notin_(["Lost", "Skipped"])).scalar() or 0)
+    partners = lead_temps("foundation")
+    out.append({"key": "foundation", "name": "Foundation", "icon": "🎓",
+                "metric": "grant $ + partners", "value": int(grant_pipeline),
+                "warm": partners["total"], "hot": partners["hot"], "link": "/foundation"})
+
+    from datetime import date, datetime, timezone
+    start = datetime.combine(date.today(), datetime.min.time(), tzinfo=timezone.utc)
+    personal = db.query(func.count()).select_from(ContentItem).filter(
+        ContentItem.business == "personal").scalar() or 0
+    personal_today = db.query(func.count()).select_from(ContentItem).filter(
+        ContentItem.business == "personal", ContentItem.created_at >= start).scalar() or 0
+    out.append({"key": "personal", "name": "Bruno D — Personal", "icon": "👤",
+                "metric": "content", "value": int(personal), "warm": int(personal_today), "hot": 0,
+                "link": "/calendar"})
+
+    return out
