@@ -138,6 +138,8 @@ def _interpret(text: str) -> dict:
         return {"intent": "schedule", "when": text, "reply": "Scheduling it."}
     if "what failed" in t or "any errors" in t or "what broke" in t:
         return {"intent": "what_failed", "reply": "Checking what failed."}
+    if "work the pipeline" in t or "work my pipeline" in t or "fill the pipeline" in t:
+        return {"intent": "work_pipeline", "reply": "Working the pipeline now."}
     agent = _match_alias(t, _AGENT_ALIASES)
     if agent:
         return {"intent": "run_agent", "target": text, "reply": "On it."}
@@ -279,6 +281,11 @@ def command(body: VoiceIn, db: Session = Depends(get_db),
             from .. import commanders
             commanders.run_ceo(db)
             return {"ok": True, "intent": intent, "reply": "Ran the full daily cycle."}
+        if intent == "work_pipeline":
+            from .. import pipeline_run
+            res = pipeline_run.work_pipeline(db)
+            return {"ok": res.get("ok", True), "intent": intent,
+                    "reply": res.get("summary", "Worked the pipeline."), "navigate": "/approvals"}
         if intent == "run_agent":
             key = _match_alias((spec.get("target") or text), _AGENT_ALIASES)
             cls = AGENTS.get(key) if key else None

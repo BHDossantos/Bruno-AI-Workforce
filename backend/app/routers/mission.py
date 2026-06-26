@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from .. import control
 from ..database import get_db
+from ..security import require_role as _rr
 from ..models import (Application, ContentItem, Job, Lead, Message, Restaurant)
 from ..security import require_role
 
@@ -74,3 +75,10 @@ def mission_control(db: Session = Depends(get_db), _=Depends(_read)):
         "goals": goals,
         "approvals_pending": pending,
     }
+
+
+@router.post("/work-pipeline")
+def work_pipeline(db: Session = Depends(get_db), _=Depends(_rr("admin", "operator"))):
+    """Source + draft across every revenue line and queue it all for approval."""
+    from .. import pipeline_run
+    return pipeline_run.work_pipeline(db)

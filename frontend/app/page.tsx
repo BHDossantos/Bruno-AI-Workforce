@@ -57,6 +57,16 @@ function Home() {
     finally { setRunning(false); }
   }
 
+  async function workPipeline() {
+    setRunning(true); setMsg("Working the pipeline — sourcing & drafting across every line…");
+    try {
+      const r = await api.post<{ summary?: string }>("/mission/work-pipeline", {});
+      setMsg(`✅ ${r.summary || "Pipeline worked — check the Approval Queue."}`);
+      setRefresh((n) => n + 1);
+    } catch (e) { setMsg(`❌ ${e}`); }
+    finally { setRunning(false); }
+  }
+
   async function act(path: string, key: string) {
     setBusyKey(key); setMsg("");
     try {
@@ -75,6 +85,8 @@ function Home() {
         action={
           <div className="flex items-center gap-3">
             <LiveClock className="hidden text-sm text-gray-500 sm:inline" />
+            <button className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium disabled:opacity-50"
+              onClick={workPipeline} disabled={running}>▶ Work the pipeline</button>
             <button className="btn" onClick={runAll} disabled={running}>{running ? "Running…" : "Refresh opportunities"}</button>
           </div>
         }
