@@ -22,6 +22,7 @@ type Lead = {
   times_contacted: number;
   last_contacted_at: string | null;
   temperature: string;
+  fit_score: number;
 };
 type Temp = { cold: number; warm: number; hot: number; dead: number };
 
@@ -30,7 +31,7 @@ function Insurance() {
   const [temp, setTemp] = useState("");
   const [refresh, setRefresh] = useState(0);
   const { data, loading, error, reload } = useFetch<Lead[]>(
-    () => api.get<Lead[]>(`/leads?limit=200${segment ? `&segment=${segment}` : ""}${temp ? `&temperature=${temp}` : ""}`),
+    () => api.get<Lead[]>(`/leads?limit=200&sort=fit${segment ? `&segment=${segment}` : ""}${temp ? `&temperature=${temp}` : ""}`),
     [segment, temp, refresh]
   );
   const { data: counts } = useFetch<Temp>(
@@ -95,6 +96,7 @@ function Insurance() {
         <table className="w-full">
           <thead>
             <tr>
+              <th className="th">Fit</th>
               <th className="th">Score</th>
               <th className="th">Company / Owner</th>
               <th className="th">Segment</th>
@@ -110,7 +112,8 @@ function Insurance() {
           <tbody>
             {(data || []).map((l) => (
               <tr key={l.id} className="border-t border-gray-100">
-                <td className="td"><span className="badge bg-brand/10 text-brand-dark">{l.score}</span></td>
+                <td className="td"><span className="badge bg-brand/10 text-brand-dark">{l.fit_score}</span></td>
+                <td className="td"><span className="badge bg-gray-100 text-gray-600">{l.score}</span></td>
                 <td className="td"><div className="font-medium">{l.company_name}</div><div className="text-xs text-gray-400">{l.owner_name}</div></td>
                 <td className="td capitalize">{l.segment}<div className="text-xs text-gray-400">{l.category}</div></td>
                 <td className="td"><TempBadge t={l.temperature} /></td>
@@ -137,7 +140,7 @@ function Insurance() {
               </tr>
             ))}
             {!loading && (data || []).length === 0 && (
-              <tr><td colSpan={10} className="td text-center text-gray-400">No leads yet — hit “Source leads now” to find prospects.</td></tr>
+              <tr><td colSpan={11} className="td text-center text-gray-400">No leads yet — hit “Source leads now” to find prospects.</td></tr>
             )}
           </tbody>
         </table>

@@ -1537,3 +1537,41 @@ def test_voice_interpreter_keyword_fallback():
     assert _interpret("draft outreach to Acme Corp")["intent"] == "draft_outreach"
     assert _interpret("schedule this for tomorrow at 9")["intent"] == "schedule"
     assert _interpret("what failed today")["intent"] == "what_failed"
+
+
+def test_voice_interpreter_portuguese():
+    """The user is bilingual — common Portuguese orders map correctly offline."""
+    from app.routers.voice import _interpret
+    assert _interpret("pausar tudo")["intent"] == "pause"
+    assert _interpret("continuar")["intent"] == "resume"
+    assert _interpret("aprovar tudo")["intent"] == "approve_safe"
+    assert _interpret("quantos leads hoje")["intent"] == "metrics"
+    assert _interpret("buscar leads comerciais")["intent"] == "run_agent"
+    assert _interpret("abrir aprovações")["intent"] == "navigate"
+
+
+@requires_db
+def test_approval_approve_resolves_items_without_500(client, auth_headers):
+    """Approving content schedules it; approving a lead never 500s even with no
+    Gmail connected — it's kept (Approved) and leaves the queue."""
+    from app.database import SessionLocal
+    from app.models import ContentItem, Lead
+    db = SessionLocal()
+    c = ContentItem(channel="linkedin", topic="cloud savings", title="T", body="hello",
+                    status="needs_approval", business="executive")
+    l = Lead(segment="commercial", category="Contractor", company_name="Acme",
+             email="owner@acmeexample.com", cold_email="hi there", status="Drafted", score=80)
+    db.add_all([c, l]); db.commit()
+    cid, lid = str(c.id), str(l.id)
+    db.close()
+
+    r = client.post(f"/approvals/content/{cid}/approve", headers=auth_headers)
+    assert r.status_code == 200 and r.json()["ok"] is True
+
+    r = client.post(f"/approvals/lead/{lid}/approve", headers=auth_headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True and body["status"] in ("Approved", "Sent")
+
+    ids = {i["id"] for i in client.get("/approvals", headers=auth_headers).json()["items"]}
+    assert cid not in ids and lid not in ids

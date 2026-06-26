@@ -50,6 +50,14 @@ class BnbGlobalAgent(BaseAgent):
 
         existing = {e for (e,) in self.db.query(Lead.email).filter(Lead.email.isnot(None)).all()}
 
+        # Work the highest-fit prospects first so outreach focuses on quality,
+        # boosting categories that have actually been converting (reply data).
+        from .. import lead_fit, lead_intel
+        boosts = lead_intel.category_boosts(self.db)
+        prospects = sorted(
+            prospects, key=lambda p: lead_fit.score(p) + boosts.get(p.get("category"), 0),
+            reverse=True)
+
         pairs: list[tuple[Lead, dict]] = []
         seen: set[str] = set()
         for p in prospects:
@@ -73,10 +81,10 @@ class BnbGlobalAgent(BaseAgent):
         for row, p in pairs:
             try:
                 sysp = skills.system_prompt("cold-email", "marketing-psychology", "offers")
-                from .. import outreach_analytics
-                hint = outreach_analytics.whats_working(self.db)
-                if hint:
-                    sysp = f"{sysp}\n\n{hint}"
+                from .. import lead_intel, outreach_analytics
+                for hint in (outreach_analytics.whats_working(self.db), lead_intel.whats_working(self.db)):
+                    if hint:
+                        sysp = f"{sysp}\n\n{hint}"
                 mem_ctx = memory.context_block(self.db, p.get("company_name") or "")
                 if mem_ctx:
                     sysp = f"{sysp}\n\n{mem_ctx}"
