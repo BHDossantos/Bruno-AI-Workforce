@@ -23,7 +23,9 @@ log = logging.getLogger("bruno.commanders")
 
 # Commander → the agents it directs. (Life has no agents yet — placeholder.)
 COMMANDERS: dict[str, dict] = {
-    "wealth":    {"name": "Wealth Commander",    "agents": ["job_hunter", "insurance"]},
+    "wealth":    {"name": "Wealth Commander",    "agents": [
+        "job_hunter", "insurance", "commercial_finder", "homeowner",
+        "referral_partner", "follow_up_agent", "review_referral"]},
     "business":  {"name": "Business Commander",  "agents": ["savorymind", "bnbglobal"]},
     "influence": {"name": "Influence Commander", "agents": ["music", "instagram"]},
     "life_ops":  {"name": "Life Commander",      "agents": []},

@@ -52,6 +52,38 @@ Return JSON with keys:
 - "linkedin_msg": a friendly LinkedIn connection message (max 80 words).
 """
 
+# Referral-partner outreach (mortgage brokers, realtors, lenders, CPAs, attorneys).
+REFERRAL_PARTNER_OUTREACH = """Write outreach from an insurance producer (Thrust Insurance,
+licensed in NH/MA/FL) to a potential REFERRAL PARTNER — not a customer.
+
+Partner: {company_name} ({category}) in {city}.
+Goal: build a two-way referral relationship (you send their clients insurance;
+they send you clients who need coverage — e.g. a new mortgage needs home insurance).
+
+Return JSON with keys:
+- "cold_email_subject": short, partnership-oriented (no placeholders).
+- "cold_email_body": email body ONLY, under 110 words. Address them by name
+  ({company_name}); no placeholders. Lead with a specific reason their clients need
+  insurance, propose a simple two-way referral, end by asking to grab 15 minutes.
+  No greeting placeholder, sign-off, signature or unsubscribe — appended automatically.
+- "call_script": a 5-line phone opener for a partnership intro.
+- "linkedin_msg": a warm LinkedIn connection note (max 80 words).
+"""
+
+# Post-policy Google review + referral ask (warm, already a happy client).
+REVIEW_REQUEST = """Write a short, warm message to a client who just bought a policy,
+asking for (1) a Google review and (2) a referral to anyone who needs insurance.
+
+Client: {name}. {review_line}
+
+Return JSON with keys:
+- "subject": short and friendly (no placeholders).
+- "body": under 90 words, genuine and low-pressure. Thank them, ask for a quick
+  Google review (include the link if provided), then ask if they know one person
+  who could use a coverage review. No greeting placeholder, sign-off or signature —
+  appended automatically.
+"""
+
 # ── Agent 3: SavoryMind Growth ───────────────────────────────────────────────
 MENU_ANALYSIS = """SavoryMind helps restaurants grow revenue with AI menu intelligence.
 Analyze this restaurant for an outreach pitch.

@@ -17,6 +17,37 @@ from .models import Setting
 log = logging.getLogger("bruno.control")
 
 _PAUSED_KEY = "agents_paused"
+_MODE_KEY = "automation_mode"
+MODES = ("manual", "semi", "auto")
+_DEFAULT_MODE = "semi"  # agents prepare everything; you approve to send/post
+
+
+def get_mode(db: Session) -> str:
+    """manual | semi | auto. Default 'semi' — agents draft, you hit send."""
+    try:
+        row = db.get(Setting, _MODE_KEY)
+        val = (row.value or "").lower() if row else ""
+        return val if val in MODES else _DEFAULT_MODE
+    except Exception:  # pragma: no cover - defensive
+        return _DEFAULT_MODE
+
+
+def set_mode(db: Session, mode: str) -> str:
+    mode = (mode or "").lower()
+    if mode not in MODES:
+        mode = _DEFAULT_MODE
+    row = db.get(Setting, _MODE_KEY)
+    if row is None:
+        row = Setting(key=_MODE_KEY)
+        db.add(row)
+    row.value = mode
+    db.commit()
+    return mode
+
+
+def is_autopilot(db: Session) -> bool:
+    """True only in full-auto mode — otherwise agents draft and wait for approval."""
+    return get_mode(db) == "auto"
 
 
 def is_paused(db: Session) -> bool:

@@ -1,5 +1,6 @@
 """Execution control — the Emergency Stop kill-switch API."""
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from .. import control
@@ -13,7 +14,18 @@ _write = require_role("admin", "operator")
 
 @router.get("/status")
 def status(db: Session = Depends(get_db), _=Depends(_read)):
-    return {"paused": control.is_paused_safe(db)}
+    return {"paused": control.is_paused_safe(db), "mode": control.get_mode(db)}
+
+
+class ModeIn(BaseModel):
+    mode: str  # manual | semi | auto
+
+
+@router.post("/mode")
+def set_mode(body: ModeIn, db: Session = Depends(get_db), _=Depends(_write)):
+    """Set automation mode: 'semi' (agents draft, you approve to send — default),
+    'auto' (full autopilot), or 'manual' (draft only)."""
+    return {"mode": control.set_mode(db, body.mode)}
 
 
 @router.post("/pause")

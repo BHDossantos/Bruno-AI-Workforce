@@ -77,7 +77,8 @@ def _publish_blog_due(db):
 def _run_leads(db):
     """Lead-gen + cold-email pass for every outreach business (4×/day)."""
     out = {}
-    for key in ("insurance", "savorymind", "bnbglobal"):
+    for key in ("commercial_finder", "homeowner", "insurance", "referral_partner",
+                "savorymind", "bnbglobal"):
         cls = AGENTS.get(key)
         if cls:
             try:

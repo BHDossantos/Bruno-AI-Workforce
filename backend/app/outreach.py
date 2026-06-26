@@ -82,11 +82,16 @@ def _log(db: Session, actor: str, action: str, msg: Message, **detail) -> None:
 
 def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | None,
                    subject: str | None, body: str | None, account: str = "personal",
-                   actor: str = "system", force_draft: bool = False) -> Message:
+                   actor: str = "system", force_draft: bool = False,
+                   autonomous: bool = True) -> Message:
     """Create a Message and route it via Gmail per the configured mode.
 
     force_draft keeps it a draft regardless of GMAIL_OUTBOUND_MODE (used for
-    replies, which a human should review before sending)."""
+    replies, which a human should review before sending).
+
+    autonomous=True (the default, used by agents/cron) means: in semi/manual mode
+    the message is drafted and waits for approval. Explicit user actions (approval
+    queue, manual 'send' buttons) pass autonomous=False so they send immediately."""
     body = email_template.clean_body(body)  # strip AI placeholders/sign-offs once
     msg = Message(channel="email", direction="outbound", entity_type=entity_type,
                   entity_id=entity_id, to_email=to_email, from_account=account,
@@ -105,6 +110,12 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
     if control.is_paused_safe(db):
         # Emergency stop engaged — keep everything as a draft, send nothing.
         _log(db, actor, "send_skipped_paused", msg, to=to_email)
+        return msg
+    # Semi-auto / manual mode: agent- and cron-initiated sends DRAFT and wait for
+    # the user to approve in the Approval Queue. Only full-auto mode auto-sends.
+    # Explicit user actions (approval, manual buttons) pass autonomous=False → send.
+    if autonomous and control.get_mode(db) != "auto":
+        _log(db, actor, "email_drafted_semi", msg, to=to_email)
         return msg
 
     mode = "draft" if force_draft else settings.gmail_outbound_mode

@@ -89,9 +89,23 @@ class Settings(BaseSettings):
     # Consulting (BnB Global) + SavoryMind sell anywhere → US + Europe. Accepts
     # "us", "eu", "us_eu", or a comma-separated list of state/country names.
     insurance_lead_scope: str = "Massachusetts,New Hampshire,Florida"
+    # Specialized insurance agents. Commercial is the priority (higher commission,
+    # stickier clients, more referrals) → biggest daily quota; home/auto + referral
+    # partners run alongside for a balanced pipeline. Quotas are daily targets;
+    # each run sources up to lead_batch_size and the agent runs several times a day.
+    commercial_lead_daily_target: int = 200
+    homeowner_lead_daily_target: int = 75
+    referral_partner_daily_target: int = 25
+    # Google review request link, sent to won clients by the Review & Referral agent.
+    google_review_link: str = ""
     # BnB Global consulting + SavoryMind sell worldwide → source leads globally.
     consulting_lead_scope: str = "global"
     restaurant_lead_scope: str = "global"
+    # BnB Global outbound engine: daily target companies to source worldwide. Each
+    # run sources a capped batch (timeout-safe); the agent runs several times/day.
+    # Deep enrichment/scoring (funding, hiring, tech stack) needs a paid data
+    # source (Apollo/Crunchbase/BuiltWith) — wired to degrade gracefully without it.
+    consulting_lead_daily_target: int = 200
     # When True, lead sourcing runs for any business that passes an explicit scope
     # (consulting/SavoryMind sweep US+EU) even if LEAD_STATES is set only for
     # insurance. Off in tests so no network calls. On in prod so every business

@@ -110,12 +110,17 @@ def act(item_type: str, item_id: str, action: str,
             row.status = "Skipped"
             db.commit()
             return {"ok": True, "type": item_type, "status": "Skipped"}
+        # Explicit approval → send now (autonomous=False bypasses semi-auto drafting).
         msg = outreach.dispatch_email(db, entity_type=etype, entity_id=row.id,
                                       to_email=row.email, subject=subject, body=body,
-                                      account=account, actor="approval")
-        if msg.status == "Sent" and row.status in (None, "New", "Drafted"):
-            row.status = "Sent"
+                                      account=account, actor="approval", autonomous=False)
+        # Always leave the queue: "Sent" if it actually went, else "Approved"
+        # (e.g. Gmail not connected yet) so the same item never reappears.
+        row.status = "Sent" if msg.status == "Sent" else "Approved"
         db.commit()
-        return {"ok": True, "type": item_type, "status": msg.status}
+        sent = msg.status == "Sent"
+        return {"ok": True, "type": item_type, "status": row.status,
+                "sent": sent,
+                "note": None if sent else "Marked approved — connect a Gmail mailbox to actually send."}
 
     raise HTTPException(400, f"unknown item type '{item_type}'")

@@ -126,11 +126,14 @@ export default function Sidebar() {
  * sending and agent runs. */
 function EmergencyStop() {
   const [paused, setPaused] = useState<boolean | null>(null);
+  const [mode, setMode] = useState<string>("semi");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!getToken()) return;
-    api.get<{ paused: boolean }>("/control/status").then((r) => setPaused(r.paused)).catch(() => {});
+    api.get<{ paused: boolean; mode?: string }>("/control/status")
+      .then((r) => { setPaused(r.paused); if (r.mode) setMode(r.mode); })
+      .catch(() => {});
   }, []);
 
   async function toggle() {
@@ -145,17 +148,45 @@ function EmergencyStop() {
     }
   }
 
+  async function changeMode(m: string) {
+    setBusy(true);
+    try {
+      const r = await api.post<{ mode: string }>("/control/mode", { mode: m });
+      setMode(r.mode);
+    } catch {
+      /* ignore */
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (paused === null) return null;
   return (
-    <button
-      onClick={toggle}
-      disabled={busy}
-      className={`mx-3 mt-3 rounded-lg px-3 py-2 text-sm font-semibold disabled:opacity-50 ${
-        paused ? "bg-amber-400 text-amber-950 hover:bg-amber-300"
-               : "bg-red-600 text-white hover:bg-red-500"
-      }`}
-    >
-      {busy ? "…" : paused ? "▶ Agents PAUSED — Resume" : "⛔ Emergency Stop"}
-    </button>
+    <div className="mx-3 mt-3 space-y-2">
+      {/* Automation mode: semi (you approve to send) vs full autopilot */}
+      <div className="rounded-lg bg-white/10 p-2">
+        <div className="mb-1 text-[11px] uppercase tracking-wide text-brand-light">Automation</div>
+        <div className="flex gap-1">
+          {[["semi", "Semi (approve)"], ["auto", "Autopilot"], ["manual", "Manual"]].map(([m, label]) => (
+            <button key={m} onClick={() => changeMode(m)} disabled={busy}
+              className={`flex-1 rounded px-1.5 py-1 text-[11px] ${
+                mode === m ? "bg-white text-brand-dark font-semibold" : "text-brand-light hover:bg-white/10"
+              }`}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <button
+        onClick={toggle}
+        disabled={busy}
+        className={`w-full rounded-lg px-3 py-2 text-sm font-semibold disabled:opacity-50 ${
+          paused ? "bg-amber-400 text-amber-950 hover:bg-amber-300"
+                 : "bg-red-600 text-white hover:bg-red-500"
+        }`}
+      >
+        {busy ? "…" : paused ? "▶ Agents PAUSED — Resume" : "⛔ Emergency Stop"}
+      </button>
+    </div>
   );
 }

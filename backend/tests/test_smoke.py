@@ -376,7 +376,9 @@ def test_recap_references_real_columns():
 
 def test_all_agents_registered():
     assert set(AGENTS) == {
-        "job_hunter", "insurance", "bnbglobal", "savorymind", "music", "instagram", "ceo_dashboard"
+        "job_hunter", "insurance", "commercial_finder", "homeowner", "referral_partner",
+        "follow_up_agent", "review_referral", "bnbglobal", "savorymind", "music",
+        "instagram", "ceo_dashboard",
     }
 
 
@@ -1078,7 +1080,9 @@ def test_full_daily_cycle_hits_targets(client, auth_headers):
 
     summary = client.get("/dashboard/summary", headers=auth_headers).json()
     assert summary["jobs_found"] == settings.job_daily_target
-    assert summary["insurance_leads"] == batch
+    # Multiple agents now feed the insurance funnel (insurance + commercial finder +
+    # homeowner), so this is a floor, not an exact batch.
+    assert summary["insurance_leads"] >= batch
     assert summary["restaurant_prospects"] == batch
     assert summary["music_playlists"] == 50
     assert summary["instagram_targets"] == 100
@@ -1088,7 +1092,7 @@ def test_full_daily_cycle_hits_targets(client, auth_headers):
     assert len(client.get("/music/influencers", headers=auth_headers).json()) == 25
 
     report = client.get("/reports/latest", headers=auth_headers).json()
-    assert report is not None and report["metrics"]["insurance_leads"] == batch
+    assert report is not None and report["metrics"]["insurance_leads"] >= batch
 
 
 @requires_db
@@ -1102,7 +1106,9 @@ def test_outbound_messages_created_per_account(client, auth_headers):
 
     insurance = [m for m in msgs if m["from_account"] == "insurance"]
     personal = [m for m in msgs if m["from_account"] == "personal"]
-    assert len(insurance) == batch          # every insurance lead gets a first touch
+    # Insurance mailbox now carries insurance + commercial-finder + homeowner +
+    # referral-partner first touches, so it's a floor, not an exact batch.
+    assert len(insurance) >= batch          # every insurance lead gets a first touch
     assert len(personal) >= batch           # restaurant prospects (+ any others)
     # Gmail is not configured in CI, so nothing is actually sent.
     assert all(m["status"] == "Drafted" for m in msgs)

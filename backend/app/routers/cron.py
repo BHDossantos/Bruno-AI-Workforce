@@ -143,7 +143,8 @@ def cron_leads(x_cron_token: str | None = Header(default=None), db: Session = De
     if _paused(db):
         return {"paused": True, "skipped": "leads"}
     out = {}
-    for key in ("insurance", "savorymind", "bnbglobal"):
+    for key in ("commercial_finder", "homeowner", "insurance", "referral_partner",
+                "savorymind", "bnbglobal"):
         cls = AGENTS.get(key)
         if cls:
             try:

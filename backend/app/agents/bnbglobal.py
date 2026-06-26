@@ -39,10 +39,12 @@ class BnbGlobalAgent(BaseAgent):
         return min(score, 100)
 
     def execute(self) -> dict:
-        batch = max(1, settings.lead_batch_size)
+        # Source a capped batch toward the daily target (worldwide), timeout-safe;
+        # the agent runs several times a day to build outbound volume.
+        batch = max(1, min(settings.consulting_lead_daily_target, 50))
         # Real businesses with deliverable emails (same proven source as commercial
         # insurance) — valid prospects for managed IT / cloud / security consulting.
-        # Consulting sells anywhere → sweep the US + Europe (rotating by day).
+        # Consulting sells worldwide → sweep the global scope (rotating by day).
         prospects = providers.fetch_insurance_leads(
             "commercial", batch, scope=settings.consulting_lead_scope)
 
