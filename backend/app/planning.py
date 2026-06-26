@@ -45,9 +45,18 @@ def _streams(db: Session) -> dict[str, dict]:
     consulting_run = cons * _CONSULTING * 2
     savory_run = rests * _RESTAURANT_ARR  # ARR is already annual
 
+    # Real expected pipeline NOW, by objective — from the same scoring engine the
+    # daily brief uses (includes jobs, warm leads, restaurants AND opportunities).
+    from . import scoring
+    current: dict[str, float] = {}
+    for a in scoring.build_actions(db):
+        obj = a.get("objective") or "opportunity"
+        current[obj] = current.get(obj, 0.0) + float(a["value"]) * float(a["probability"])
+
     def stream(key, label, annual, move):
         return {"key": key, "label": label,
                 "annual_potential": int(max(annual, _FLOOR[key])),
+                "current_pipeline": int(round(current.get(key, 0.0))),
                 "probability": _PROB[key], "key_move": move}
 
     return {
@@ -90,11 +99,13 @@ def simulate(db: Session, target: int) -> dict:
         prob = round(base * (0.93 ** (len(comps) - 1)), 2)
         meets = projected >= target
         score = prob if meets else round(prob * projected / target, 3)
+        current_expected = sum(c["current_pipeline"] for c in comps)
         paths.append({
             "name": name, "description": desc,
-            "projected_annual": projected, "probability": prob,
-            "meets_target": meets, "score": score,
+            "projected_annual": projected, "current_expected": current_expected,
+            "probability": prob, "meets_target": meets, "score": score,
             "components": [{"label": c["label"], "annual_potential": c["annual_potential"],
+                            "current_pipeline": c["current_pipeline"],
                             "probability": c["probability"]} for c in comps],
             "key_moves": [c["key_move"] for c in comps],
         })
