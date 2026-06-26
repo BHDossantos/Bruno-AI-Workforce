@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from .. import outreach
 from ..database import get_db
-from ..models import ContentItem, Lead, Restaurant
+from ..models import ContentItem, Lead, Message, Restaurant
 from ..security import require_role
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
@@ -59,6 +59,18 @@ def list_approvals(limit: int = 100, db: Session = Depends(get_db), _=Depends(_r
             "to": r.email, "created_at": r.created_at.isoformat() if r.created_at else None,
         })
 
+    # AI-drafted replies to inbound messages — approve to send.
+    for m in (db.query(Message).filter(
+            Message.entity_type == "reply", Message.direction == "outbound",
+            Message.status == "Drafted", Message.to_email.isnot(None))
+            .order_by(Message.created_at.desc()).limit(limit).all()):
+        items.append({
+            "type": "reply", "id": str(m.id), "risk": "low",
+            "title": f"Reply to {m.to_email}", "business": None,
+            "preview": _preview(m.body), "to": m.to_email,
+            "created_at": m.created_at.isoformat() if m.created_at else None,
+        })
+
     items.sort(key=lambda i: i.get("created_at") or "", reverse=True)
     return {"count": len(items), "items": items}
 
@@ -73,6 +85,9 @@ def count(db: Session = Depends(get_db), _=Depends(_read)):
     n += (db.query(func.count()).select_from(Restaurant)
           .filter(Restaurant.kind == "prospect", Restaurant.status == "Drafted",
                   Restaurant.email.isnot(None)).scalar() or 0)
+    n += (db.query(func.count()).select_from(Message)
+          .filter(Message.entity_type == "reply", Message.direction == "outbound",
+                  Message.status == "Drafted", Message.to_email.isnot(None)).scalar() or 0)
     return {"pending": int(n)}
 
 
@@ -82,6 +97,33 @@ def act(item_type: str, item_id: str, action: str,
     """Approve (send/schedule) or reject (skip) one queued item."""
     if action not in ("approve", "reject"):
         raise HTTPException(400, "action must be approve or reject")
+
+    if item_type == "reply":
+        m = db.query(Message).filter(Message.id == item_id).first()
+        if not m:
+            raise HTTPException(404, "reply not found")
+        if action == "reject":
+            m.status = "Skipped"
+            db.commit()
+            return {"ok": True, "type": "reply", "status": "Skipped"}
+        # Send the drafted reply now (in place, no duplicate record).
+        from datetime import datetime, timezone
+
+        from .. import email_template
+        from ..integrations import gmail
+        sent = False
+        if gmail.is_configured(m.from_account):
+            html = email_template.render(m.body or "", m.from_account)
+            mid = gmail.send_message(m.to_email, m.subject or "", html or "", account=m.from_account)
+            if mid:
+                m.provider_id = mid
+                m.sent_at = datetime.now(timezone.utc)
+                sent = True
+        m.status = "Sent" if sent else "Approved"
+        m.approved = True
+        db.commit()
+        return {"ok": True, "type": "reply", "status": m.status, "sent": sent,
+                "note": None if sent else "Marked approved — connect that Gmail mailbox to actually send."}
 
     if item_type == "content":
         c = db.query(ContentItem).filter(ContentItem.id == item_id).first()
