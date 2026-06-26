@@ -94,6 +94,27 @@ class Relationship(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class Opportunity(Base):
+    """Any scored opportunity — investor, podcast, collab, speaking slot, brand
+    deal, partnership, press. Makes EVERYTHING comparable on one economics formula
+    (value × probability ÷ effort × objective_weight × urgency) so it ranks into
+    the same daily brief as jobs and leads."""
+    __tablename__ = "opportunities"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    kind: Mapped[str] = mapped_column(String, index=True)  # investor|podcast|collab|speaking|partnership|brand_deal|press|conference|other
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    value: Mapped[float] = mapped_column(Numeric(14, 2), default=0)       # expected $ value
+    probability: Mapped[float] = mapped_column(Numeric(4, 3), default=0.3)  # 0..1
+    urgency: Mapped[float] = mapped_column(Numeric(4, 2), default=1.0)
+    effort: Mapped[int] = mapped_column(Integer, default=2)
+    objective: Mapped[str | None] = mapped_column(String)   # maps to objective weights
+    command_center: Mapped[str] = mapped_column(String, default="business")
+    status: Mapped[str] = mapped_column(String, default="Open", index=True)  # Open|Won|Lost|Dismissed
+    link: Mapped[str | None] = mapped_column(String)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Company(Base):
     __tablename__ = "companies"
     id: Mapped[uuid.UUID] = _uuid_pk()

@@ -132,6 +132,18 @@ def test_memory_slot_prompts_format_cleanly():
     INFLUENCER_PITCH.format(name="N", niche="n", platform="ig", handle="h", memory="m")
 
 
+def test_opportunity_scoring_formula():
+    """An opportunity scores on the same value×prob÷effort×weight×urgency formula
+    as jobs/leads, so everything is comparable in one ranked brief."""
+    from app import scoring
+    # A $50k investor intro at 40% beats a $5k podcast at 20% (same effort/urgency).
+    big = scoring._score(50000, 0.4, 2, 1.0, 1.0)
+    small = scoring._score(5000, 0.2, 2, 1.0, 1.0)
+    assert big > small
+    from app.routers.opportunities import KINDS
+    assert "investor" in KINDS and "podcast" in KINDS and "speaking" in KINDS
+
+
 def test_graph_helpers_offline():
     """Graph link validation + neighbor/context helpers are safe with no data."""
     from app import graph
