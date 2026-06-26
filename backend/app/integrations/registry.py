@@ -181,9 +181,14 @@ PROVIDERS: list[dict] = [
     {
         "key": "medium", "name": "Medium", "category": "content", "icon": "✍️",
         "auth_type": "api_key",
-        "fields": [_field("integration_token", "Integration token", secret=True),
+        "fields": [_field("integration_token", "Integration token", secret=True,
+                          help="medium.com → click your avatar → Settings → Security and apps → "
+                               "Integration tokens → enter a description (e.g. 'Bruno AI') → "
+                               "Get integration token, then paste it here."),
                    _field("publish_status", "draft | public | unlisted",
-                          required=False, placeholder="draft")],
+                          required=False, placeholder="draft",
+                          help="How posts land on Medium: 'draft' (default — review before "
+                               "publishing), 'public' (auto-publish live), or 'unlisted'.")],
         "capabilities": ["publish_auto", "analytics"],
         "stages": ["attract", "nurture"],
         "compliance": "Publishes long-form articles to your Medium account via the "
