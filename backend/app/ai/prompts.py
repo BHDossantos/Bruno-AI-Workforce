@@ -70,6 +70,52 @@ Return JSON with keys:
 - "linkedin_msg": a warm LinkedIn connection note (max 80 words).
 """
 
+# Foundation → school / university / conservatory partnership outreach.
+SCHOOL_PARTNERSHIP = """Write warm outreach on behalf of a nonprofit foundation to a
+school, university, conservatory or community center about a partnership.
+
+Foundation: {foundation} — {mission}
+Tagline: {tagline}. Pillars: {pillars}.
+
+Institution: {company_name} ({category}) in {city}.
+
+Propose a concrete, no-cost-to-them way to collaborate that serves their students —
+a music/STEM workshop, a guest performance, a scholarship for their students, or a
+mentorship program. Sincere, brief, education-first, no hype.
+
+Return JSON with keys:
+- "cold_email_subject": short, partnership/student-focused (no placeholders).
+- "cold_email_body": body ONLY, under 120 words. Address them by name ({company_name});
+  no placeholders. One concrete program idea + benefit to their students, end asking
+  for a 15-minute call. No greeting placeholder, sign-off, signature or unsubscribe.
+- "call_script": a 4-5 sentence phone opener.
+- "linkedin_msg": a warm connection note (max 80 words).
+"""
+
+# Foundation corporate-partnership / sponsorship outreach.
+FOUNDATION_OUTREACH = """Write warm outreach on behalf of a nonprofit foundation to a
+potential corporate partner / sponsor.
+
+Foundation: {foundation} — {mission}
+Tagline: {tagline}. Program pillars: {pillars}.
+
+Prospect: {company_name} ({category}) in {city}.
+
+Connect the foundation's mission to the company's likely CSR / community goals.
+Propose a specific, low-friction way to partner (sponsor a scholarship, fund a
+music/STEM program, employee mentorship/volunteering). Concise, sincere, no hype,
+CAN-SPAM compliant.
+
+Return JSON with keys:
+- "cold_email_subject": short, partnership-oriented (no placeholders).
+- "cold_email_body": email body ONLY, under 120 words. Address them by name
+  ({company_name}); no placeholders. Lead with shared values, one concrete
+  partnership idea, end asking for a 15-minute intro. No greeting placeholder,
+  sign-off, signature or unsubscribe — appended automatically.
+- "call_script": a 4-5 sentence phone opener.
+- "linkedin_msg": a warm connection note (max 80 words).
+"""
+
 # Post-policy Google review + referral ask (warm, already a happy client).
 REVIEW_REQUEST = """Write a short, warm message to a client who just bought a policy,
 asking for (1) a Google review and (2) a referral to anyone who needs insurance.
@@ -125,6 +171,26 @@ Return JSON with keys:
   Lead with the feeling/story and the saxophone signature; make the fit obvious.
   Use anything you remember about this curator (preferences, prior contact, timing)
   to personalize — never repeat a pitch they already declined.
+"""
+
+MUSIC_PR_PITCH = """Write a concise press pitch for Bruno D — a "Luxury Latin Soul" artist
+(romantic R&B with a signature alto sax, sung in English/Spanish/Portuguese).
+
+Outlet: {name} ({kind}) — covers {focus}. Contact: {contact}
+{memory}
+Return JSON with key "pitch": a respectful 90-130 word pitch tailored to this outlet's
+audience, leading with the story/angle (not a hard sell), with one clear ask (premiere,
+feature, interview, or add to rotation). Never repeat a pitch they already declined.
+"""
+
+COLLAB_PITCH = """Write artist-to-artist outreach from Bruno D ("Luxury Latin Soul":
+romantic R&B with saxophone) proposing a collaboration with a similarly-sized indie artist.
+
+Artist: {name} — {genre}, ~{listeners} monthly listeners on {platform}.
+{memory}
+Return JSON with key "pitch": a warm, peer 70-110 word note proposing ONE concrete
+collab (feature, duet, song swap, playlist swap, or joint live), genuine and specific
+to their music. No hype, no mass-blast tone.
 """
 
 INFLUENCER_PITCH = """Write outreach to a music/culture influencer for an artist collaboration.

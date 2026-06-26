@@ -29,6 +29,13 @@ DEFAULTS = [
     # Life Commander objective so the Life center is live (not "no objectives yet").
     dict(key="life_ops", name="Stay healthy & organized",
          command_center="life_ops", metric="tasks", target_value=100, rank=6, weight=0.2),
+    # Esposito–Dossantos Foundation — balanced scorecard objectives.
+    dict(key="grant_funding", name="Secure grant funding",
+         command_center="foundation", metric="dollars", target_value=250_000, rank=7, weight=0.4),
+    dict(key="foundation_partners", name="Build corporate & donor partnerships",
+         command_center="foundation", metric="partners", target_value=25, rank=8, weight=0.35),
+    dict(key="foundation_programs", name="Serve students & communities",
+         command_center="foundation", metric="people", target_value=500, rank=9, weight=0.35),
 ]
 
 CENTERS = [
@@ -37,6 +44,7 @@ CENTERS = [
     {"key": "influence", "name": "Influence", "icon": "📣"},
     {"key": "personal", "name": "Personal", "icon": "💪"},
     {"key": "life_ops", "name": "Life Operations", "icon": "🗂️"},
+    {"key": "foundation", "name": "Foundation", "icon": "🎓"},
 ]
 
 

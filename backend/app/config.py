@@ -98,6 +98,26 @@ class Settings(BaseSettings):
     referral_partner_daily_target: int = 25
     # Google review request link, sent to won clients by the Review & Referral agent.
     google_review_link: str = ""
+
+    # ── Esposito–Dossantos Foundation ────────────────────────────────────────
+    foundation_name: str = "Esposito–Dossantos Foundation"
+    foundation_mission: str = (
+        "The Esposito–Dossantos Foundation empowers individuals and communities "
+        "through education, music, technology, and opportunity. We remove barriers "
+        "to success by providing scholarships, mentorship, cultural programs, and "
+        "innovative initiatives that inspire lifelong learning, creativity, "
+        "leadership, and positive social impact around the world.")
+    foundation_tagline: str = "Empowering Lives. Inspiring Futures."
+    # The five program pillars — agents bias content, grant-fit and outreach to these.
+    foundation_pillars: str = (
+        "Education & Scholarships; Music & Arts; Technology & Innovation; "
+        "Community Development; Opportunity & Leadership")
+    # Grant discovery. Grants.gov has a free public search API (US, no key). Each
+    # run pulls a capped batch; the agent runs daily and scores by mission fit.
+    grants_gov_enabled: bool = True
+    grant_daily_target: int = 30
+    # Where foundation partner/donor outreach sources from (sponsors, CSR, donors).
+    foundation_lead_scope: str = "global"
     # BnB Global consulting + SavoryMind sell worldwide → source leads globally.
     consulting_lead_scope: str = "global"
     restaurant_lead_scope: str = "global"
@@ -113,7 +133,7 @@ class Settings(BaseSettings):
     wider_lead_sourcing: bool = True
     # How many areas each lead run sweeps. Big scopes (US+EU) rotate through the
     # full list over days so a single run never times out Overpass.
-    lead_areas_per_run: int = 10
+    lead_areas_per_run: int = 16
     # Location bias for job-search queries (JSearch). Blank = no location filter.
     job_location: str = "United States"
     # How many leads each lead-finder agent produces per run. Small batches keep

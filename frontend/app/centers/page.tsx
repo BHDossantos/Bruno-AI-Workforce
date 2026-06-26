@@ -40,10 +40,10 @@ function CommanderCard({ c, onChanged }: { c: Commander; onChanged: () => void }
     setBusy(true); setMsg(null);
     try {
       const amt = amount ? Number(amount) : null;
-      await api.post(`/commanders/${c.center}/order`, {
+      const r = await api.post<{ plan?: string }>(`/commanders/${c.center}/order`, {
         order, amount: amt, objective_key: objKey || null, run_now: true,
       });
-      setMsg("✅ Order received — the commander is acting on it now.");
+      setMsg(r.plan ? `✅ Plan: ${r.plan}` : "✅ Order received — the commander is acting on it now.");
       setOrder("");
       onChanged();
     } catch (e) { setMsg(`❌ ${e}`); }

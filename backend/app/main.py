@@ -16,7 +16,9 @@ from .routers import (
     control,
     cron,
     decisions,
+    grants,
     mission,
+    voice,
     executive,
     export,
     graph,
@@ -109,6 +111,8 @@ app.include_router(content.router)
 app.include_router(control.router)
 app.include_router(approvals.router)
 app.include_router(mission.router)
+app.include_router(grants.router)
+app.include_router(voice.router)
 
 
 @app.get("/health", tags=["system"])

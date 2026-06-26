@@ -3,11 +3,15 @@ from .bnbglobal import BnbGlobalAgent
 from .ceo_dashboard import CEODashboardAgent
 from .commercial_finder import CommercialLeadFinderAgent
 from .followup import FollowUpAgent
+from .foundation_outreach import FoundationOutreachAgent
+from .grant_research import GrantResearchAgent
 from .homeowner import HomeownerLeadAgent
+from .school_partner import SchoolPartnershipAgent
 from .instagram import InstagramAgent
 from .insurance import InsuranceAgent
 from .job_hunter import JobHunterAgent
 from .music import MusicAgent
+from .music_outreach import CollaborationAgent, MusicPRAgent
 from .referral_partner import ReferralPartnerAgent
 from .review_referral import ReviewReferralAgent
 from .savorymind import SavoryMindAgent
@@ -25,7 +29,13 @@ AGENTS = {
     "bnbglobal": BnbGlobalAgent,
     "savorymind": SavoryMindAgent,
     "music": MusicAgent,
+    "music_pr": MusicPRAgent,
+    "music_collab": CollaborationAgent,
     "instagram": InstagramAgent,
+    # Esposito–Dossantos Foundation.
+    "grant_research": GrantResearchAgent,
+    "foundation_outreach": FoundationOutreachAgent,
+    "school_partner": SchoolPartnershipAgent,
     "ceo_dashboard": CEODashboardAgent,
 }
 

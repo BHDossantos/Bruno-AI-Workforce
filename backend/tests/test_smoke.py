@@ -378,7 +378,8 @@ def test_all_agents_registered():
     assert set(AGENTS) == {
         "job_hunter", "insurance", "commercial_finder", "homeowner", "referral_partner",
         "follow_up_agent", "review_referral", "bnbglobal", "savorymind", "music",
-        "instagram", "ceo_dashboard",
+        "music_pr", "music_collab", "instagram", "grant_research", "foundation_outreach",
+        "school_partner", "ceo_dashboard",
     }
 
 
@@ -1089,7 +1090,9 @@ def test_full_daily_cycle_hits_targets(client, auth_headers):
 
     assert len(client.get("/jobs", headers=auth_headers).json()) == settings.job_daily_target
     assert len(client.get("/instagram/targets", headers=auth_headers).json()) == 100
-    assert len(client.get("/music/influencers", headers=auth_headers).json()) == 25
+    # Music agent makes 25; the PR + collaboration agents add more influencer-type
+    # records, so this is a floor now.
+    assert len(client.get("/music/influencers", headers=auth_headers).json()) >= 25
 
     report = client.get("/reports/latest", headers=auth_headers).json()
     assert report is not None and report["metrics"]["insurance_leads"] >= batch
@@ -1511,3 +1514,26 @@ def test_emergency_stop_pauses_sending(client, auth_headers):
         control.set_paused(db, False)
         assert control.is_paused(db) is False
         db.close()
+
+
+def test_grant_fit_scoring_prioritizes_mission():
+    from app.agents.grant_research import score_fit
+    music_score, pillar = score_fit("Youth music education scholarship program")
+    off_score, _ = score_fit("Highway bridge maintenance contract")
+    assert music_score > off_score
+    assert pillar in ("Music & Arts", "Education & Scholarships")
+
+
+def test_voice_interpreter_keyword_fallback():
+    """Offline (no AI key) the voice router still maps common orders correctly."""
+    from app.routers.voice import _interpret
+    assert _interpret("pause everything")["intent"] == "pause"
+    assert _interpret("switch to autopilot")["intent"] == "set_mode"
+    assert _interpret("approve everything safe")["intent"] == "approve_safe"
+    assert _interpret("how many leads today")["intent"] == "metrics"
+    assert _interpret("source commercial leads")["intent"] == "run_agent"
+    assert _interpret("open approvals")["intent"] == "navigate"
+    assert _interpret("write a linkedin post about cloud savings")["intent"] == "write_content"
+    assert _interpret("draft outreach to Acme Corp")["intent"] == "draft_outreach"
+    assert _interpret("schedule this for tomorrow at 9")["intent"] == "schedule"
+    assert _interpret("what failed today")["intent"] == "what_failed"

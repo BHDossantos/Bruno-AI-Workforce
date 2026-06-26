@@ -2,6 +2,7 @@ import "./globals.css";
 import type { Metadata } from "next";
 import Sidebar from "@/components/Sidebar";
 import ApiStatusBanner from "@/components/ApiStatusBanner";
+import VoiceCommand from "@/components/VoiceCommand";
 
 export const metadata: Metadata = {
   title: "Bruno AI Workforce",
@@ -18,6 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <ApiStatusBanner />
             <div className="p-4 md:p-6 lg:p-8">{children}</div>
           </main>
+          <VoiceCommand />
         </div>
       </body>
     </html>

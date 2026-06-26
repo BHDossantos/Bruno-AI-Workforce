@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from . import scoring
 from .agents import AGENTS
 from .config import settings
-from .models import InstagramTarget, Job, Lead, MusicPlaylist, Objective, Restaurant
+from .models import Grant, InstagramTarget, Job, Lead, MusicPlaylist, Objective, Restaurant
 
 log = logging.getLogger("bruno.commanders")
 
@@ -27,8 +27,11 @@ COMMANDERS: dict[str, dict] = {
         "job_hunter", "insurance", "commercial_finder", "homeowner",
         "referral_partner", "follow_up_agent", "review_referral"]},
     "business":  {"name": "Business Commander",  "agents": ["savorymind", "bnbglobal"]},
-    "influence": {"name": "Influence Commander", "agents": ["music", "instagram"]},
+    "influence": {"name": "Influence Commander",
+                  "agents": ["music", "music_pr", "music_collab", "instagram"]},
     "life_ops":  {"name": "Life Commander",      "agents": []},
+    "foundation": {"name": "Foundation Commander",
+                   "agents": ["grant_research", "foundation_outreach", "school_partner"]},
 }
 
 
@@ -48,7 +51,7 @@ def _run_content_factory(db: Session) -> dict:
         return {}
     seed = date.today().timetuple().tm_yday
     out = {}
-    for business in ("executive", "bnbglobal", "savorymind", "music"):
+    for business in ("executive", "bnbglobal", "savorymind", "music", "foundation", "personal"):
         try:
             topic = content_analytics.best_topic(db, business, seed)  # bias to what performs
             out[business] = content_factory.generate_pack(
@@ -101,6 +104,11 @@ def rollup_objectives(db: Session) -> None:
                             .filter(Restaurant.kind == "prospect").scalar() or 0),
         "music": float(db.query(func.coalesce(func.sum(MusicPlaylist.followers), 0)).scalar() or 0)
                  + float(db.query(func.count()).select_from(InstagramTarget).scalar() or 0),
+        # Foundation scorecard.
+        "grant_funding": float(db.query(func.coalesce(func.sum(Grant.amount), 0))
+                               .filter(Grant.status.notin_(["Lost", "Skipped"])).scalar() or 0),
+        "foundation_partners": float(db.query(func.count()).select_from(Lead)
+                                     .filter(Lead.segment == "foundation").scalar() or 0),
     }
     for key, val in updates.items():
         obj = db.query(Objective).filter(Objective.key == key).first()

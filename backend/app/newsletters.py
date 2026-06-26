@@ -79,11 +79,12 @@ def _issue(funnel: str) -> tuple[str, str]:
     """AI-write this funnel's issue; fall back to a simple template offline."""
     cfg = _FUNNEL[funnel]
     if client.is_live():
+        from .ai import skills
         out = client.complete_json(
             f"Write this week's short email newsletter from {cfg['label']} about "
             f"{cfg['topic']}. Warm, useful, 120-180 words, one clear takeaway and a "
             f"soft CTA. No placeholders/signature. Return JSON {{\"subject\",\"body\"}}.",
-            system="You output only valid JSON.")
+            system=skills.system_prompt("emails", "copywriting"))
         if isinstance(out, dict) and out.get("body"):
             return out.get("subject") or f"{cfg['label']} — this week", out["body"]
     return (f"{cfg['label']} — this week",

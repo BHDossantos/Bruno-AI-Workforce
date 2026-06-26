@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { api, clearToken, getToken } from "@/lib/api";
+import LiveClock from "@/components/LiveClock";
 
 const NAV = [
   { href: "/", label: "Mission Control", icon: "🛰️" },
@@ -32,6 +33,7 @@ const NAV = [
   { href: "/bnbglobal", label: "BnB Global Consulting", icon: "💻" },
   { href: "/savorymind", label: "SavoryMind Leads", icon: "🍽️" },
   { href: "/music", label: "Music Campaigns", icon: "🎵" },
+  { href: "/foundation", label: "Foundation — Grants", icon: "🎓" },
   { href: "/instagram", label: "Instagram Planner", icon: "📸" },
   { href: "/connections", label: "Connections", icon: "🔌" },
   { href: "/status", label: "System Status", icon: "🩺" },
@@ -77,6 +79,7 @@ export default function Sidebar() {
         <div className="px-5 py-6">
           <h1 className="text-lg font-bold leading-tight">Bruno AI</h1>
           <p className="text-xs text-brand-light">Workforce Platform</p>
+          <LiveClock className="mt-1 block text-xs text-brand-light" />
         </div>
 
         <div className="px-3 pb-3">

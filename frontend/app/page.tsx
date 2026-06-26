@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { AuthGate, PageHeader, useFetch } from "@/components/ui";
+import LiveClock from "@/components/LiveClock";
 
 type Action = {
   key: string; title: string; command_center: string; objective: string; action_type: string;
@@ -22,6 +23,7 @@ type Score = {
   monthly_income: number; pipeline_value: number; net_worth: number;
   leads: number; users: number; reach: number; fitness_score: number;
 };
+type Brand = { key: string; name: string; icon: string; metric: string; value: number; warm: number; hot: number; link: string };
 type Goal = { area: string; target: number; today: number; status: string };
 type Mission = {
   paused: boolean; approvals_pending: number; goals: Goal[];
@@ -45,6 +47,7 @@ function Home() {
   const { data: score } = useFetch<Score>(() => api.get<Score>("/scoreboard"), [refresh]);
   const { data: golive } = useFetch<Activation>(() => api.get<Activation>("/activation"), [refresh]);
   const { data: mission } = useFetch<Mission>(() => api.get<Mission>("/mission/control"), [refresh]);
+  const { data: brands } = useFetch<Brand[]>(() => api.get<Brand[]>("/mission/brands"), [refresh]);
   const [running, setRunning] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
@@ -53,6 +56,16 @@ function Home() {
     setRunning(true); setMsg("");
     try { await api.post("/agents/run-all"); setMsg("Agents running — refresh in a minute."); }
     catch (e) { setMsg(String(e)); }
+    finally { setRunning(false); }
+  }
+
+  async function workPipeline() {
+    setRunning(true); setMsg("Working the pipeline — sourcing & drafting across every line…");
+    try {
+      const r = await api.post<{ summary?: string }>("/mission/work-pipeline", {});
+      setMsg(`✅ ${r.summary || "Pipeline worked — check the Approval Queue."}`);
+      setRefresh((n) => n + 1);
+    } catch (e) { setMsg(`❌ ${e}`); }
     finally { setRunning(false); }
   }
 
@@ -71,7 +84,14 @@ function Home() {
       <PageHeader
         title={b?.greeting || "Good morning, Bruno"}
         subtitle="Your chief of staff has ranked today. Do the top 3 — the rest can wait."
-        action={<button className="btn" onClick={runAll} disabled={running}>{running ? "Running…" : "Refresh opportunities"}</button>}
+        action={
+          <div className="flex items-center gap-3">
+            <LiveClock className="hidden text-sm text-gray-500 sm:inline" />
+            <button className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium disabled:opacity-50"
+              onClick={workPipeline} disabled={running}>▶ Work the pipeline</button>
+            <button className="btn" onClick={runAll} disabled={running}>{running ? "Running…" : "Refresh opportunities"}</button>
+          </div>
+        }
       />
       {msg && <p className="mb-4 rounded bg-brand/10 p-3 text-sm text-brand-dark">{msg}</p>}
 
@@ -117,6 +137,30 @@ function Home() {
                   </span>
                 </span>
               </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Per-brand scoreboard */}
+      {brands && brands.length > 0 && (
+        <div className="mb-6">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Your brands</div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            {brands.map((br) => (
+              <Link key={br.key} href={br.link}
+                className="rounded-lg border border-gray-200 bg-white p-3 hover:ring-2 hover:ring-brand/30">
+                <div className="text-lg">{br.icon}</div>
+                <div className="truncate text-xs font-medium text-gray-700">{br.name}</div>
+                <div className="mt-1 text-xl font-bold">{br.value.toLocaleString()}</div>
+                <div className="text-[11px] text-gray-400">{br.metric}</div>
+                {(br.warm > 0 || br.hot > 0) && (
+                  <div className="mt-1 text-[11px]">
+                    {br.hot > 0 && <span className="text-red-600">🔥 {br.hot} </span>}
+                    {br.warm > 0 && <span className="text-amber-600">🌤️ {br.warm}</span>}
+                  </div>
+                )}
+              </Link>
             ))}
           </div>
         </div>

@@ -19,6 +19,7 @@ type Restaurant = {
   follow_up: string | null;
   status: string;
   temperature: string;
+  fit_score: number;
 };
 type Temp = { cold: number; warm: number; hot: number; dead: number };
 
@@ -77,6 +78,7 @@ function SavoryMind() {
         <table className="w-full">
           <thead>
             <tr>
+              <th className="th">Fit</th>
               <th className="th">Restaurant</th>
               <th className="th">Cuisine / City</th>
               <th className="th">Temp</th>
@@ -91,6 +93,7 @@ function SavoryMind() {
           <tbody>
             {(data || []).map((r) => (
               <tr key={r.id} className="border-t border-gray-100">
+                <td className="td"><span className="badge bg-brand/10 text-brand-dark">{r.fit_score}</span></td>
                 <td className="td"><div className="font-medium">{r.name}</div><div className="text-xs text-gray-400">{r.owner_manager}</div></td>
                 <td className="td">{r.cuisine}<div className="text-xs text-gray-400">{r.city}</div></td>
                 <td className="td"><TempBadge t={r.temperature} /></td>
@@ -112,7 +115,7 @@ function SavoryMind() {
               </tr>
             ))}
             {!loading && (data || []).length === 0 && (
-              <tr><td colSpan={9} className="td text-center text-gray-400">No restaurants yet — hit “Source restaurants now” to find prospects.</td></tr>
+              <tr><td colSpan={10} className="td text-center text-gray-400">No restaurants yet — hit “Source restaurants now” to find prospects.</td></tr>
             )}
           </tbody>
         </table>

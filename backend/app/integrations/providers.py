@@ -244,6 +244,38 @@ def fetch_food_consumers(count: int) -> list[dict]:
     return out
 
 
+# Music PR outlets (blogs / podcasts / radio) + similar artists for collaborations.
+_PR_KINDS = ["music blog", "podcast", "online magazine", "college radio", "indie radio"]
+_PR_FOCUS = ["R&B & soul", "Latin music", "romantic/indie", "saxophone & jazz", "new music Friday"]
+
+
+def fetch_music_pr(count: int) -> list[dict]:
+    """Press outlets to pitch the latest release (synthetic until a PR DB/API is wired)."""
+    if not settings.allow_synthetic_fallback:
+        return []
+    out = []
+    for i in range(count):
+        kind = _rng.choice(_PR_KINDS)
+        name = f"{_rng.choice(_LAST)} {_rng.choice(['Sounds', 'Notes', 'Sessions', 'Radio', 'Review'])}"
+        out.append({"name": name, "kind": kind, "focus": _rng.choice(_PR_FOCUS),
+                    "email": f"editor-{i}@{_slug(name)}.com", "contact": _person()})
+    return out
+
+
+def fetch_collab_artists(count: int) -> list[dict]:
+    """Similarly-sized indie artists for collaboration outreach (synthetic placeholder)."""
+    if not settings.allow_synthetic_fallback:
+        return []
+    out = []
+    for i in range(count):
+        name = _person()
+        out.append({"name": name, "genre": _rng.choice(["R&B", "Latin soul", "romantic pop", "neo-soul"]),
+                    "listeners": _rng.randint(5000, 200000),
+                    "platform": _rng.choice(["Spotify", "Instagram", "YouTube"]),
+                    "email": f"{_slug(name)}-{i}@example.com"})
+    return out
+
+
 # ── Agent 4: music playlists + influencers ───────────────────────────────────
 MUSIC_GENRES = ["Samba", "Pagode", "Brazilian jazz", "Latin romance", "R&B",
                 "Romantic", "Italian", "Spanish", "Portuguese"]

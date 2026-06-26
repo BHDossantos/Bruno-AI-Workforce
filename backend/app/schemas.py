@@ -112,6 +112,12 @@ class RestaurantOut(ORMModel):
     def temperature(self) -> str:
         return _temperature(self.status)
 
+    @computed_field
+    @property
+    def fit_score(self) -> int:
+        from .restaurant_fit import score
+        return score(self)
+
 
 class PlaylistOut(ORMModel):
     id: uuid.UUID

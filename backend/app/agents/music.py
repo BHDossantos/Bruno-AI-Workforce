@@ -79,8 +79,17 @@ class MusicAgent(BaseAgent):
 
         from .. import memory
         copy_system = skills.system_prompt("copywriting", "cold-email")
+        # Never contact the same curator/influencer twice — dedupe against history.
+        pl_seen = {(e or "").lower() for (e,) in self.db.query(MusicPlaylist.email)
+                   .filter(MusicPlaylist.email.isnot(None)).all()}
+        pl_names = {(n or "").lower() for (n,) in self.db.query(MusicPlaylist.name).all()}
+        inf_seen = {(e or "").lower() for (e,) in self.db.query(Influencer.email)
+                    .filter(Influencer.email.isnot(None)).all()}
+        inf_handles = {(h or "").lower() for (h,) in self.db.query(Influencer.handle).all()}
         sent = 0
         for pl in providers.fetch_playlists(PLAYLIST_TARGET):
+            if (pl.get("email") or "").lower() in pl_seen or (pl.get("name") or "").lower() in pl_names:
+                continue  # already pitched this playlist
             try:
                 mem = memory.entity_context(self.db, name=pl.get("curator_name") or pl["name"],
                                             email=pl.get("email"))
@@ -109,6 +118,8 @@ class MusicAgent(BaseAgent):
                 self.db.rollback()
 
         for inf in providers.fetch_influencers(INFLUENCER_TARGET):
+            if (inf.get("email") or "").lower() in inf_seen or (inf.get("handle") or "").lower() in inf_handles:
+                continue  # already contacted this creator
             try:
                 mem = memory.entity_context(self.db, name=inf.get("name"), email=inf.get("email"))
                 pitch = client.complete_json(
