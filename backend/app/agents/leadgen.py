@@ -45,9 +45,13 @@ def run_batch(agent, prospects: list[dict], *, account: str, build_prompt,
     existing = {e for (e,) in db.query(Lead.email).filter(Lead.email.isnot(None)).all()}
 
     # Focus the agent's effort on the strongest prospects first: highest fit gets
-    # enriched + reached out to before the batch's weaker rows.
-    from .. import lead_fit
-    prospects = sorted(prospects, key=lead_fit.score, reverse=True)
+    # enriched + reached out to before the batch's weaker rows, with a learned
+    # boost for categories that actually convert (reply data).
+    from .. import lead_fit, lead_intel
+    boosts = lead_intel.category_boosts(db)
+    prospects = sorted(
+        prospects, key=lambda p: lead_fit.score(p) + boosts.get(p.get("category"), 0),
+        reverse=True)
 
     pairs: list[tuple[Lead, dict]] = []
     seen: set[str] = set()
@@ -72,10 +76,10 @@ def run_batch(agent, prospects: list[dict], *, account: str, build_prompt,
     for row, p in pairs:
         try:
             sysp = skills.system_prompt("cold-email", "marketing-psychology", "offers")
-            from .. import outreach_analytics
-            hint = outreach_analytics.whats_working(db)
-            if hint:
-                sysp = f"{sysp}\n\n{hint}"
+            from .. import lead_intel, outreach_analytics
+            for hint in (outreach_analytics.whats_working(db), lead_intel.whats_working(db)):
+                if hint:
+                    sysp = f"{sysp}\n\n{hint}"
             mem_ctx = memory.context_block(db, p.get("company_name") or "")
             if mem_ctx:
                 sysp = f"{sysp}\n\n{mem_ctx}"

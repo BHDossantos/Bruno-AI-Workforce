@@ -7,11 +7,13 @@ type Arm = { category: string; avg_engagement: number; samples: number };
 type ChannelLearning = { channel: string; samples: number; next_pick: string | null; arms: Arm[] };
 type PostingTime = { hour: number; learned: boolean; samples: number };
 type OutreachArm = { style: string; sent: number; replied: number; rate: number };
+type LeadCategory = { category: string; sent: number; replied: number; rate: number };
 type Learnings = {
   method: string;
   content: ChannelLearning[];
   posting_times: Record<string, PostingTime>;
   outreach?: OutreachArm[];
+  lead_categories?: LeadCategory[];
 };
 
 const ICON: Record<string, string> = {
@@ -93,6 +95,27 @@ function LearningsView() {
             })()}
           </div>
           <p className="mt-2 text-xs text-gray-400">The outreach agents auto-favor the highest-replying styles.</p>
+        </div>
+      )}
+
+      {data.lead_categories && data.lead_categories.length > 0 && (
+        <div className="card">
+          <h2 className="mb-3 font-semibold">Leads — prospect categories by reply rate</h2>
+          <div className="space-y-1.5">
+            {(() => {
+              const max = Math.max(1, ...data.lead_categories!.map((a) => a.rate));
+              return data.lead_categories!.map((a) => (
+                <div key={a.category} className="flex items-center gap-2">
+                  <div className="w-28 shrink-0 truncate text-xs text-gray-600" title={a.category}>{a.category}</div>
+                  <div className="h-4 flex-1 overflow-hidden rounded bg-gray-100">
+                    <div className="h-full rounded bg-brand" style={{ width: `${Math.max(6, (a.rate / max) * 100)}%` }} />
+                  </div>
+                  <div className="w-24 shrink-0 text-right text-[11px] text-gray-500">{Math.round(a.rate * 100)}% · {a.sent}×</div>
+                </div>
+              ));
+            })()}
+          </div>
+          <p className="mt-2 text-xs text-gray-400">The lead agents source + reach out to the converting categories first.</p>
         </div>
       )}
 
