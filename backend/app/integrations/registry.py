@@ -50,7 +50,7 @@ PROVIDERS: list[dict] = [
     {
         "key": "facebook", "name": "Facebook Page", "category": "social", "icon": "👍",
         "auth_type": "api_key",
-        "fields": [_field("page_access_token", "Page access token", secret=True),
+        "fields": [_field("access_token", "Page access token", secret=True),
                    _field("page_id", "Page ID")],
         "capabilities": ["publish_auto", "analytics", "lead_capture"],
         "stages": ["attract", "capture"],

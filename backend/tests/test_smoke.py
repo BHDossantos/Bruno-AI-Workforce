@@ -146,6 +146,18 @@ def test_activation_checklist(client, auth_headers):
     assert d["live"] is False
 
 
+def test_connector_credential_aliases():
+    """Standard credential names resolve legacy aliases, so old + new connections
+    both work after the naming standardization."""
+    from app.integrations import connectors
+    assert connectors.cred({"page_access_token": "abc"}, "access_token") == "abc"  # legacy FB
+    assert connectors.cred({"access_token": "new"}, "access_token") == "new"       # standard
+    assert connectors.cred({"app_id": "123"}, "client_id") == "123"               # Meta alias
+    assert connectors.cred({"app_secret": "s"}, "client_secret") == "s"
+    assert connectors.cred({}, "access_token", default="x") == "x"                 # safe default
+    assert connectors.cred(None, "access_token") is None
+
+
 def test_contact_import_any_platform():
     """Contact import normalizes headers from every common export + parses vCard."""
     from app import importer
