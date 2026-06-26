@@ -51,6 +51,12 @@ def create_connection(body: ConnectionCreate, db: Session = Depends(get_db),
         raise HTTPException(status_code=400,
                             detail=f"Missing required field(s): {', '.join(missing)}")
 
+    # Auto-upgrade IG/FB tokens to long-lived so a short-lived token can't expire
+    # silently after a couple of hours (no-op for other providers / missing app creds).
+    if body.credentials:
+        from ..integrations import meta_tokens
+        body.credentials = meta_tokens.upgrade(body.provider, body.credentials)
+
     creds_enc = encrypt_secret(json.dumps(body.credentials)) if body.credentials else None
     conn = Connection(
         provider=body.provider,
@@ -90,6 +96,8 @@ def update_connection(conn_id: str, body: ConnectionUpdate, db: Session = Depend
             except Exception:
                 existing = {}
         existing.update(body.credentials)
+        from ..integrations import meta_tokens
+        existing = meta_tokens.upgrade(conn.provider, existing)
         conn.credentials_enc = encrypt_secret(json.dumps(existing))
     db.commit()
     db.refresh(conn)
