@@ -161,12 +161,15 @@ Return JSON with keys:
 - "story_reply": a casual story reply.
 """
 
-INSTAGRAM_CALENDAR = """Build a 7-day Instagram content calendar for THIS account/brand:
+INSTAGRAM_CALENDAR = """Build TODAY's Instagram posting schedule of 9 posts for THIS account/brand:
 {brand}
 
-Use the brand's own content pillars above (not generic ones). Make every idea and
-caption specific to this business, its audience, and its voice.
-Return JSON with key "calendar": a list of 7 objects {{"day", "pillar", "idea", "caption", "hashtags"}}.
+Nine posts spread across the day (mix feed posts, Reels and Stories). Use the
+brand's own content pillars above (not generic ones). Make every idea and caption
+specific to this business, its audience, and its voice, and vary the pillar/format
+across the nine so the day doesn't feel repetitive.
+Return JSON with key "calendar": a list of 9 objects
+{{"time", "format", "pillar", "idea", "caption", "hashtags"}} ordered by time.
 """
 
 # ── Automated follow-ups ─────────────────────────────────────────────────────

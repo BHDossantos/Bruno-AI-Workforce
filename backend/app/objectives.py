@@ -18,12 +18,17 @@ DEFAULTS = [
          command_center="wealth", metric="income", target_value=300_000, rank=1, weight=1.0),
     dict(key="insurance", name="Grow the insurance book (fast cash flow)",
          command_center="wealth", metric="income", target_value=80_000, rank=2, weight=0.8),
+    # Consulting (BnB Global) lives under the Business Commander — same place its
+    # scored pipeline is counted, so the card math lines up.
     dict(key="consulting", name="Build consulting income",
-         command_center="wealth", metric="income", target_value=50_000, rank=3, weight=0.6),
+         command_center="business", metric="income", target_value=50_000, rank=3, weight=0.6),
     dict(key="savorymind", name="Grow SavoryMind",
          command_center="business", metric="revenue", target_value=120_000, rank=4, weight=0.5),
     dict(key="music", name="Grow music influence",
          command_center="influence", metric="followers", target_value=50_000, rank=5, weight=0.25),
+    # Life Commander objective so the Life center is live (not "no objectives yet").
+    dict(key="life_ops", name="Stay healthy & organized",
+         command_center="life_ops", metric="tasks", target_value=100, rank=6, weight=0.2),
 ]
 
 CENTERS = [
@@ -36,14 +41,20 @@ CENTERS = [
 
 
 def ensure_objectives(db: Session) -> None:
-    """Create any missing default objectives (idempotent)."""
-    existing = {k for (k,) in db.query(Objective.key).all()}
-    created = False
+    """Create any missing default objectives AND reconcile the command_center of
+    known objectives (idempotent), so a center re-org (e.g. consulting → business)
+    is applied to existing databases without a manual migration."""
+    rows = {o.key: o for o in db.query(Objective).all()}
+    changed = False
     for d in DEFAULTS:
-        if d["key"] not in existing:
+        existing = rows.get(d["key"])
+        if existing is None:
             db.add(Objective(**d))
-            created = True
-    if created:
+            changed = True
+        elif existing.command_center != d["command_center"]:
+            existing.command_center = d["command_center"]
+            changed = True
+    if changed:
         db.commit()
 
 

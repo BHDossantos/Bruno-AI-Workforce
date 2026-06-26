@@ -60,7 +60,7 @@ class InstagramAgent(BaseAgent):
 
         self.log_action("instagram_targets_saved", entity="instagram_targets",
                         detail={"count": saved, "connected": platforms, "published": bool(published)})
-        summary = "Refreshed the brand-tailored 7-day content calendar"
+        summary = "Refreshed the brand-tailored daily 9-post Instagram schedule"
         summary += f" and saved {saved} target accounts to engage." if saved else "."
         if platforms:
             summary += f" Connected: {', '.join(platforms)}."

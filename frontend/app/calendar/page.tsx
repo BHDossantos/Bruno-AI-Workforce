@@ -12,6 +12,17 @@ type Item = {
 const SOCIAL = ["instagram", "facebook", "linkedin", "x"];
 const dayKey = (iso: string | null) => (iso ? iso.slice(0, 10) : "Unscheduled");
 
+function dayLabel(day: string): string {
+  if (day === "Unscheduled") return "Unscheduled";
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const d = new Date(day + "T00:00:00");
+  const diff = Math.round((d.getTime() - today.getTime()) / 86_400_000);
+  const nice = d.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+  if (diff === 0) return `Today · ${nice}`;
+  if (diff === 1) return `Tomorrow · ${nice}`;
+  return nice;
+}
+
 function Calendar() {
   const [items, setItems] = useState<Item[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -27,7 +38,7 @@ function Calendar() {
 
   // Show queued/upcoming social content (the stuff that will auto-post).
   const queued = items.filter((i) => SOCIAL.includes(i.channel) &&
-    ["scheduled", "needs_approval", "ready"].includes(i.status));
+    ["scheduled", "needs_approval", "ready", "generated"].includes(i.status));
   const groups: Record<string, Item[]> = {};
   for (const i of queued) (groups[dayKey(i.scheduled_for)] ||= []).push(i);
   const days = Object.keys(groups).sort();
@@ -40,9 +51,7 @@ function Calendar() {
       <div className="space-y-5">
         {days.map((day) => (
           <div key={day}>
-            <h2 className="mb-2 text-sm font-semibold text-gray-700">
-              {day === "Unscheduled" ? "Unscheduled" : new Date(day).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
-            </h2>
+            <h2 className="mb-2 text-sm font-semibold text-gray-700">{dayLabel(day)}</h2>
             <div className="space-y-2">
               {groups[day].map((i) => (
                 <div key={i.id} className="card flex items-center justify-between gap-3">

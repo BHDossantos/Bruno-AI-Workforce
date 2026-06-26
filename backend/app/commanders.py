@@ -180,6 +180,20 @@ def run_ceo(db: Session) -> dict:
     return {"engine": engine, "commanders": results}
 
 
+def run_center(db: Session, center: str) -> dict:
+    """Run a single Commander's agents now (on demand), then roll up objectives so
+    the dashboard reflects the result immediately. Used by the 'Run now' / order
+    actions on the Command Centers page."""
+    if center not in COMMANDERS:
+        return {"ok": False, "reason": f"unknown commander '{center}'"}
+    result = _run_commander(db, center)
+    try:
+        rollup_objectives(db)
+    except Exception:  # rollup failing must not hide the run result
+        log.exception("rollup after %s run failed", center)
+    return {"ok": True, **result}
+
+
 def status(db: Session) -> list[dict]:
     """Commander roster + their objectives + live pipeline, for the dashboard."""
     actions = scoring.build_actions(db)

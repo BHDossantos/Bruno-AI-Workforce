@@ -76,6 +76,8 @@ export function useFetch<T>(fetcher: () => Promise<T>, deps: unknown[] = []) {
   useEffect(() => {
     let alive = true;
     setLoading(true);
+    setError(null);
+    setData(null);
     fetcher()
       .then((d) => alive && setData(d))
       .catch((e) => alive && setError(String(e)))

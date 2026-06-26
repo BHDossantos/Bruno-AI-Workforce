@@ -606,8 +606,8 @@ def test_gmail_app_password_enables_sending_config():
 def test_objective_defaults_are_ranked():
     from app import objectives
     keys = [d["key"] for d in objectives.DEFAULTS]
-    assert keys[0] == "net_worth" and keys[-1] == "music"  # COO ranking (net worth on top)
-    assert "exec_role" in keys
+    assert keys[0] == "net_worth"  # COO ranking (net worth on top)
+    assert "music" in keys and "exec_role" in keys
     assert objectives.DEFAULTS[0]["weight"] > objectives.DEFAULTS[-1]["weight"]
     assert {c["key"] for c in objectives.CENTERS} >= {"wealth", "business", "influence"}
 

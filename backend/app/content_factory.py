@@ -28,14 +28,18 @@ _SIMILAR = 0.88  # cosine above this == "we've covered this"
 
 
 def _status_for_mode(db: Session, channel: str) -> tuple[str, datetime | None]:
+    # Always assign a concrete posting slot so EVERY generated piece lands on a
+    # specific day/time in the content calendar (today vs tomorrow vs later),
+    # regardless of approval mode.
+    from . import posting_times
     mode = settings.content_approval_mode
+    slot = posting_times.next_slot(db, channel)
     if mode <= 1:
-        return "generated", None
+        return "generated", slot
     if mode == 2:
-        return "needs_approval", None
+        return "needs_approval", slot
     if mode == 3:  # auto-schedule into the channel's learned best posting window
-        from . import posting_times
-        return "scheduled", posting_times.next_slot(db, channel)
+        return "scheduled", slot
     return "scheduled", datetime.now(timezone.utc)  # 4/5: publish on next content-cron tick
 
 
