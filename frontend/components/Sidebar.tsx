@@ -16,6 +16,7 @@ const NAV = [
   { href: "/money", label: "Money / Net Worth", icon: "💵" },
   { href: "/objectives", label: "Objectives", icon: "🎯" },
   { href: "/opportunities", label: "Opportunities", icon: "✨" },
+  { href: "/board", label: "Board Report", icon: "🧑‍⚖️" },
   { href: "/analytics", label: "Funnel Analytics", icon: "📊" },
   { href: "/growth", label: "Growth Analytics", icon: "📈" },
   { href: "/pipeline", label: "Sales Pipeline", icon: "💰" },

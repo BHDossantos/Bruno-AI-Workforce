@@ -35,6 +35,14 @@ def latest_report(db: Session = Depends(get_db), _=Depends(_read)):
     return db.query(DailyReport).order_by(DailyReport.report_date.desc()).first()
 
 
+@router.get("/board-report")
+def board_report(db: Session = Depends(get_db), _=Depends(_read)):
+    """Weekly executive board review — week-over-week trends plus AI recommendations
+    that focus, challenge, and tie every call to the numbers."""
+    from .. import board_report as br
+    return br.build(db)
+
+
 @router.get("/dashboard/summary")
 def summary(db: Session = Depends(get_db), _=Depends(_read)):
     """KPI summary for the home dashboard (today's totals)."""

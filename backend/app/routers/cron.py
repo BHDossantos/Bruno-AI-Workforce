@@ -150,6 +150,30 @@ def cron_referrals(x_cron_token: str | None = Header(default=None),
     return out
 
 
+@router.post("/board-report")
+def cron_board_report(x_cron_token: str | None = Header(default=None),
+                      db: Session = Depends(get_db)):
+    """Weekly executive board review — build it and email it (no-op email without SMTP)."""
+    _auth(x_cron_token)
+    from .. import board_report
+    from ..config import settings as cfg
+    from ..integrations import mailer
+    report = board_report.build(db)
+    emailed = False
+    if cfg.report_to_email:
+        recs = "".join(
+            f"<li><b>{r.get('action','')}</b> — {r.get('rationale','')} "
+            f"<i>({r.get('confidence','')}%)</i></li>" for r in report.get("recommendations", []))
+        html = (f"<h2>{report.get('headline','Weekly Board Report')}</h2>"
+                f"<p>Expected pipeline: ${report.get('expected_pipeline',0):,}</p>"
+                f"<h3>Recommendations</h3><ul>{recs}</ul>"
+                f"<p><b>Challenge:</b> {report.get('challenge','')}</p>")
+        emailed = mailer.send_email(to=cfg.report_to_email,
+                                    subject="Bruno AI — Weekly Board Report", html=html)
+    return {"ok": True, "emailed": emailed,
+            "recommendations": len(report.get("recommendations", []))}
+
+
 @router.post("/music-releases")
 def cron_music_releases(x_cron_token: str | None = Header(default=None),
                         db: Session = Depends(get_db)):
