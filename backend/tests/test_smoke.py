@@ -1090,7 +1090,9 @@ def test_full_daily_cycle_hits_targets(client, auth_headers):
 
     assert len(client.get("/jobs", headers=auth_headers).json()) == settings.job_daily_target
     assert len(client.get("/instagram/targets", headers=auth_headers).json()) == 100
-    assert len(client.get("/music/influencers", headers=auth_headers).json()) == 25
+    # Music agent makes 25; the PR + collaboration agents add more influencer-type
+    # records, so this is a floor now.
+    assert len(client.get("/music/influencers", headers=auth_headers).json()) >= 25
 
     report = client.get("/reports/latest", headers=auth_headers).json()
     assert report is not None and report["metrics"]["insurance_leads"] >= batch
