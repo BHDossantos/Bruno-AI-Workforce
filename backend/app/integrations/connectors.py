@@ -53,6 +53,33 @@ def is_connected(db: Session | None, provider: str) -> bool:
     return get_connection(db, provider) is not None
 
 
+# Industry-standard credential vocabulary → the legacy field names that mean the
+# same thing. Lets us standardize field names for NEW connections while older
+# stored connections (and hand-pasted tokens) keep working unchanged.
+_ALIASES: dict[str, tuple[str, ...]] = {
+    "access_token": ("access_token", "page_access_token", "oauth_token", "token"),
+    "refresh_token": ("refresh_token",),
+    "client_id": ("client_id", "app_id", "consumer_key"),
+    "client_secret": ("client_secret", "app_secret", "consumer_secret"),
+    "api_key": ("api_key", "apikey"),
+    "api_secret": ("api_secret", "apisecret"),
+    "account_id": ("account_id",),
+}
+
+
+def cred(creds: dict | None, key: str, default=None):
+    """Read a credential by its STANDARD name, accepting legacy aliases — so an
+    integration can ask for 'access_token' and still find a stored
+    'page_access_token'. Unknown keys fall back to a direct lookup."""
+    if not creds:
+        return default
+    for k in _ALIASES.get(key, (key,)):
+        v = creds.get(k)
+        if v:
+            return v
+    return default
+
+
 def update_credentials(db: Session, provider: str, creds: dict) -> bool:
     """Persist refreshed credentials (re-encrypted) for a provider's connection."""
     from ..security import encrypt_secret

@@ -18,7 +18,13 @@ _TIMEOUT = httpx.Timeout(20.0, connect=5.0)
 
 def _creds(db) -> dict | None:
     c = connectors.get_credentials(db, "facebook")
-    if c and c.get("page_access_token") and c.get("page_id"):
+    if not c:
+        return None
+    # Accept the standard 'access_token' AND the legacy 'page_access_token';
+    # normalize so the rest of this module reads one key.
+    token = connectors.cred(c, "access_token")
+    if token and c.get("page_id"):
+        c["page_access_token"] = token
         return c
     return None
 
