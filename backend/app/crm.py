@@ -91,8 +91,10 @@ def get_contact(db: Session, cid: str) -> dict | None:
     src = next((c for c in list_contacts(db) if c["id"] == cid), None)
     if not src:
         return None
-    src["memories"] = memory.recall_entity(
-        db, name=src.get("subject") or src.get("name"), email=src.get("email"), k=25)
+    subject = src.get("subject") or src.get("name")
+    src["memories"] = memory.recall_entity(db, name=subject, email=src.get("email"), k=25)
+    from . import graph
+    src["connections"] = graph.neighbors(db, subject)
     return src
 
 
@@ -104,9 +106,19 @@ def add_note(db: Session, cid: str, content: str) -> dict | None:
         return None
     subject = src.get("subject") or src.get("name")
     memory.add(db, (content or "").strip(), kind="note", subject=subject, source="manual")
-    src["memories"] = memory.recall_entity(
-        db, name=subject, email=src.get("email"), k=25)
-    return src
+    return get_contact(db, cid)
+
+
+def link_contact(db: Session, cid: str, to_subject: str, relation: str) -> dict | None:
+    """Connect a contact to another entity in the relationship graph, then return
+    the refreshed contact (with its connections)."""
+    src = next((c for c in list_contacts(db) if c["id"] == cid), None)
+    if not src:
+        return None
+    from . import graph
+    subject = src.get("subject") or src.get("name")
+    graph.link(db, subject, to_subject, relation, from_type=src.get("kind"))
+    return get_contact(db, cid)
 
 
 def add_contact(db: Session, **fields) -> dict:

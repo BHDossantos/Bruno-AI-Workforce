@@ -10,7 +10,8 @@ type Contact = {
   source: string | null; link: string; kind?: string; subject?: string;
 };
 type Mem = { id: string; kind: string; content: string };
-type Detail = Contact & { memories: Mem[] };
+type Conn = { id: string; subject: string; relation: string; direction: string; type?: string | null };
+type Detail = Contact & { memories: Mem[]; connections: Conn[] };
 
 const SOURCES: { key: string; label: string; icon: string }[] = [
   { key: "", label: "All", icon: "👥" },
@@ -55,6 +56,19 @@ function CRM() {
       const updated = await api.post<Detail>(`/crm/${encodeURIComponent(cid)}/note`, { content: note.trim() });
       setDetail(updated); setNote("");
     } finally { setSavingNote(false); }
+  }
+
+  const [link, setLink] = useState({ to: "", relation: "connected_to" });
+  const [savingLink, setSavingLink] = useState(false);
+
+  async function saveLink(cid: string) {
+    if (!link.to.trim()) return;
+    setSavingLink(true);
+    try {
+      const updated = await api.post<Detail>(`/crm/${encodeURIComponent(cid)}/link`,
+        { to_subject: link.to.trim(), relation: link.relation });
+      setDetail(updated); setLink({ to: "", relation: "connected_to" });
+    } finally { setSavingLink(false); }
   }
 
   async function addContact() {
@@ -145,6 +159,43 @@ function CRM() {
                           </div>
                         )}
                       </div>
+
+                      {detail && (
+                        <div className="mt-4">
+                          <div className="text-xs font-semibold text-gray-500">🔗 Connections</div>
+                          {detail.connections.length === 0
+                            ? <div className="text-xs text-gray-400">No connections yet.</div>
+                            : <ul className="mt-1 space-y-1">
+                                {detail.connections.map((cn) => (
+                                  <li key={cn.id} className="text-sm">
+                                    <span className="text-gray-500">{cn.relation.replace(/_/g, " ")}</span>{" "}
+                                    <span className="font-medium">{cn.subject}</span>
+                                  </li>
+                                ))}
+                              </ul>}
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <input value={open === c.id ? link.to : ""}
+                              onChange={(e) => setLink({ ...link, to: e.target.value })}
+                              onKeyDown={(e) => e.key === "Enter" && saveLink(c.id)}
+                              placeholder="Connect to (name / company)…"
+                              className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+                            <select value={link.relation} onChange={(e) => setLink({ ...link, relation: e.target.value })}
+                              className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm">
+                              <option value="connected_to">connected to</option>
+                              <option value="works_at">works at</option>
+                              <option value="hiring_manager_for">hiring manager for</option>
+                              <option value="reports_to">reports to</option>
+                              <option value="referred_by">referred by</option>
+                              <option value="introduced_by">introduced by</option>
+                              <option value="colleague">colleague</option>
+                            </select>
+                            <button onClick={() => saveLink(c.id)} disabled={savingLink || !link.to.trim()}
+                              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm">
+                              {savingLink ? "Linking…" : "Link"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 )}

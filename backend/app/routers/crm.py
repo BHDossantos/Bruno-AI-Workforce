@@ -55,3 +55,19 @@ def add_note(cid: str, body: NoteIn, db: Session = Depends(get_db), _=Depends(_w
     if not c:
         raise HTTPException(404, "contact not found")
     return c
+
+
+class LinkIn(BaseModel):
+    to_subject: str
+    relation: str = "connected_to"
+
+
+@router.post("/{cid}/link")
+def link_contact(cid: str, body: LinkIn, db: Session = Depends(get_db), _=Depends(_write)):
+    """Connect this contact to another entity in the relationship graph."""
+    if not body.to_subject.strip():
+        raise HTTPException(400, "need an entity to connect to")
+    c = crm.link_contact(db, cid, body.to_subject.strip(), body.relation.strip() or "connected_to")
+    if not c:
+        raise HTTPException(404, "contact not found")
+    return c
