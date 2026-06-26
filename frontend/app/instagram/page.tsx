@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { AuthGate, Expandable, PageHeader, useFetch } from "@/components/ui";
+import { AuthGate, Expandable, PageHeader, useFetch, LoadState } from "@/components/ui";
 
 type Target = { id: string; handle: string; niche: string; category: string; followers: number; comment_idea: string | null; dm_opener: string | null; story_reply: string | null };
 type Campaign = { id: string; title: string; content: { calendar?: { day: string; pillar: string; idea: string; caption: string }[] } | null };
@@ -15,7 +15,7 @@ type Account = {
 };
 
 function Instagram() {
-  const { data: acct } = useFetch<Account>(() => api.get<Account>("/instagram/account"));
+  const { data: acct, loading, error, reload } = useFetch<Account>(() => api.get<Account>("/instagram/account"));
   const { data: targets } = useFetch<Target[]>(() => api.get<Target[]>("/instagram/targets?limit=200"));
   const { data: calendars } = useFetch<Campaign[]>(() => api.get<Campaign[]>("/instagram/calendar?limit=1"));
   const calendar = calendars?.[0]?.content?.calendar;
@@ -23,6 +23,8 @@ function Instagram() {
   return (
     <div className="space-y-8">
       <PageHeader title="Instagram Planner" subtitle="Live account + daily targets and weekly content calendar" />
+
+      {(loading || error) && <LoadState loading={loading} error={error} onRetry={reload} />}
 
       {acct && !acct.connected && (
         <div className="card bg-amber-50">

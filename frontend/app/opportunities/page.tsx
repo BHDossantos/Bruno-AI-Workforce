@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { AuthGate, PageHeader, useFetch } from "@/components/ui";
+import { AuthGate, PageHeader, useFetch, LoadState } from "@/components/ui";
 
 type Opp = {
   id: string; kind: string; title: string; value: number; probability: number;
@@ -19,7 +19,7 @@ function money(n: number) {
 
 function Opportunities() {
   const [refresh, setRefresh] = useState(0);
-  const { data } = useFetch<Opp[]>(() => api.get<Opp[]>("/opportunities"), [refresh]);
+  const { data, loading, error, reload } = useFetch<Opp[]>(() => api.get<Opp[]>("/opportunities"), [refresh]);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
   const [f, setF] = useState({ title: "", kind: "investor", value: 0, probability: 0.3, urgency: 1, effort: 2, objective: "", link: "", notes: "" });
@@ -78,6 +78,7 @@ function Opportunities() {
         </div>
       )}
 
+      {(loading || error) && <LoadState loading={loading} error={error} onRetry={reload} />}
       <div className="card overflow-x-auto p-0">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-left text-xs text-gray-500">

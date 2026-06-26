@@ -1,7 +1,7 @@
 "use client";
 
 import { api } from "@/lib/api";
-import { AuthGate, PageHeader, KpiCard, useFetch } from "@/components/ui";
+import { AuthGate, PageHeader, KpiCard, useFetch, LoadState } from "@/components/ui";
 
 type Stage = { stage: string; count: number };
 type Named = { name: string; count: number };
@@ -56,8 +56,8 @@ function Chips({ items }: { items: Named[] }) {
 }
 
 function PipelineView() {
-  const { data } = useFetch<Pipeline>(() => api.get<Pipeline>("/analytics/pipeline"));
-  if (!data) return <div className="p-4 text-gray-400">Loading pipeline…</div>;
+  const { data, loading, error, reload } = useFetch<Pipeline>(() => api.get<Pipeline>("/analytics/pipeline"));
+  if (!data) return <LoadState loading={loading} error={error} onRetry={reload} />;
   const biz = data.businesses;
   const totalValue = Object.values(biz).reduce((s, b) => s + (b.value || 0), 0);
   const totalLeads = Object.values(biz).reduce((s, b) => s + b.total, 0);

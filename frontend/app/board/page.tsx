@@ -1,7 +1,7 @@
 "use client";
 
 import { api } from "@/lib/api";
-import { AuthGate, PageHeader, useFetch } from "@/components/ui";
+import { AuthGate, PageHeader, useFetch, LoadState } from "@/components/ui";
 
 type Metric = { key: string; label: string; this_week: number; last_week: number; delta_pct: number; trend: string };
 type Rec = { action: string; rationale: string; confidence: number };
@@ -19,8 +19,8 @@ function arrow(t: string) { return t === "up" ? "▲" : t === "down" ? "▼" : "
 function color(t: string) { return t === "up" ? "text-green-600" : t === "down" ? "text-red-500" : "text-gray-400"; }
 
 function Board() {
-  const { data } = useFetch<Report>(() => api.get<Report>("/board-report"));
-  if (!data) return <div className="p-4 text-gray-400">Generating this week&apos;s board review…</div>;
+  const { data, loading, error, reload } = useFetch<Report>(() => api.get<Report>("/board-report"));
+  if (!data) return <LoadState loading={loading} error={error} onRetry={reload} />;
 
   return (
     <div className="space-y-8">

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { AuthGate, PageHeader, useFetch } from "@/components/ui";
+import { AuthGate, PageHeader, useFetch, LoadState } from "@/components/ui";
 
 type Health = {
   key: string; name: string; runs: number; successes: number; errors: number;
@@ -18,7 +18,7 @@ function bar(rate: number | null) {
 
 function Agents() {
   const [refresh, setRefresh] = useState(0);
-  const { data } = useFetch<Health[]>(() => api.get<Health[]>("/agents/health"), [refresh]);
+  const { data, loading, error, reload } = useFetch<Health[]>(() => api.get<Health[]>("/agents/health"), [refresh]);
   const [busy, setBusy] = useState<string | null>(null);
 
   async function run(key: string) {
@@ -33,6 +33,7 @@ function Agents() {
         subtitle="Each agent's self-report — success rate, speed, and what to fix. The workforce watches itself." />
 
       <div className="space-y-3">
+        {(loading || error) && <LoadState loading={loading} error={error} onRetry={reload} />}
         {(data || []).map((a) => (
           <div key={a.key} className="card">
             <div className="flex flex-wrap items-start justify-between gap-3">

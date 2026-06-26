@@ -4,15 +4,29 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getToken } from "@/lib/api";
 
-/** Redirects to /login if there is no token. Wraps every protected page. */
+/** Gates every protected page. Never hangs on an ambiguous "Loading…": it either
+ * shows the page, or a clear "signed out → Log in" screen (and redirects). */
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const [ready, setReady] = useState(false);
+  const [state, setState] = useState<"checking" | "ok" | "anon">("checking");
   useEffect(() => {
-    if (!getToken()) router.replace("/login");
-    else setReady(true);
+    if (getToken()) {
+      setState("ok");
+    } else {
+      setState("anon");
+      router.replace("/login");
+    }
   }, [router]);
-  if (!ready) return <div className="p-8 text-gray-400">Loading…</div>;
+  if (state === "checking") return <div className="p-8 text-sm text-gray-400">Checking session…</div>;
+  if (state === "anon") {
+    return (
+      <div className="card m-2 max-w-md">
+        <p className="font-semibold">You&apos;re signed out</p>
+        <p className="mt-1 text-sm text-gray-500">Your session ended or you haven&apos;t logged in yet.</p>
+        <a href="/login" className="btn mt-3 inline-block">Log in</a>
+      </div>
+    );
+  }
   return <>{children}</>;
 }
 
@@ -68,11 +82,12 @@ export function Expandable({ label, text }: { label: string; text?: string | nul
   );
 }
 
-/** Generic data fetching hook. */
+/** Generic data fetching hook. Returns a `reload()` to retry on demand. */
 export function useFetch<T>(fetcher: () => Promise<T>, deps: unknown[] = []) {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [tick, setTick] = useState(0);
   useEffect(() => {
     let alive = true;
     setLoading(true);
@@ -86,6 +101,30 @@ export function useFetch<T>(fetcher: () => Promise<T>, deps: unknown[] = []) {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
-  return { data, error, loading };
+  }, [...deps, tick]);
+  return { data, error, loading, reload: () => setTick((t) => t + 1) };
+}
+
+/** Render this whenever a page has no data yet — it shows the right state
+ * (loading / a clear error + Retry / an empty message) so a page NEVER hangs
+ * silently on "Loading…". Drop it where you'd otherwise render "Loading…". */
+export function LoadState({ loading, error, onRetry, empty, label }: {
+  loading?: boolean; error?: string | null; onRetry?: () => void;
+  empty?: string; label?: string;
+}) {
+  if (loading) return <div className="p-6 text-sm text-gray-400">Loading…</div>;
+  if (error) {
+    const offline = /failed to fetch|networkerror|load failed/i.test(error);
+    return (
+      <div className="card max-w-lg">
+        <p className="font-semibold text-red-600">
+          {offline ? "Can't reach the backend" : `Couldn't load${label ? ` ${label}` : ""}`}
+        </p>
+        <p className="mt-1 break-all text-xs text-gray-500">{error}</p>
+        {onRetry && <button onClick={onRetry} className="btn mt-3">Retry</button>}
+      </div>
+    );
+  }
+  if (empty) return <div className="p-6 text-sm text-gray-400">{empty}</div>;
+  return null;
 }

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { AuthGate, Expandable, PageHeader, StatusBadge, useFetch } from "@/components/ui";
+import { AuthGate, Expandable, PageHeader, StatusBadge, useFetch, LoadState } from "@/components/ui";
 
 type Message = {
   id: string;
@@ -19,7 +19,7 @@ type Message = {
 function Outbox() {
   const [tick, setTick] = useState(0);
   const [account, setAccount] = useState("");
-  const { data, loading } = useFetch<Message[]>(
+  const { data, loading, error, reload } = useFetch<Message[]>(
     () => api.get<Message[]>(`/messages?limit=300${account ? `&account=${account}` : ""}`),
     [tick, account]
   );
@@ -67,7 +67,7 @@ function Outbox() {
         }
       />
       {note && <p className="mb-4 rounded bg-brand/10 p-3 text-sm text-brand-dark">{note}</p>}
-      {loading && <p className="text-gray-400">Loading…</p>}
+      {(loading || error) && <LoadState loading={loading} error={error} onRetry={reload} />}
       <div className="card overflow-x-auto">
         <table className="w-full">
           <thead>

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { AuthGate, Expandable, PageHeader, StatusBadge, useFetch } from "@/components/ui";
+import { AuthGate, Expandable, PageHeader, StatusBadge, useFetch, LoadState } from "@/components/ui";
 
 type Restaurant = {
   id: string;
@@ -22,7 +22,7 @@ type Restaurant = {
 
 function SavoryMind() {
   const [refresh, setRefresh] = useState(0);
-  const { data, loading } = useFetch<Restaurant[]>(
+  const { data, loading, error, reload } = useFetch<Restaurant[]>(
     () => api.get<Restaurant[]>("/restaurants?kind=prospect&limit=200"), [refresh]);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
@@ -67,7 +67,7 @@ function SavoryMind() {
           <button className="btn" onClick={dispatchAll} disabled={busy === "all"}>{busy === "all" ? "Sending…" : "Send all pending"}</button>
         </div>} />
       {msg && <p className="mb-2 text-sm text-gray-600">{msg}</p>}
-      {loading && <p className="text-gray-400">Loading…</p>}
+      {(loading || error) && <LoadState loading={loading} error={error} onRetry={reload} />}
       <div className="card overflow-x-auto">
         <table className="w-full">
           <thead>

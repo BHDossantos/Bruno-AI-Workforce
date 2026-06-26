@@ -18,8 +18,13 @@ export default function LoginPage() {
     try {
       await api.login(email, password);
       router.push("/");
-    } catch {
-      setError("Invalid email or password");
+    } catch (e) {
+      const msg = String(e);
+      // Distinguish "wrong password" from "can't reach the backend" so the user
+      // isn't told their password is wrong when the API is actually down.
+      setError(/failed to fetch|networkerror|load failed/i.test(msg)
+        ? "Can't reach the server — it may be starting up. Try again in a moment."
+        : "Invalid email or password");
     } finally {
       setLoading(false);
     }
