@@ -52,9 +52,12 @@ _NAV = {
 _INTENT_PROMPT = """You route a spoken order for an AI marketing/sales workforce to ONE action.
 Order: "{text}"
 
-Return JSON {{"intent","target","mode","path","topic","channel","business","reply"}}:
-- intent: one of run_agent | generate_content | write_content | approve_safe | metrics |
-  run_all | pause | resume | set_mode | status | navigate | unknown
+Return JSON {{"intent","target","mode","path","topic","channel","business","company","when","reply"}}:
+- intent: one of run_agent | generate_content | write_content | draft_outreach | schedule |
+  what_failed | approve_safe | metrics | run_all | pause | resume | set_mode | status |
+  navigate | unknown
+- company: for draft_outreach, the company/person to reach out to
+- when: for schedule, the natural-language time (e.g. "tomorrow at 9", "today 3pm")
 - target: for run_agent, the business/topic (e.g. "commercial", "grants", "music")
 - mode: for set_mode, one of "semi" | "auto" | "manual"
 - path: for navigate, where to go (e.g. "approvals", "calendar", "foundation")
@@ -64,14 +67,36 @@ Return JSON {{"intent","target","mode","path","topic","channel","business","repl
 - reply: a short, friendly spoken confirmation (one sentence)
 Mapping: "find/source/get X leads" or "run the X agent" -> run_agent. "make/create today's
 content" -> generate_content. "write a <channel> post about <topic>" -> write_content.
-"approve everything safe / approve all content" -> approve_safe. "how many leads today /
-what's the pipeline / numbers" -> metrics. "run everything / daily cycle" -> run_all.
+"approve everything safe / approve all content" -> approve_safe. "draft outreach to <company>"
+-> draft_outreach. "schedule this for <time>" -> schedule. "what failed today / any errors"
+-> what_failed. "how many leads today / what's the pipeline / numbers" -> metrics.
+"run everything / daily cycle" -> run_all.
 "pause/stop everything" -> pause; "resume" -> resume. "switch to autopilot/semi/manual"
 -> set_mode. "status / brief" -> status. "open/show/go to X" -> navigate. Unclear -> unknown."""
 
 
 class VoiceIn(BaseModel):
     text: str
+
+
+def _parse_when(text: str):
+    """Best-effort natural-language time → UTC datetime. Defaults to 9am, today
+    unless 'tomorrow' is said."""
+    from datetime import datetime, time, timedelta, timezone
+    t = (text or "").lower()
+    day = datetime.now(timezone.utc).date()
+    if "tomorrow" in t:
+        day = day + timedelta(days=1)
+    hour = 9
+    m = re.search(r"(\d{1,2})\s*(am|pm)?", t)
+    if m:
+        hour = int(m.group(1))
+        if m.group(2) == "pm" and hour < 12:
+            hour += 12
+        if m.group(2) == "am" and hour == 12:
+            hour = 0
+    hour = max(0, min(23, hour))
+    return datetime.combine(day, time(hour=hour), tzinfo=timezone.utc)
 
 
 def _match_alias(text: str, table: dict) -> str | None:
@@ -104,6 +129,14 @@ def _interpret(text: str) -> dict:
         return {"intent": "metrics", "reply": "Here are your numbers."}
     if t.startswith("write ") or "write a" in t or "post about" in t:
         return {"intent": "write_content", "topic": text, "reply": "Writing it now."}
+    if "draft outreach" in t or "reach out to" in t or "draft an email to" in t:
+        m = re.search(r"(?:outreach to|reach out to|email to)\s+(.+)$", text, re.I)
+        return {"intent": "draft_outreach", "company": (m.group(1).strip() if m else ""),
+                "reply": "Drafting that outreach."}
+    if t.startswith("schedule") or "schedule this" in t:
+        return {"intent": "schedule", "when": text, "reply": "Scheduling it."}
+    if "what failed" in t or "any errors" in t or "what broke" in t:
+        return {"intent": "what_failed", "reply": "Checking what failed."}
     agent = _match_alias(t, _AGENT_ALIASES)
     if agent:
         return {"intent": "run_agent", "target": text, "reply": "On it."}
@@ -192,6 +225,55 @@ def command(body: VoiceIn, db: Session = Depends(get_db),
             return {"ok": True, "intent": intent,
                     "reply": f"Pipeline is about ${pipeline:,}. {leads_today} new leads today, "
                              f"{replies} replies in."}
+        if intent == "draft_outreach":
+            company = (spec.get("company") or "").strip(" .,")
+            if not company:
+                return {"ok": False, "intent": intent, "reply": "Who should I reach out to?"}
+            from ..ai import skills
+            from ..ai.prompts import CANDIDATE_PROFILE, CONSULTING_OUTREACH
+            from ..models import Lead
+            lead = Lead(segment="consulting", category="Business", company_name=company,
+                        status="New", reason="Voice-requested outreach.")
+            db.add(lead)
+            db.flush()
+            art = client.complete_json(
+                CONSULTING_OUTREACH.format(profile=CANDIDATE_PROFILE, company_name=company,
+                                           category="", industry="", city=""),
+                system=skills.system_prompt("cold-email", "marketing-psychology", "offers")) \
+                if client.is_live() else {}
+            art = art if isinstance(art, dict) else {}
+            lead.cold_email = art.get("cold_email_body")
+            lead.linkedin_msg = art.get("linkedin_msg")
+            lead.status = "Drafted"
+            db.commit()
+            return {"ok": True, "intent": intent, "navigate": "/approvals",
+                    "reply": f"Drafted outreach to {company}; it's in the Approval Queue to send."}
+        if intent == "schedule":
+            from ..models import ContentItem
+            when = _parse_when(spec.get("when") or text)
+            item = (db.query(ContentItem)
+                    .filter(ContentItem.status.in_(["needs_approval", "ready", "generated", "scheduled"]))
+                    .order_by(ContentItem.created_at.desc()).first())
+            if not item:
+                return {"ok": False, "intent": intent, "reply": "There's no draft to schedule yet."}
+            item.scheduled_for = when
+            item.status = "scheduled"
+            db.commit()
+            return {"ok": True, "intent": intent, "navigate": "/calendar",
+                    "reply": f"Scheduled “{item.title or item.topic}” for {when.strftime('%a %b %d, %I %p')}."}
+        if intent == "what_failed":
+            from datetime import date, datetime, timezone
+
+            from ..models import ActionLog, Task
+            start = datetime.combine(date.today(), datetime.min.time(), tzinfo=timezone.utc)
+            failed = db.query(Task).filter(Task.status == "error",
+                                           Task.started_at >= start).count()
+            errs = db.query(ActionLog).filter(ActionLog.action == "run_error",
+                                              ActionLog.created_at >= start).count()
+            n = max(failed, errs)
+            return {"ok": True, "intent": intent,
+                    "reply": (f"{n} agent run(s) failed today — check Agent Performance."
+                              if n else "Nothing failed today. All clear.")}
         if intent == "run_all":
             from .. import commanders
             commanders.run_ceo(db)

@@ -1532,3 +1532,6 @@ def test_voice_interpreter_keyword_fallback():
     assert _interpret("source commercial leads")["intent"] == "run_agent"
     assert _interpret("open approvals")["intent"] == "navigate"
     assert _interpret("write a linkedin post about cloud savings")["intent"] == "write_content"
+    assert _interpret("draft outreach to Acme Corp")["intent"] == "draft_outreach"
+    assert _interpret("schedule this for tomorrow at 9")["intent"] == "schedule"
+    assert _interpret("what failed today")["intent"] == "what_failed"
