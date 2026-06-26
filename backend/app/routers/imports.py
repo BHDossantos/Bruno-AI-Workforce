@@ -15,7 +15,13 @@ _write = require_role("admin", "operator")
 
 
 async def _rows(file: UploadFile) -> list[dict]:
+    """Parse an uploaded contact file from ANY platform — CSV (Google, Outlook,
+    LinkedIn, …) or an Apple/iCloud/iPhone vCard (.vcf)."""
     content = (await file.read()).decode("utf-8-sig", errors="ignore")
+    is_vcard = (file.filename or "").lower().endswith(".vcf") \
+        or "BEGIN:VCARD" in content[:200].upper()
+    if is_vcard:
+        return importer.parse_vcards(content)
     return list(csv.DictReader(io.StringIO(content)))
 
 
@@ -31,7 +37,8 @@ async def import_restaurants(file: UploadFile = File(...), db: Session = Depends
 
 @router.post("/contacts")
 async def import_contacts(file: UploadFile = File(...), db: Session = Depends(get_db), _=Depends(_write)):
-    """Import a personal contact list (Google Contacts export) into the CRM."""
+    """Import a personal contact list from any platform — Google/Outlook/LinkedIn
+    CSV or an iPhone/iCloud vCard (.vcf) — into the CRM."""
     return importer.process_contacts_csv(db, await _rows(file))
 
 

@@ -8,6 +8,7 @@ real-email guard + daily cap), and gets the full follow-up sequence scheduled.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
@@ -21,15 +22,87 @@ from .models import FollowUp, Lead, ManualContact, Restaurant
 log = logging.getLogger("bruno.importer")
 
 
+def _norm_key(k: str) -> str:
+    """Normalize a header to letters+digits only, so 'E-mail 1 - Value',
+    'E-mail Address', 'Email Address' and 'email_address' all collapse together."""
+    return re.sub(r"[^a-z0-9]", "", (k or "").lower())
+
+
 def _g(row: dict, *keys: str) -> str | None:
-    """Case-insensitive get across possible column names. Multi-value Google
-    fields ('a ::: b') return the first value."""
-    lower = {(k or "").strip().lower(): v for k, v in row.items()}
+    """Get a value across header variants from ANY export (Google, iPhone/vCard,
+    Outlook, LinkedIn). Matching ignores case, spaces, hyphens and underscores.
+    Multi-value Google fields ('a ::: b') return the first value."""
+    norm = {_norm_key(k): v for k, v in row.items()}
     for k in keys:
-        v = lower.get(k.lower())
+        v = norm.get(_norm_key(k))
         if v and str(v).strip():
             return str(v).split(":::")[0].strip()
     return None
+
+
+# Candidate header names per field, spanning every common contact export.
+_EMAIL_KEYS = ("email", "email address", "e-mail address", "email_address",
+               "e-mail 1 - value", "email 1 - value", "e-mail 2 - value", "primary email")
+_PHONE_KEYS = ("phone", "phone 1 - value", "phone 2 - value", "mobile phone", "mobile",
+               "home phone", "business phone", "work phone", "primary phone", "tel")
+_FIRST_KEYS = ("first name", "given name")
+_LAST_KEYS = ("last name", "family name", "surname")
+_FULLNAME_KEYS = ("name", "display name", "file as", "full name")
+_COMPANY_KEYS = ("company", "organization name", "organization", "organisation", "employer")
+_TITLE_KEYS = ("title", "job title", "organization title", "position", "role")
+
+
+def normalize_contact(row: dict) -> dict:
+    """Map one row from any platform's export to a common contact shape."""
+    name = " ".join(p for p in [_g(row, *_FIRST_KEYS), _g(row, "middle name"),
+                                _g(row, *_LAST_KEYS)] if p)
+    name = name or _g(row, *_FULLNAME_KEYS) or _g(row, *_COMPANY_KEYS)
+    return {
+        "name": name,
+        "email": _g(row, *_EMAIL_KEYS),
+        "phone": _g(row, *_PHONE_KEYS),
+        "company": _g(row, *_COMPANY_KEYS),
+        "title": _g(row, *_TITLE_KEYS),
+        "notes": _g(row, "notes", "note"),
+    }
+
+
+def parse_vcards(text: str) -> list[dict]:
+    """Parse an Apple/iCloud/iPhone vCard (.vcf) export into row dicts compatible
+    with normalize_contact (keys: name, email, phone, company, title, notes)."""
+    cards: list[dict] = []
+    cur: dict = {}
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if line.upper() == "BEGIN:VCARD":
+            cur = {}
+        elif line.upper() == "END:VCARD":
+            if cur:
+                cards.append(cur)
+            cur = {}
+        elif ":" in line:
+            head, _, val = line.partition(":")
+            prop = head.split(";")[0].upper()  # strip TYPE params (e.g. TEL;CELL)
+            val = val.strip()
+            if not val:
+                continue
+            if prop == "FN":
+                cur.setdefault("name", val)
+            elif prop == "N" and "name" not in cur:
+                parts = [p.strip() for p in val.split(";")]
+                cur["name"] = " ".join(p for p in [parts[1] if len(parts) > 1 else "",
+                                                   parts[0] if parts else ""] if p)
+            elif prop == "EMAIL":
+                cur.setdefault("email", val)
+            elif prop == "TEL":
+                cur.setdefault("phone", val)
+            elif prop == "ORG":
+                cur.setdefault("company", val.split(";")[0].strip())
+            elif prop == "TITLE":
+                cur.setdefault("title", val)
+            elif prop == "NOTE":
+                cur.setdefault("notes", val)
+    return cards
 
 
 def process_contacts_csv(db: Session, rows: list[dict]) -> dict:
@@ -42,17 +115,12 @@ def process_contacts_csv(db: Session, rows: list[dict]) -> dict:
     existing = {e.lower() for (e,) in db.query(ManualContact.email)
                 .filter(ManualContact.email.isnot(None)).all()}
     for row in rows:
-        name = " ".join(p for p in [_g(row, "first name", "given name"),
-                                    _g(row, "middle name"),
-                                    _g(row, "last name", "family name")] if p)
-        name = name or _g(row, "file as", "name") or _g(row, "organization name")
-        email = _g(row, "e-mail 1 - value", "email 1 - value", "e-mail 2 - value",
-                   "email", "email_address")
-        phone = _g(row, "phone 1 - value", "phone 2 - value", "phone")
+        c = normalize_contact(row)
+        email, phone = c["email"], c["phone"]
         if not email and not phone:
             skipped += 1  # nothing actionable
             continue
-        name = name or email or phone
+        name = c["name"] or email or phone
         dedupe = (email or "").lower() or f"{name}|{phone}".lower()
         if dedupe in seen or (email and email.lower() in existing):
             skipped += 1
@@ -60,8 +128,8 @@ def process_contacts_csv(db: Session, rows: list[dict]) -> dict:
         seen.add(dedupe)
         db.add(ManualContact(
             name=name, email=email, phone=phone,
-            company=_g(row, "organization name"), title=_g(row, "organization title"),
-            kind="contact", notes=_g(row, "notes")))
+            company=c["company"], title=c["title"],
+            kind="contact", notes=c["notes"]))
         imported += 1
         if imported % 500 == 0:
             db.commit()
