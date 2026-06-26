@@ -26,6 +26,14 @@ def _ig(handle: str | None) -> str | None:
     return f"https://instagram.com/{handle.lstrip('@')}"
 
 
+def _ig_dm(handle: str | None) -> str | None:
+    """Deep link straight to the DM thread with this handle (opens the IG
+    composer), so outreach is one tap instead of profile → message."""
+    if not handle:
+        return None
+    return f"https://ig.me/m/{handle.lstrip('@')}"
+
+
 @router.get("/social")
 def social_queue(channel: str | None = None, limit: int = 400,
                  db: Session = Depends(get_db), _=Depends(_read)):
@@ -43,14 +51,14 @@ def social_queue(channel: str | None = None, limit: int = 400,
             continue
         items.append({"entity_type": "influencer", "entity_id": str(inf.id), "name": inf.name,
                       "channel": "instagram", "profile_url": _ig(inf.handle), "handle": inf.handle,
-                      "message": inf.dm_pitch, "status": inf.status})
+                      "dm_url": _ig_dm(inf.handle), "message": inf.dm_pitch, "status": inf.status})
 
     for t in db.query(InstagramTarget).filter(InstagramTarget.dm_opener.isnot(None)).limit(150):
         if t.status in DONE:
             continue
         items.append({"entity_type": "instagram_target", "entity_id": str(t.id), "name": f"@{t.handle}",
                       "channel": "instagram", "profile_url": _ig(t.handle), "handle": t.handle,
-                      "message": t.dm_opener, "status": t.status})
+                      "dm_url": _ig_dm(t.handle), "message": t.dm_opener, "status": t.status})
 
     for r in db.query(Restaurant).filter(Restaurant.kind == "prospect",
                                          Restaurant.linkedin_msg.isnot(None)).limit(100):
@@ -58,7 +66,7 @@ def social_queue(channel: str | None = None, limit: int = 400,
             continue
         items.append({"entity_type": "restaurant", "entity_id": str(r.id), "name": r.name,
                       "channel": "instagram", "profile_url": _ig(r.instagram), "handle": r.instagram,
-                      "message": r.linkedin_msg, "status": r.status})
+                      "dm_url": _ig_dm(r.instagram), "message": r.linkedin_msg, "status": r.status})
 
     if channel:
         items = [i for i in items if i["channel"] == channel]

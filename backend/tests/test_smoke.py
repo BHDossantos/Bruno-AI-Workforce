@@ -150,6 +150,15 @@ def test_bulk_outreach_helpers_exist():
     assert hasattr(bulk_outreach, "dispatch_restaurants")
 
 
+def test_instagram_dm_deeplink():
+    """The IG assist queue links straight to the DM thread (ig.me/m/<handle>)."""
+    from app.routers.outreach_queue import _ig, _ig_dm
+    assert _ig_dm("@brunohddm") == "https://ig.me/m/brunohddm"
+    assert _ig_dm("curator") == "https://ig.me/m/curator"
+    assert _ig_dm(None) is None
+    assert _ig("@x") == "https://instagram.com/x"
+
+
 @requires_db
 def test_activation_checklist(client, auth_headers):
     """The go-live checklist returns a readiness score, required items, and a next step."""
