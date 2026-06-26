@@ -13,6 +13,7 @@ from .routers import (
     cron,
     executive,
     export,
+    graph,
     imports,
     instagram,
     jobs,
@@ -85,6 +86,7 @@ app.include_router(analytics.router)
 app.include_router(executive.router)
 app.include_router(memory.router)
 app.include_router(crm.router)
+app.include_router(graph.router)
 app.include_router(browser.router)
 app.include_router(social.router)
 app.include_router(finance.router)

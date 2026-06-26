@@ -78,6 +78,22 @@ class ActionLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class Relationship(Base):
+    """An edge in the relationship graph — links two entities (by their memory
+    subject, e.g. a name) so the AI reasons across connections rather than isolated
+    rows: recruiter → company → hiring manager → interview, 'referred by', etc."""
+    __tablename__ = "relationships"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    from_subject: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    from_type: Mapped[str | None] = mapped_column(String)
+    to_subject: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    to_type: Mapped[str | None] = mapped_column(String)
+    relation: Mapped[str] = mapped_column(String, nullable=False)  # works_at|hiring_manager_for|referred_by|introduced_by|colleague|…
+    note: Mapped[str | None] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(String, default="manual")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Company(Base):
     __tablename__ = "companies"
     id: Mapped[uuid.UUID] = _uuid_pk()

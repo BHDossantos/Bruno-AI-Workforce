@@ -132,6 +132,18 @@ def test_memory_slot_prompts_format_cleanly():
     INFLUENCER_PITCH.format(name="N", niche="n", platform="ig", handle="h", memory="m")
 
 
+def test_graph_helpers_offline():
+    """Graph link validation + neighbor/context helpers are safe with no data."""
+    from app import graph
+    # Invalid edges are rejected without a DB round-trip.
+    assert graph.link(db=None, from_subject="A", to_subject="A", relation="x") is None  # self-link
+    assert graph.link(db=None, from_subject="", to_subject="B", relation="x") is None   # empty
+    assert graph.link(db=None, from_subject="A", to_subject="B", relation="") is None   # no relation
+    # Empty subject → no traversal, empty results.
+    assert graph.neighbors(db=None, subject="") == []
+    assert graph.context_block(db=None, subject="") == ""
+
+
 def test_memory_recall_entity_merges_safely():
     """recall_entity merges name+email and is safe with nothing to recall."""
     from app import memory

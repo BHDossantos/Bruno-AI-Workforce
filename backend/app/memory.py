@@ -108,11 +108,18 @@ def entity_context(db: Session, *, name: str | None = None, email: str | None = 
     is what makes outreach memory-aware: it never repeats itself or forgets a
     preference, objection, or the right time to reach out."""
     rows = recall_entity(db, name=name, email=email, k=k)
-    if not rows:
-        return ""
     who = name or email
-    lines = "\n".join(f"- {h['content']}" for h in rows)
-    return f"What you remember about {who}:\n{lines}"
+    blocks = []
+    if rows:
+        lines = "\n".join(f"- {h['content']}" for h in rows)
+        blocks.append(f"What you remember about {who}:\n{lines}")
+    # Fold in the relationship graph so outreach also sees who they're connected to.
+    if name:
+        from . import graph
+        conn = graph.context_block(db, name)
+        if conn:
+            blocks.append(conn)
+    return "\n\n".join(blocks)
 
 
 def _out(m: Memory) -> dict:
