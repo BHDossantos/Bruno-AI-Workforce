@@ -28,6 +28,17 @@ function BnbGlobal() {
     finally { setSourcing(false); }
   }
 
+  async function dispatchAll() {
+    if (!confirm("Send the cold email to all pending consulting prospects now?")) return;
+    setBusy("all"); setMsg("Dispatching all pending prospects…");
+    try {
+      const r = await api.post<{ dispatched: number; pending: number; failed: number }>("/leads/dispatch?segment=consulting", {});
+      setMsg(`✅ Dispatched ${r.dispatched}/${r.pending} pending${r.failed ? `, ${r.failed} failed` : ""}.`);
+      setRefresh((n) => n + 1);
+    } catch (e) { setMsg(`❌ ${e}`); }
+    finally { setBusy(null); }
+  }
+
   async function send(id: string) {
     setBusy(id); setMsg("");
     try {
@@ -42,7 +53,10 @@ function BnbGlobal() {
     <div>
       <PageHeader title="BnB Global — Tech Consulting"
         subtitle="B2B prospects for cloud, SRE, security, AI & managed IT. Founder-led outreach + follow-ups, auto-sent daily."
-        action={<button className="btn" onClick={sourceNow} disabled={sourcing}>{sourcing ? "Sourcing…" : "Source prospects now"}</button>} />
+        action={<div className="flex gap-2">
+          <button className="btn" onClick={sourceNow} disabled={sourcing}>{sourcing ? "Sourcing…" : "Source prospects now"}</button>
+          <button className="btn" onClick={dispatchAll} disabled={busy === "all"}>{busy === "all" ? "Sending…" : "Send all pending"}</button>
+        </div>} />
       {msg && <p className="mb-2 text-sm text-gray-600">{msg}</p>}
       {loading && <p className="text-gray-400">Loading…</p>}
       <div className="card overflow-x-auto">
