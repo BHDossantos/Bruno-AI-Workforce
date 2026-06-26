@@ -9,6 +9,7 @@ and stores each piece with a status driven by the approval mode:
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
@@ -25,6 +26,35 @@ log = logging.getLogger("bruno.content_factory")
 CHANNELS = ["blog", "linkedin", "instagram", "tiktok", "youtube", "x", "facebook", "email", "podcast"]
 _PUBLISHABLE = {"linkedin", "instagram", "facebook", "x"}  # via the social publisher
 _SIMILAR = 0.88  # cosine above this == "we've covered this"
+
+
+def _dedupe_hashtags(s: str | None) -> str | None:
+    """Keep only the first occurrence of each hashtag (case-insensitive), so a
+    post never shows '#AI #Growth #AI #Growth'."""
+    if not s:
+        return s
+    seen, out = set(), []
+    for tok in re.findall(r"#\w+", s):
+        k = tok.lower()
+        if k not in seen:
+            seen.add(k)
+            out.append(tok)
+    return " ".join(out) if out else None
+
+
+def compose_caption(body: str | None, hashtags: str | None) -> str:
+    """Build a publish-ready caption: body + only the hashtags not already present
+    in the body, de-duplicated — so tags are never doubled."""
+    body = (body or "").strip()
+    in_body = {t.lower() for t in re.findall(r"#\w+", body)}
+    tags, seen = [], set()
+    for tok in re.findall(r"#\w+", hashtags or ""):
+        k = tok.lower()
+        if k in in_body or k in seen:
+            continue
+        seen.add(k)
+        tags.append(tok)
+    return (f"{body}\n\n{' '.join(tags)}".strip() if tags else body)
 
 
 def _status_for_mode(db: Session, channel: str) -> tuple[str, datetime | None]:
@@ -92,7 +122,7 @@ def generate_pack(db: Session, topic: str, business: str = "executive",
             topic=topic, business=business, channel=ch,
             title=data.get("title") or data.get("subject"),
             body=data.get("body") or data.get("caption") or data.get("script"),
-            hashtags=data.get("hashtags"), status=status, embedding=emb,
+            hashtags=_dedupe_hashtags(data.get("hashtags")), status=status, embedding=emb,
             meta={"angle": pack.get("angle")}, scheduled_for=sched)
         db.add(item)
         created.append(ch)
@@ -117,7 +147,7 @@ def publish_due(db: Session) -> dict:
            ContentItem.scheduled_for <= now).limit(50).all())
     published = 0
     for item in due:
-        caption = " ".join(filter(None, [item.body, item.hashtags]))
+        caption = compose_caption(item.body, item.hashtags)
         # Only post to the ONE platform this piece targets.
         is_conn, fn, _ = social.PLATFORMS.get(item.channel, (None, None, None))
         if not is_conn or not is_conn(db):

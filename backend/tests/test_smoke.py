@@ -1460,3 +1460,16 @@ def test_followup_engine_processes_due_steps(client, auth_headers):
     n = db.query(models.Message).filter(models.Message.entity_id == lead.id).count()
     assert n >= 2
     db.close()
+
+
+def test_compose_caption_dedupes_hashtags():
+    """The duplicated-hashtag bug ('#AI #X #AI #X') must never reach a post."""
+    from app import content_factory as cf
+    assert cf._dedupe_hashtags("#AI #RestaurantGrowth #AI #RestaurantGrowth") == \
+        "#AI #RestaurantGrowth"
+    # body already has the tag → don't append it again
+    cap = cf.compose_caption("Boost covers tonight #AI", "#AI #RestaurantGrowth")
+    assert cap.count("#AI") == 1 and "#RestaurantGrowth" in cap
+    # hashtags appended on their own line when body has none
+    cap2 = cf.compose_caption("No tags here", "#One #Two #One")
+    assert cap2.count("#One") == 1 and "#Two" in cap2

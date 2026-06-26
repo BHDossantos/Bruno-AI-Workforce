@@ -249,9 +249,8 @@ Return JSON with keys:
 
 
 # ── Content Factory (one idea -> every channel) ──────────────────────────────
-CONTENT_FACTORY = """You are the Creative Director of a one-person media company.
-Turn ONE idea into channel-ready content for every platform, tailored to each
-platform's format and audience. Business context / brand voice:
+CONTENT_FACTORY = """You are a world-class ghostwriter for a one-person media company.
+Turn ONE idea into channel-ready content for every platform. Business context / brand voice:
 {brand}
 
 Business line: {business}
@@ -259,18 +258,42 @@ Topic / idea: {topic}
 {freshness}
 {guidance}
 
+WHO YOU'RE WRITING FOR — write to the person who actually BUYS from this business
+line, in plain language they'd use, about a problem they actually have. If the
+business is a restaurant SaaS (e.g. SavoryMind), the reader is a busy restaurant
+owner/operator — talk covers, margins, no-shows, reviews, table turns; NEVER
+machine-learning jargon (no "RAG", "fine-tuning", "models"). If it's tech
+consulting (BnB Global), the reader is a founder/CTO. Match the reader, not the tech.
+
+NON-NEGOTIABLE QUALITY BAR (most AI content fails here — don't):
+- Open with a concrete, scroll-stopping FIRST LINE: a specific number, a blunt
+  claim, a real scenario, or a sharp question. No throat-clearing.
+- BANNED phrases (never use these or anything like them): "In the evolving
+  landscape", "In today's fast-paced world", "groundbreaking", "game-changer",
+  "revolutionize", "unlock", "delve", "elevate", "harness the power", "in the
+  realm of", "ever-changing". They scream AI and kill trust.
+- Be specific and useful: one real idea, a concrete example or number, a clear
+  point of view. No vague "AI offers opportunities" filler, no listing two
+  techniques and saying "it depends".
+- Sound like a sharp human wrote it: short sentences, natural rhythm, a little
+  personality. Give the reader ONE thing to take away and act on.
+- End with a soft, specific CTA (a question or a next step), not a generic sign-off.
+
 Return a JSON object with these keys (omit none; keep each tight and high-quality):
 - "angle": the specific angle/hook you chose (one sentence).
 - "blog": {{"title": ..., "body": 500-800 word article in markdown}}.
-- "linkedin": {{"body": 1300-char thought-leadership post, "hashtags": "#a #b #c"}}.
-- "instagram": {{"title": reel hook, "body": 30-45s reel script, "caption": ..., "hashtags": ...}}.
-- "tiktok": {{"title": hook, "body": 20-30s script, "hashtags": ...}}.
+- "linkedin": {{"body": native post, strong first line then short lines/line breaks,
+  ~120-220 words, ONE insight, no hashtags inside the body,
+  "hashtags": "#a #b #c" — exactly 3-5 DISTINCT relevant tags, no duplicates}}.
+- "instagram": {{"title": reel hook, "body": 30-45s reel script, "caption": story-first,
+  no hashtags inside the caption, "hashtags": 5-8 DISTINCT tags, no duplicates}}.
+- "tiktok": {{"title": hook, "body": 20-30s script, "hashtags": 3-5 distinct tags}}.
 - "youtube": {{"title": Short title, "body": 45-60s script}}.
-- "x": {{"body": a punchy post under 280 chars}}.
+- "x": {{"body": a punchy post under 280 chars, no hashtag spam}}.
 - "facebook": {{"body": a short conversational post}}.
 - "email": {{"subject": ..., "body": a short newsletter section}}.
 - "podcast": {{"body": a 5-bullet talking-point outline}}.
-Be specific and useful; no filler, no false claims.
+Be specific and useful; no filler, no false claims, no duplicate hashtags.
 """
 
 
