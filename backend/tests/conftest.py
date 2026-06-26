@@ -18,6 +18,8 @@ os.environ.setdefault("ADMIN_PASSWORD", "testpass")
 os.environ["LEAD_CITIES"] = ""
 os.environ["LEAD_STATES"] = ""
 os.environ["ENABLE_FREE_JOBS"] = "false"
+# Keep scoped (consulting/restaurant) sourcing offline in tests too.
+os.environ["WIDER_LEAD_SOURCING"] = "false"
 os.environ.setdefault(
     "DATABASE_URL",
     os.environ.get("DATABASE_URL", "postgresql+psycopg://bruno@localhost:5432/bruno_ai"),

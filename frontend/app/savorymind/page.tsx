@@ -26,6 +26,17 @@ function SavoryMind() {
     () => api.get<Restaurant[]>("/restaurants?kind=prospect&limit=200"), [refresh]);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
+  const [sourcing, setSourcing] = useState(false);
+
+  async function sourceNow() {
+    setSourcing(true); setMsg("Sourcing restaurants… this can take a minute.");
+    try {
+      const r = await api.post<{ result?: { summary?: string } }>("/agents/savorymind/run", {});
+      setMsg(`✅ ${r.result?.summary || "Done"}`);
+      setRefresh((n) => n + 1);
+    } catch (e) { setMsg(`❌ ${e}`); }
+    finally { setSourcing(false); }
+  }
 
   async function send(id: string) {
     setBusy(id); setMsg("");
@@ -39,7 +50,8 @@ function SavoryMind() {
 
   return (
     <div>
-      <PageHeader title="SavoryMind Leads" subtitle="Restaurant prospects with AI menu analysis and pitch" />
+      <PageHeader title="SavoryMind Leads" subtitle="Restaurant prospects with AI menu analysis and pitch"
+        action={<button className="btn" onClick={sourceNow} disabled={sourcing}>{sourcing ? "Sourcing…" : "Source restaurants now"}</button>} />
       {msg && <p className="mb-2 text-sm text-gray-600">{msg}</p>}
       {loading && <p className="text-gray-400">Loading…</p>}
       <div className="card overflow-x-auto">
