@@ -143,6 +143,25 @@ def test_bulk_dispatch_endpoints(client, auth_headers):
     assert r2.status_code == 200 and r2.json()["ok"] is True
 
 
+def test_bridge_token_auth():
+    """The iMessage bridge rejects a bad/empty token (machine-client auth)."""
+    import pytest as _pytest
+    from fastapi import HTTPException
+    from app.config import settings
+    from app.routers.bridge import _auth
+    old = settings.bridge_token
+    try:
+        settings.bridge_token = ""  # not configured → always reject
+        with _pytest.raises(HTTPException):
+            _auth(None)
+        settings.bridge_token = "secret"
+        with _pytest.raises(HTTPException):
+            _auth("wrong")
+        _auth("secret")  # correct token → no raise
+    finally:
+        settings.bridge_token = old
+
+
 def test_cron_safe_swallows_errors():
     """A cron worker failure returns 200-with-error, not a 500 (no scheduler hot-loop)."""
     from app.routers.cron import _safe

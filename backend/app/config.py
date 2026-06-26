@@ -173,6 +173,9 @@ class Settings(BaseSettings):
     # short-lived token can never silently expire after a couple of hours.
     facebook_app_id: str = ""
     facebook_app_secret: str = ""
+    # iMessage bridge: when set, a Mac helper polls /bridge/* with this token and
+    # sends SMS from the user's real number via Messages.app (free, no Twilio).
+    bridge_token: str = ""
     # Content Factory approval mode: 1 generate · 2 generate+approve ·
     # 3 auto-schedule · 4 auto-publish · 5 fully autonomous.
     content_approval_mode: int = 3
