@@ -146,6 +146,30 @@ def test_activation_checklist(client, auth_headers):
     assert d["live"] is False
 
 
+def test_contact_import_any_platform():
+    """Contact import normalizes headers from every common export + parses vCard."""
+    from app import importer
+    # Google Contacts
+    g = importer.normalize_contact({"Given Name": "Ana", "Family Name": "Cruz",
+        "E-mail 1 - Value": "ana@x.com", "Phone 1 - Value": "+1555", "Organization Name": "Cruz Co"})
+    assert g["name"] == "Ana Cruz" and g["email"] == "ana@x.com" and g["company"] == "Cruz Co"
+    # Outlook
+    o = importer.normalize_contact({"First Name": "Bob", "Last Name": "Lee",
+        "E-mail Address": "bob@y.com", "Mobile Phone": "+1777"})
+    assert o["name"] == "Bob Lee" and o["email"] == "bob@y.com" and o["phone"] == "+1777"
+    # LinkedIn
+    li = importer.normalize_contact({"First Name": "Cid", "Last Name": "Ngo",
+        "Email Address": "cid@z.com", "Company": "Zeta", "Position": "CTO"})
+    assert li["email"] == "cid@z.com" and li["company"] == "Zeta" and li["title"] == "CTO"
+    # iPhone / iCloud vCard
+    vcf = ("BEGIN:VCARD\nVERSION:3.0\nFN:Dina Ray\nEMAIL;type=INTERNET:dina@a.com\n"
+           "TEL;type=CELL:+1999\nORG:Ray LLC\nTITLE:Owner\nEND:VCARD\n")
+    cards = importer.parse_vcards(vcf)
+    assert len(cards) == 1
+    c = importer.normalize_contact(cards[0])
+    assert c["name"] == "Dina Ray" and c["email"] == "dina@a.com" and c["phone"] == "+1999"
+
+
 def test_meta_token_upgrade_is_safe():
     """Auto-upgrade is a no-op for non-Meta providers and when app creds are absent,
     so connecting never breaks; it never downgrades a token."""
