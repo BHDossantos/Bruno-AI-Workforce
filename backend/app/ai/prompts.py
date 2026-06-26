@@ -87,17 +87,22 @@ artist: romantic R&B with a signature alto sax, deep voice, sung in English, Spa
 Portuguese; cinematic love songs (think Usher/Ne-Yo meets Romeo Santos/Belo, with sax).
 
 Playlist: {name} (genre: {genre}, curator: {curator})
+{memory}
 Return JSON with keys:
 - "pitch": a concise, respectful pitch (max 120 words) tailored to the playlist's genre.
   Lead with the feeling/story and the saxophone signature; make the fit obvious.
+  Use anything you remember about this curator (preferences, prior contact, timing)
+  to personalize — never repeat a pitch they already declined.
 """
 
 INFLUENCER_PITCH = """Write outreach to a music/culture influencer for an artist collaboration.
 
 Influencer: {name} — {niche} on {platform} (@{handle})
+{memory}
 Return JSON with keys:
 - "dm_pitch": a short, genuine DM (max 70 words).
 - "collab_pitch": a 2-sentence collaboration proposal.
+Use anything you remember about them to personalize; never repeat a prior pitch.
 """
 
 MUSIC_DAILY_CONTENT = """Create a daily fan-facing content package that PROMOTES this

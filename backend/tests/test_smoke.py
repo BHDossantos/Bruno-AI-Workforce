@@ -122,6 +122,16 @@ def test_followups_are_memory_aware():
     assert "prefers mornings" in out
 
 
+def test_memory_slot_prompts_format_cleanly():
+    """Every prompt with a {memory} slot must format with the exact keys call sites
+    pass — guards against the KeyError class of bug when a slot is added."""
+    from app.ai.prompts import FOLLOWUP_EMAIL, INFLUENCER_PITCH, PLAYLIST_PITCH
+    assert all("{memory}" in p for p in (FOLLOWUP_EMAIL, PLAYLIST_PITCH, INFLUENCER_PITCH))
+    FOLLOWUP_EMAIL.format(step=1, name="A", context="x", memory="m")
+    PLAYLIST_PITCH.format(name="P", genre="g", curator="c", memory="m")
+    INFLUENCER_PITCH.format(name="N", niche="n", platform="ig", handle="h", memory="m")
+
+
 def test_memory_recall_entity_merges_safely():
     """recall_entity merges name+email and is safe with nothing to recall."""
     from app import memory
@@ -715,7 +725,9 @@ def test_contacts_insurance_outreach_offline():
     # Offline (no OpenAI) the message degrades to a warm fallback, never raises.
     class _C:
         name = "Jane Doe"
-    subj, body = contacts_outreach._message_for(_C())
+        email = "jane@example.com"
+    # Offline path returns the fallback before any DB/memory access, so db=None is safe.
+    subj, body = contacts_outreach._message_for(None, _C())
     assert subj and "Jane" in body and "Thrust" in body
     # Family/opt-out emails are excluded (case-insensitive).
     ex = contacts_outreach._exclude_set()

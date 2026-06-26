@@ -77,12 +77,16 @@ class MusicAgent(BaseAgent):
                              content=content, scheduled_for=date.today()))
         self.db.commit()
 
+        from .. import memory
         copy_system = skills.system_prompt("copywriting", "cold-email")
         sent = 0
         for pl in providers.fetch_playlists(PLAYLIST_TARGET):
             try:
+                mem = memory.entity_context(self.db, name=pl.get("curator_name") or pl["name"],
+                                            email=pl.get("email"))
                 pitch = client.complete_json(
-                    PLAYLIST_PITCH.format(name=pl["name"], genre=pl["genre"], curator=pl["curator_name"]),
+                    PLAYLIST_PITCH.format(name=pl["name"], genre=pl["genre"],
+                                          curator=pl["curator_name"], memory=mem),
                     system=copy_system)
                 body = pitch.get("pitch") if isinstance(pitch, dict) else None
                 row = MusicPlaylist(
@@ -106,9 +110,11 @@ class MusicAgent(BaseAgent):
 
         for inf in providers.fetch_influencers(INFLUENCER_TARGET):
             try:
+                mem = memory.entity_context(self.db, name=inf.get("name"), email=inf.get("email"))
                 pitch = client.complete_json(
                     INFLUENCER_PITCH.format(name=inf["name"], niche=inf["niche"],
-                                            platform=inf["platform"], handle=inf["handle"]),
+                                            platform=inf["platform"], handle=inf["handle"],
+                                            memory=mem),
                     system=skills.system_prompt("social", "copywriting"))
                 dm = pitch.get("dm_pitch") if isinstance(pitch, dict) else None
                 collab = pitch.get("collab_pitch") if isinstance(pitch, dict) else None
