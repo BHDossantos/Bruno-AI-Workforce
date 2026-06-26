@@ -127,8 +127,6 @@ def act(item_type: str, item_id: str, action: str,
             return {"ok": True, "type": "reply", "status": "Skipped"}
         # Send the drafted reply now (in place, no duplicate record). A send
         # failure must never 500 — mark it approved (kept) with a clear note.
-        from datetime import datetime, timezone
-
         from .. import email_template
         from ..integrations import gmail
         sent = False
