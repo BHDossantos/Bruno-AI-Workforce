@@ -132,6 +132,20 @@ def test_memory_slot_prompts_format_cleanly():
     INFLUENCER_PITCH.format(name="N", niche="n", platform="ig", handle="h", memory="m")
 
 
+@requires_db
+def test_activation_checklist(client, auth_headers):
+    """The go-live checklist returns a readiness score, required items, and a next step."""
+    r = client.get("/activation", headers=auth_headers)
+    assert r.status_code == 200
+    d = r.json()
+    assert 0 <= d["ready_pct"] <= 100
+    assert d["required_total"] >= 1 and len(d["checklist"]) >= d["required_total"]
+    keys = {c["key"] for c in d["checklist"]}
+    assert {"ai", "email", "scheduler", "social"} <= keys
+    # In CI nothing is configured, so essentials are pending and it isn't live.
+    assert d["live"] is False
+
+
 def test_agent_health_suggestions():
     """Agent self-report turns its track record into an actionable nudge."""
     from app.routers.agents import _suggest

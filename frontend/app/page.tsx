@@ -11,6 +11,8 @@ type Action = {
   link: string; why: string;
 };
 type RecapItem = { icon: string; label: string; count: number };
+type ChecklistItem = { key: string; label: string; required: boolean; status: string; detail: string; action: string };
+type Activation = { ready_pct: number; live: boolean; done: number; required_total: number; next_step: ChecklistItem | null; checklist: ChecklistItem[] };
 type Brief = {
   greeting: string; focus_score: number; estimated_value_today: number;
   top_actions: Action[]; summary: string[]; total_actions: number; hidden_count: number;
@@ -33,6 +35,7 @@ function Home() {
   const [refresh, setRefresh] = useState(0);
   const { data: b } = useFetch<Brief>(() => api.get<Brief>("/brief/today"), [refresh]);
   const { data: score } = useFetch<Score>(() => api.get<Score>("/scoreboard"), [refresh]);
+  const { data: golive } = useFetch<Activation>(() => api.get<Activation>("/activation"), [refresh]);
   const [running, setRunning] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
@@ -62,6 +65,28 @@ function Home() {
         action={<button className="btn" onClick={runAll} disabled={running}>{running ? "Running…" : "Refresh opportunities"}</button>}
       />
       {msg && <p className="mb-4 rounded bg-brand/10 p-3 text-sm text-brand-dark">{msg}</p>}
+
+      {/* Go-live activation — only while not fully live */}
+      {golive && !golive.live && (
+        <div className="mb-6 rounded-xl border border-brand/30 bg-brand/5 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="font-semibold">🚀 Go-live setup — {golive.ready_pct}% ready</div>
+              <div className="text-sm text-gray-600">
+                {golive.done}/{golive.required_total} essentials done.
+                {golive.next_step && <> Next: <b>{golive.next_step.label}</b> — {golive.next_step.detail}</>}
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              {golive.next_step && <Link href={golive.next_step.action} className="btn">Do it</Link>}
+              <Link href="/activation" className="text-sm text-brand">See full checklist →</Link>
+            </div>
+          </div>
+          <div className="mt-3 h-2 overflow-hidden rounded bg-white">
+            <div className="h-full rounded bg-brand" style={{ width: `${golive.ready_pct}%` }} />
+          </div>
+        </div>
+      )}
 
       {/* Yesterday — what your team did while you were away */}
       {b && (
