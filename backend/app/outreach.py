@@ -101,6 +101,12 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
         _log(db, actor, "send_skipped_synthetic", msg, to=to_email)
         return msg
 
+    from . import control
+    if control.is_paused_safe(db):
+        # Emergency stop engaged — keep everything as a draft, send nothing.
+        _log(db, actor, "send_skipped_paused", msg, to=to_email)
+        return msg
+
     mode = "draft" if force_draft else settings.gmail_outbound_mode
     if mode == "send" and already_contacted_today(db, to_email):
         _log(db, actor, "send_skipped_duplicate", msg, to=to_email)

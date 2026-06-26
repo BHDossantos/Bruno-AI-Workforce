@@ -8,12 +8,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from .routers import (
     activation,
     agents,
+    approvals,
     bridge,
     analytics,
     auth,
     connections,
+    control,
     cron,
     decisions,
+    mission,
     executive,
     export,
     graph,
@@ -103,6 +106,9 @@ app.include_router(browser.router)
 app.include_router(social.router)
 app.include_router(finance.router)
 app.include_router(content.router)
+app.include_router(control.router)
+app.include_router(approvals.router)
+app.include_router(mission.router)
 
 
 @app.get("/health", tags=["system"])

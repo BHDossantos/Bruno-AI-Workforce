@@ -1486,3 +1486,22 @@ def test_lead_temperature_classify():
     assert classify("Closed Won") == "hot"
     assert classify("Closed Lost") == "dead"
     assert classify(None) == "cold"
+
+
+@requires_db
+def test_emergency_stop_pauses_sending(client, auth_headers):
+    from app import control, outreach
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        control.set_paused(db, True)
+        assert control.is_paused(db) is True
+        # With the kill-switch on, a dispatch must NOT send — it stays a draft.
+        msg = outreach.dispatch_email(
+            db, entity_type="lead", entity_id=None, to_email="real@example.com",
+            subject="x", body="hi", account="personal", actor="test")
+        assert msg.status == "Drafted"
+    finally:
+        control.set_paused(db, False)
+        assert control.is_paused(db) is False
+        db.close()

@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { clearToken } from "@/lib/api";
+import { api, clearToken, getToken } from "@/lib/api";
 
 const NAV = [
-  { href: "/", label: "Home Dashboard", icon: "🏠" },
+  { href: "/", label: "Mission Control", icon: "🛰️" },
+  { href: "/approvals", label: "Approval Queue", icon: "☑️" },
   { href: "/activation", label: "Go-Live Setup", icon: "🚀" },
   { href: "/search", label: "Search", icon: "🔍" },
   { href: "/autopilot", label: "Application Autopilot", icon: "🤖" },
@@ -106,16 +107,55 @@ export default function Sidebar() {
             );
           })}
         </nav>
+        <EmergencyStop />
         <button
           onClick={() => {
             clearToken();
             router.push("/login");
           }}
-          className="m-3 rounded-lg border border-white/20 px-3 py-2 text-sm text-brand-light hover:bg-white/10"
+          className="mx-3 mb-3 rounded-lg border border-white/20 px-3 py-2 text-sm text-brand-light hover:bg-white/10"
         >
           Sign out
         </button>
       </aside>
     </>
+  );
+}
+
+/** Always-visible global kill-switch. Pauses/resumes all autonomous posting,
+ * sending and agent runs. */
+function EmergencyStop() {
+  const [paused, setPaused] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!getToken()) return;
+    api.get<{ paused: boolean }>("/control/status").then((r) => setPaused(r.paused)).catch(() => {});
+  }, []);
+
+  async function toggle() {
+    setBusy(true);
+    try {
+      const r = await api.post<{ paused: boolean }>(paused ? "/control/resume" : "/control/pause", {});
+      setPaused(r.paused);
+    } catch {
+      /* ignore — status stays as-is */
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (paused === null) return null;
+  return (
+    <button
+      onClick={toggle}
+      disabled={busy}
+      className={`mx-3 mt-3 rounded-lg px-3 py-2 text-sm font-semibold disabled:opacity-50 ${
+        paused ? "bg-amber-400 text-amber-950 hover:bg-amber-300"
+               : "bg-red-600 text-white hover:bg-red-500"
+      }`}
+    >
+      {busy ? "…" : paused ? "▶ Agents PAUSED — Resume" : "⛔ Emergency Stop"}
+    </button>
   );
 }

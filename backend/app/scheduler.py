@@ -32,9 +32,14 @@ _scheduler: BackgroundScheduler | None = None
 
 
 def _with_db(fn, label: str):
-    """Run a worker with a fresh DB session, failure-isolated."""
+    """Run a worker with a fresh DB session, failure-isolated. Skips entirely when
+    the Emergency Stop is engaged."""
     db = SessionLocal()
     try:
+        from . import control
+        if control.is_paused_safe(db):
+            log.info("Skipping %s — agents paused (emergency stop)", label)
+            return None
         return fn(db)
     except Exception:  # pragma: no cover - defensive; one job must never break others
         log.exception("Scheduled job %s failed", label)
