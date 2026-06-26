@@ -132,6 +132,25 @@ def test_memory_slot_prompts_format_cleanly():
     INFLUENCER_PITCH.format(name="N", niche="n", platform="ig", handle="h", memory="m")
 
 
+def test_decision_journal_patterns():
+    """The journal computes win-rate overall, by category, and by confidence band."""
+    from app.routers.decisions import CATEGORIES, _analyze
+
+    class D:
+        def __init__(self, category, confidence, outcome):
+            self.category, self.confidence, self.outcome = category, confidence, outcome
+
+    rows = [D("career", 80, "success"), D("career", 90, "failure"),
+            D("music", 40, "success"), D("business", 75, "success")]
+    p = _analyze(rows)
+    assert p["reviewed"] == 4
+    assert p["overall_win_rate"] == 75  # 3/4
+    assert p["calibration"]["high_confidence_n"] == 3  # >=70
+    assert any(c["category"] == "career" and c["count"] == 2 for c in p["by_category"])
+    assert "business" in CATEGORIES
+    assert _analyze([])["overall_win_rate"] is None  # safe with no data
+
+
 def test_planning_paths_rank_and_meet_target():
     """The planner ranks feasible paths first and flags whether each hits the target."""
     from app import planning
