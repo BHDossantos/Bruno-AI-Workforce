@@ -132,6 +132,15 @@ def test_memory_slot_prompts_format_cleanly():
     INFLUENCER_PITCH.format(name="N", niche="n", platform="ig", handle="h", memory="m")
 
 
+def test_agent_health_suggestions():
+    """Agent self-report turns its track record into an actionable nudge."""
+    from app.routers.agents import _suggest
+    assert "Never run" in _suggest(0, None, None)
+    assert "failure rate" in _suggest(10, 40, "boom").lower()
+    assert "reliable" in _suggest(8, 100, None).lower()
+    assert _suggest(3, 100, None)  # stable case returns a non-empty nudge
+
+
 def test_decision_journal_patterns():
     """The journal computes win-rate overall, by category, and by confidence band."""
     from app.routers.decisions import CATEGORIES, _analyze
