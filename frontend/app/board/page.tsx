@@ -57,7 +57,7 @@ function Board() {
                 <div className="text-sm text-gray-500">{r.rationale}</div>
               </div>
               <div className="shrink-0 text-right">
-                <div className="text-lg font-bold text-brand">{r.confidence}%</div>
+                <div className="text-lg font-bold text-brand">{r.confidence ?? "—"}%</div>
                 <div className="text-[10px] text-gray-400">confidence</div>
               </div>
             </div>

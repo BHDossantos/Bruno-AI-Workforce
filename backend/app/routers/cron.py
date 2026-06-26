@@ -4,6 +4,8 @@ Lets Cloud Scheduler (GCP) or cron-job.org drive the daily agents, follow-ups,
 and inbound sync without the in-process APScheduler — ideal for scale-to-zero
 hosting. Every call must send header ``X-Cron-Token: <CRON_SECRET>``.
 """
+import logging
+
 from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
@@ -13,11 +15,23 @@ from ..config import settings
 from ..database import get_db
 
 router = APIRouter(prefix="/cron", tags=["cron"])
+log = logging.getLogger("bruno.cron")
 
 
 def _auth(token: str | None) -> None:
     if not settings.cron_secret or token != settings.cron_secret:
         raise HTTPException(status_code=401, detail="Invalid or missing cron token")
+
+
+def _safe(label: str, fn):
+    """Run a cron worker; never let a top-level failure 500 — external schedulers
+    retry on 5xx and would hot-loop. Log it and return a 200 with the error so the
+    next scheduled tick runs cleanly."""
+    try:
+        return fn()
+    except Exception as exc:  # pragma: no cover - defensive
+        log.exception("cron %s failed", label)
+        return {"ok": False, "error": str(exc)}
 
 
 @router.post("/agent/{key}")
@@ -33,10 +47,13 @@ def run_agent(key: str, x_cron_token: str | None = Header(default=None),
 @router.post("/run-all")
 def run_all(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
     _auth(x_cron_token)
-    from .. import alerts, commanders
-    result = commanders.run_ceo(db)  # CEO → Commander → Agent hierarchy
-    alerts.check_run("daily cycle", result)  # email admin only if something errored
-    return result
+
+    def _do():
+        from .. import alerts, commanders
+        result = commanders.run_ceo(db)  # CEO → Commander → Agent hierarchy
+        alerts.check_run("daily cycle", result)  # email admin only if something errored
+        return result
+    return _safe("run-all", _do)
 
 
 @router.post("/publish-content")
@@ -131,10 +148,13 @@ def cron_newsletters(x_cron_token: str | None = Header(default=None),
                      db: Session = Depends(get_db)):
     """Send each funnel's newsletter to its warm subscribers (3x/week)."""
     _auth(x_cron_token)
-    from .. import alerts, newsletters
-    out = newsletters.run(db)
-    alerts.check_run("newsletters", out)
-    return out
+
+    def _do():
+        from .. import alerts, newsletters
+        out = newsletters.run(db)
+        alerts.check_run("newsletters", out)
+        return out
+    return _safe("newsletters", _do)
 
 
 @router.post("/auto-outreach")
@@ -144,14 +164,17 @@ def cron_auto_outreach(x_cron_token: str | None = Header(default=None),
     warm imported contacts, daily. Each send respects the mailbox daily cap +
     warmup, so a big backlog drains safely over a few days rather than all at once."""
     _auth(x_cron_token)
-    from .. import alerts, bulk_outreach, contacts_outreach
-    out = {
-        "leads": bulk_outreach.dispatch_leads(db),
-        "restaurants": bulk_outreach.dispatch_restaurants(db),
-        "contacts": contacts_outreach.run(db),
-    }
-    alerts.check_run("auto outreach", out)
-    return out
+
+    def _do():
+        from .. import alerts, bulk_outreach, contacts_outreach
+        out = {
+            "leads": bulk_outreach.dispatch_leads(db),
+            "restaurants": bulk_outreach.dispatch_restaurants(db),
+            "contacts": contacts_outreach.run(db),
+        }
+        alerts.check_run("auto outreach", out)
+        return out
+    return _safe("auto-outreach", _do)
 
 
 @router.post("/contacts-insurance")
@@ -183,23 +206,26 @@ def cron_board_report(x_cron_token: str | None = Header(default=None),
                       db: Session = Depends(get_db)):
     """Weekly executive board review — build it and email it (no-op email without SMTP)."""
     _auth(x_cron_token)
-    from .. import board_report
-    from ..config import settings as cfg
-    from ..integrations import mailer
-    report = board_report.build(db)
-    emailed = False
-    if cfg.report_to_email:
-        recs = "".join(
-            f"<li><b>{r.get('action','')}</b> — {r.get('rationale','')} "
-            f"<i>({r.get('confidence','')}%)</i></li>" for r in report.get("recommendations", []))
-        html = (f"<h2>{report.get('headline','Weekly Board Report')}</h2>"
-                f"<p>Expected pipeline: ${report.get('expected_pipeline',0):,}</p>"
-                f"<h3>Recommendations</h3><ul>{recs}</ul>"
-                f"<p><b>Challenge:</b> {report.get('challenge','')}</p>")
-        emailed = mailer.send_email(to=cfg.report_to_email,
-                                    subject="Bruno AI — Weekly Board Report", html=html)
-    return {"ok": True, "emailed": emailed,
-            "recommendations": len(report.get("recommendations", []))}
+
+    def _do():
+        from .. import board_report
+        from ..config import settings as cfg
+        from ..integrations import mailer
+        report = board_report.build(db)
+        emailed = False
+        if cfg.report_to_email:
+            recs = "".join(
+                f"<li><b>{r.get('action','')}</b> — {r.get('rationale','')} "
+                f"<i>({r.get('confidence','')}%)</i></li>" for r in report.get("recommendations", []))
+            html = (f"<h2>{report.get('headline','Weekly Board Report')}</h2>"
+                    f"<p>Expected pipeline: ${report.get('expected_pipeline',0):,}</p>"
+                    f"<h3>Recommendations</h3><ul>{recs}</ul>"
+                    f"<p><b>Challenge:</b> {report.get('challenge','')}</p>")
+            emailed = mailer.send_email(to=cfg.report_to_email,
+                                        subject="Bruno AI — Weekly Board Report", html=html)
+        return {"ok": True, "emailed": emailed,
+                "recommendations": len(report.get("recommendations", []))}
+    return _safe("board-report", _do)
 
 
 @router.post("/music-releases")
@@ -208,10 +234,13 @@ def cron_music_releases(x_cron_token: str | None = Header(default=None),
     """Release-as-eras cadence: auto-build the full content kit for any planned
     release whose date is within the next 4 weeks and has no kit yet."""
     _auth(x_cron_token)
-    from .. import alerts, music_release
-    out = music_release.run_due(db)
-    alerts.check_run("music release kits", out)
-    return out
+
+    def _do():
+        from .. import alerts, music_release
+        out = music_release.run_due(db)
+        alerts.check_run("music release kits", out)
+        return out
+    return _safe("music-releases", _do)
 
 
 @router.post("/followups")

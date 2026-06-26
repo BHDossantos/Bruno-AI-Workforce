@@ -104,6 +104,9 @@ function SavoryMind() {
                 </td>
               </tr>
             ))}
+            {!loading && (data || []).length === 0 && (
+              <tr><td colSpan={8} className="td text-center text-gray-400">No restaurants yet — hit “Source restaurants now” to find prospects.</td></tr>
+            )}
           </tbody>
         </table>
       </div>

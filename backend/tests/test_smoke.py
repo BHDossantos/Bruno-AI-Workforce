@@ -143,6 +143,16 @@ def test_bulk_dispatch_endpoints(client, auth_headers):
     assert r2.status_code == 200 and r2.json()["ok"] is True
 
 
+def test_cron_safe_swallows_errors():
+    """A cron worker failure returns 200-with-error, not a 500 (no scheduler hot-loop)."""
+    from app.routers.cron import _safe
+    def boom():
+        raise RuntimeError("kaboom")
+    out = _safe("x", boom)
+    assert out["ok"] is False and "kaboom" in out["error"]
+    assert _safe("y", lambda: {"ok": True}) == {"ok": True}
+
+
 def test_newsletter_funnel_mapping():
     """Warm-reply → funnel mapping + funnel set are correct (CAN-SPAM: opt-in only)."""
     from app import newsletters

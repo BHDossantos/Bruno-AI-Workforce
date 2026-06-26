@@ -43,12 +43,12 @@ async def import_contacts(file: UploadFile = File(...), db: Session = Depends(ge
 
 
 @router.get("/template/leads.csv", response_class=PlainTextResponse)
-def leads_template():
+def leads_template(_=Depends(require_role("admin", "operator", "viewer"))):
     return ("email,company_name,owner_name,phone,website,linkedin,industry,segment,category\n"
             "owner@acme.com,Acme Plumbing,Jane Doe,+16175551212,https://acme.com,,Contractor,commercial,Contractor\n")
 
 
 @router.get("/template/restaurants.csv", response_class=PlainTextResponse)
-def restaurants_template():
+def restaurants_template(_=Depends(require_role("admin", "operator", "viewer"))):
     return ("email,name,owner_manager,phone,website,instagram,cuisine,city\n"
             "info@bistro.com,Bistro 21,Marco Rossi,+16175551212,https://bistro21.com,@bistro21,Italian,Boston\n")
