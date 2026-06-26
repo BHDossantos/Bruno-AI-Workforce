@@ -225,9 +225,15 @@ def pipeline(db: Session = Depends(get_db), _=Depends(_read)):
 @router.get("/learnings")
 def learnings(db: Session = Depends(get_db), _=Depends(_read)):
     """What the adaptive layer has learned — per-channel category performance with
-    sample sizes, the bandit's next pick, and learned posting hours."""
-    from .. import learning
-    return learning.learnings(db)
+    sample sizes, the bandit's next pick, learned posting hours, and which outreach
+    subject-line styles earn the most replies."""
+    from .. import learning, outreach_analytics
+    data = learning.learnings(db)
+    rates = outreach_analytics.reply_rates(db)
+    data["outreach"] = sorted(
+        ([{"style": st, **a} for st, a in rates.items() if st != "none"]),
+        key=lambda x: x.get("rate", 0), reverse=True)
+    return data
 
 
 @router.get("/posting-times")
