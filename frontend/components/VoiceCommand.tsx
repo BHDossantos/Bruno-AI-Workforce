@@ -8,24 +8,16 @@ import { api, getToken } from "@/lib/api";
  * continuously for the wake word "Jarvis", then acts on the order that follows
  * and speaks the result. Uses the browser Web Speech API (speech-to-text). No
  * keyboard needed. Respects semi-auto + Emergency Stop on the backend. */
+type SpeechResult = { isFinal: boolean } & ArrayLike<{ transcript: string }>;
 type Rec = {
-  lang: string; interimResults: boolean; continuous: boolean;
-  start: () => void; stop: () => void;
-  onresult: ((e: { results: ArrayLike<{ isFinal: boolean } & ArrayLike<{ transcript: string }>> }) => void) | null;
+  lang: string; interimResults: boolean; continuous: boolean; maxAlternatives: number;
+  start: () => void; stop: () => void; abort: () => void;
+  onresult: ((e: { resultIndex: number; results: ArrayLike<SpeechResult> }) => void) | null;
   onerror: ((e: { error?: string }) => void) | null;
   onend: (() => void) | null;
 };
 
-const WAKE = /\b(hey )?jarvis\b/i;
-
-function speak(text: string) {
-  try {
-    const u = new SpeechSynthesisUtterance(text);
-    u.rate = 1.05;
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(u);
-  } catch { /* unsupported */ }
-}
+const WAKE = /\b(hey,?\s*)?jarvis\b/i;
 
 export default function VoiceCommand() {
   const router = useRouter();
@@ -35,9 +27,42 @@ export default function VoiceCommand() {
   const recRef = useRef<Rec | null>(null);
   const onRef = useRef(false);          // latest "on" for async callbacks
   const armedRef = useRef(false);       // heard "Jarvis", waiting for the order
+  const armTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const busyRef = useRef(false);
+  const speakingRef = useRef(false);    // mute the mic to itself while Jarvis talks
 
   useEffect(() => { onRef.current = on; }, [on]);
+
+  // Speak a reply, suppressing recognition of our own voice while we talk.
+  function speak(text: string) {
+    try {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.rate = 1.05;
+      speakingRef.current = true;
+      const release = () => { setTimeout(() => { speakingRef.current = false; }, 350); };
+      u.onend = release;
+      u.onerror = release;
+      // Hard fallback: if onend never fires (some browsers), never stay muted —
+      // ~60ms/char + 1.2s headroom comfortably covers the utterance.
+      setTimeout(release, 1200 + text.length * 60);
+      window.speechSynthesis.speak(u);
+    } catch { speakingRef.current = false; }
+  }
+
+  function disarm() {
+    armedRef.current = false;
+    if (armTimer.current) { clearTimeout(armTimer.current); armTimer.current = null; }
+  }
+
+  function arm() {
+    armedRef.current = true;
+    if (armTimer.current) clearTimeout(armTimer.current);
+    // If no order arrives soon, stop waiting so a later stray phrase isn't treated as a command.
+    armTimer.current = setTimeout(() => {
+      if (armedRef.current) { armedRef.current = false; setLine('Still here — say "Jarvis, …"'); }
+    }, 9000);
+  }
 
   useEffect(() => {
     const W = window as unknown as { SpeechRecognition?: new () => Rec; webkitSpeechRecognition?: new () => Rec };
@@ -45,24 +70,34 @@ export default function VoiceCommand() {
     if (!Ctor || !getToken()) return;
     setSupported(true);
     const rec = new Ctor();
-    rec.lang = "en-US"; rec.interimResults = false; rec.continuous = true;
+    rec.lang = "en-US"; rec.interimResults = false; rec.continuous = true; rec.maxAlternatives = 1;
     rec.onresult = (e) => {
-      for (let i = 0; i < e.results.length; i++) {
+      // CRITICAL: only look at results new to THIS event. In continuous mode
+      // e.results is cumulative, so iterating from 0 reprocesses old phrases.
+      for (let i = e.resultIndex; i < e.results.length; i++) {
         const res = e.results[i];
-        if (!res.isFinal) continue;
+        if (!res || !res.isFinal) continue;
+        if (speakingRef.current) continue;             // ignore our own TTS echo
         const text = (res[0]?.transcript || "").trim();
         if (!text) continue;
-        if (armedRef.current) {            // wake word already heard → this is the order
-          armedRef.current = false;
+        if (armedRef.current) {                         // wake word already heard → this is the order
+          disarm();
           handle(text);
         } else if (WAKE.test(text)) {
           const after = text.replace(WAKE, "").replace(/^[\s,]+/, "").trim();
-          if (after) handle(after);
-          else { armedRef.current = true; setLine("Yes?"); speak("Yes?"); }
+          if (after) handle(after);                     // "Jarvis, source leads" in one breath
+          else { arm(); setLine("Yes? I'm listening…"); speak("Yes?"); }
         }
+        // No wake word and not armed → ambient speech, ignored.
       }
     };
-    rec.onerror = () => { /* keep going; onend will restart */ };
+    rec.onerror = (ev) => {
+      // "no-speech"/"aborted"/"audio-capture" are transient; onend will restart.
+      if (ev?.error === "not-allowed" || ev?.error === "service-not-allowed") {
+        onRef.current = false; setOn(false);
+        setLine("Microphone blocked — allow mic access to use Hey Jarvis.");
+      }
+    };
     rec.onend = () => { if (onRef.current) { try { rec.start(); } catch { /* already */ } } };
     recRef.current = rec;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -87,13 +122,13 @@ export default function VoiceCommand() {
     const rec = recRef.current;
     if (!rec) return;
     if (on) {
-      setOn(false); onRef.current = false; armedRef.current = false;
+      setOn(false); onRef.current = false; disarm();
       try { rec.stop(); } catch { /* */ }
       setLine(null);
     } else {
       setOn(true); onRef.current = true;
       try { rec.start(); } catch { /* already */ }
-      setLine("Hey Jarvis is listening… say “Jarvis, …”");
+      setLine('Hey Jarvis is listening… say “Jarvis, …”');
       speak("Jarvis online.");
     }
   }
