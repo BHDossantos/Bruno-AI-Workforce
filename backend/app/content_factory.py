@@ -102,6 +102,12 @@ def generate_pack(db: Session, topic: str, business: str = "executive",
     if business == "music":
         from . import music_brand
         guidance = music_brand.promo_context(db)
+    elif business == "foundation":
+        guidance = (f"This is for the {settings.foundation_name} (a nonprofit). "
+                    f"Mission: {settings.foundation_mission} Tagline: {settings.foundation_tagline}. "
+                    f"Pillars: {settings.foundation_pillars}. Lead with impact and people "
+                    "(students, communities, artists); invite support (donate/volunteer/partner). "
+                    "Warm, credible, never salesy; no fundraising guarantees or financial claims.")
     prior = covered_recently(db, topic)
     freshness = (f"We've already covered: {', '.join(prior)}. Take a clearly NEW angle."
                  if prior else "This is a fresh topic.")

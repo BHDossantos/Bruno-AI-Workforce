@@ -378,7 +378,7 @@ def test_all_agents_registered():
     assert set(AGENTS) == {
         "job_hunter", "insurance", "commercial_finder", "homeowner", "referral_partner",
         "follow_up_agent", "review_referral", "bnbglobal", "savorymind", "music",
-        "instagram", "ceo_dashboard",
+        "instagram", "grant_research", "foundation_outreach", "ceo_dashboard",
     }
 
 
@@ -1511,3 +1511,11 @@ def test_emergency_stop_pauses_sending(client, auth_headers):
         control.set_paused(db, False)
         assert control.is_paused(db) is False
         db.close()
+
+
+def test_grant_fit_scoring_prioritizes_mission():
+    from app.agents.grant_research import score_fit
+    music_score, pillar = score_fit("Youth music education scholarship program")
+    off_score, _ = score_fit("Highway bridge maintenance contract")
+    assert music_score > off_score
+    assert pillar in ("Music & Arts", "Education & Scholarships")

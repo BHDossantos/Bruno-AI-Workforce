@@ -70,6 +70,30 @@ Return JSON with keys:
 - "linkedin_msg": a warm LinkedIn connection note (max 80 words).
 """
 
+# Foundation corporate-partnership / sponsorship outreach.
+FOUNDATION_OUTREACH = """Write warm outreach on behalf of a nonprofit foundation to a
+potential corporate partner / sponsor.
+
+Foundation: {foundation} — {mission}
+Tagline: {tagline}. Program pillars: {pillars}.
+
+Prospect: {company_name} ({category}) in {city}.
+
+Connect the foundation's mission to the company's likely CSR / community goals.
+Propose a specific, low-friction way to partner (sponsor a scholarship, fund a
+music/STEM program, employee mentorship/volunteering). Concise, sincere, no hype,
+CAN-SPAM compliant.
+
+Return JSON with keys:
+- "cold_email_subject": short, partnership-oriented (no placeholders).
+- "cold_email_body": email body ONLY, under 120 words. Address them by name
+  ({company_name}); no placeholders. Lead with shared values, one concrete
+  partnership idea, end asking for a 15-minute intro. No greeting placeholder,
+  sign-off, signature or unsubscribe — appended automatically.
+- "call_script": a 4-5 sentence phone opener.
+- "linkedin_msg": a warm connection note (max 80 words).
+"""
+
 # Post-policy Google review + referral ask (warm, already a happy client).
 REVIEW_REQUEST = """Write a short, warm message to a client who just bought a policy,
 asking for (1) a Google review and (2) a referral to anyone who needs insurance.

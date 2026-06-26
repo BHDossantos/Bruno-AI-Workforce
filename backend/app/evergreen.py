@@ -36,6 +36,9 @@ BUSINESS_CATEGORIES: dict[str, list[str]] = {
     "savorymind": ["savorymind", "ai"],
     "music": ["music"],
     "personal": ["fitness", "italy", "travel", "leadership"],
+    # Foundation impact content draws on its pillars (education/music/tech/leadership);
+    # the content factory frames each piece with the foundation's mission + pillars.
+    "foundation": ["leadership", "music", "ai"],
 }
 
 

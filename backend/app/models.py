@@ -584,6 +584,26 @@ class Objective(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class Grant(Base):
+    """A funding opportunity sourced by the Foundation's Grant Research agent —
+    scored by how well it fits the foundation's mission/pillars."""
+    __tablename__ = "grants"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    funder: Mapped[str | None] = mapped_column(String)
+    source: Mapped[str | None] = mapped_column(String, index=True)  # grants_gov | curated | …
+    external_id: Mapped[str | None] = mapped_column(String, index=True)  # dedupe key
+    url: Mapped[str | None] = mapped_column(String)
+    amount: Mapped[float | None] = mapped_column(Numeric)
+    deadline: Mapped[date | None] = mapped_column(Date)
+    eligibility: Mapped[str | None] = mapped_column(Text)
+    category: Mapped[str | None] = mapped_column(String)  # matched pillar
+    summary: Mapped[str | None] = mapped_column(Text)
+    match_score: Mapped[int] = mapped_column(Integer, default=0)  # 0–100 mission fit
+    status: Mapped[str] = mapped_column(String, default="New", index=True)  # New|Reviewing|Applying|Submitted|Won|Lost|Skipped
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Setting(Base):
     """Runtime key/value settings that change without a redeploy — e.g. the global
     'agents_paused' kill-switch behind the Emergency Stop button."""

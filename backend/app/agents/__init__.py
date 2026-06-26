@@ -3,6 +3,8 @@ from .bnbglobal import BnbGlobalAgent
 from .ceo_dashboard import CEODashboardAgent
 from .commercial_finder import CommercialLeadFinderAgent
 from .followup import FollowUpAgent
+from .foundation_outreach import FoundationOutreachAgent
+from .grant_research import GrantResearchAgent
 from .homeowner import HomeownerLeadAgent
 from .instagram import InstagramAgent
 from .insurance import InsuranceAgent
@@ -26,6 +28,9 @@ AGENTS = {
     "savorymind": SavoryMindAgent,
     "music": MusicAgent,
     "instagram": InstagramAgent,
+    # Esposito–Dossantos Foundation.
+    "grant_research": GrantResearchAgent,
+    "foundation_outreach": FoundationOutreachAgent,
     "ceo_dashboard": CEODashboardAgent,
 }
 

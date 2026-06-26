@@ -32,6 +32,7 @@ const NAV = [
   { href: "/bnbglobal", label: "BnB Global Consulting", icon: "💻" },
   { href: "/savorymind", label: "SavoryMind Leads", icon: "🍽️" },
   { href: "/music", label: "Music Campaigns", icon: "🎵" },
+  { href: "/foundation", label: "Foundation — Grants", icon: "🎓" },
   { href: "/instagram", label: "Instagram Planner", icon: "📸" },
   { href: "/connections", label: "Connections", icon: "🔌" },
   { href: "/status", label: "System Status", icon: "🩺" },

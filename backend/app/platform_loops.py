@@ -39,12 +39,12 @@ LOOPS: dict[str, dict] = {
                   "businesses": ["music", "bnbglobal", "insurance"]},
     "facebook":  {"per_day": 3, "auto": True,
                   "businesses": ["music", "bnbglobal", "insurance"]},
-    # LinkedIn: 1/day — BnB + insurance only (no music on LinkedIn, per the rule).
+    # LinkedIn: 1/day — BnB + insurance + foundation (no music on LinkedIn, per the rule).
     "linkedin":  {"per_day": 1, "auto": True,
-                  "businesses": ["bnbglobal", "insurance"]},
-    # Medium (blog): 1/day long-form — BnB + insurance.
+                  "businesses": ["bnbglobal", "insurance", "foundation"]},
+    # Medium (blog): 1/day long-form — BnB + insurance + foundation impact stories.
     "blog":      {"per_day": 1, "auto": False,
-                  "businesses": ["bnbglobal", "insurance"]},
+                  "businesses": ["bnbglobal", "insurance", "foundation"]},
     "x":         {"per_day": 2, "auto": True,
                   "businesses": ["bnbglobal", "executive", "music"]},
     "tiktok":    {"per_day": 1, "auto": False,
