@@ -10,6 +10,7 @@ type Grant = {
   match_score: number; status: string;
 };
 type Summary = { total: number; pipeline_amount: number; by_status: Record<string, number> };
+type Deadline = { id: string; title: string; kind: string; due_date: string | null; status: string; notes: string | null };
 
 const STATUSES = ["New", "Reviewing", "Applying", "Submitted", "Won", "Lost", "Skipped"];
 
@@ -24,8 +25,15 @@ function Foundation() {
   const { data, loading, error, reload } = useFetch<Grant[]>(
     () => api.get<Grant[]>(`/grants?limit=200${status ? `&status=${status}` : ""}`), [status, refresh]);
   const { data: sum } = useFetch<Summary>(() => api.get<Summary>("/grants/summary"), [refresh]);
+  const { data: deadlines } = useFetch<Deadline[]>(() => api.get<Deadline[]>("/grants/deadlines"), [refresh]);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
+
+  async function doneDeadline(id: string) {
+    setBusy(id);
+    try { await api.post(`/grants/deadlines/${id}/done`, {}); setRefresh((n) => n + 1); }
+    catch (e) { setMsg(`❌ ${e}`); } finally { setBusy(null); }
+  }
 
   async function sourceNow() {
     setBusy("source"); setMsg("Searching grants… this can take a minute.");
@@ -57,6 +65,26 @@ function Foundation() {
       </div>
 
       {msg && <p className="mb-2 text-sm text-gray-600">{msg}</p>}
+
+      {deadlines && deadlines.length > 0 && (
+        <div className="card mb-4">
+          <h2 className="mb-2 text-sm font-semibold text-gray-700">⏰ Upcoming deadlines</h2>
+          <div className="space-y-1">
+            {deadlines.slice(0, 8).map((d) => (
+              <div key={d.id} className="flex items-center justify-between gap-3 text-sm">
+                <span className="min-w-0">
+                  <span className="truncate">{d.title}</span>
+                  <span className="ml-2 text-xs text-gray-400">{d.kind}{d.due_date ? ` · due ${d.due_date}` : " · no date set"}</span>
+                </span>
+                <button onClick={() => doneDeadline(d.id)} disabled={busy === d.id}
+                  className="rounded border border-gray-300 px-2 py-0.5 text-xs text-gray-500">Done</button>
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-gray-400">Tracking + alerts only — confirm and file with your accountant/attorney.</p>
+        </div>
+      )}
+
       <div className="mb-3">
         <select value={status} onChange={(e) => setStatus(e.target.value)} className="rounded-lg border border-gray-300 px-3 py-2 text-sm">
           <option value="">All statuses</option>

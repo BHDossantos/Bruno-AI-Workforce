@@ -2,10 +2,12 @@
 from .bnbglobal import BnbGlobalAgent
 from .ceo_dashboard import CEODashboardAgent
 from .commercial_finder import CommercialLeadFinderAgent
+from .compliance import ComplianceAgent
 from .followup import FollowUpAgent
 from .foundation_outreach import FoundationOutreachAgent
 from .grant_research import GrantResearchAgent
 from .homeowner import HomeownerLeadAgent
+from .school_partner import SchoolPartnershipAgent
 from .instagram import InstagramAgent
 from .insurance import InsuranceAgent
 from .job_hunter import JobHunterAgent
@@ -31,6 +33,8 @@ AGENTS = {
     # Esposito–Dossantos Foundation.
     "grant_research": GrantResearchAgent,
     "foundation_outreach": FoundationOutreachAgent,
+    "school_partner": SchoolPartnershipAgent,
+    "compliance": ComplianceAgent,
     "ceo_dashboard": CEODashboardAgent,
 }
 

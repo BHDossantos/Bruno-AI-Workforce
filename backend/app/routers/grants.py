@@ -4,8 +4,10 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from datetime import date, datetime
+
 from ..database import get_db
-from ..models import Grant
+from ..models import FoundationDeadline, Grant
 from ..security import require_role
 
 router = APIRouter(prefix="/grants", tags=["foundation"])
@@ -61,3 +63,52 @@ def set_status(grant_id: str, body: StatusIn, db: Session = Depends(get_db), _=D
     g.status = body.status
     db.commit()
     return {"ok": True, "status": g.status}
+
+
+# ── Compliance deadlines ──────────────────────────────────────────────────────
+def _d_out(d: FoundationDeadline) -> dict:
+    return {"id": str(d.id), "title": d.title, "kind": d.kind,
+            "due_date": d.due_date.isoformat() if d.due_date else None,
+            "status": d.status, "source": d.source, "notes": d.notes}
+
+
+@router.get("/deadlines")
+def list_deadlines(status: str | None = "Open", db: Session = Depends(get_db), _=Depends(_read)):
+    q = db.query(FoundationDeadline)
+    if status:
+        q = q.filter(FoundationDeadline.status == status)
+    rows = q.order_by(FoundationDeadline.due_date.is_(None),
+                      FoundationDeadline.due_date.asc()).all()
+    return [_d_out(d) for d in rows]
+
+
+class DeadlineIn(BaseModel):
+    title: str
+    kind: str = "filing"
+    due_date: str | None = None
+    notes: str | None = None
+
+
+@router.post("/deadlines")
+def add_deadline(body: DeadlineIn, db: Session = Depends(get_db), _=Depends(_write)):
+    due = None
+    if body.due_date:
+        try:
+            due = datetime.fromisoformat(body.due_date).date()
+        except ValueError:
+            raise HTTPException(400, "due_date must be ISO (YYYY-MM-DD)")
+    d = FoundationDeadline(title=body.title, kind=body.kind, due_date=due,
+                           notes=body.notes, source="manual", status="Open")
+    db.add(d)
+    db.commit()
+    return _d_out(d)
+
+
+@router.post("/deadlines/{deadline_id}/done")
+def complete_deadline(deadline_id: str, db: Session = Depends(get_db), _=Depends(_write)):
+    d = db.query(FoundationDeadline).filter(FoundationDeadline.id == deadline_id).first()
+    if not d:
+        raise HTTPException(404, "deadline not found")
+    d.status = "Done"
+    db.commit()
+    return _d_out(d)

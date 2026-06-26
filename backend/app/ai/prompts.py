@@ -70,6 +70,28 @@ Return JSON with keys:
 - "linkedin_msg": a warm LinkedIn connection note (max 80 words).
 """
 
+# Foundation → school / university / conservatory partnership outreach.
+SCHOOL_PARTNERSHIP = """Write warm outreach on behalf of a nonprofit foundation to a
+school, university, conservatory or community center about a partnership.
+
+Foundation: {foundation} — {mission}
+Tagline: {tagline}. Pillars: {pillars}.
+
+Institution: {company_name} ({category}) in {city}.
+
+Propose a concrete, no-cost-to-them way to collaborate that serves their students —
+a music/STEM workshop, a guest performance, a scholarship for their students, or a
+mentorship program. Sincere, brief, education-first, no hype.
+
+Return JSON with keys:
+- "cold_email_subject": short, partnership/student-focused (no placeholders).
+- "cold_email_body": body ONLY, under 120 words. Address them by name ({company_name});
+  no placeholders. One concrete program idea + benefit to their students, end asking
+  for a 15-minute call. No greeting placeholder, sign-off, signature or unsubscribe.
+- "call_script": a 4-5 sentence phone opener.
+- "linkedin_msg": a warm connection note (max 80 words).
+"""
+
 # Foundation corporate-partnership / sponsorship outreach.
 FOUNDATION_OUTREACH = """Write warm outreach on behalf of a nonprofit foundation to a
 potential corporate partner / sponsor.
