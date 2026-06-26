@@ -19,6 +19,7 @@ const NAV = [
   { href: "/board", label: "Board Report", icon: "🧑‍⚖️" },
   { href: "/planning", label: "Predictive Planning", icon: "🔮" },
   { href: "/decisions", label: "Decision Journal", icon: "📓" },
+  { href: "/agents", label: "Agent Performance", icon: "🤖" },
   { href: "/analytics", label: "Funnel Analytics", icon: "📊" },
   { href: "/growth", label: "Growth Analytics", icon: "📈" },
   { href: "/pipeline", label: "Sales Pipeline", icon: "💰" },
