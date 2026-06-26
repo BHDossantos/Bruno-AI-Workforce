@@ -4,7 +4,9 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, computed_field
+
+from .lead_temperature import classify as _temperature
 
 
 class ORMModel(BaseModel):
@@ -77,6 +79,11 @@ class LeadOut(ORMModel):
     last_contacted_at: datetime | None = None
     created_at: datetime
 
+    @computed_field
+    @property
+    def temperature(self) -> str:
+        return _temperature(self.status)
+
 
 class RestaurantOut(ORMModel):
     id: uuid.UUID
@@ -99,6 +106,11 @@ class RestaurantOut(ORMModel):
     times_contacted: int = 0
     last_contacted_at: datetime | None = None
     created_at: datetime
+
+    @computed_field
+    @property
+    def temperature(self) -> str:
+        return _temperature(self.status)
 
 
 class PlaylistOut(ORMModel):

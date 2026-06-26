@@ -1473,3 +1473,16 @@ def test_compose_caption_dedupes_hashtags():
     # hashtags appended on their own line when body has none
     cap2 = cf.compose_caption("No tags here", "#One #Two #One")
     assert cap2.count("#One") == 1 and "#Two" in cap2
+
+
+def test_lead_temperature_classify():
+    from app.lead_temperature import classify
+    assert classify("New") == "cold"
+    assert classify("Sent") == "cold"
+    assert classify("contact") == "cold"
+    assert classify("Replied") == "warm"
+    assert classify("Follow-up Needed") == "warm"
+    assert classify("Interested") == "hot"
+    assert classify("Closed Won") == "hot"
+    assert classify("Closed Lost") == "dead"
+    assert classify(None) == "cold"

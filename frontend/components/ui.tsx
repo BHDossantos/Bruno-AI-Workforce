@@ -68,6 +68,44 @@ export function StatusBadge({ status }: { status: string }) {
   return <span className={`badge ${STATUS_COLORS[status] || "bg-gray-100 text-gray-700"}`}>{status}</span>;
 }
 
+const TEMP_COLORS: Record<string, string> = {
+  hot: "bg-red-100 text-red-700", warm: "bg-amber-100 text-amber-700",
+  cold: "bg-sky-100 text-sky-700", dead: "bg-gray-100 text-gray-400",
+};
+const TEMP_ICON: Record<string, string> = { hot: "🔥", warm: "🌤️", cold: "❄️", dead: "⚫" };
+
+/** Cold / warm / hot temperature badge. */
+export function TempBadge({ t }: { t?: string | null }) {
+  const k = t || "cold";
+  return <span className={`badge ${TEMP_COLORS[k] || TEMP_COLORS.cold}`}>{TEMP_ICON[k] || ""} {k}</span>;
+}
+
+/** A cold / warm / hot counts bar with click-to-filter. `value` is the active
+ * filter ("" = all). Pass counts from a /…/summary endpoint. */
+export function TempFilter({ counts, value, onChange }: {
+  counts?: { cold: number; warm: number; hot: number; dead?: number } | null;
+  value: string; onChange: (t: string) => void;
+}) {
+  const items: { key: string; label: string }[] = [
+    { key: "", label: "All" }, { key: "hot", label: "🔥 Hot" },
+    { key: "warm", label: "🌤️ Warm" }, { key: "cold", label: "❄️ Cold" },
+  ];
+  return (
+    <div className="flex flex-wrap gap-2">
+      {items.map((it) => {
+        const n = it.key ? (counts as Record<string, number> | null)?.[it.key] : undefined;
+        const active = value === it.key;
+        return (
+          <button key={it.key} onClick={() => onChange(it.key)}
+            className={`rounded-full px-3 py-1 text-sm ${active ? "bg-brand text-white" : "bg-gray-100 text-gray-700"}`}>
+            {it.label}{n !== undefined ? ` ${n}` : ""}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 /** Collapsible text cell for long AI-generated content. */
 export function Expandable({ label, text }: { label: string; text?: string | null }) {
   const [open, setOpen] = useState(false);

@@ -25,7 +25,7 @@ function Importer() {
       const data = await res.json();
       if (!res.ok) throw new Error(JSON.stringify(data));
       setResult(type === "contacts"
-        ? `✅ Imported ${data.imported} contacts into the CRM, skipped ${data.skipped}.`
+        ? `✅ Imported ${data.imported} contacts (${data.leads_added ?? 0} now show as Personal leads), skipped ${data.skipped}. They'll get a warm insurance intro automatically.`
         : `✅ Imported ${data.imported}, sent ${data.sent}, skipped (no email) ${data.skipped_no_email}.`);
     } catch (e) {
       setResult(`❌ ${e}`);
@@ -43,17 +43,18 @@ function Importer() {
           <select value={type} onChange={(e) => setType(e.target.value)} className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2">
             <option value="leads">Insurance leads (sent from Thrust Insurance)</option>
             <option value="restaurants">Restaurants / SavoryMind (sent from personal)</option>
-            <option value="contacts">Personal contacts → CRM (Google export, NOT auto-emailed)</option>
+            <option value="contacts">Personal contacts → leads + warm insurance intro (Google/iPhone export)</option>
           </select>
         </div>
         <div>
-          <label className="text-sm font-medium text-gray-700">CSV file</label>
-          <input type="file" accept=".csv" onChange={(e) => setFile(e.target.files?.[0] || null)}
+          <label className="text-sm font-medium text-gray-700">Contact file (CSV or iPhone .vcf)</label>
+          <input type="file" accept=".csv,.vcf,text/csv,text/vcard,text/x-vcard"
+                 onChange={(e) => setFile(e.target.files?.[0] || null)}
                  className="mt-1 block w-full text-sm" />
           <p className="mt-1 text-xs text-gray-500">
             {type === "contacts"
-              ? "Upload your Google Contacts export as-is (First Name, E-mail 1 - Value, Phone 1 - Value, Organization…). They land in the Universal CRM — searchable, never auto-emailed."
-              : <>Required column: <b>email</b>. Optional: company_name, owner_name, phone, website, linkedin, industry, segment, category.{" "}
+              ? "Upload a Google/Outlook/LinkedIn CSV export OR an iPhone/iCloud vCard (.vcf — Contacts app → Export). Each contact lands in the CRM AND as a Personal insurance lead, and gets a warm insurance intro automatically (family/opt-out excluded)."
+              : <>CSV or .vcf. Required column for CSV: <b>email</b>. Optional: company_name, owner_name, phone, website, linkedin, industry, segment, category.{" "}
                   <a className="text-brand hover:underline" href={`${API_URL}/import/template/${type}.csv`} target="_blank" rel="noreferrer">Download template</a></>}
           </p>
         </div>

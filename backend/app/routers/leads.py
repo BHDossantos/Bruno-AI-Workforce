@@ -12,14 +12,33 @@ router = APIRouter(prefix="/leads", tags=["insurance"])
 
 
 @router.get("", response_model=list[LeadOut])
-def list_leads(segment: str | None = None, status: str | None = None, limit: int = 200,
+def list_leads(segment: str | None = None, status: str | None = None,
+               temperature: str | None = None, limit: int = 200,
                db: Session = Depends(get_db), _=Depends(require_role("admin", "operator", "viewer"))):
+    from ..lead_temperature import classify
     q = db.query(Lead)
     if segment:
         q = q.filter(Lead.segment == segment)
     if status:
         q = q.filter(Lead.status == status)
-    return q.order_by(Lead.score.desc(), Lead.created_at.desc()).limit(limit).all()
+    rows = q.order_by(Lead.score.desc(), Lead.created_at.desc()).limit(limit).all()
+    if temperature:
+        rows = [l for l in rows if classify(l.status) == temperature.lower()]
+    return rows
+
+
+@router.get("/summary")
+def leads_summary(segment: str | None = None, db: Session = Depends(get_db),
+                  _=Depends(require_role("admin", "operator", "viewer"))):
+    """Cold / warm / hot counts (per segment if given) — the funnel at a glance."""
+    from ..lead_temperature import classify
+    q = db.query(Lead.status)
+    if segment:
+        q = q.filter(Lead.segment == segment)
+    buckets = {"cold": 0, "warm": 0, "hot": 0, "dead": 0}
+    for (status,) in q.all():
+        buckets[classify(status)] = buckets.get(classify(status), 0) + 1
+    return buckets
 
 
 @router.post("/{lead_id}/send")

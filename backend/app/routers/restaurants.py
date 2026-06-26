@@ -12,10 +12,25 @@ router = APIRouter(prefix="/restaurants", tags=["savorymind"])
 
 
 @router.get("", response_model=list[RestaurantOut])
-def list_restaurants(kind: str = "prospect", limit: int = 200,
+def list_restaurants(kind: str = "prospect", temperature: str | None = None, limit: int = 200,
                      db: Session = Depends(get_db), _=Depends(require_role("admin", "operator", "viewer"))):
-    return (db.query(Restaurant).filter(Restaurant.kind == kind)
+    from ..lead_temperature import classify
+    rows = (db.query(Restaurant).filter(Restaurant.kind == kind)
             .order_by(Restaurant.created_at.desc()).limit(limit).all())
+    if temperature:
+        rows = [r for r in rows if classify(r.status) == temperature.lower()]
+    return rows
+
+
+@router.get("/summary")
+def restaurants_summary(db: Session = Depends(get_db),
+                        _=Depends(require_role("admin", "operator", "viewer"))):
+    """Cold / warm / hot counts for SavoryMind restaurant prospects."""
+    from ..lead_temperature import classify
+    buckets = {"cold": 0, "warm": 0, "hot": 0, "dead": 0}
+    for (status,) in db.query(Restaurant.status).filter(Restaurant.kind == "prospect").all():
+        buckets[classify(status)] = buckets.get(classify(status), 0) + 1
+    return buckets
 
 
 @router.post("/{restaurant_id}/send")

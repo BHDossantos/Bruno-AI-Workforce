@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { AuthGate, Expandable, PageHeader, StatusBadge, useFetch, LoadState } from "@/components/ui";
+import { AuthGate, Expandable, PageHeader, StatusBadge, TempBadge, TempFilter, useFetch, LoadState } from "@/components/ui";
 
 type Lead = {
   id: string;
@@ -21,15 +21,20 @@ type Lead = {
   linkedin_msg: string | null;
   times_contacted: number;
   last_contacted_at: string | null;
+  temperature: string;
 };
+type Temp = { cold: number; warm: number; hot: number; dead: number };
 
 function Insurance() {
   const [segment, setSegment] = useState("");
+  const [temp, setTemp] = useState("");
   const [refresh, setRefresh] = useState(0);
   const { data, loading, error, reload } = useFetch<Lead[]>(
-    () => api.get<Lead[]>(`/leads?limit=200${segment ? `&segment=${segment}` : ""}`),
-    [segment, refresh]
+    () => api.get<Lead[]>(`/leads?limit=200${segment ? `&segment=${segment}` : ""}${temp ? `&temperature=${temp}` : ""}`),
+    [segment, temp, refresh]
   );
+  const { data: counts } = useFetch<Temp>(
+    () => api.get<Temp>(`/leads/summary${segment ? `?segment=${segment}` : ""}`), [segment, refresh]);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
   const [sourcing, setSourcing] = useState(false);
@@ -84,6 +89,7 @@ function Insurance() {
         }
       />
       {msg && <p className="mb-2 text-sm text-gray-600">{msg}</p>}
+      <div className="mb-3"><TempFilter counts={counts} value={temp} onChange={setTemp} /></div>
       {(loading || error) && <LoadState loading={loading} error={error} onRetry={reload} />}
       <div className="card overflow-x-auto">
         <table className="w-full">
@@ -92,6 +98,7 @@ function Insurance() {
               <th className="th">Score</th>
               <th className="th">Company / Owner</th>
               <th className="th">Segment</th>
+              <th className="th">Temp</th>
               <th className="th">Contact</th>
               <th className="th">Reason</th>
               <th className="th">Status</th>
@@ -106,6 +113,7 @@ function Insurance() {
                 <td className="td"><span className="badge bg-brand/10 text-brand-dark">{l.score}</span></td>
                 <td className="td"><div className="font-medium">{l.company_name}</div><div className="text-xs text-gray-400">{l.owner_name}</div></td>
                 <td className="td capitalize">{l.segment}<div className="text-xs text-gray-400">{l.category}</div></td>
+                <td className="td"><TempBadge t={l.temperature} /></td>
                 <td className="td text-xs">{l.email}<br />{l.phone}</td>
                 <td className="td max-w-xs text-xs">{l.reason}</td>
                 <td className="td"><StatusBadge status={l.status} /></td>
@@ -129,7 +137,7 @@ function Insurance() {
               </tr>
             ))}
             {!loading && (data || []).length === 0 && (
-              <tr><td colSpan={9} className="td text-center text-gray-400">No leads yet — hit “Source leads now” to find prospects.</td></tr>
+              <tr><td colSpan={10} className="td text-center text-gray-400">No leads yet — hit “Source leads now” to find prospects.</td></tr>
             )}
           </tbody>
         </table>
