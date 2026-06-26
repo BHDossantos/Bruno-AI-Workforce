@@ -13,7 +13,7 @@ router = APIRouter(prefix="/leads", tags=["insurance"])
 
 @router.get("", response_model=list[LeadOut])
 def list_leads(segment: str | None = None, status: str | None = None,
-               temperature: str | None = None, limit: int = 200,
+               temperature: str | None = None, sort: str | None = None, limit: int = 200,
                db: Session = Depends(get_db), _=Depends(require_role("admin", "operator", "viewer"))):
     from ..lead_temperature import classify
     q = db.query(Lead)
@@ -24,6 +24,9 @@ def list_leads(segment: str | None = None, status: str | None = None,
     rows = q.order_by(Lead.score.desc(), Lead.created_at.desc()).limit(limit).all()
     if temperature:
         rows = [l for l in rows if classify(l.status) == temperature.lower()]
+    if sort == "fit":  # surface the strongest prospects first
+        from ..lead_fit import score as _fit
+        rows = sorted(rows, key=_fit, reverse=True)
     return rows
 
 

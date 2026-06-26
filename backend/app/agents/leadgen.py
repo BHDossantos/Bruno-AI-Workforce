@@ -44,6 +44,11 @@ def run_batch(agent, prospects: list[dict], *, account: str, build_prompt,
     db = agent.db
     existing = {e for (e,) in db.query(Lead.email).filter(Lead.email.isnot(None)).all()}
 
+    # Focus the agent's effort on the strongest prospects first: highest fit gets
+    # enriched + reached out to before the batch's weaker rows.
+    from .. import lead_fit
+    prospects = sorted(prospects, key=lead_fit.score, reverse=True)
+
     pairs: list[tuple[Lead, dict]] = []
     seen: set[str] = set()
     for p in prospects:

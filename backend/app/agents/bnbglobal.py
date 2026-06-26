@@ -50,6 +50,10 @@ class BnbGlobalAgent(BaseAgent):
 
         existing = {e for (e,) in self.db.query(Lead.email).filter(Lead.email.isnot(None)).all()}
 
+        # Work the highest-fit prospects first so outreach focuses on quality.
+        from .. import lead_fit
+        prospects = sorted(prospects, key=lead_fit.score, reverse=True)
+
         pairs: list[tuple[Lead, dict]] = []
         seen: set[str] = set()
         for p in prospects:
