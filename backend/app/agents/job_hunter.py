@@ -53,12 +53,15 @@ class JobHunterAgent(BaseAgent):
         scored = []
         for job in raw:
             score, breakdown = self.score_job(job)
-            if score >= threshold:
-                job["score"] = score
-                job["score_breakdown"] = breakdown
-                scored.append(job)
+            job["score"] = score
+            job["score_breakdown"] = breakdown
+            scored.append(job)
         scored.sort(key=lambda j: j["score"], reverse=True)
-        top = scored[:target]
+        # Quality-first, but NEVER silently empty: if nothing clears the bar, fall
+        # back to the best-scoring roles so the list always populates when sources
+        # returned jobs (free boards can score below the threshold).
+        above = [j for j in scored if j["score"] >= threshold]
+        top = (above or scored)[:target]
 
         # Don't re-add jobs we already have (dedupe by apply URL across runs).
         existing_urls = {u for (u,) in self.db.query(Job.url).filter(Job.url.isnot(None)).all()}

@@ -32,6 +32,8 @@ FIELDS: dict[str, bool] = {
     "twilio_account_sid": True,
     "twilio_auth_token": True,
     "twilio_from_number": False,
+    # JSearch / RapidAPI key → live LinkedIn/Indeed/Glassdoor/ZipRecruiter jobs.
+    "jobs_api_key": True,
 }
 
 
@@ -77,7 +79,7 @@ def save(db, field: str, value: str) -> bool:
 
 def status(db) -> dict:
     """Connection status — booleans + non-secret addresses only, never secrets."""
-    from .integrations import apollo, gmail, places, sms
+    from .integrations import apollo, gmail, jobs_api, places, sms
     apply_to_settings(db)  # make sure the live view reflects stored values
     bridge_on = bool(settings.bridge_token)
     return {
@@ -93,4 +95,5 @@ def status(db) -> dict:
         "google_places": {"configured": places.is_configured()},
         "sms": {"configured": sms.is_configured() or bridge_on,
                 "via": "twilio" if sms.is_configured() else ("bridge" if bridge_on else None)},
+        "jobs_api": {"configured": jobs_api.is_configured()},
     }

@@ -19,7 +19,13 @@ function fullText(i: Item): string {
   const head = i.channel === "blog" && i.title ? `${i.title}\n\n` : "";
   return `${head}${body}${tags && !body.includes(tags) ? `\n\n${tags}` : ""}`.trim();
 }
-const dayKey = (iso: string | null) => (iso ? iso.slice(0, 10) : "Unscheduled");
+const dayKey = (iso: string | null) => {
+  if (!iso) return "Unscheduled";
+  // Bucket by LOCAL day (not the UTC slice) so it matches dayLabel's Today/Tomorrow
+  // comparison — otherwise posts near midnight land on the wrong day.
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
 
 function dayLabel(day: string): string {
   if (day === "Unscheduled") return "Unscheduled";

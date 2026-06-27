@@ -1715,7 +1715,7 @@ def test_setup_connect_status_and_save(client, auth_headers):
     """The in-app setup page reports connection status and applies a saved key."""
     from app.config import settings
     s = client.get("/setup", headers=auth_headers).json()
-    assert set(s) == {"gmail_personal", "gmail_insurance", "apollo", "google_places", "sms"}
+    assert set(s) == {"gmail_personal", "gmail_insurance", "apollo", "google_places", "sms", "jobs_api"}
     assert s["apollo"]["configured"] is False
     orig = settings.google_places_api_key
     try:
