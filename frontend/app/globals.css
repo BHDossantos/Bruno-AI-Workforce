@@ -26,6 +26,10 @@ body {
   @apply inline-block rounded-full px-2 py-0.5 text-xs font-medium;
 }
 
+.input {
+  @apply rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-1 focus:ring-brand;
+}
+
 .th {
   @apply px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-500;
 }

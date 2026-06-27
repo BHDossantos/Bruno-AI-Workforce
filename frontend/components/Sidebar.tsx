@@ -10,6 +10,7 @@ const NAV = [
   { href: "/", label: "Mission Control", icon: "🛰️" },
   { href: "/approvals", label: "Approval Queue", icon: "☑️" },
   { href: "/activation", label: "Go-Live Setup", icon: "🚀" },
+  { href: "/setup", label: "Connect Email & Data", icon: "🔑" },
   { href: "/search", label: "Search", icon: "🔍" },
   { href: "/autopilot", label: "Application Autopilot", icon: "🤖" },
   { href: "/crm", label: "Universal CRM", icon: "👥" },
