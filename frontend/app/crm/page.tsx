@@ -30,7 +30,7 @@ function CRM() {
   const [open, setOpen] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ name: "", company: "", title: "", email: "", phone: "", kind: "recruiter" });
+  const [form, setForm] = useState({ name: "", company: "", title: "", email: "", phone: "", kind: "contact" });
 
   async function load() {
     const p = new URLSearchParams();
@@ -107,6 +107,14 @@ function CRM() {
               onChange={(e) => setForm({ ...form, [f]: e.target.value })}
               className="rounded-lg border border-gray-300 px-3 py-2 text-sm" />
           ))}
+          <select value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm">
+            <option value="contact">Contact</option>
+            <option value="recruiter">Recruiter</option>
+            <option value="partner">Partner</option>
+            <option value="advisor">Advisor</option>
+            <option value="client">Client</option>
+          </select>
           <button className="btn" onClick={addContact}>Save contact</button>
         </div>
       )}

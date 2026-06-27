@@ -8,6 +8,7 @@ type Area = { configured: boolean; address?: string };
 type Status = {
   gmail_personal: Area; gmail_insurance: Area;
   apollo: Area; google_places: Area;
+  sms?: Area; jobs_api?: Area;
 };
 
 function Badge({ ok }: { ok: boolean }) {
@@ -106,6 +107,38 @@ function Setup() {
           </p>
           <input className="input w-full" type="password" placeholder="Google Places API key"
             value={form.google_places_api_key || ""} onChange={(e) => set("google_places_api_key", e.target.value)} />
+        </div>
+
+        {/* Twilio (SMS) */}
+        <div className="card">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">💬 Twilio (two-way SMS / texting)</h2>
+            <Badge ok={!!data.sms?.configured} />
+          </div>
+          <p className="mb-3 text-xs text-gray-500">
+            Powers the Texts page. From twilio.com → Console: Account SID, Auth Token, and your Twilio phone number (E.164, e.g. +16175551234).
+          </p>
+          <div className="grid gap-2 sm:grid-cols-3">
+            <input className="input" type="password" placeholder="Account SID"
+              value={form.twilio_account_sid || ""} onChange={(e) => set("twilio_account_sid", e.target.value)} />
+            <input className="input" type="password" placeholder="Auth Token"
+              value={form.twilio_auth_token || ""} onChange={(e) => set("twilio_auth_token", e.target.value)} />
+            <input className="input" placeholder="+1 555 123 4567"
+              value={form.twilio_from_number || ""} onChange={(e) => set("twilio_from_number", e.target.value)} />
+          </div>
+        </div>
+
+        {/* Jobs API (JSearch) */}
+        <div className="card">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">💼 Jobs API key (LinkedIn / Indeed / Glassdoor)</h2>
+            <Badge ok={!!data.jobs_api?.configured} />
+          </div>
+          <p className="mb-3 text-xs text-gray-500">
+            Live roles from the top job boards via JSearch. Get a free key at rapidapi.com → JSearch → subscribe → copy the X-RapidAPI-Key. Without it, only free remote boards are searched.
+          </p>
+          <input className="input w-full" type="password" placeholder="JSearch / RapidAPI key"
+            value={form.jobs_api_key || ""} onChange={(e) => set("jobs_api_key", e.target.value)} />
         </div>
 
         <button className="btn" onClick={save} disabled={busy}>{busy ? "Saving…" : "Save & connect"}</button>
