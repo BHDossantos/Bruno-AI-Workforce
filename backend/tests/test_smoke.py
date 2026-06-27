@@ -117,9 +117,18 @@ def test_followups_are_memory_aware():
     # No name/email → no DB calls, empty block (safe to call anywhere).
     assert memory.entity_context(db=None, name=None, email=None) == ""
     # The follow-up prompt carries a memory slot that gets injected.
-    out = FOLLOWUP_EMAIL.format(step=2, name="Ana", context="insurance",
+    out = FOLLOWUP_EMAIL.format(step=2, name="Ana", context="insurance", purpose="social proof",
                                 memory="What you remember about Ana:\n- prefers mornings")
     assert "prefers mornings" in out
+
+
+def test_followup_cadence_has_distinct_purposes():
+    """Each follow-up touch has its own job (real funnel), and the last is a breakup."""
+    from app.followups import _STEP_PURPOSE, _purpose_for
+    purposes = [_purpose_for(s) for s in range(1, 8)]
+    assert len(set(purposes)) == 7  # every touch is distinct, not a repeat "bump"
+    assert "BREAKUP" in _purpose_for(7)
+    assert _STEP_PURPOSE[1] != _STEP_PURPOSE[2]
 
 
 def test_memory_slot_prompts_format_cleanly():
@@ -127,7 +136,7 @@ def test_memory_slot_prompts_format_cleanly():
     pass — guards against the KeyError class of bug when a slot is added."""
     from app.ai.prompts import FOLLOWUP_EMAIL, INFLUENCER_PITCH, PLAYLIST_PITCH
     assert all("{memory}" in p for p in (FOLLOWUP_EMAIL, PLAYLIST_PITCH, INFLUENCER_PITCH))
-    FOLLOWUP_EMAIL.format(step=1, name="A", context="x", memory="m")
+    FOLLOWUP_EMAIL.format(step=1, name="A", context="x", purpose="p", memory="m")
     PLAYLIST_PITCH.format(name="P", genre="g", curator="c", memory="m")
     INFLUENCER_PITCH.format(name="N", niche="n", platform="ig", handle="h", memory="m")
 
