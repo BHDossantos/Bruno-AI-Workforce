@@ -260,6 +260,30 @@ def test_contact_import_any_platform():
     assert c["name"] == "Dina Ray" and c["email"] == "dina@a.com" and c["phone"] == "+1999"
 
 
+def test_import_real_world_exports():
+    """The two exports users actually download must parse — LinkedIn CSV (with its
+    preamble) and a real iCloud .vcf (item-grouped + folded lines)."""
+    from app import importer
+    from app.routers.imports import _csv_rows
+    # LinkedIn Connections.csv ships a 3-line "Notes:" preamble before the header.
+    linkedin = ('Notes:\n"When exporting your connections..."\n\n'
+                'First Name,Last Name,Email Address,Company,Position\n'
+                'Ada,Lovelace,ada@math.org,Analytical,Engineer\n')
+    rows = _csv_rows(linkedin)
+    assert rows and importer.normalize_contact(rows[0])["email"] == "ada@math.org"
+    # iCloud: item-grouped props (item1.EMAIL) + a folded value (continuation line
+    # begins with a space). Both are real iCloud quirks that used to drop the email.
+    icloud = ("BEGIN:VCARD\nVERSION:3.0\nFN:Maria Garcia\n"
+              "item1.EMAIL;type=INTERNET:maria@longdomain\n .com\n"
+              "item1.X-ABLabel:HOME\nTEL;type=CELL:+1222\nEND:VCARD\n")
+    cards = importer.parse_vcards(icloud)
+    assert len(cards) == 1
+    c = importer.normalize_contact(cards[0])
+    assert c["name"] == "Maria Garcia"
+    assert c["email"] == "maria@longdomain.com"  # unfolded + item-prefix stripped
+    assert c["phone"] == "+1222"
+
+
 def test_meta_token_upgrade_is_safe():
     """Auto-upgrade is a no-op for non-Meta providers and when app creds are absent,
     so connecting never breaks; it never downgrades a token."""
@@ -387,8 +411,8 @@ def test_all_agents_registered():
     assert set(AGENTS) == {
         "job_hunter", "insurance", "commercial_finder", "homeowner", "referral_partner",
         "follow_up_agent", "review_referral", "bnbglobal", "savorymind", "music",
-        "music_pr", "music_collab", "music_sync", "instagram", "grant_research",
-        "foundation_outreach", "school_partner", "ceo_dashboard",
+        "music_pr", "music_collab", "music_sync", "instagram", "life_ops",
+        "grant_research", "foundation_outreach", "school_partner", "ceo_dashboard",
     }
 
 

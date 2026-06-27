@@ -10,6 +10,7 @@ from .school_partner import SchoolPartnershipAgent
 from .instagram import InstagramAgent
 from .insurance import InsuranceAgent
 from .job_hunter import JobHunterAgent
+from .life_ops import LifeOpsAgent
 from .music import MusicAgent
 from .music_outreach import CollaborationAgent, MusicPRAgent, SyncLicensingAgent
 from .referral_partner import ReferralPartnerAgent
@@ -33,6 +34,8 @@ AGENTS = {
     "music_collab": CollaborationAgent,
     "music_sync": SyncLicensingAgent,
     "instagram": InstagramAgent,
+    # Life Commander — personal network nurture.
+    "life_ops": LifeOpsAgent,
     # Esposito–Dossantos Foundation.
     "grant_research": GrantResearchAgent,
     "foundation_outreach": FoundationOutreachAgent,
