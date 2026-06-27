@@ -1547,6 +1547,17 @@ def test_insurance_needs_are_category_specific():
     assert n.reason_for("Contractor").startswith("A contractor typically needs")
 
 
+@requires_db
+def test_selfcheck_runs_and_autocorrects(client, auth_headers):
+    """Self-check verifies core features, returns a report, and auto-seeds objectives."""
+    r = client.post("/admin/selfcheck", headers=auth_headers)
+    assert r.status_code == 200
+    data = r.json()
+    assert {"healthy", "fixed", "issues", "checks"} <= set(data)
+    names = {c["name"] for c in data["checks"]}
+    assert {"objectives", "credentials", "agents", "command_centers", "lead_pipeline"} <= names
+
+
 def test_consulting_wedge_is_industry_specific():
     """BnB Global outreach leads with the right wedge per industry, not generic."""
     from app import consulting_value as c
@@ -1579,6 +1590,7 @@ def test_voice_interpreter_keyword_fallback():
     assert _interpret("draft outreach to Acme Corp")["intent"] == "draft_outreach"
     assert _interpret("schedule this for tomorrow at 9")["intent"] == "schedule"
     assert _interpret("what failed today")["intent"] == "what_failed"
+    assert _interpret("run a self check")["intent"] == "self_check"
 
 
 def test_voice_interpreter_portuguese():

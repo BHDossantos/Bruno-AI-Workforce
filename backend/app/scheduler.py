@@ -137,6 +137,11 @@ def _run_followups(db):
     return process_due_followups(db)
 
 
+def _run_selfcheck(db):
+    from . import selfcheck
+    return selfcheck.run(db)
+
+
 # job_id -> (worker, cron expression). These run the marketing/advertising/sales
 # engine around the clock so the platform operates without any external scheduler.
 _JOBS: dict[str, tuple] = {
@@ -166,6 +171,8 @@ _JOBS: dict[str, tuple] = {
     "content_metrics":  (_sync_content_metrics, "0 21 * * *"),
     # Send any due follow-ups, daily.
     "followups":        (_run_followups, "0 11 * * *"),
+    # Self-check + auto-correct core features daily (re-seed, refresh creds, flag).
+    "selfcheck":        (_run_selfcheck, "0 4 * * *"),
 }
 
 

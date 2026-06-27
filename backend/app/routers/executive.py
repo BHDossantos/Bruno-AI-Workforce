@@ -230,6 +230,13 @@ def admin_selftest(db: Session = Depends(get_db), _=Depends(_read)):
     return selftest.run(db)
 
 
+@router.post("/admin/selfcheck")
+def admin_selfcheck(db: Session = Depends(get_db), _=Depends(_write)):
+    """Verify core features and auto-correct the safe issues; report the rest."""
+    from .. import selfcheck
+    return selfcheck.run(db)
+
+
 @router.get("/scoreboard")
 def scoreboard(db: Session = Depends(get_db), _=Depends(_read)):
     """The six roll-up metrics everything else feeds into."""
