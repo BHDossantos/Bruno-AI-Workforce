@@ -28,6 +28,10 @@ FIELDS: dict[str, bool] = {
     "insurance_gmail_app_password": True,
     "apollo_api_key": True,
     "google_places_api_key": True,
+    # Twilio (two-way SMS) — connect texting in-app instead of env vars.
+    "twilio_account_sid": True,
+    "twilio_auth_token": True,
+    "twilio_from_number": False,
 }
 
 
@@ -73,8 +77,9 @@ def save(db, field: str, value: str) -> bool:
 
 def status(db) -> dict:
     """Connection status — booleans + non-secret addresses only, never secrets."""
-    from .integrations import apollo, gmail, places
+    from .integrations import apollo, gmail, places, sms
     apply_to_settings(db)  # make sure the live view reflects stored values
+    bridge_on = bool(settings.bridge_token)
     return {
         "gmail_personal": {
             "configured": gmail.is_configured(gmail.PERSONAL),
@@ -86,4 +91,6 @@ def status(db) -> dict:
         },
         "apollo": {"configured": apollo.is_configured()},
         "google_places": {"configured": places.is_configured()},
+        "sms": {"configured": sms.is_configured() or bridge_on,
+                "via": "twilio" if sms.is_configured() else ("bridge" if bridge_on else None)},
     }

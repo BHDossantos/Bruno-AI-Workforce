@@ -85,14 +85,28 @@ def thread(phone: str, db: Session = Depends(get_db), _=Depends(_read)):
 
 @router.post("/sms/send")
 def send(body: SmsSend, db: Session = Depends(get_db), _=Depends(_write)):
+    # Pick up any Twilio creds connected via the in-app Setup page (multi-instance safe).
+    try:
+        from .. import runtime_config
+        runtime_config.apply_to_settings(db)
+    except Exception:
+        pass
+    from ..config import settings
     sid = sms.send_sms(body.to, body.message, account=body.account)
+    bridge_on = bool(settings.bridge_token)
+    # Sent via Twilio → Sent; else if a Mac bridge is configured → Queued (it'll
+    # deliver from your real number); else there's nowhere to send → Drafted.
+    status = "Sent" if sid else ("Queued" if bridge_on else "Drafted")
     msg = Message(channel="sms", direction="outbound", entity_type=body.entity_type,
                   entity_id=body.entity_id, to_email=body.to, from_account=body.account,
-                  body=body.message, status="Sent" if sid else "Drafted", provider_id=sid,
+                  body=body.message, status=status, provider_id=sid,
                   sent_at=datetime.now(timezone.utc) if sid else None)
     db.add(msg)
     db.commit()
-    return {"ok": bool(sid), "sid": sid, "status": msg.status}
+    ok = bool(sid) or bridge_on
+    reason = None if ok else ("SMS isn't connected — add Twilio in Connect Email & Data, "
+                              "or run the Mac bridge.")
+    return {"ok": ok, "sid": sid, "status": status, "reason": reason}
 
 
 @router.post("/sms/inbound")

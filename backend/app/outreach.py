@@ -106,6 +106,15 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
     db.add(msg)
     db.flush()
 
+    # Add everyone we reach out to (real people only) to their funnel's newsletter,
+    # per spec — every issue carries an unsubscribe link (CAN-SPAM compliant).
+    if to_email and is_real_email(to_email):
+        try:
+            from . import newsletters
+            newsletters.subscribe_on_outreach(db, entity_type, entity_id, to_email)
+        except Exception:
+            pass
+
     if not to_email or not gmail.is_configured(account):
         return msg  # nothing to send to / account unconfigured — keep as stored draft
     if not is_real_email(to_email):

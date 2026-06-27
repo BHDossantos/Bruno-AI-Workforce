@@ -14,6 +14,10 @@ function Texts() {
   const [draft, setDraft] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [newPhone, setNewPhone] = useState("");
+  const [sendMsg, setSendMsg] = useState<string | null>(null);
+  const { data: setup } = useFetch<{ sms?: { configured: boolean; via: string | null } }>(
+    () => api.get("/setup"), []);
+  const smsReady = setup?.sms?.configured ?? true;  // assume ok until we know
   const { data: threads, loading, error, reload } = useFetch<Thread[]>(() => api.get<Thread[]>("/sms/threads"), [refresh]);
   const { data: detail } = useFetch<ThreadDetail | null>(
     () => (active ? api.get<ThreadDetail>(`/sms/thread?phone=${encodeURIComponent(active)}`) : Promise.resolve(null)),
@@ -25,8 +29,13 @@ function Texts() {
   async function send() {
     if (!active || !draft.trim()) return;
     const body = draft;
-    setDraft("");
-    await api.post("/sms/send", { to: active, message: body, account });
+    setDraft(""); setSendMsg(null);
+    try {
+      const r = await api.post<{ ok?: boolean; reason?: string }>("/sms/send", { to: active, message: body, account });
+      if (r.ok === false) {
+        setSendMsg(`❌ Not sent — ${r.reason || "SMS isn't connected. Add Twilio in Connect Email & Data, or set up the Mac bridge."}`);
+      }
+    } catch (e) { setSendMsg(`❌ ${e}`); }
     setRefresh((r) => r + 1);
   }
 
@@ -43,6 +52,12 @@ function Texts() {
   return (
     <div>
       <PageHeader title="Texts" subtitle="Two-way SMS — start a new text or reply to warm leads here" />
+      {!smsReady && (
+        <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          ⚠️ SMS isn&apos;t connected yet — messages won&apos;t actually send. Add Twilio in <b>Connect Email &amp; Data</b> (or run the Mac bridge).
+        </div>
+      )}
+      {sendMsg && <p className="mb-2 text-sm text-red-600">{sendMsg}</p>}
       <div className="flex h-[70vh] overflow-hidden rounded-xl border border-gray-200 bg-white">
         {/* Threads list */}
         <div className="w-72 shrink-0 overflow-y-auto border-r border-gray-200">

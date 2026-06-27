@@ -25,6 +25,9 @@ class CredIn(BaseModel):
     insurance_gmail_app_password: str | None = None
     apollo_api_key: str | None = None
     google_places_api_key: str | None = None
+    twilio_account_sid: str | None = None
+    twilio_auth_token: str | None = None
+    twilio_from_number: str | None = None
 
 
 @router.get("")
