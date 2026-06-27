@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { AuthGate, Expandable, PageHeader, StatusBadge, TempBadge, TempFilter, useFetch, LoadState } from "@/components/ui";
+import LeadHealth from "@/components/LeadHealth";
 
 type Lead = {
   id: string; company_name: string | null; owner_name: string | null; category: string | null;
@@ -63,6 +64,7 @@ function BnbGlobal() {
           <button className="btn" onClick={dispatchAll} disabled={busy === "all"}>{busy === "all" ? "Sending…" : "Send all pending"}</button>
         </div>} />
       {msg && <p className="mb-2 text-sm text-gray-600">{msg}</p>}
+      <LeadHealth refresh={refresh} />
       <div className="mb-3"><TempFilter counts={counts} value={temp} onChange={setTemp} /></div>
       {(loading || error) && <LoadState loading={loading} error={error} onRetry={reload} />}
       <div className="card overflow-x-auto">

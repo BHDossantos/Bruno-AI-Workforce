@@ -1575,3 +1575,15 @@ def test_approval_approve_resolves_items_without_500(client, auth_headers):
 
     ids = {i["id"] for i in client.get("/approvals", headers=auth_headers).json()["items"]}
     assert cid not in ids and lid not in ids
+
+
+@requires_db
+def test_lead_pipeline_health_shape(client, auth_headers):
+    """The lead-health diagnostic returns the chain, counts and actionable blockers."""
+    r = client.get("/leads/pipeline-health", headers=auth_headers)
+    assert r.status_code == 200
+    h = r.json()
+    assert {"healthy", "summary", "counts", "by_brand", "sources", "steps", "blockers"} <= set(h)
+    assert {s["key"] for s in h["steps"]} == {"source", "send", "sent", "replies"}
+    # No Gmail configured in CI → the top blocker is to connect a mailbox.
+    assert any("Gmail" in b for b in h["blockers"])

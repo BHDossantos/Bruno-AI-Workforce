@@ -44,6 +44,14 @@ def leads_summary(segment: str | None = None, db: Session = Depends(get_db),
     return buckets
 
 
+@router.get("/pipeline-health")
+def pipeline_health(db: Session = Depends(get_db),
+                    _=Depends(require_role("admin", "operator", "viewer"))):
+    """Why warm/hot leads aren't flowing yet, and the exact next action to fix it."""
+    from .. import lead_pipeline
+    return lead_pipeline.health(db)
+
+
 @router.post("/{lead_id}/send")
 def send_outreach(lead_id: str, db: Session = Depends(get_db),
                   _=Depends(require_role("admin", "operator"))):
