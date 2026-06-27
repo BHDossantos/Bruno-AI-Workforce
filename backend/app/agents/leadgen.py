@@ -72,12 +72,18 @@ def run_batch(agent, prospects: list[dict], *, account: str, build_prompt,
     db.commit()
     saved = len(pairs)
 
+    from .. import lead_intel, outreach_analytics
+    # Explore vs exploit: once a subject style has a proven winner, lean on it;
+    # until then, rotate styles (A/B) so the loop learns fast from balanced data.
+    working = outreach_analytics.whats_working(db)
+    cat_hint = lead_intel.whats_working(db)
+
     enriched = sent = 0
-    for row, p in pairs:
+    for i, (row, p) in enumerate(pairs):
         try:
             sysp = skills.system_prompt("cold-email", "marketing-psychology", "offers")
-            from .. import lead_intel, outreach_analytics
-            for hint in (outreach_analytics.whats_working(db), lead_intel.whats_working(db)):
+            subject_hint = working or outreach_analytics.experiment_hint(i)
+            for hint in (subject_hint, cat_hint):
                 if hint:
                     sysp = f"{sysp}\n\n{hint}"
             mem_ctx = memory.context_block(db, p.get("company_name") or "")
