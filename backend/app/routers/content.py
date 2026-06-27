@@ -88,6 +88,19 @@ def regenerate(content_id: str, db: Session = Depends(get_db), _=Depends(_write)
     return res
 
 
+class HookIn(BaseModel):
+    hook: str
+
+
+@router.post("/{content_id}/apply-hook")
+def apply_hook(content_id: str, body: HookIn, db: Session = Depends(get_db), _=Depends(_write)):
+    """Swap the post's opening line for one of the AI's alternative hooks."""
+    res = content_factory.apply_hook(db, content_id, body.hook)
+    if res.get("ok") is False:
+        raise HTTPException(404, res.get("reason", "content not found"))
+    return res
+
+
 class RegenIn(BaseModel):
     business: str | None = None
     channel: str | None = None

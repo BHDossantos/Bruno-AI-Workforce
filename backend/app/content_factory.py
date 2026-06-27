@@ -163,7 +163,8 @@ def generate_pack(db: Session, topic: str, business: str = "executive",
             title=data.get("title") or data.get("subject"),
             body=data.get("body") or data.get("caption") or data.get("script"),
             hashtags=_dedupe_hashtags(data.get("hashtags")), status=status, embedding=emb,
-            meta={"angle": pack.get("angle")}, scheduled_for=sched)
+            meta={"angle": pack.get("angle"), "hooks": pack.get("hooks") or []},
+            scheduled_for=sched)
         db.add(item)
         created.append(ch)
     db.commit()
@@ -208,10 +209,32 @@ def regenerate_stale(db: Session, business: str | None = None,
 
 
 def out(i: ContentItem) -> dict:
+    meta = i.meta or {}
     return {"id": str(i.id), "topic": i.topic, "business": i.business, "channel": i.channel,
             "title": i.title, "body": i.body, "hashtags": i.hashtags, "status": i.status,
+            "hooks": meta.get("hooks") or [],
             "scheduled_for": i.scheduled_for.isoformat() if i.scheduled_for else None,
             "created_at": i.created_at.isoformat() if i.created_at else None}
+
+
+def apply_hook(db: Session, content_id: str, hook: str) -> dict:
+    """Swap a post's opening line for the chosen alternative hook (keeps the rest)."""
+    item = db.query(ContentItem).filter(ContentItem.id == content_id).first()
+    if not item:
+        return {"ok": False, "reason": "content not found"}
+    hook = (hook or "").strip()
+    if not hook:
+        return {"ok": False, "reason": "empty hook"}
+    lines = (item.body or "").split("\n")
+    for idx, ln in enumerate(lines):
+        if ln.strip():
+            lines[idx] = hook  # replace the first non-empty line
+            break
+    else:
+        lines = [hook]
+    item.body = "\n".join(lines)
+    db.commit()
+    return {"ok": True, **out(item)}
 
 
 def publish_due(db: Session) -> dict:
