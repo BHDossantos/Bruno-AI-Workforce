@@ -1557,6 +1557,18 @@ def test_consulting_wedge_is_industry_specific():
     assert "lead with" in c.hint_for("Medical office").lower()
 
 
+def test_savorymind_value_is_pain_specific():
+    """SavoryMind pitch leads with a quantified outcome mapped from the pain signal."""
+    from app import savorymind_value as s
+    assert "average check" in s.value_for("Low average ticket")
+    assert "review" in s.value_for("Weak online reviews")
+    assert "high-margin" in s.value_for("No upsell at point of sale")
+    assert s.value_for("anything else") == s._DEFAULT
+    # Prefer a real menu insight; fall back to the value for placeholder pains.
+    assert s.best_insight("Add a wine flight", "x") == "Add a wine flight"
+    assert s.best_insight("Research before outreach", "Low average ticket") == s.value_for("Low average ticket")
+
+
 def test_ab_subject_styles_rotate_evenly():
     """A/B exploration rotates through every subject style for balanced sampling."""
     from app.outreach_analytics import _STYLE_ORDER, experiment_hint, experiment_style
