@@ -11,7 +11,7 @@ from .instagram import InstagramAgent
 from .insurance import InsuranceAgent
 from .job_hunter import JobHunterAgent
 from .music import MusicAgent
-from .music_outreach import CollaborationAgent, MusicPRAgent
+from .music_outreach import CollaborationAgent, MusicPRAgent, SyncLicensingAgent
 from .referral_partner import ReferralPartnerAgent
 from .review_referral import ReviewReferralAgent
 from .savorymind import SavoryMindAgent
@@ -31,6 +31,7 @@ AGENTS = {
     "music": MusicAgent,
     "music_pr": MusicPRAgent,
     "music_collab": CollaborationAgent,
+    "music_sync": SyncLicensingAgent,
     "instagram": InstagramAgent,
     # Esposito–Dossantos Foundation.
     "grant_research": GrantResearchAgent,

@@ -289,6 +289,27 @@ def fetch_music_pr(count: int) -> list[dict]:
     return out
 
 
+# Sync-licensing contacts — music supervisors / libraries / ad & game studios.
+_SYNC_KINDS = ["TV music supervisor", "film music supervisor", "ad agency music lead",
+               "trailer house", "sync library", "game studio audio"]
+_SYNC_FOCUS = ["romantic drama scenes", "luxury & beauty brand ads", "travel/lifestyle spots",
+               "Latin-market campaigns", "indie film soundtracks", "reality TV beds"]
+
+
+def fetch_sync_targets(count: int) -> list[dict]:
+    """Sync-licensing prospects to pitch the catalog for TV/film/ad/game placements
+    (synthetic until a sync-contact DB/API is wired)."""
+    if not settings.allow_synthetic_fallback:
+        return []
+    out = []
+    for i in range(count):
+        kind = _rng.choice(_SYNC_KINDS)
+        name = f"{_rng.choice(_LAST)} {_rng.choice(['Sync', 'Music', 'Sound', 'Licensing', 'Media'])}"
+        out.append({"name": name, "kind": kind, "focus": _rng.choice(_SYNC_FOCUS),
+                    "email": f"music-{i}@{_slug(name)}.com", "contact": _person()})
+    return out
+
+
 def fetch_collab_artists(count: int) -> list[dict]:
     """Similarly-sized indie artists for collaboration outreach (synthetic placeholder)."""
     if not settings.allow_synthetic_fallback:

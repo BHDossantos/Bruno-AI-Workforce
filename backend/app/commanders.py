@@ -28,7 +28,7 @@ COMMANDERS: dict[str, dict] = {
         "referral_partner", "follow_up_agent", "review_referral"]},
     "business":  {"name": "Business Commander",  "agents": ["savorymind", "bnbglobal"]},
     "influence": {"name": "Influence Commander",
-                  "agents": ["music", "music_pr", "music_collab", "instagram"]},
+                  "agents": ["music", "music_pr", "music_collab", "music_sync", "instagram"]},
     "life_ops":  {"name": "Life Commander",      "agents": []},
     "foundation": {"name": "Foundation Commander",
                    "agents": ["grant_research", "foundation_outreach", "school_partner"]},

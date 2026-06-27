@@ -387,9 +387,20 @@ def test_all_agents_registered():
     assert set(AGENTS) == {
         "job_hunter", "insurance", "commercial_finder", "homeowner", "referral_partner",
         "follow_up_agent", "review_referral", "bnbglobal", "savorymind", "music",
-        "music_pr", "music_collab", "instagram", "grant_research", "foundation_outreach",
-        "school_partner", "ceo_dashboard",
+        "music_pr", "music_collab", "music_sync", "instagram", "grant_research",
+        "foundation_outreach", "school_partner", "ceo_dashboard",
     }
+
+
+def test_sync_licensing_targets_and_prompt():
+    """The music growth team includes sync licensing — supervisor targets + pitch prompt."""
+    from app.ai.prompts import SYNC_PITCH
+    from app.integrations import providers
+    rows = providers.fetch_sync_targets(4)
+    assert rows and all(r.get("email") and r.get("kind") for r in rows)
+    # Prompt formats with the call site's exact keys (guards KeyError).
+    SYNC_PITCH.format(name="X Sync", kind="TV music supervisor", focus="dramas",
+                      contact="A. Reed", memory="")
 
 
 # ── Live-source integrations (no network; key-gated) ─────────────────────────

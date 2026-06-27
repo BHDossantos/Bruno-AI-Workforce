@@ -173,6 +173,20 @@ Return JSON with keys:
   to personalize — never repeat a pitch they already declined.
 """
 
+SYNC_PITCH = """Write a concise sync-licensing pitch for Bruno D — a "Luxury Latin Soul"
+artist (romantic R&B with a signature alto sax, sung in English/Spanish/Portuguese) —
+to a music supervisor / sync contact who places music in TV, film, ads, trailers and games.
+
+Contact: {name} ({kind}) — works on {focus}. Contact person: {contact}
+{memory}
+Return JSON with key "pitch": a respectful 80-120 word pitch that (1) leads with the
+mood/vibe and where the music fits (scene type, brand tone), (2) notes one-stop clearance
+(masters + publishing controlled by the artist = fast, easy licensing), and (3) makes one
+clear ask (add to your library / consider for a current brief). No hard sell, no hype.
+Never repeat a pitch they already declined.
+"""
+
+
 MUSIC_PR_PITCH = """Write a concise press pitch for Bruno D — a "Luxury Latin Soul" artist
 (romantic R&B with a signature alto sax, sung in English/Spanish/Portuguese).
 
