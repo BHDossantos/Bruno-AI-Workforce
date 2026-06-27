@@ -92,6 +92,13 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
     autonomous=True (the default, used by agents/cron) means: in semi/manual mode
     the message is drafted and waits for approval. Explicit user actions (approval
     queue, manual 'send' buttons) pass autonomous=False so they send immediately."""
+    # Pick up any Gmail/data credentials connected via the in-app Setup page — even
+    # if THIS process/instance started before they were saved (multi-instance safe).
+    try:
+        from . import runtime_config
+        runtime_config.apply_to_settings(db)
+    except Exception:  # never let config refresh block a send
+        pass
     body = email_template.clean_body(body)  # strip AI placeholders/sign-offs once
     msg = Message(channel="email", direction="outbound", entity_type=entity_type,
                   entity_id=entity_id, to_email=to_email, from_account=account,
