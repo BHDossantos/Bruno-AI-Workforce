@@ -1547,6 +1547,16 @@ def test_insurance_needs_are_category_specific():
     assert n.reason_for("Contractor").startswith("A contractor typically needs")
 
 
+def test_consulting_wedge_is_industry_specific():
+    """BnB Global outreach leads with the right wedge per industry, not generic."""
+    from app import consulting_value as c
+    assert "HIPAA" in c.wedge_for("Medical office")
+    assert "checkout" in c.wedge_for("Retail store")
+    assert "fractional-CTO" in c.wedge_for("SaaS startup")
+    assert c.wedge_for("Totally Unknown") == c._DEFAULT  # sensible default, never empty
+    assert "lead with" in c.hint_for("Medical office").lower()
+
+
 def test_ab_subject_styles_rotate_evenly():
     """A/B exploration rotates through every subject style for balanced sampling."""
     from app.outreach_analytics import _STYLE_ORDER, experiment_hint, experiment_style

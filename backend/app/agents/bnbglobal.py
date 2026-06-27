@@ -77,7 +77,7 @@ class BnbGlobalAgent(BaseAgent):
         self.db.commit()
         saved = len(pairs)
 
-        from .. import lead_intel, outreach_analytics
+        from .. import consulting_value, lead_intel, outreach_analytics
         # Explore vs exploit: use a proven subject style once one exists; until
         # then rotate styles (A/B) so the learning loop converges fast.
         working = outreach_analytics.whats_working(self.db)
@@ -88,7 +88,8 @@ class BnbGlobalAgent(BaseAgent):
             try:
                 sysp = skills.system_prompt("cold-email", "marketing-psychology", "offers")
                 subject_hint = working or outreach_analytics.experiment_hint(i)
-                for hint in (subject_hint, cat_hint):
+                wedge_hint = consulting_value.hint_for(p.get("category"), p.get("industry"))
+                for hint in (subject_hint, cat_hint, wedge_hint):
                     if hint:
                         sysp = f"{sysp}\n\n{hint}"
                 mem_ctx = memory.context_block(self.db, p.get("company_name") or "")
