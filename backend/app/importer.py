@@ -227,11 +227,14 @@ def process_leads_csv(db: Session, rows: list[dict]) -> dict:
                     linkedin_msg=art.get("linkedin_msg") if isinstance(art, dict) else None)
         db.add(lead)
         db.flush()
-        msg = outreach.dispatch_email(db, entity_type="lead", entity_id=lead.id, to_email=email,
-                                      subject=subject, body=body, account="insurance", actor="import")
-        if msg.status == "Sent":
-            lead.status = "Sent"
-            sent += 1
+        # Only dispatch when AI produced a real body — never send an empty email
+        # (e.g. when OpenAI is unconfigured). Keep it as a draft otherwise.
+        if body:
+            msg = outreach.dispatch_email(db, entity_type="lead", entity_id=lead.id, to_email=email,
+                                          subject=subject, body=body, account="insurance", actor="import")
+            if msg.status == "Sent":
+                lead.status = "Sent"
+                sent += 1
         _schedule_followups(db, "lead", lead.id)
         imported += 1
     db.commit()
@@ -266,11 +269,13 @@ def process_restaurants_csv(db: Session, rows: list[dict]) -> dict:
                        follow_up=art.get("demo_invite") if isinstance(art, dict) else None)
         db.add(r)
         db.flush()
-        msg = outreach.dispatch_email(db, entity_type="restaurant", entity_id=r.id, to_email=email,
-                                      subject=subject, body=body, account="personal", actor="import")
-        if msg.status == "Sent":
-            r.status = "Sent"
-            sent += 1
+        # Only dispatch with a real AI body — never send an empty pitch.
+        if body:
+            msg = outreach.dispatch_email(db, entity_type="restaurant", entity_id=r.id, to_email=email,
+                                          subject=subject, body=body, account="personal", actor="import")
+            if msg.status == "Sent":
+                r.status = "Sent"
+                sent += 1
         _schedule_followups(db, "restaurant", r.id)
         imported += 1
     db.commit()

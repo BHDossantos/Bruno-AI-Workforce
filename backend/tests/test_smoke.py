@@ -1560,6 +1560,30 @@ def test_emergency_stop_pauses_sending(client, auth_headers):
         db.close()
 
 
+@requires_db
+def test_no_newsletter_subscribe_without_actual_send():
+    """We must only add people to a newsletter when we ACTUALLY email them — never
+    for drafts/paused/unconfigured (consent/CAN-SPAM). Gmail is unconfigured in
+    tests, so dispatch drafts and must NOT subscribe."""
+    from app import models, outreach
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        lead = models.Lead(segment="commercial", company_name="NoSend Co",
+                           email="nosend@realbusiness.com", status="New")
+        db.add(lead); db.flush()
+        msg = outreach.dispatch_email(
+            db, entity_type="lead", entity_id=lead.id, to_email="nosend@realbusiness.com",
+            subject="x", body="hi", account="insurance", actor="test", autonomous=False)
+        db.flush()
+        assert msg.status == "Drafted"  # no Gmail in tests → drafted, not sent
+        subs = (db.query(models.NewsletterSubscriber)
+                .filter(models.NewsletterSubscriber.email == "nosend@realbusiness.com").count())
+        assert subs == 0  # never subscribed someone we didn't email
+    finally:
+        db.rollback(); db.close()
+
+
 def test_grant_fit_scoring_prioritizes_mission():
     from app.agents.grant_research import score_fit
     music_score, pillar = score_fit("Youth music education scholarship program")
