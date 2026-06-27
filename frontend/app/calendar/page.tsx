@@ -7,7 +7,7 @@ import { AuthGate, PageHeader, StatusBadge } from "@/components/ui";
 type Item = {
   id: string; topic: string; business: string | null; channel: string;
   title: string | null; body: string | null; hashtags: string | null;
-  status: string; scheduled_for: string | null;
+  status: string; scheduled_for: string | null; hooks?: string[];
 };
 
 // Channels shown on the calendar — social auto-posts + blog drafts to grab manually.
@@ -119,7 +119,23 @@ function Calendar() {
                     </div>
                   </div>
                   {openId === i.id && (
-                    <pre className="mt-3 max-h-80 overflow-y-auto whitespace-pre-wrap rounded bg-gray-50 p-3 text-sm text-gray-700">{fullText(i) || "(empty)"}</pre>
+                    <>
+                      <pre className="mt-3 max-h-80 overflow-y-auto whitespace-pre-wrap rounded bg-gray-50 p-3 text-sm text-gray-700">{fullText(i) || "(empty)"}</pre>
+                      {i.hooks && i.hooks.length > 0 && i.channel !== "blog" && (
+                        <div className="mt-2">
+                          <div className="mb-1 text-xs font-semibold text-gray-500">Try another hook (swaps the first line):</div>
+                          <div className="space-y-1">
+                            {i.hooks.map((h, hi) => (
+                              <button key={hi} disabled={busy === i.id}
+                                onClick={() => act(i.id, "apply-hook", { hook: h })}
+                                className="block w-full rounded border border-gray-200 px-2 py-1 text-left text-xs text-gray-700 hover:border-brand hover:bg-brand/5">
+                                {h}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               ))}

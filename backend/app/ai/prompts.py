@@ -379,6 +379,9 @@ NON-NEGOTIABLE QUALITY BAR (most AI content fails here — don't):
 
 Return a JSON object with these keys (omit none; keep each tight and high-quality):
 - "angle": the specific angle/hook you chose (one sentence).
+- "hooks": an array of 3 DISTINCT scroll-stopping opening lines for this topic
+  (each a different style — e.g. a number/result, a blunt contrarian claim, a
+  sharp question), each usable as the first line of a LinkedIn/Instagram/X post.
 - "blog": {{"title": ..., "body": 500-800 word article in markdown}}.
 - "linkedin": {{"body": native post, strong first line then short lines/line breaks,
   ~120-220 words, ONE insight, no hashtags inside the body,

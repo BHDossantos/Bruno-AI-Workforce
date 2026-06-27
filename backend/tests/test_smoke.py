@@ -1603,3 +1603,22 @@ def test_setup_connect_status_and_save(client, auth_headers):
         assert client.get("/setup", headers=auth_headers).json()["google_places"]["configured"] is True
     finally:
         settings.google_places_api_key = orig  # don't pollute other tests
+
+
+@requires_db
+def test_content_apply_hook_swaps_first_line(client, auth_headers):
+    """Applying an alternative hook replaces only the post's opening line."""
+    from app.database import SessionLocal
+    from app.models import ContentItem
+    db = SessionLocal()
+    c = ContentItem(channel="linkedin", topic="t", title="T", business="executive",
+                    body="Old first line.\nSecond line stays.", status="needs_approval",
+                    meta={"hooks": ["A punchy new hook."]})
+    db.add(c); db.commit(); cid = str(c.id); db.close()
+    r = client.post(f"/content/{cid}/apply-hook", headers=auth_headers,
+                    json={"hook": "A punchy new hook."})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["body"].startswith("A punchy new hook.")
+    assert "Second line stays." in body["body"]
