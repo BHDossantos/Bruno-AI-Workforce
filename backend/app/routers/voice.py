@@ -156,6 +156,9 @@ def _keyword_interpret(text: str) -> dict:
         return {"intent": "work_pipeline", "reply": "Working the pipeline now."}
     if any(w in t for w in ("run everything", "daily cycle", "rodar tudo", "ciclo diário", "ciclo diario")):
         return {"intent": "run_all", "reply": "Running the full daily cycle."}
+    if any(w in t for w in ("self check", "self-check", "selfcheck", "check yourself", "diagnostic",
+                            "diagnostics", "verificação", "verificacao", "autoteste", "check everything")):
+        return {"intent": "self_check", "reply": "Running a self-check and auto-correcting."}
     if (any(w in t for w in ("find", "source", "get", "run", "buscar", "encontrar", "procurar", "rodar", "gerar"))
             and _match_alias(t, _AGENT_ALIASES)):
         return {"intent": "run_agent", "target": text, "reply": "On it."}
@@ -310,6 +313,17 @@ def command(body: VoiceIn, db: Session = Depends(get_db),
             return {"ok": True, "intent": intent,
                     "reply": (f"{n} agent run(s) failed today — check Agent Performance."
                               if n else "Nothing failed today. All clear.")}
+        if intent == "self_check":
+            from .. import selfcheck
+            res = selfcheck.run(db)
+            issues = res.get("issues") or []
+            fixed = res.get("fixed", 0)
+            if res.get("healthy"):
+                reply = f"Self-check passed. {fixed} item(s) auto-corrected. Everything's healthy."
+            else:
+                reply = (f"Self-check found {len(issues)} issue(s): {', '.join(issues)}. "
+                         f"Auto-corrected {fixed}. The rest need your attention.")
+            return {"ok": True, "intent": intent, "reply": reply}
         if intent == "run_all":
             from .. import commanders
             commanders.run_ceo(db)
