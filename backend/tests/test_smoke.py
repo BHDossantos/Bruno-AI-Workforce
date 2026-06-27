@@ -1587,3 +1587,19 @@ def test_lead_pipeline_health_shape(client, auth_headers):
     assert {s["key"] for s in h["steps"]} == {"source", "send", "sent", "replies"}
     # No Gmail configured in CI → the top blocker is to connect a mailbox.
     assert any("Gmail" in b for b in h["blockers"])
+
+
+@requires_db
+def test_setup_connect_status_and_save(client, auth_headers):
+    """The in-app setup page reports connection status and applies a saved key."""
+    from app.config import settings
+    s = client.get("/setup", headers=auth_headers).json()
+    assert set(s) == {"gmail_personal", "gmail_insurance", "apollo", "google_places"}
+    assert s["apollo"]["configured"] is False
+    orig = settings.google_places_api_key
+    try:
+        r = client.post("/setup", headers=auth_headers, json={"google_places_api_key": "test-key-123"})
+        assert r.status_code == 200 and "google_places_api_key" in r.json()["saved"]
+        assert client.get("/setup", headers=auth_headers).json()["google_places"]["configured"] is True
+    finally:
+        settings.google_places_api_key = orig  # don't pollute other tests

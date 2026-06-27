@@ -1,0 +1,89 @@
+"""Runtime-configurable credentials so the user can connect Gmail + lead-data
+sources from inside the app (no redeploy, no env-var editing).
+
+Values are stored in the Setting table and applied onto the in-memory ``settings``
+object — at startup and whenever saved — so the existing gmail/apollo/places code
+keeps reading ``settings`` unchanged. An explicit environment variable always wins
+over a stored value (so prod secrets set in the deployment aren't overridden).
+
+Secrets are WRITE-ONLY through the API: they're never returned, only a
+"configured: true/false" status and non-secret addresses.
+"""
+from __future__ import annotations
+
+import logging
+
+from .config import settings
+from .models import Setting
+
+log = logging.getLogger("bruno.runtime_config")
+
+_PREFIX = "cfg:"
+
+# settings attribute -> is_secret. The keys map 1:1 to Settings fields.
+FIELDS: dict[str, bool] = {
+    "gmail_address": False,
+    "gmail_app_password": True,
+    "insurance_gmail_address": False,
+    "insurance_gmail_app_password": True,
+    "apollo_api_key": True,
+    "google_places_api_key": True,
+}
+
+
+def _stored(db, field: str) -> str:
+    try:
+        row = db.get(Setting, _PREFIX + field)
+        return (row.value or "") if row else ""
+    except Exception:  # pragma: no cover - defensive
+        return ""
+
+
+def apply_to_settings(db) -> None:
+    """Load stored credentials into the live settings object (env vars win)."""
+    import os
+    for field in FIELDS:
+        if os.environ.get(field.upper()):
+            continue  # an explicit env var takes precedence
+        val = _stored(db, field)
+        if val:
+            try:
+                setattr(settings, field, val)
+            except Exception:  # pragma: no cover
+                log.warning("could not apply stored config %s", field)
+
+
+def save(db, field: str, value: str) -> bool:
+    """Persist one credential and apply it immediately. Returns True if accepted."""
+    if field not in FIELDS:
+        return False
+    value = (value or "").strip()
+    row = db.get(Setting, _PREFIX + field)
+    if row is None:
+        row = Setting(key=_PREFIX + field)
+        db.add(row)
+    row.value = value
+    db.commit()
+    try:
+        setattr(settings, field, value)
+    except Exception:  # pragma: no cover
+        pass
+    return True
+
+
+def status(db) -> dict:
+    """Connection status — booleans + non-secret addresses only, never secrets."""
+    from .integrations import apollo, gmail, places
+    apply_to_settings(db)  # make sure the live view reflects stored values
+    return {
+        "gmail_personal": {
+            "configured": gmail.is_configured(gmail.PERSONAL),
+            "address": settings.gmail_address or "",
+        },
+        "gmail_insurance": {
+            "configured": gmail.is_configured(gmail.INSURANCE),
+            "address": settings.insurance_gmail_address or "",
+        },
+        "apollo": {"configured": apollo.is_configured()},
+        "google_places": {"configured": places.is_configured()},
+    }
