@@ -1533,6 +1533,15 @@ def test_grant_fit_scoring_prioritizes_mission():
     assert pillar in ("Music & Arts", "Education & Scholarships")
 
 
+def test_ab_subject_styles_rotate_evenly():
+    """A/B exploration rotates through every subject style for balanced sampling."""
+    from app.outreach_analytics import _STYLE_ORDER, experiment_hint, experiment_style
+    seen = [experiment_style(i) for i in range(len(_STYLE_ORDER))]
+    assert set(seen) == set(_STYLE_ORDER)          # one full sweep covers every style
+    assert experiment_style(len(_STYLE_ORDER)) == _STYLE_ORDER[0]  # wraps around
+    assert "subject line" in experiment_hint(0).lower()
+
+
 def test_voice_interpreter_keyword_fallback():
     """Offline (no AI key) the voice router still maps common orders correctly."""
     from app.routers.voice import _interpret

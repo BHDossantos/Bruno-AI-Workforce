@@ -17,6 +17,32 @@ from .models import Message
 _MIN_SAMPLE = 8  # need at least this many sends in a style before trusting its rate
 
 
+# A/B exploration — the subject styles we deliberately rotate through so every
+# style gets a fair sample and the learn-and-act loop converges fast (instead of
+# only ever seeing whatever the model happened to write). Keys match subject_style.
+_STYLE_DESC = {
+    "question": "a curiosity-driven question (ends with ?)",
+    "number/result": "led by a specific number, %, or concrete result",
+    "short/punchy": "very short (≤ 35 characters) and punchy",
+    "curiosity": "a curiosity teaser using a word like 'idea' or 'quick'",
+    "statement": "a confident, specific one-line statement",
+}
+_STYLE_ORDER = ["question", "number/result", "short/punchy", "curiosity", "statement"]
+
+
+def experiment_style(i: int) -> str:
+    """Round-robin style for the i-th send in a batch → even A/B distribution."""
+    return _STYLE_ORDER[i % len(_STYLE_ORDER)]
+
+
+def experiment_hint(i: int) -> str:
+    """Prompt hint assigning THIS email's subject style, for balanced exploration."""
+    st = experiment_style(i)
+    return (f"A/B TEST — for THIS email only, write the subject line as {_STYLE_DESC[st]}. "
+            "Keep it specific and relevant, never generic. (We rotate styles to learn "
+            "which earns the most replies.)")
+
+
 def subject_style(subject: str | None) -> str:
     """Coarse, deterministic style bucket for a subject line."""
     s = (subject or "").strip()
