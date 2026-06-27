@@ -24,7 +24,9 @@ function money(n: number) {
 function Planning() {
   const [target, setTarget] = useState(1_000_000);
   const [applied, setApplied] = useState(1_000_000);
-  const { data, error, loading } = useFetch<Sim>(() => api.get<Sim>(`/planning/simulate?target=${applied}`), [applied]);
+  const { data, error, loading, reload } = useFetch<Sim>(() => api.get<Sim>(`/planning/simulate?target=${applied}`), [applied]);
+  // Simulate always recalculates — even when the target is unchanged.
+  function simulate() { setApplied(target); reload(); }
 
   return (
     <div className="space-y-8">
@@ -35,11 +37,13 @@ function Planning() {
         <label className="text-sm">Annual income target
           <div className="mt-1 flex items-center gap-2">
             <span className="text-gray-400">$</span>
-            <input type="number" step="50000" value={target} onChange={(e) => setTarget(Number(e.target.value))}
+            <input type="number" step="50000" min="0" value={target || ""}
+              onChange={(e) => setTarget(Math.max(0, Number(e.target.value) || 0))}
+              onKeyDown={(e) => { if (e.key === "Enter") simulate(); }}
               className="w-40 rounded-lg border border-gray-300 px-3 py-2 text-sm" />
           </div>
         </label>
-        <button className="btn" onClick={() => setApplied(target)}>Simulate</button>
+        <button className="btn" onClick={simulate}>Simulate</button>
         {data?.recommended && <span className="text-sm text-gray-500">Recommended path: <b className="text-brand-dark">{data.recommended}</b></span>}
       </div>
 

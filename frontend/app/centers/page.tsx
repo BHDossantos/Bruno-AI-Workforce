@@ -12,6 +12,7 @@ type Commander = {
 
 const ICON: Record<string, string> = {
   wealth: "💰", business: "🏢", influence: "📣", personal: "💪", life_ops: "🗂️",
+  foundation: "🎓",
 };
 
 function money(n: number) {

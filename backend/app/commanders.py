@@ -17,7 +17,8 @@ from sqlalchemy.orm import Session
 from . import scoring
 from .agents import AGENTS
 from .config import settings
-from .models import Grant, InstagramTarget, Job, Lead, MusicPlaylist, Objective, Restaurant
+from .models import (Grant, InstagramTarget, Job, Lead, ManualContact, MusicPlaylist,
+                     Objective, Restaurant)
 
 log = logging.getLogger("bruno.commanders")
 
@@ -29,7 +30,7 @@ COMMANDERS: dict[str, dict] = {
     "business":  {"name": "Business Commander",  "agents": ["savorymind", "bnbglobal"]},
     "influence": {"name": "Influence Commander",
                   "agents": ["music", "music_pr", "music_collab", "music_sync", "instagram"]},
-    "life_ops":  {"name": "Life Commander",      "agents": []},
+    "life_ops":  {"name": "Life Commander",      "agents": ["life_ops"]},
     "foundation": {"name": "Foundation Commander",
                    "agents": ["grant_research", "foundation_outreach", "school_partner"]},
 }
@@ -77,7 +78,11 @@ def _run_commander(db: Session, center: str) -> dict:
     # own cadence-aware loop (one idea → the right content for every channel).
     if center == "influence":
         from . import platform_loops
-        out["content_factory"] = _run_content_factory(db)
+        try:
+            out["content_factory"] = _run_content_factory(db)
+        except Exception as exc:  # must never 500 the whole influence run
+            log.exception("content factory failed")
+            out["content_factory"] = {"ok": False, "reason": str(exc)}
         try:
             out["platform_loops"] = platform_loops.run_all(db)
         except Exception as exc:
@@ -109,6 +114,11 @@ def rollup_objectives(db: Session) -> None:
                                .filter(Grant.status.notin_(["Lost", "Skipped"])).scalar() or 0),
         "foundation_partners": float(db.query(func.count()).select_from(Lead)
                                      .filter(Lead.segment == "foundation").scalar() or 0),
+        "foundation_programs": float(db.query(func.count()).select_from(Lead)
+                                     .filter(Lead.segment == "school_partner").scalar() or 0),
+        # Life: personal-network relationships nurtured.
+        "life_ops": float(db.query(func.count()).select_from(ManualContact)
+                          .filter(ManualContact.kind == "contact").scalar() or 0),
     }
     for key, val in updates.items():
         obj = db.query(Objective).filter(Objective.key == key).first()
@@ -206,6 +216,8 @@ def run_center(db: Session, center: str) -> dict:
 
 def status(db: Session) -> list[dict]:
     """Commander roster + their objectives + live pipeline, for the dashboard."""
+    from . import objectives as _obj
+    _obj.ensure_objectives(db)  # every center always has its objectives + amount picker
     actions = scoring.build_actions(db)
     out = []
     for center, spec in COMMANDERS.items():

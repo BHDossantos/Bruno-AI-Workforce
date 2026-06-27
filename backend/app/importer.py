@@ -67,13 +67,25 @@ def normalize_contact(row: dict) -> dict:
     }
 
 
+def _unfold_vcard(text: str) -> list[str]:
+    """RFC 6350 line unfolding: a line starting with space/tab continues the prior
+    one. iCloud wraps long EMAIL/FN values, so without this they get truncated."""
+    out: list[str] = []
+    for raw in (text or "").splitlines():
+        if raw[:1] in (" ", "\t") and out:
+            out[-1] += raw[1:]          # continuation → append (keep inner content)
+        else:
+            out.append(raw)
+    return [ln.strip() for ln in out]
+
+
 def parse_vcards(text: str) -> list[dict]:
     """Parse an Apple/iCloud/iPhone vCard (.vcf) export into row dicts compatible
-    with normalize_contact (keys: name, email, phone, company, title, notes)."""
+    with normalize_contact (keys: name, email, phone, company, title, notes).
+    Handles folded continuation lines and Apple item-group prefixes (item1.EMAIL)."""
     cards: list[dict] = []
     cur: dict = {}
-    for raw in (text or "").splitlines():
-        line = raw.strip()
+    for line in _unfold_vcard(text):
         if line.upper() == "BEGIN:VCARD":
             cur = {}
         elif line.upper() == "END:VCARD":
@@ -82,7 +94,8 @@ def parse_vcards(text: str) -> list[dict]:
             cur = {}
         elif ":" in line:
             head, _, val = line.partition(":")
-            prop = head.split(";")[0].upper()  # strip TYPE params (e.g. TEL;CELL)
+            # strip TYPE params (TEL;CELL) AND Apple item-group prefixes (item1.EMAIL).
+            prop = head.split(";")[0].split(".")[-1].upper()
             val = val.strip()
             if not val:
                 continue
@@ -156,7 +169,15 @@ def process_contacts_csv(db: Session, rows: list[dict]) -> dict:
             db.commit()
     db.commit()
     log.info("Imported %d contacts (%d as leads, %d skipped)", imported, leads_added, skipped)
-    return {"imported": imported, "leads_added": leads_added, "skipped": skipped}
+    ok = imported > 0
+    reason = None
+    if not ok:
+        reason = ("No contacts could be read. Make sure you uploaded a contacts export "
+                  "(Google/Outlook/LinkedIn CSV or an iCloud .vcf) with email or phone "
+                  f"columns — {skipped} row(s) had nothing usable." if rows
+                  else "The file was empty or unreadable.")
+    return {"ok": ok, "imported": imported, "leads_added": leads_added,
+            "skipped": skipped, "reason": reason}
 
 
 def _schedule_followups(db: Session, entity_type: str, entity_id) -> None:
