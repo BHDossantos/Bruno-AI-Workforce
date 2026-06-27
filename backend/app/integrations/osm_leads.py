@@ -47,6 +47,14 @@ COMMERCIAL_OSM = {
 }
 RESTAURANT_OSM = ['node["amenity"~"restaurant|cafe|bar|pub|fast_food"]']
 
+# Education institutions for the Foundation's School Partnership agent — real
+# schools/universities/conservatories/community centers (node + area mappings).
+_EDU_FILTER = "school|college|university|kindergarten|music_school|language_school"
+EDUCATION_OSM = [
+    f'node["amenity"~"{_EDU_FILTER}"]', f'way["amenity"~"{_EDU_FILTER}"]',
+    'node["amenity"="community_centre"]', 'way["amenity"="community_centre"]',
+]
+
 # Bound website scraping per run so the agent stays fast (each scrape is a few
 # HTTP fetches). Most leads should come from OSM email tags (zero scraping).
 _SCRAPE_BUDGET = 15
@@ -263,6 +271,21 @@ def fetch_commercial_leads(count: int, scope: str | None = None) -> list[dict]:
     if not areas:
         return []
     return _harvest(_all_commercial_selectors(), "commercial", count, areas)
+
+
+def fetch_education_leads(count: int, scope: str | None = None) -> list[dict]:
+    """Real education institutions (schools/universities/conservatories/community
+    centers) for foundation school-partnership outreach — not generic businesses."""
+    if not (is_enabled() or (scope and settings.wider_lead_sourcing)):
+        return []
+    areas = _scoped_areas(scope)
+    if not areas:
+        return []
+    rows = _harvest(EDUCATION_OSM, "school_partner", count, areas)
+    for r in rows:
+        r["category"] = "Education institution"
+        r["industry"] = "Education"
+    return rows
 
 
 def fetch_restaurants(count: int, scope: str | None = None) -> list[dict]:

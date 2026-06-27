@@ -1631,3 +1631,14 @@ def test_content_apply_hook_swaps_first_line(client, auth_headers):
     assert body["ok"] is True
     assert body["body"].startswith("A punchy new hook.")
     assert "Second line stays." in body["body"]
+
+
+def test_education_partners_target_schools_not_generic_businesses():
+    """The foundation's school agent sources real education institutions, not
+    generic commercial leads (synthetic fallback stays education-categorized)."""
+    from app.integrations import providers
+    rows = providers.fetch_education_partners(5, scope="global")
+    assert rows, "should always produce at least synthetic institutions"
+    assert all(r["segment"] == "school_partner" for r in rows)
+    assert all(r.get("category") in providers.EDUCATION_CATEGORIES
+               or r.get("industry") == "Education" for r in rows)
