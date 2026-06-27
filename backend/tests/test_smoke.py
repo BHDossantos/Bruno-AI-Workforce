@@ -1533,6 +1533,20 @@ def test_grant_fit_scoring_prioritizes_mission():
     assert pillar in ("Music & Arts", "Education & Scholarships")
 
 
+def test_insurance_needs_are_category_specific():
+    """Each business category maps to the coverage it actually needs (not generic)."""
+    from app import insurance_needs as n
+    assert "workers' comp" in n.coverage_for("Contractor")
+    assert "liquor" in n.coverage_for("Restaurant")
+    assert "malpractice" in n.coverage_for("Medical office")
+    assert "errors & omissions" in n.coverage_for("Law Firm")
+    # Unknown category still returns a sensible commercial default, never empty.
+    assert n.coverage_for("Totally Unknown") == n._COMMERCIAL_DEFAULT
+    # Personal lines get their own framing.
+    assert "auto" in n.coverage_for("Auto owner", "personal")
+    assert n.reason_for("Contractor").startswith("A contractor typically needs")
+
+
 def test_ab_subject_styles_rotate_evenly():
     """A/B exploration rotates through every subject style for balanced sampling."""
     from app.outreach_analytics import _STYLE_ORDER, experiment_hint, experiment_style
