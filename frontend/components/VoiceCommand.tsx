@@ -18,6 +18,7 @@ type Rec = {
 };
 
 const WAKE = /\b(hey,?\s*)?jarvis\b/i;
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
 
 export default function VoiceCommand() {
   const router = useRouter();
@@ -31,7 +32,7 @@ export default function VoiceCommand() {
   const armedRef = useRef(false);       // heard "Jarvis", waiting for the order
   const armTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const busyRef = useRef(false);
-  const speakingRef = useRef(false);    // mute the mic to itself while Jarvis talks
+  const lastSpokenRef = useRef("");     // what Jarvis just said → filter the mic echo by CONTENT
 
   useEffect(() => { onRef.current = on; }, [on]);
   useEffect(() => {
@@ -39,21 +40,25 @@ export default function VoiceCommand() {
     if (saved) { setLang(saved); langRef.current = saved; }
   }, []);
 
-  // Speak a reply, suppressing recognition of our own voice while we talk.
+  // Speak a reply (in the active language). We remember the text so the recognizer
+  // can ignore its own voice bouncing back, WITHOUT going deaf to the user.
   function speak(text: string) {
     try {
       window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
-      u.rate = 1.05;
-      speakingRef.current = true;
-      const release = () => { setTimeout(() => { speakingRef.current = false; }, 350); };
-      u.onend = release;
-      u.onerror = release;
-      // Hard fallback: if onend never fires (some browsers), never stay muted —
-      // ~60ms/char + 1.2s headroom comfortably covers the utterance.
-      setTimeout(release, 1200 + text.length * 60);
+      u.lang = langRef.current; u.rate = 1.05;
+      lastSpokenRef.current = norm(text);
+      // Stop treating it as an echo a moment after it should have finished.
+      setTimeout(() => { lastSpokenRef.current = ""; }, 1500 + text.length * 60);
       window.speechSynthesis.speak(u);
-    } catch { speakingRef.current = false; }
+    } catch { /* TTS unsupported — non-fatal */ }
+  }
+
+  function isEcho(text: string): boolean {
+    const last = lastSpokenRef.current;
+    if (!last) return false;
+    const c = norm(text);
+    return !!c && (last.includes(c) || c.includes(last));
   }
 
   function disarm() {
@@ -67,7 +72,14 @@ export default function VoiceCommand() {
     // If no order arrives soon, stop waiting so a later stray phrase isn't treated as a command.
     armTimer.current = setTimeout(() => {
       if (armedRef.current) { armedRef.current = false; setLine('Still here — say "Jarvis, …"'); }
-    }, 9000);
+    }, 12000);
+  }
+
+  function restart() {
+    const rec = recRef.current;
+    if (!rec || !onRef.current) return;
+    try { rec.start(); }
+    catch { setTimeout(() => { if (onRef.current) { try { rec.start(); } catch { /* already running */ } } }, 350); }
   }
 
   useEffect(() => {
@@ -78,20 +90,20 @@ export default function VoiceCommand() {
     const rec = new Ctor();
     rec.lang = langRef.current; rec.interimResults = false; rec.continuous = true; rec.maxAlternatives = 1;
     rec.onresult = (e) => {
-      // CRITICAL: only look at results new to THIS event. In continuous mode
-      // e.results is cumulative, so iterating from 0 reprocesses old phrases.
+      // Only look at results NEW to this event — in continuous mode e.results is
+      // cumulative, so iterating from 0 would reprocess old phrases.
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const res = e.results[i];
         if (!res || !res.isFinal) continue;
-        if (speakingRef.current) continue;             // ignore our own TTS echo
         const text = (res[0]?.transcript || "").trim();
-        if (!text) continue;
-        if (armedRef.current) {                         // wake word already heard → this is the order
+        if (text.length < 2) continue;
+        if (isEcho(text)) { lastSpokenRef.current = ""; continue; }  // our own TTS, not the user
+        if (armedRef.current) {                          // wake word already heard → this is the order
           disarm();
           handle(text);
         } else if (WAKE.test(text)) {
           const after = text.replace(WAKE, "").replace(/^[\s,]+/, "").trim();
-          if (after) handle(after);                     // "Jarvis, source leads" in one breath
+          if (after) handle(after);                      // "Jarvis, source leads" in one breath
           else {
             arm();
             setLine(langRef.current.startsWith("pt") ? "Sim? Estou ouvindo…" : "Yes? I'm listening…");
@@ -102,13 +114,14 @@ export default function VoiceCommand() {
       }
     };
     rec.onerror = (ev) => {
-      // "no-speech"/"aborted"/"audio-capture" are transient; onend will restart.
+      // Most errors ("no-speech"/"aborted"/"audio-capture"/"network") are transient;
+      // onend fires next and we restart. Only a hard permission block stops us.
       if (ev?.error === "not-allowed" || ev?.error === "service-not-allowed") {
         onRef.current = false; setOn(false);
-        setLine("Microphone blocked — allow mic access to use Hey Jarvis.");
+        setLine("Microphone blocked — allow mic access (and use Chrome/Edge over HTTPS).");
       }
     };
-    rec.onend = () => { if (onRef.current) { try { rec.start(); } catch { /* already */ } } };
+    rec.onend = () => { restart(); };  // keep listening continuously
     recRef.current = rec;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -139,7 +152,7 @@ export default function VoiceCommand() {
       setLine(null);
     } else {
       setOn(true); onRef.current = true;
-      try { rec.start(); } catch { /* already */ }
+      restart();
       setLine(PT() ? "Jarvis está ouvindo… diga “Jarvis, …”" : 'Hey Jarvis is listening… say “Jarvis, …”');
       speak(PT() ? "Jarvis online." : "Jarvis online.");
     }
@@ -153,7 +166,7 @@ export default function VoiceCommand() {
     const rec = recRef.current;
     if (rec) {
       rec.lang = next;
-      if (onRef.current) { try { rec.abort(); } catch { /* */ } /* onend restarts with new lang */ }
+      if (onRef.current) { try { rec.abort(); } catch { /* */ } /* onend → restart with new lang */ }
     }
     setLine(next.startsWith("pt") ? "Idioma: Português 🇧🇷" : "Language: English 🇺🇸");
   }
