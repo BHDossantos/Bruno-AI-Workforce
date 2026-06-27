@@ -1593,6 +1593,26 @@ def test_selfcheck_runs_and_autocorrects(client, auth_headers):
     assert {"objectives", "credentials", "agents", "command_centers", "lead_pipeline"} <= names
 
 
+def test_content_cadence_matches_spec():
+    """IG/FB = exactly music+bnb+insurance at 3/day; LinkedIn 1/day with no music."""
+    from app.platform_loops import LOOPS
+    for ch in ("instagram", "facebook"):
+        assert LOOPS[ch]["per_day"] == 3
+        assert set(LOOPS[ch]["businesses"]) == {"music", "bnbglobal", "insurance"}
+    assert LOOPS["linkedin"]["per_day"] == 1 and "music" not in LOOPS["linkedin"]["businesses"]
+    assert LOOPS["blog"]["per_day"] == 1  # Medium 1/day
+
+
+def test_newsletter_funnels_and_cadence():
+    """One newsletter per funnel; sent 3x/week (Mon/Wed/Fri)."""
+    from app import newsletters
+    assert set(newsletters.FUNNELS) == {"insurance", "bnbglobal", "savorymind", "music"}
+    assert newsletters.funnel_for_segment("commercial") == "insurance"
+    assert newsletters.funnel_for_segment("consulting") == "bnbglobal"
+    from app.scheduler import _JOBS
+    assert _JOBS["newsletters"][1] == "0 11 * * 1,3,5"
+
+
 def test_consulting_wedge_is_industry_specific():
     """BnB Global outreach leads with the right wedge per industry, not generic."""
     from app import consulting_value as c

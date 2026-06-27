@@ -44,6 +44,32 @@ def funnel_for_segment(segment: str | None) -> str | None:
     return None
 
 
+def subscribe_on_outreach(db: Session, entity_type: str | None, entity_id, email: str | None) -> bool:
+    """Add anyone we REACH OUT TO to their funnel's newsletter (per the spec — not
+    just warm repliers). Resolves the funnel from the entity, idempotent, and never
+    raises into the send path. Every issue carries an unsubscribe link (CAN-SPAM)."""
+    if not email or entity_type not in ("lead", "restaurant", "contact"):
+        return False
+    funnel = name = None
+    try:
+        if entity_type == "restaurant":
+            from .models import Restaurant
+            r = db.query(Restaurant).filter(Restaurant.id == entity_id).first()
+            funnel, name = "savorymind", (r.name if r else None)
+        elif entity_type == "contact":
+            funnel = "insurance"  # the warm personal network → insurance funnel
+        else:  # lead
+            from .models import Lead
+            ld = db.query(Lead).filter(Lead.id == entity_id).first()
+            funnel = funnel_for_segment(ld.segment if ld else None)
+            name = (ld.company_name or ld.owner_name) if ld else None
+        if funnel:
+            return subscribe(db, funnel, email, name)
+    except Exception:  # subscription must never break a send
+        return False
+    return False
+
+
 def subscribe(db: Session, funnel: str, email: str | None, name: str | None = None) -> bool:
     """Add a warm reply to a funnel list (idempotent). Returns True if newly added."""
     if funnel not in _FUNNEL or not email:
