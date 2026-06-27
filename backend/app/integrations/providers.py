@@ -170,6 +170,33 @@ def fetch_referral_partners(count: int, scope: str | None = None) -> list[dict]:
     return out[:count]
 
 
+# ── Foundation: real education institutions (schools/universities/centers) ────
+EDUCATION_CATEGORIES = ["Public School", "Private School", "University", "College",
+                        "Music Conservatory", "Community Center", "Library"]
+
+
+def fetch_education_partners(count: int, scope: str | None = None) -> list[dict]:
+    """Real schools/universities/community centers for the foundation's School
+    Partnership agent (OSM), topped up with synthetic institutions if needed."""
+    out: list[dict] = list(osm_leads.fetch_education_leads(count, scope=scope))  # free, real
+    for lead in out:
+        lead["segment"] = "school_partner"
+        lead.setdefault("category", "Education institution")
+    if len(out) >= count or not settings.allow_synthetic_fallback:
+        return out[:count]
+    for i in range(count - len(out)):
+        cat = _rng.choice(EDUCATION_CATEGORIES)
+        name = f"{_rng.choice(_LAST)} {cat}"
+        out.append({
+            "segment": "school_partner", "category": cat, "company_name": name,
+            "owner_name": _person(), "email": f"info-{i}@{_slug(name)}.org",
+            "phone": f"+1{_rng.randint(2000000000, 9999999999)}",
+            "website": f"https://{_slug(name)}.org", "linkedin": None,
+            "industry": "Education", "city": _rng.choice(_CITIES),
+        })
+    return out[:count]
+
+
 # ── Agent 3: SavoryMind restaurants + consumers ──────────────────────────────
 RESTAURANT_TYPES = ["Fine dining", "Wine bar", "Cafe", "Family restaurant",
                     "Hospitality group", "Food truck", "Hotel restaurant"]
