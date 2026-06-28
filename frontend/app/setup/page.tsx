@@ -116,15 +116,17 @@ function Setup() {
             <Badge ok={!!data.sms?.configured} />
           </div>
           <p className="mb-3 text-xs text-gray-500">
-            Powers the Texts page. From twilio.com → Console: Account SID, Auth Token, and your Twilio phone number (E.164, e.g. +16175551234).
+            Powers the Texts page. From twilio.com → Console: Account SID, Auth Token, and your Twilio phone number (E.164, e.g. +16175551234). The insurance number is optional — leave it blank to text from the main number.
           </p>
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid gap-2 sm:grid-cols-2">
             <input className="input" type="password" placeholder="Account SID"
               value={form.twilio_account_sid || ""} onChange={(e) => set("twilio_account_sid", e.target.value)} />
             <input className="input" type="password" placeholder="Auth Token"
               value={form.twilio_auth_token || ""} onChange={(e) => set("twilio_auth_token", e.target.value)} />
-            <input className="input" placeholder="+1 555 123 4567"
+            <input className="input" placeholder="Main number +1 555 123 4567"
               value={form.twilio_from_number || ""} onChange={(e) => set("twilio_from_number", e.target.value)} />
+            <input className="input" placeholder="Insurance number (optional)"
+              value={form.twilio_insurance_number || ""} onChange={(e) => set("twilio_insurance_number", e.target.value)} />
           </div>
         </div>
 

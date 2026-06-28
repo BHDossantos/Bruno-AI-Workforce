@@ -28,6 +28,7 @@ class CredIn(BaseModel):
     twilio_account_sid: str | None = None
     twilio_auth_token: str | None = None
     twilio_from_number: str | None = None
+    twilio_insurance_number: str | None = None
     jobs_api_key: str | None = None
 
 

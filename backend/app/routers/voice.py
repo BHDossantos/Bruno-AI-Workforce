@@ -157,7 +157,9 @@ def _keyword_interpret(text: str) -> dict:
     if any(w in t for w in ("run everything", "daily cycle", "rodar tudo", "ciclo diário", "ciclo diario")):
         return {"intent": "run_all", "reply": "Running the full daily cycle."}
     if any(w in t for w in ("self check", "self-check", "selfcheck", "check yourself", "diagnostic",
-                            "diagnostics", "verificação", "verificacao", "autoteste", "check everything")):
+                            "diagnostics", "verificação", "verificacao", "autoteste", "check everything",
+                            "do the same", "same thing", "same as before", "auto check", "auto correct",
+                            "auto-correct", "faça o mesmo", "faca o mesmo", "mesma coisa", "verifique tudo")):
         return {"intent": "self_check", "reply": "Running a self-check and auto-correcting."}
     if (any(w in t for w in ("find", "source", "get", "run", "buscar", "encontrar", "procurar", "rodar", "gerar"))
             and _match_alias(t, _AGENT_ALIASES)):

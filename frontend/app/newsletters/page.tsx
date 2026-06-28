@@ -84,7 +84,7 @@ function Newsletters() {
             <div className="text-xs text-gray-400">Body</div>
             <pre className="mt-1 whitespace-pre-wrap rounded bg-gray-50 p-3 text-sm text-gray-700">{preview.body}</pre>
             <p className="mt-3 text-xs text-gray-400">
-              {preview.subscribers} warm subscriber(s). This is a draft — “Send now” delivers it to warm repliers only.
+              {preview.subscribers} subscriber(s). This is a draft — “Send now” delivers it to everyone on this funnel’s list (each issue has an unsubscribe link).
             </p>
           </div>
         </div>
@@ -107,7 +107,7 @@ function Newsletters() {
                 </tr>
               ))}
               {data && data.history.length === 0 && (
-                <tr><td colSpan={4} className="p-6 text-center text-gray-400">No newsletters sent yet — warm repliers get added automatically.</td></tr>
+                <tr><td colSpan={4} className="p-6 text-center text-gray-400">No newsletters sent yet — everyone you email gets added automatically.</td></tr>
               )}
             </tbody>
           </table>

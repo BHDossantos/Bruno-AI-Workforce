@@ -1703,6 +1703,11 @@ def test_voice_interpreter_keyword_fallback():
     assert _interpret("schedule this for tomorrow at 9")["intent"] == "schedule"
     assert _interpret("what failed today")["intent"] == "what_failed"
     assert _interpret("run a self check")["intent"] == "self_check"
+    # "Jarvis, do the same" — the user's colloquial way of asking for the
+    # auto-check/auto-correct must resolve offline, not depend on the LLM.
+    assert _interpret("do the same")["intent"] == "self_check"
+    assert _interpret("auto check and auto correct")["intent"] == "self_check"
+    assert _interpret("faça o mesmo")["intent"] == "self_check"
 
 
 def test_voice_interpreter_portuguese():
