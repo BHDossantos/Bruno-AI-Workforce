@@ -78,10 +78,12 @@ class Settings(BaseSettings):
     # When False, agents use ONLY live-sourced data (no synthetic top-up to hit
     # target counts). Set False in production once real sourcing is in place.
     allow_synthetic_fallback: bool = True
-    # Cities the lead-finder agents search for real businesses (free, via
-    # OpenStreetMap). Comma-separated. Fallback when no per-business scope is set.
-    lead_cities: str = "Boston,New York,Miami,Chicago,Austin"
-    # Whole STATES to search (OSM names, comma-separated) — global fallback.
+    # Optional narrow city list for lead sourcing. Left EMPTY by default: we search
+    # each whole STATE statewide instead (see lead_states / per-business scopes),
+    # not a handful of cities. Set this only to deliberately restrict to cities.
+    lead_cities: str = ""
+    # Whole STATES to search statewide (OSM names, comma-separated) — the default
+    # geography. Each state is swept entirely, not city-by-city.
     lead_states: str = "Massachusetts,New Hampshire,Florida"
 
     # Per-business lead geography (where each sales engine sources prospects).
