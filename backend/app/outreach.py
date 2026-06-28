@@ -121,7 +121,12 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
     # Semi-auto / manual mode: agent- and cron-initiated sends DRAFT and wait for
     # the user to approve in the Approval Queue. Only full-auto mode auto-sends.
     # Explicit user actions (approval, manual buttons) pass autonomous=False → send.
-    if autonomous and control.get_mode(db) != "auto":
+    # EXCEPTION: with Outreach Autopilot on, SALES outreach (cold leads + their
+    # follow-ups) auto-sends even in semi mode — the lead machine runs on its own,
+    # while content still waits for approval.
+    outreach_auto = (entity_type in ("lead", "restaurant", "contact")
+                     and control.outreach_autopilot(db))
+    if autonomous and control.get_mode(db) != "auto" and not outreach_auto:
         _log(db, actor, "email_drafted_semi", msg, to=to_email)
         return msg
 

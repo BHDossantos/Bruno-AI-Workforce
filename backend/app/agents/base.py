@@ -12,9 +12,9 @@ from ..models import ActionLog, Agent, FollowUp, Message, Task
 log = logging.getLogger("bruno.agents")
 
 # Follow-up cadence: the first touch (Day 0) is sent by the agent; these are the
-# 7 automated follow-up steps (days from first contact): five 3 days apart, then
-# the last two ~2 weeks apart.
-FOLLOW_UP_OFFSETS = {1: 3, 2: 6, 3: 9, 4: 12, 5: 15, 6: 29, 7: 43}
+# 7 automated follow-up steps, every 2 days for ~2 weeks (days 2,4,6,8,10,12,14
+# from first contact). Anyone who replies is dropped from the sequence.
+FOLLOW_UP_OFFSETS = {1: 2, 2: 4, 3: 6, 4: 8, 5: 10, 6: 12, 7: 14}
 
 
 class BaseAgent:
@@ -33,7 +33,7 @@ class BaseAgent:
                               entity_id=str(entity_id) if entity_id else None, detail=detail))
 
     def schedule_follow_ups(self, entity_type: str, entity_id) -> None:
-        """Create the Day 2/5/10/20 automated follow-up steps for an entity."""
+        """Create the every-2-days follow-up steps (days 2,4,6,8,10,12,14)."""
         today = date.today()
         for step, offset in FOLLOW_UP_OFFSETS.items():
             self.db.add(FollowUp(

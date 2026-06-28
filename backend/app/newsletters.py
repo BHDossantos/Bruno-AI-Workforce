@@ -1,9 +1,10 @@
 """Per-funnel newsletters.
 
-Only WARM repliers are subscribed (CAN-SPAM friendly). Each funnel
-(insurance / BnB Global / SavoryMind / music) has its own audience and its own
-AI-written issue, sent 3×/week. Every send goes through outreach.dispatch_email
-(daily cap + mailbox warmup) and carries a one-click unsubscribe link.
+Everyone we actually email is added to their funnel's newsletter (only on a real
+send — never on drafts), which is CAN-SPAM friendly because every issue carries a
+one-click unsubscribe link. Each funnel (insurance / BnB Global / SavoryMind /
+music) has its own audience and its own AI-written issue, sent 3×/week. Every
+send goes through outreach.dispatch_email (daily cap + mailbox warmup).
 """
 from __future__ import annotations
 

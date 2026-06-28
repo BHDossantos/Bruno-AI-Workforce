@@ -14,7 +14,19 @@ _write = require_role("admin", "operator")
 
 @router.get("/status")
 def status(db: Session = Depends(get_db), _=Depends(_read)):
-    return {"paused": control.is_paused_safe(db), "mode": control.get_mode(db)}
+    return {"paused": control.is_paused_safe(db), "mode": control.get_mode(db),
+            "outreach_autopilot": control.outreach_autopilot(db)}
+
+
+class OutreachIn(BaseModel):
+    on: bool
+
+
+@router.post("/outreach-autopilot")
+def set_outreach_autopilot(body: OutreachIn, db: Session = Depends(get_db), _=Depends(_write)):
+    """Toggle Outreach Autopilot: when ON, cold sales outreach + follow-ups
+    auto-send (even in semi mode); content still drafts for approval."""
+    return {"outreach_autopilot": control.set_outreach_autopilot(db, body.on)}
 
 
 class ModeIn(BaseModel):

@@ -18,8 +18,33 @@ log = logging.getLogger("bruno.control")
 
 _PAUSED_KEY = "agents_paused"
 _MODE_KEY = "automation_mode"
+_OUTREACH_KEY = "outreach_autopilot"
 MODES = ("manual", "semi", "auto")
 _DEFAULT_MODE = "semi"  # agents prepare everything; you approve to send/post
+
+
+def outreach_autopilot(db: Session) -> bool:
+    """When ON, SALES outreach (cold leads + their follow-ups) auto-sends even in
+    semi mode — so the lead machine runs on its own — while content still drafts
+    for approval. Default ON: the user explicitly wants automated outreach. Stored
+    in Settings so it survives restarts and toggles without a redeploy."""
+    try:
+        row = db.get(Setting, _OUTREACH_KEY)
+        if row is None or row.value is None:
+            return True  # default on
+        return (row.value or "").lower() in ("1", "true", "yes", "on")
+    except Exception:  # pragma: no cover - defensive
+        return True
+
+
+def set_outreach_autopilot(db: Session, on: bool) -> bool:
+    row = db.get(Setting, _OUTREACH_KEY)
+    if row is None:
+        row = Setting(key=_OUTREACH_KEY)
+        db.add(row)
+    row.value = "true" if on else "false"
+    db.commit()
+    return on
 
 
 def get_mode(db: Session) -> str:

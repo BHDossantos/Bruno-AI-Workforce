@@ -35,15 +35,24 @@ def run(db: Session) -> dict:
     except Exception as exc:
         add("objectives", False, f"error: {str(exc)[:120]}")
 
-    # 2. Connected credentials applied to the running process (AUTO-FIX).
+    # 2. Connected credentials applied to the running process AND OAuth tokens
+    #    proactively refreshed so connections never silently expire (AUTO-FIX).
     try:
         from . import runtime_config
         runtime_config.apply_to_settings(db)
+        refreshed = 0
+        try:
+            from .integrations import oauth_refresh
+            res = oauth_refresh.refresh_all(db) or {}
+            refreshed = sum(1 for v in res.values() if v in ("refreshed", "extended"))
+        except Exception:  # token refresh must never break the self-check
+            log.debug("selfcheck token refresh skipped", exc_info=True)
         st = runtime_config.status(db)
         live = [k for k, v in st.items() if v.get("configured")]
-        add("credentials", True,
-            ("connected: " + ", ".join(live)) if live else "none connected yet (connect Gmail to send)",
-            fixed=False)
+        detail = ("connected: " + ", ".join(live)) if live else "none connected yet (connect Gmail to send)"
+        if refreshed:
+            detail += f"; refreshed {refreshed} token(s)"
+        add("credentials", True, detail, fixed=bool(refreshed))
     except Exception as exc:
         add("credentials", False, f"error: {str(exc)[:120]}")
 

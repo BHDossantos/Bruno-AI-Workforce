@@ -32,6 +32,7 @@ FIELDS: dict[str, bool] = {
     "twilio_account_sid": True,
     "twilio_auth_token": True,
     "twilio_from_number": False,
+    "twilio_insurance_number": False,  # optional separate number for insurance texts
     # JSearch / RapidAPI key → live LinkedIn/Indeed/Glassdoor/ZipRecruiter jobs.
     "jobs_api_key": True,
 }
