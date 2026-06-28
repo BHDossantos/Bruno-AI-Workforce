@@ -131,6 +131,27 @@ def test_followup_cadence_has_distinct_purposes():
     assert _STEP_PURPOSE[1] != _STEP_PURPOSE[2]
 
 
+def test_followup_cadence_is_every_two_days_for_seven_touches():
+    """Automated follow-ups fire every 2 days for ~2 weeks (7 touches: days
+    2,4,6,8,10,12,14 from first contact) — the user's requested cadence."""
+    from app.agents.base import FOLLOW_UP_OFFSETS
+    assert sorted(FOLLOW_UP_OFFSETS.keys()) == [1, 2, 3, 4, 5, 6, 7]
+    assert [FOLLOW_UP_OFFSETS[s] for s in range(1, 8)] == [2, 4, 6, 8, 10, 12, 14]
+
+
+@requires_db
+def test_outreach_autopilot_defaults_on_and_toggles(client, auth_headers):
+    """Outreach Autopilot is ON by default (cold leads + follow-ups auto-send even
+    in semi mode) and can be toggled off/on without a redeploy."""
+    status = client.get("/control/status", headers=auth_headers).json()
+    assert status["outreach_autopilot"] is True  # default ON
+    off = client.post("/control/outreach-autopilot", json={"on": False}, headers=auth_headers).json()
+    assert off["outreach_autopilot"] is False
+    assert client.get("/control/status", headers=auth_headers).json()["outreach_autopilot"] is False
+    on = client.post("/control/outreach-autopilot", json={"on": True}, headers=auth_headers).json()
+    assert on["outreach_autopilot"] is True
+
+
 def test_memory_slot_prompts_format_cleanly():
     """Every prompt with a {memory} slot must format with the exact keys call sites
     pass — guards against the KeyError class of bug when a slot is added."""

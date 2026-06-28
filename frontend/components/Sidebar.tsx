@@ -132,12 +132,17 @@ export default function Sidebar() {
 function EmergencyStop() {
   const [paused, setPaused] = useState<boolean | null>(null);
   const [mode, setMode] = useState<string>("semi");
+  const [outreach, setOutreach] = useState<boolean>(true);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!getToken()) return;
-    api.get<{ paused: boolean; mode?: string }>("/control/status")
-      .then((r) => { setPaused(r.paused); if (r.mode) setMode(r.mode); })
+    api.get<{ paused: boolean; mode?: string; outreach_autopilot?: boolean }>("/control/status")
+      .then((r) => {
+        setPaused(r.paused);
+        if (r.mode) setMode(r.mode);
+        if (typeof r.outreach_autopilot === "boolean") setOutreach(r.outreach_autopilot);
+      })
       .catch(() => {});
   }, []);
 
@@ -165,6 +170,18 @@ function EmergencyStop() {
     }
   }
 
+  async function toggleOutreach() {
+    setBusy(true);
+    try {
+      const r = await api.post<{ outreach_autopilot: boolean }>("/control/outreach-autopilot", { on: !outreach });
+      setOutreach(r.outreach_autopilot);
+    } catch {
+      /* ignore */
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (paused === null) return null;
   return (
     <div className="mx-3 mt-3 space-y-2">
@@ -180,6 +197,23 @@ function EmergencyStop() {
               {label}
             </button>
           ))}
+        </div>
+      </div>
+      {/* Outreach Autopilot: cold sales leads + their follow-ups auto-send even in
+          Semi mode, so the lead machine runs on its own. Content still drafts. */}
+      <div className="rounded-lg bg-white/10 p-2">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-[11px] uppercase tracking-wide text-brand-light">Outreach Autopilot</div>
+            <div className="text-[10px] text-brand-light/70">Leads + follow-ups auto-send</div>
+          </div>
+          <button onClick={toggleOutreach} disabled={busy} title="Auto-send cold outreach and follow-ups"
+            className={`rounded px-2 py-1 text-[11px] font-semibold ${
+              outreach ? "bg-emerald-400 text-emerald-950 hover:bg-emerald-300"
+                       : "bg-white/15 text-brand-light hover:bg-white/20"
+            }`}>
+            {outreach ? "ON" : "OFF"}
+          </button>
         </div>
       </div>
       <button
