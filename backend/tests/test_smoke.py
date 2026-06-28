@@ -593,6 +593,26 @@ def test_places_source_disabled_without_key():
     assert email_finder.clean_email("hero@2x.png") is None
 
 
+def test_leads_search_statewide_not_by_city():
+    """No narrow city list by default: every source sweeps whole STATES. Google
+    Places honors the per-business scope (e.g. insurance NH/MA/FL) statewide,
+    instead of a fixed handful of cities (which could leak out-of-state leads)."""
+    from app.config import settings
+    from app.integrations import places
+    # Default config carries no cities — we search states, not cities.
+    assert settings.lead_cities == ""
+    # A per-business scope drives Places area names statewide (same as OSM).
+    areas = places._areas("Massachusetts,New Hampshire,Florida")
+    assert areas == ["Massachusetts", "New Hampshire", "Florida"]
+    # With no scope, Places falls back to the configured whole states.
+    old_c, old_s = settings.lead_cities, settings.lead_states
+    settings.lead_cities, settings.lead_states = "", "Massachusetts,New Hampshire"
+    try:
+        assert places._areas() == ["Massachusetts", "New Hampshire"]
+    finally:
+        settings.lead_cities, settings.lead_states = old_c, old_s
+
+
 def test_providers_fallback_meets_targets_without_keys():
     assert len(providers.fetch_insurance_leads("commercial", 100)) == 100
     assert len(providers.fetch_restaurants(100)) == 100
