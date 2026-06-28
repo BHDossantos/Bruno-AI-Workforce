@@ -30,10 +30,11 @@ type Temp = { cold: number; warm: number; hot: number; dead: number };
 function Insurance() {
   const [segment, setSegment] = useState("");
   const [temp, setTemp] = useState("");
+  const [status, setStatus] = useState("");
   const [refresh, setRefresh] = useState(0);
   const { data, loading, error, reload } = useFetch<Lead[]>(
-    () => api.get<Lead[]>(`/leads?limit=200&sort=fit${segment ? `&segment=${segment}` : ""}${temp ? `&temperature=${temp}` : ""}`),
-    [segment, temp, refresh]
+    () => api.get<Lead[]>(`/leads?limit=200&sort=fit${segment ? `&segment=${segment}` : ""}${temp ? `&temperature=${temp}` : ""}${status ? `&status=${status}` : ""}`),
+    [segment, temp, status, refresh]
   );
   const { data: counts } = useFetch<Temp>(
     () => api.get<Temp>(`/leads/summary${segment ? `?segment=${segment}` : ""}`), [segment, refresh]);
@@ -83,6 +84,14 @@ function Insurance() {
               <option value="">All segments</option>
               <option value="commercial">Commercial</option>
               <option value="personal">Personal</option>
+            </select>
+            <select value={status} onChange={(e) => setStatus(e.target.value)} className="rounded-lg border border-gray-300 px-3 py-2 text-sm" title="Filter by stage">
+              <option value="">Any stage</option>
+              <option value="New">New (not contacted)</option>
+              <option value="Drafted">Drafted (awaiting send)</option>
+              <option value="Sent">Sent (emailed)</option>
+              <option value="Replied">Replied</option>
+              <option value="Interested">Interested</option>
             </select>
             <button className="btn-ghost" onClick={() => api.download("/export/leads.csv", "leads.csv")}>Export CSV</button>
             <button className="btn" onClick={sourceNow} disabled={sourcing}>{sourcing ? "Sourcing…" : "Source leads now"}</button>
