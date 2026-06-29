@@ -1316,6 +1316,46 @@ def test_connections_crud_and_secret_encryption(client, auth_headers):
     assert all(c["id"] != cid for c in client.get("/connections", headers=auth_headers).json())
 
 
+def test_learning_loop_covers_all_connected_platforms():
+    """The learning loop ingests engagement from every connected platform that
+    exposes it — not just IG/FB — so topic/timing selection learns everywhere."""
+    from app import content_analytics as ca
+    assert {"instagram", "facebook", "x", "youtube", "tiktok", "linkedin"} <= set(ca._INSIGHTS)
+    assert all(callable(fn) for fn in ca._INSIGHTS.values())
+    # Each platform metrics fetcher is safe offline (no creds → None, never raises).
+    from app.integrations import twitter_api, youtube_api, tiktok_api, linkedin_api
+    assert twitter_api.get_post_metrics(None, "1") is None
+    assert youtube_api.get_post_metrics(None, "1") is None
+    assert tiktok_api.get_post_metrics(None, "1") is None
+    assert linkedin_api.get_post_metrics(None, "urn:li:share:1") is None
+
+
+@requires_db
+def test_apply_queue_is_strict_quality_with_stretch_separate(client, auth_headers):
+    """Only ≥threshold matches reach the one-click apply queue; lower-fit 'stretch'
+    roles stay visible on the Jobs page and only appear with include_stretch=true."""
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.models import Job
+    thr = settings.job_score_threshold
+    db = SessionLocal()
+    try:
+        db.add(Job(title="Strong Director SRE", company="QualCo", location="Remote", remote=True,
+                   source="t", url="https://jobs.test/strong-unique", score=thr + 10, score_breakdown={}))
+        db.add(Job(title="Weak Stretch Role", company="StretchCo", location="Remote", remote=True,
+                   source="t", url="https://jobs.test/stretch-unique", score=max(0, thr - 25),
+                   score_breakdown={"stretch": True}))
+        db.commit()
+    finally:
+        db.close()
+    strict = client.get("/jobs/queue?limit=200", headers=auth_headers).json()
+    urls = {j["url"] for j in strict}
+    assert "https://jobs.test/strong-unique" in urls
+    assert "https://jobs.test/stretch-unique" not in urls  # stretch excluded by default
+    withstretch = client.get("/jobs/queue?limit=200&include_stretch=true", headers=auth_headers).json()
+    assert "https://jobs.test/stretch-unique" in {j["url"] for j in withstretch}
+
+
 @requires_db
 def test_leads_are_not_duplicated_across_runs(client, auth_headers, monkeypatch):
     """Re-running the agent over the same prospect must not duplicate the lead."""

@@ -62,3 +62,24 @@ def post(db, message: str, image_url: str | None = None) -> dict:
         return {"ok": False, "reason": r.text[:200]}
     except Exception as exc:  # pragma: no cover - network guard
         return {"ok": False, "reason": str(exc)}
+
+
+def get_post_metrics(db, tweet_id: str) -> dict | None:
+    """Public engagement for a tweet (API v2 public_metrics). Normalized to
+    {likes, comments, shares, views} or None — feeds the learning loop."""
+    c = _creds(db)
+    if not c or not tweet_id:
+        return None
+    try:
+        r = httpx.get(f"https://api.twitter.com/2/tweets/{tweet_id}",
+                      params={"tweet.fields": "public_metrics"},
+                      headers={"Authorization": f"Bearer {c['access_token']}"}, timeout=_TIMEOUT)
+        if r.status_code != 200:
+            return None
+        pm = ((r.json() or {}).get("data") or {}).get("public_metrics") or {}
+        return {"likes": pm.get("like_count", 0), "comments": pm.get("reply_count", 0),
+                "shares": (pm.get("retweet_count", 0) + pm.get("quote_count", 0)),
+                "views": pm.get("impression_count", 0)}
+    except Exception as exc:  # pragma: no cover - network guard
+        log.warning("X metrics failed: %s", exc)
+        return None
