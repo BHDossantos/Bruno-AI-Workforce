@@ -9,6 +9,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends gcc curl \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Install the Chromium browser + its OS deps so the Application Autopilot /
+# auto-apply engine can drive a real browser in production. Without this, browser
+# automation degrades to "assist" mode (prepares packages, never auto-submits).
+RUN python -m playwright install --with-deps chromium
+
 COPY . .
 
 EXPOSE 8000
