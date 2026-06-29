@@ -94,6 +94,27 @@ class VoiceIn(BaseModel):
     text: str
 
 
+class SayIn(BaseModel):
+    text: str
+
+
+@router.post("/say")
+def say(body: SayIn, _=Depends(require_role("admin", "operator", "viewer"))):
+    """Synthesize Jennifer's reply with a real, sultry neural voice and stream it
+    back as MP3. The frontend plays this instead of the robotic browser TTS;
+    if no OpenAI key is set this returns 204 and the frontend falls back."""
+    from fastapi import Response
+
+    text = (body.text or "").strip()
+    if not text:
+        return Response(status_code=204)
+    audio = client.speech(text)
+    if not audio:
+        return Response(status_code=204)  # offline → frontend uses browser TTS
+    return Response(content=audio, media_type="audio/mpeg",
+                   headers={"Cache-Control": "no-store"})
+
+
 def _parse_when(text: str):
     """Best-effort natural-language time → UTC datetime. Defaults to 9am, today
     unless 'tomorrow' is said."""

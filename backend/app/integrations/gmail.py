@@ -122,6 +122,14 @@ def is_configured(account: str = PERSONAL) -> bool:
     return _credentials(account) is not None or _smtp_configured(account)
 
 
+def has_own_credentials(account: str = PERSONAL) -> bool:
+    """True if this account can send AS ITSELF (its own OAuth token or App
+    Password) — i.e. without relaying through another mailbox. Used to decide
+    whether insurance must fall back to sending through the personal mailbox."""
+    cfg = _account_cfg(account)
+    return _credentials(account) is not None or bool(cfg.get("app_password") and cfg.get("address"))
+
+
 def _send_smtp(account: str, to: str, subject: str, body: str) -> str | None:
     """Send via Gmail SMTP using an App Password. Returns a synthetic id or None."""
     import smtplib
