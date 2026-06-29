@@ -19,7 +19,6 @@ from .agents import AGENTS
 from .config import settings
 from .models import (Grant, InstagramTarget, Job, Lead, ManualContact, MusicPlaylist,
                      Objective, Restaurant)
-from .models import Grant, InstagramTarget, Job, Lead, MusicPlaylist, Objective, Restaurant
 
 log = logging.getLogger("bruno.commanders")
 
@@ -32,8 +31,6 @@ COMMANDERS: dict[str, dict] = {
     "influence": {"name": "Influence Commander",
                   "agents": ["music", "music_pr", "music_collab", "music_sync", "instagram"]},
     "life_ops":  {"name": "Life Commander",      "agents": ["life_ops"]},
-                  "agents": ["music", "music_pr", "music_collab", "instagram"]},
-    "life_ops":  {"name": "Life Commander",      "agents": []},
     "foundation": {"name": "Foundation Commander",
                    "agents": ["grant_research", "foundation_outreach", "school_partner"]},
 }
