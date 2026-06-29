@@ -7,7 +7,7 @@ pydantic-settings==2.7.0
 python-multipart==0.0.31
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
-pyjwt==2.10.1
+pyjwt==2.13.0
 cryptography==48.0.1
 apscheduler==3.11.0
 openai==1.59.6
