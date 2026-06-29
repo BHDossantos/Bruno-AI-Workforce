@@ -158,8 +158,84 @@ def send_funnel(db: Session, funnel: str) -> dict:
     return {"funnel": funnel, "sent": sent, "subscribers": len(subs)}
 
 
+def write_draft(db: Session, funnel: str) -> dict:
+    """AI-write this funnel's next issue and STORE it as a draft so it's visible
+    and reviewable. Keeps a single open draft per funnel (refreshes it)."""
+    from .models import NewsletterDraft
+    if funnel not in _FUNNEL:
+        return {"funnel": funnel, "ok": False, "reason": "unknown funnel"}
+    subject, body = _issue(funnel)
+    row = (db.query(NewsletterDraft)
+           .filter(NewsletterDraft.funnel == funnel, NewsletterDraft.status == "draft")
+           .order_by(NewsletterDraft.created_at.desc()).first())
+    if row is None:
+        row = NewsletterDraft(funnel=funnel)
+        db.add(row)
+    row.subject, row.body, row.status = subject, body, "draft"
+    db.commit()
+    return {"ok": True, "funnel": funnel, "id": str(row.id),
+            "subject": subject, "body": body}
+
+
+def write_all(db: Session) -> dict:
+    """Write a fresh draft for every funnel — the 'write the newsletters' action."""
+    return {"funnels": [write_draft(db, f) for f in FUNNELS]}
+
+
+def list_drafts(db: Session, limit: int = 50) -> list[dict]:
+    from .models import NewsletterDraft
+    rows = (db.query(NewsletterDraft).filter(NewsletterDraft.status == "draft")
+            .order_by(NewsletterDraft.created_at.desc()).limit(limit).all())
+    return [{"id": str(d.id), "funnel": d.funnel, "label": _FUNNEL.get(d.funnel, {}).get("label", d.funnel),
+             "subject": d.subject, "body": d.body,
+             "created_at": d.created_at.isoformat() if d.created_at else None} for d in rows]
+
+
+def send_draft(db: Session, draft_id: str) -> dict:
+    """Send a written draft to its funnel's subscribers and mark it sent."""
+    from datetime import datetime, timezone
+
+    from .models import NewsletterDraft
+    d = db.query(NewsletterDraft).filter(NewsletterDraft.id == draft_id).first()
+    if not d:
+        return {"ok": False, "reason": "draft not found"}
+    subs = (db.query(NewsletterSubscriber)
+            .filter(NewsletterSubscriber.funnel == d.funnel,
+                    NewsletterSubscriber.unsubscribed.is_(False)).all())
+    if not subs:
+        return {"ok": False, "reason": "no subscribers yet — this list fills as you email people"}
+    account = _FUNNEL[d.funnel]["account"]
+    sent = 0
+    for s in subs:
+        full = f"{d.body}\n\n—\nUnsubscribe: {_unsub_url(s.token)}"
+        try:
+            msg = outreach.dispatch_email(db, entity_type="newsletter", entity_id=s.id,
+                                          to_email=s.email, subject=d.subject or "", body=full,
+                                          account=account, actor="newsletter")
+            if msg.status in ("Sent", "Drafted"):
+                sent += 1
+        except Exception:
+            log.debug("newsletter send failed for %s", s.email, exc_info=True)
+    d.status, d.sent_count, d.sent_at = "sent", sent, datetime.now(timezone.utc)
+    db.add(NewsletterSend(funnel=d.funnel, subject=d.subject, sent_count=sent))
+    db.commit()
+    return {"ok": True, "funnel": d.funnel, "sent": sent, "subscribers": len(subs)}
+
+
+def dismiss_draft(db: Session, draft_id: str) -> dict:
+    from .models import NewsletterDraft
+    d = db.query(NewsletterDraft).filter(NewsletterDraft.id == draft_id).first()
+    if not d:
+        return {"ok": False, "reason": "draft not found"}
+    d.status = "dismissed"
+    db.commit()
+    return {"ok": True}
+
+
 def run(db: Session) -> dict:
-    """Send every funnel's newsletter (the 3×/week cron)."""
+    """The 3×/week cron: WRITE a fresh draft for every funnel (so there's always a
+    newsletter to see/approve) and send to each funnel's subscribers."""
+    write_all(db)
     return {"funnels": [send_funnel(db, f) for f in FUNNELS]}
 
 
