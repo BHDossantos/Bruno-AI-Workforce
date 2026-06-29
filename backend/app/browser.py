@@ -124,6 +124,7 @@ _KEYWORDS = [
     ("zip", "zip"), ("postal", "zip"), ("country", "country"),
     ("current title", "current_title"), ("current company", "current_employer"),
     ("employer", "current_employer"), ("company", "current_employer"),
+    ("current salary", "current_salary"),  # before the generic "salary" → don't leak target
     ("desired salary", "target_salary"), ("expected salary", "target_salary"),
     ("salary", "target_salary"), ("compensation", "target_salary"),
     ("start date", "available_start_date"), ("available", "available_start_date"),

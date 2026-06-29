@@ -98,6 +98,8 @@ def run_platform(db: Session, platform: str, seed: int | None = None) -> dict:
         if res.get("ok") and platform in (res.get("channels") or []):
             made += 1
             topics.append(topic)
+        elif res.get("duplicate"):
+            continue  # near-duplicate idea — skip this slot, try the next topic
         else:
             # generation unavailable (offline) — stop trying this run
             return {"platform": platform, "ok": False, "made": made,
@@ -135,6 +137,8 @@ def ensure_music_cadence(db: Session, target: int = MUSIC_MIN_PER_DAY) -> dict:
         res = content_factory.generate_pack(db, topic, "music", channels=[channel])
         if res.get("ok") and channel in (res.get("channels") or []):
             made += 1
+        elif res.get("duplicate"):
+            continue  # near-duplicate idea — skip this slot, try the next topic
         else:
             return {"ok": False, "made": made, "had": have,
                     "reason": res.get("reason", "generation failed")}

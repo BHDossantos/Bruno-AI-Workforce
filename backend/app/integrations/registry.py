@@ -134,18 +134,6 @@ PROVIDERS: list[dict] = [
         "goals": ["followers", "sales"],
     },
     {
-        "key": "x_twitter", "name": "X (Twitter)", "category": "social", "icon": "🐦",
-        "auth_type": "api_key",
-        "fields": [_field("api_key", "API key", secret=True),
-                   _field("api_secret", "API secret", secret=True),
-                   _field("access_token", "Access token", secret=True),
-                   _field("access_secret", "Access token secret", secret=True)],
-        "capabilities": ["publish_auto", "analytics"],
-        "stages": ["attract", "nurture"],
-        "compliance": "Posts via the official X API v2.",
-        "goals": ["followers", "leads"],
-    },
-    {
         "key": "youtube", "name": "YouTube", "category": "social", "icon": "▶️",
         "auth_type": "oauth",
         "fields": [_field("client_id", "Google OAuth client ID", secret=True, required=False,

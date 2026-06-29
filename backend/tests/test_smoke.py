@@ -78,6 +78,20 @@ def test_content_factory_drops_linkedin_for_music(monkeypatch):
     assert res["ok"] is False  # generation unavailable offline
 
 
+def test_content_factory_skips_near_duplicates(monkeypatch):
+    """A topic that's effectively identical to recent content is skipped, not
+    re-published — the 'never repeat content' guarantee is enforced, not advisory."""
+    from app import content_factory as cf
+    monkeypatch.setattr(cf.client, "is_live", lambda: True)
+    monkeypatch.setattr(cf.client, "embed", lambda t: [0.1, 0.2, 0.3])
+    # Simulate a recent near-identical item (top cosine above the hard threshold).
+    monkeypatch.setattr(cf, "_recent_matches", lambda db, qv: ([], 0.99))
+    res = cf.generate_pack(db=None, topic="cutting cloud spend", business="bnbglobal",
+                           channels=["linkedin"])
+    assert res.get("duplicate") is True and res.get("channels") == []
+    assert cf._DUPLICATE > cf._SIMILAR  # hard-skip bar is stricter than the nudge bar
+
+
 def test_music_links_include_all_platforms():
     """Apple Music + YouTube Music wired alongside Spotify (Pandora intentionally
     omitted — region-restricted)."""
@@ -811,6 +825,8 @@ def test_applicant_profile_and_field_matching():
     assert browser._match_field("Current City", flat) == "Hollis"
     assert browser._match_field("Will you require visa sponsorship?", flat) == "No"
     assert browser._match_field("Desired Salary", flat) == "180000"
+    # "Current salary" must NOT leak the target — it maps to current_salary.
+    assert browser._match_field("Current Salary", flat) == "Prefer Not to Disclose"
 
 
 def test_instagram_api_not_connected():

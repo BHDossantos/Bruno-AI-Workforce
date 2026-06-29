@@ -74,7 +74,7 @@ function CRM() {
   async function addContact() {
     if (!form.name.trim()) return;
     await api.post("/crm", form);
-    setForm({ name: "", company: "", title: "", email: "", phone: "", kind: "recruiter" });
+    setForm({ name: "", company: "", title: "", email: "", phone: "", kind: "contact" });
     setAdding(false); setSource("manual"); await load();
   }
 
