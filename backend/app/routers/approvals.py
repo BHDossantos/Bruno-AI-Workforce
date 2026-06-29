@@ -40,10 +40,18 @@ def _priority(item: dict) -> int:
 
 @router.get("")
 def list_approvals(limit: int = 100, db: Session = Depends(get_db), _=Depends(_read)):
-    """Everything awaiting your approval, highest-priority first, with a preview + risk."""
+    """Everything awaiting YOUR approval, highest-priority first, with a preview + risk.
+
+    When Outreach Autopilot is ON, cold lead/restaurant emails auto-send on their
+    own (paced by the daily deliverability cap) — they are NOT shown here, because
+    they don't need you. The queue then holds only what truly needs a human:
+    content posts and replies. Synthetic/placeholder addresses that can never send
+    are also filtered out so they don't clog the queue."""
+    from .. import control
     from ..lead_fit import score as _lead_fit
     from ..lead_temperature import classify as _temp
     from ..restaurant_fit import score as _rest_fit
+    auto = control.outreach_autopilot(db)
     items: list[dict] = []
 
     for c in (db.query(ContentItem).filter(ContentItem.status == "needs_approval")
@@ -55,29 +63,34 @@ def list_approvals(limit: int = 100, db: Session = Depends(get_db), _=Depends(_r
             "created_at": c.created_at.isoformat() if c.created_at else None,
         })
 
-    for l in (db.query(Lead).filter(Lead.status == "Drafted", Lead.email.isnot(None))
-              .order_by(Lead.created_at.desc()).limit(limit).all()):
-        seg = "BnB Global" if l.segment == "consulting" else "Insurance"
-        items.append({
-            "type": "lead", "id": str(l.id), "risk": "medium",
-            "title": f"{seg} email — {l.company_name or l.owner_name}",
-            "business": l.segment, "preview": _preview(l.cold_email),
-            "to": l.email, "temperature": _temp(l.status), "fit": _lead_fit(l),
-            "created_at": l.created_at.isoformat() if l.created_at else None,
-        })
+    if not auto:  # cold outreach only needs approval when autopilot is OFF
+        for l in (db.query(Lead).filter(Lead.status == "Drafted", Lead.email.isnot(None))
+                  .order_by(Lead.created_at.desc()).limit(limit * 3).all()):
+            if not outreach.is_real_email(l.email):
+                continue
+            seg = "BnB Global" if l.segment == "consulting" else "Insurance"
+            items.append({
+                "type": "lead", "id": str(l.id), "risk": "medium",
+                "title": f"{seg} email — {l.company_name or l.owner_name}",
+                "business": l.segment, "preview": _preview(l.cold_email),
+                "to": l.email, "temperature": _temp(l.status), "fit": _lead_fit(l),
+                "created_at": l.created_at.isoformat() if l.created_at else None,
+            })
 
-    for r in (db.query(Restaurant).filter(Restaurant.kind == "prospect",
-              Restaurant.status == "Drafted", Restaurant.email.isnot(None))
-              .order_by(Restaurant.created_at.desc()).limit(limit).all()):
-        items.append({
-            "type": "restaurant", "id": str(r.id), "risk": "medium",
-            "title": f"SavoryMind pitch — {r.name}",
-            "business": "savorymind", "preview": _preview(r.pitch_email),
-            "to": r.email, "temperature": _temp(r.status), "fit": _rest_fit(r),
-            "created_at": r.created_at.isoformat() if r.created_at else None,
-        })
+        for r in (db.query(Restaurant).filter(Restaurant.kind == "prospect",
+                  Restaurant.status == "Drafted", Restaurant.email.isnot(None))
+                  .order_by(Restaurant.created_at.desc()).limit(limit * 3).all()):
+            if not outreach.is_real_email(r.email):
+                continue
+            items.append({
+                "type": "restaurant", "id": str(r.id), "risk": "medium",
+                "title": f"SavoryMind pitch — {r.name}",
+                "business": "savorymind", "preview": _preview(r.pitch_email),
+                "to": r.email, "temperature": _temp(r.status), "fit": _rest_fit(r),
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            })
 
-    # AI-drafted replies to inbound messages — approve to send.
+    # AI-drafted replies to inbound messages — always need you (approve to send).
     for m in (db.query(Message).filter(
             Message.entity_type == "reply", Message.direction == "outbound",
             Message.status == "Drafted", Message.to_email.isnot(None))
@@ -91,23 +104,40 @@ def list_approvals(limit: int = 100, db: Session = Depends(get_db), _=Depends(_r
 
     # Highest-priority first (engaged replies → hot/warm → strongest cold), then newest.
     items.sort(key=lambda i: (_priority(i), i.get("created_at") or ""), reverse=True)
-    return {"count": len(items), "items": items}
+    return {"count": len(items), "items": items[:limit],
+            "auto_sending": _auto_send_backlog(db) if auto else 0}
+
+
+def _auto_send_backlog(db: Session) -> int:
+    """Drafted cold outreach that Outreach Autopilot will send on its own (real
+    addresses only) — shown as info, NOT as something awaiting the user."""
+    from sqlalchemy import func
+    leads = (db.query(func.count()).select_from(Lead)
+             .filter(Lead.status == "Drafted", Lead.email.isnot(None)).scalar() or 0)
+    rests = (db.query(func.count()).select_from(Restaurant)
+             .filter(Restaurant.kind == "prospect", Restaurant.status == "Drafted",
+                     Restaurant.email.isnot(None)).scalar() or 0)
+    return int(leads + rests)
 
 
 @router.get("/count")
 def count(db: Session = Depends(get_db), _=Depends(_read)):
     from sqlalchemy import func
+
+    from .. import control
+    auto = control.outreach_autopilot(db)
     n = (db.query(func.count()).select_from(ContentItem)
          .filter(ContentItem.status == "needs_approval").scalar() or 0)
-    n += (db.query(func.count()).select_from(Lead)
-          .filter(Lead.status == "Drafted", Lead.email.isnot(None)).scalar() or 0)
-    n += (db.query(func.count()).select_from(Restaurant)
-          .filter(Restaurant.kind == "prospect", Restaurant.status == "Drafted",
-                  Restaurant.email.isnot(None)).scalar() or 0)
     n += (db.query(func.count()).select_from(Message)
           .filter(Message.entity_type == "reply", Message.direction == "outbound",
                   Message.status == "Drafted", Message.to_email.isnot(None)).scalar() or 0)
-    return {"pending": int(n)}
+    if not auto:  # cold outreach only counts as "to approve" when autopilot is OFF
+        n += (db.query(func.count()).select_from(Lead)
+              .filter(Lead.status == "Drafted", Lead.email.isnot(None)).scalar() or 0)
+        n += (db.query(func.count()).select_from(Restaurant)
+              .filter(Restaurant.kind == "prospect", Restaurant.status == "Drafted",
+                      Restaurant.email.isnot(None)).scalar() or 0)
+    return {"pending": int(n), "auto_sending": _auto_send_backlog(db) if auto else 0}
 
 
 @router.post("/{item_type}/{item_id}/{action}")

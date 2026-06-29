@@ -152,6 +152,36 @@ def test_outreach_autopilot_defaults_on_and_toggles(client, auth_headers):
     assert on["outreach_autopilot"] is True
 
 
+@requires_db
+def test_autopilot_excludes_cold_outreach_from_approval_queue(client, auth_headers):
+    """With Outreach Autopilot ON, drafted cold lead emails auto-send and must NOT
+    count as 'needs your approval' (they're a send queue) — and synthetic addresses
+    that can never send are filtered out entirely."""
+    from app.database import SessionLocal
+    from app.models import Lead
+    db = SessionLocal()
+    try:
+        db.add(Lead(segment="commercial", company_name="Real Co", email="real-aq@realco.test.example",
+                    status="Drafted", cold_email="hi"))
+        db.add(Lead(segment="commercial", company_name="Fake Co", email="fake@example.com",
+                    status="Drafted", cold_email="hi"))
+        db.commit()
+    finally:
+        db.close()
+    # Autopilot ON (default) → cold outreach is auto-sending, not awaiting approval.
+    client.post("/control/outreach-autopilot", json={"on": True}, headers=auth_headers)
+    cnt = client.get("/approvals/count", headers=auth_headers).json()
+    assert "auto_sending" in cnt and cnt["auto_sending"] >= 1
+    listed = client.get("/approvals", headers=auth_headers).json()
+    assert all(it["type"] != "lead" for it in listed["items"])  # leads not in the approve queue
+    # Turn autopilot OFF → real-email cold leads reappear for approval, synthetic stays hidden.
+    client.post("/control/outreach-autopilot", json={"on": False}, headers=auth_headers)
+    listed_off = client.get("/approvals", headers=auth_headers).json()
+    tos = [it.get("to") for it in listed_off["items"] if it["type"] == "lead"]
+    assert "fake@example.com" not in tos  # synthetic never shown
+    client.post("/control/outreach-autopilot", json={"on": True}, headers=auth_headers)  # restore default
+
+
 def test_memory_slot_prompts_format_cleanly():
     """Every prompt with a {memory} slot must format with the exact keys call sites
     pass — guards against the KeyError class of bug when a slot is added."""
