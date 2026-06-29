@@ -422,10 +422,35 @@ def test_recap_references_real_columns():
     from app.models import Application, Contact, ContentItem, Job, Message
     assert hasattr(Job, "found_at")                 # NOT created_at
     assert hasattr(Application, "applied_at")
-    for attr in ("channel", "direction", "created_at"):
-        assert hasattr(Message, attr)
+    for attr in ("channel", "direction", "created_at", "sent_at", "status"):
+        assert hasattr(Message, attr)  # recap counts SENT by sent_at, not created_at
     assert hasattr(ContentItem, "published_at") and hasattr(ContentItem, "created_at")
     assert hasattr(Contact, "created_at")
+
+
+@requires_db
+def test_recap_and_mission_count_actual_sends_not_drafts(client, auth_headers):
+    """The home recap + Mission Control 'Outreach sent' must count ACTUALLY-sent
+    emails (sent_at), never drafts — otherwise they claim sends that are really
+    sitting in the approval queue (the 'said 155 sent but 0 went out' bug)."""
+    from datetime import datetime, timezone
+    from app import scoring
+    from app.database import SessionLocal
+    from app.models import Message
+    db = SessionLocal()
+    try:
+        db.add(Message(channel="email", direction="outbound", to_email="sent@x.co",
+                       subject="s", body="b", status="Sent", sent_at=datetime.now(timezone.utc)))
+        db.add(Message(channel="email", direction="outbound", to_email="draft@x.co",
+                       subject="s", body="b", status="Drafted"))  # no sent_at
+        db.commit()
+        labels = {r["label"]: r["count"] for r in scoring.recap(db)}
+        assert labels.get("outreach emails sent", 0) >= 1
+        assert labels.get("outreach drafted (awaiting approval)", 0) >= 1
+    finally:
+        db.close()
+    mc = client.get("/mission/control", headers=auth_headers).json()
+    assert mc["today"]["outreach_sent"] >= 1  # counts the real send, not the draft
 
 
 def test_all_agents_registered():
