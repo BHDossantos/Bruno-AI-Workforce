@@ -65,6 +65,11 @@ def save(db, field: str, value: str) -> bool:
     if field not in FIELDS:
         return False
     value = (value or "").strip()
+    # Gmail App Passwords are shown as "abcd efgh ijkl mnop" — users paste them
+    # WITH the spaces, which makes SMTP login fail. Strip ALL internal whitespace
+    # so the 16-char password authenticates regardless of how it was copied.
+    if field.endswith("app_password"):
+        value = "".join(value.split())
     row = db.get(Setting, _PREFIX + field)
     if row is None:
         row = Setting(key=_PREFIX + field)

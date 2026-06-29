@@ -105,10 +105,19 @@ function Setup() {
             <h2 className="font-semibold">📧 Gmail — personal mailbox</h2>
             <Badge ok={data.gmail_personal.configured} />
           </div>
-          <p className="mb-3 text-xs text-gray-500">
-            Used for BnB Global + SavoryMind outreach and to read replies (which create your warm/hot leads).
-            Use a Google <b>App Password</b> (Google Account → Security → 2-Step Verification → App passwords), not your login password.
+          <p className="mb-2 text-xs text-gray-500">
+            Used for BnB Global + SavoryMind + (relayed) insurance outreach and to read replies.
+            You must use a Google <b>App Password</b> — your normal login password will be rejected
+            (that&apos;s the <code>534 5.7.9 application-specific password required</code> error).
           </p>
+          <div className="mb-3 rounded-lg bg-blue-50 p-3 text-xs text-blue-900">
+            <b>How to get one (≈2 min):</b>
+            <ol className="ml-4 mt-1 list-decimal space-y-0.5">
+              <li>Turn on <a className="underline" href="https://myaccount.google.com/signinoptions/two-step-verification" target="_blank" rel="noreferrer">2-Step Verification</a> (required, or App passwords won&apos;t appear).</li>
+              <li>Open <a className="underline" href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer">Google App passwords</a>, name it &quot;Bruno AI&quot;, click Create.</li>
+              <li>Paste the 16-character code below (the spaces Google shows are fine — we strip them).</li>
+            </ol>
+          </div>
           <div className="grid gap-2 sm:grid-cols-2">
             <input className="input" placeholder={data.gmail_personal.address || "you@gmail.com"}
               value={form.gmail_address || ""} onChange={(e) => set("gmail_address", e.target.value)} />
@@ -124,7 +133,9 @@ function Setup() {
             <Badge ok={data.gmail_insurance.configured} />
           </div>
           <p className="mb-3 text-xs text-gray-500">
-            Separate mailbox for Thrust Insurance outreach. Leave blank and use the toggle below to send insurance mail through your personal mailbox.
+            <b>Most Thrust / Google Workspace accounts block App Passwords</b> (that&apos;s the
+            <code> 535 5.7.8</code> error). Easiest fix: <b>leave these two fields blank</b> and turn ON
+            the toggle below — insurance then sends through your personal mailbox with replies routed to Thrust.
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
             <input className="input" placeholder={data.gmail_insurance.address || "you@thrustinsurance.com"}

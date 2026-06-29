@@ -101,8 +101,20 @@ def _smtp_login(account: str):
         Thrust access needed at all; replies still land in the Thrust inbox)
     """
     cfg = _account_cfg(account)
+    # Insurance relay requested EXPLICITLY → always send through the personal mailbox,
+    # even if the insurance account has its own (possibly broken/blocked) App Password.
+    # This is what lets "send insurance through my personal mailbox" actually work
+    # without first deleting a bad Thrust password.
+    if account == INSURANCE and (settings.insurance_send_as_alias or settings.insurance_via_personal_reply_to):
+        p = _account_cfg(PERSONAL)
+        if p.get("app_password") and p.get("address"):
+            if settings.insurance_send_as_alias:
+                return p["address"], p["app_password"], cfg["address"], None
+            return p["address"], p["app_password"], p["address"], cfg["address"]
+    # Otherwise send as the account itself.
     if cfg.get("app_password") and cfg.get("address"):
         return cfg["address"], cfg["app_password"], cfg["address"], None
+    # Insurance with no usable creds of its own → fall back to the personal relay.
     if account == INSURANCE:
         p = _account_cfg(PERSONAL)
         if p.get("app_password") and p.get("address"):
