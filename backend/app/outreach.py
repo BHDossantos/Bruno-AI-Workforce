@@ -99,11 +99,18 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
         runtime_config.apply_to_settings(db)
     except Exception:  # never let config refresh block a send
         pass
-    # One-click relay: if enabled, insurance sends through the personal mailbox
-    # with a Thrust reply-to — so insurance goes out without separate credentials.
+    # Insurance relay through the personal mailbox (Thrust reply-to). Enabled when
+    # the user flips the toggle, OR AUTOMATICALLY when the insurance mailbox has no
+    # sender of its own but the personal mailbox can send — so business-insurance
+    # outreach goes out on autopilot without any extra setup. Replies still land in
+    # the Thrust inbox via Reply-To.
     try:
         from . import control
-        if control.insurance_relay_via_personal(db):
+        if account == gmail.INSURANCE and (
+            control.insurance_relay_via_personal(db)
+            or (gmail.is_configured(gmail.PERSONAL)
+                and not gmail.has_own_credentials(gmail.INSURANCE))
+        ):
             settings.insurance_via_personal_reply_to = True
     except Exception:  # never let a toggle lookup block a send
         pass

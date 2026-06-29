@@ -81,6 +81,30 @@ def embed(text: str) -> list[float] | None:
         return None
 
 
+def speech(text: str, *, voice: str | None = None, instructions: str | None = None) -> bytes | None:
+    """Synthesize speech with a real neural voice and return MP3 bytes, or None
+    when offline. Used to give the Jennifer assistant a warm, natural voice instead
+    of the robotic built-in browser TTS."""
+    if _client is None or not text:
+        return None
+    try:
+        kwargs = {
+            "model": settings.voice_tts_model,
+            "voice": voice or settings.voice_tts_voice,
+            "input": text[:4000],
+            "response_format": "mp3",
+        }
+        # gpt-4o-mini-tts supports a free-text style instruction; older tts-1 doesn't.
+        instr = instructions or settings.voice_tts_instructions
+        if instr and "gpt-4o" in settings.voice_tts_model:
+            kwargs["instructions"] = instr
+        resp = _client.audio.speech.create(**kwargs)
+        return resp.read() if hasattr(resp, "read") else getattr(resp, "content", None)
+    except Exception as exc:  # pragma: no cover - network guard
+        log.warning("OpenAI TTS failed: %s", exc)
+        return None
+
+
 def generate_image(prompt: str, *, size: str = "1024x1024") -> bytes | None:
     """Generate a social image and return raw PNG bytes, or None when offline.
 

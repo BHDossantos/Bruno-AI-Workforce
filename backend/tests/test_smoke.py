@@ -1418,6 +1418,23 @@ def test_outbound_messages_created_per_account(client, auth_headers):
     assert all(m["status"] != "Sent" for m in cold)
 
 
+def test_voice_say_offline_returns_204(client, auth_headers):
+    """Jennifer's neural TTS endpoint returns 204 when no OpenAI key is set, so the
+    frontend cleanly falls back to the browser voice."""
+    r = client.post("/voice/say", headers=auth_headers, json={"text": "Hello darling"})
+    # 204 offline (no key) or 200 audio/mpeg if a key happens to be configured.
+    assert r.status_code in (200, 204)
+    if r.status_code == 200:
+        assert r.headers.get("content-type", "").startswith("audio/")
+
+
+def test_insurance_has_no_own_credentials_in_tests():
+    """Without Thrust mailbox creds, insurance has no sender of its own — which is
+    what triggers the automatic relay through the personal mailbox."""
+    from app.integrations import gmail
+    assert gmail.has_own_credentials(gmail.INSURANCE) is False
+
+
 @requires_db
 def test_client_goal_status_and_autoscale(client, auth_headers):
     """The client-acquisition engine reports progress and sizes outreach to the

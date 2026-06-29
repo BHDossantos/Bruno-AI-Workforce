@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, getToken } from "@/lib/api";
+import { api, getToken, API_URL } from "@/lib/api";
 
 /** "Hey Jennifer" — hands-free voice assistant. Toggle it on and it listens
  * continuously for the wake word "Jennifer", then acts on the order that follows
@@ -75,23 +75,54 @@ export default function VoiceCommand() {
     } catch { /* TTS unsupported — non-fatal */ }
   }, []);
 
-  // Speak a reply (in the active language). We remember the text so the recognizer
-  // can ignore its own voice bouncing back, WITHOUT going deaf to the user.
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Speak a reply. Prefer Jennifer's real neural voice (server-side TTS); fall
+  // back to the browser's built-in voice if that's unavailable (offline / no key).
+  // We remember the text so the recognizer can ignore its own voice bouncing back.
   function speak(text: string) {
+    lastSpokenRef.current = norm(text);
+    setTimeout(() => { lastSpokenRef.current = ""; }, 2500 + text.length * 70);
+    void speakNeural(text);
+  }
+
+  async function speakNeural(text: string) {
+    try {
+      const token = getToken();
+      const res = await fetch(`${API_URL}/voice/say`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ text }),
+      });
+      if (res.status === 200) {
+        const blob = await res.blob();
+        if (blob.size > 0) {
+          try { window.speechSynthesis.cancel(); } catch { /* */ }
+          const url = URL.createObjectURL(blob);
+          if (audioRef.current) { try { audioRef.current.pause(); } catch { /* */ } }
+          const a = new Audio(url);
+          audioRef.current = a;
+          a.onended = () => URL.revokeObjectURL(url);
+          await a.play();
+          return;  // neural voice played — done
+        }
+      }
+    } catch { /* fall through to browser TTS */ }
+    speakBrowser(text);
+  }
+
+  function speakBrowser(text: string) {
     try {
       window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
       u.lang = langRef.current;
-      // Seductive delivery: a real female voice, slowed down with a lower,
-      // breathier pitch and a touch more volume warmth.
+      // Seductive delivery on the built-in voice: pick a real female voice and
+      // drop the pitch/rate for a lower, breathier register.
       const v = pickVoice(langRef.current);
       if (v) u.voice = v;
-      u.rate = 0.88;     // unhurried
-      u.pitch = 0.8;     // lower, sultrier register
+      u.rate = 0.88;
+      u.pitch = 0.8;
       u.volume = 1;
-      lastSpokenRef.current = norm(text);
-      // Stop treating it as an echo a moment after it should have finished.
-      setTimeout(() => { lastSpokenRef.current = ""; }, 1500 + text.length * 60);
       window.speechSynthesis.speak(u);
     } catch { /* TTS unsupported — non-fatal */ }
   }

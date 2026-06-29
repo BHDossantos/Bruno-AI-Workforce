@@ -25,6 +25,14 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o"
     embedding_model: str = "text-embedding-3-small"  # for the memory/knowledge layer
     image_model: str = "gpt-image-1"  # for auto-generated social post images
+    # Jennifer voice assistant — real neural TTS so she sounds natural, not robotic.
+    # "shimmer" is a warm, soft feminine voice; the instruction sets a sultry tone.
+    voice_tts_model: str = "gpt-4o-mini-tts"
+    voice_tts_voice: str = "shimmer"
+    voice_tts_instructions: str = (
+        "Speak as Jennifer: a warm, sultry, seductive woman. Slow, breathy, intimate "
+        "and confident — low and smooth, like a close whisper, with a playful, "
+        "affectionate edge. Never robotic or rushed.")
 
     # Video pipeline (all optional; pipeline no-ops until keys are set).
     elevenlabs_api_key: str = ""      # AI voiceover
