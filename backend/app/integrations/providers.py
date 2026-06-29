@@ -152,6 +152,42 @@ def fetch_insurance_leads(segment: str, count: int, scope: str | None = None) ->
     return out[:count]
 
 
+# ── BnB Global consulting — TECH companies (not local businesses) ─────────────
+TECH_CATEGORIES = ["SaaS", "Fintech", "Cloud platform", "Cybersecurity", "AI / ML",
+                   "E-commerce", "Healthtech", "Data platform", "DevTools", "IT services"]
+_TECH_COS = ["Vellum", "Northwind", "Cobalt", "Lumen", "Harbor", "Quanta", "Beacon",
+             "Riverstone", "Helix", "Apex", "Stratus", "Nimbus", "Forge", "Vertex"]
+
+
+def fetch_consulting_leads(count: int, scope: str | None = None) -> list[dict]:
+    """BnB Global consulting prospects — REAL tech/SaaS companies (via Apollo),
+    NOT the local-business net used for insurance. Falls back to tech-flavored
+    synthetic only when ALLOW_SYNTHETIC_FALLBACK is on (e.g. before Apollo is
+    connected)."""
+    out: list[dict] = []
+    if apollo.is_configured():
+        for lead in apollo.fetch_tech_leads(count, locations=_scope_locations(scope)):
+            lead.setdefault("category", lead.get("industry") or "Technology")
+            lead["segment"] = "consulting"
+            out.append(lead)
+    if len(out) >= count or not settings.allow_synthetic_fallback:
+        return out[:count]
+    for i in range(count - len(out)):
+        cat = _rng.choice(TECH_CATEGORIES)
+        company = f"{_rng.choice(_TECH_COS)} {_rng.choice(['Labs', 'AI', 'Cloud', 'Systems', 'Technologies', 'Software'])}"
+        owner = _person()
+        out.append({
+            "segment": "consulting", "category": cat, "company_name": company,
+            "owner_name": owner, "title": _rng.choice(["CTO", "VP Engineering", "Founder", "Head of Platform"]),
+            "email": f"{_slug(owner)}-tech{i}@example.com",
+            "phone": f"+1{_rng.randint(2000000000, 9999999999)}",
+            "website": f"https://{_slug(company)}.io",
+            "linkedin": f"https://linkedin.com/in/{_slug(owner)}",
+            "industry": cat, "city": _rng.choice(_CITIES),
+        })
+    return out[:count]
+
+
 # ── Referral partners (mortgage brokers, realtors, lenders, CPAs, attorneys) ──
 REFERRAL_PARTNER_CATEGORIES = [
     "Mortgage Broker", "Real Estate Agency", "Mortgage Lender", "CPA / Accounting Firm",

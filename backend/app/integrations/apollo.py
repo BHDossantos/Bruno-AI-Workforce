@@ -128,6 +128,37 @@ def _with_emails(leads: list[dict], budget: int) -> list[dict]:
     return out
 
 
+# Tech decision-makers for BnB Global consulting (cloud/SRE/security/AI/managed-IT).
+TECH_TITLES = ["CTO", "Chief Technology Officer", "VP Engineering", "VP Technology",
+               "Head of Engineering", "Head of Platform", "Head of Infrastructure",
+               "Head of DevOps", "Head of SRE", "Director of Engineering",
+               "Director of Infrastructure", "Engineering Manager", "Founder", "CEO", "Co-Founder"]
+TECH_KEYWORDS = ('software OR SaaS OR "software development" OR cloud OR fintech OR technology '
+                 'OR platform OR "IT services" OR cybersecurity OR "data platform" OR '
+                 'AI OR "machine learning" OR ecommerce OR healthtech')
+
+
+def fetch_tech_leads(count: int, locations: list[str] | None = None) -> list[dict]:
+    """Source ~``count`` TECH-company decision-makers for BnB Global consulting —
+    real software/SaaS/cloud firms (not local restaurants/retail), with verified
+    emails revealed via enrichment."""
+    if not is_configured():
+        return []
+    leads: list[dict] = []
+    page = 1
+    while len(leads) < count * 2 and page <= 8:
+        batch = search_people(titles=TECH_TITLES, keywords=TECH_KEYWORDS,
+                              locations=locations, per_page=50, page=page)
+        if not batch:
+            break
+        for b in batch:
+            b["segment"] = "consulting"
+            b["category"] = b.get("industry") or "Technology"
+            leads.append(b)
+        page += 1
+    return _with_emails(leads, budget=count)[:count]
+
+
 def fetch_commercial_leads(count: int, locations: list[str] | None = None) -> list[dict]:
     """Source ~``count`` commercial insurance prospects (business owners), with
     verified emails revealed via enrichment. ``locations`` keeps them in-territory

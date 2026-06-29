@@ -42,11 +42,11 @@ class BnbGlobalAgent(BaseAgent):
         # Source a capped batch toward the daily target (worldwide), timeout-safe;
         # the agent runs several times a day to build outbound volume.
         batch = max(1, min(settings.consulting_lead_daily_target, 50))
-        # Real businesses with deliverable emails (same proven source as commercial
-        # insurance) — valid prospects for managed IT / cloud / security consulting.
-        # Consulting sells worldwide → sweep the global scope (rotating by day).
-        prospects = providers.fetch_insurance_leads(
-            "commercial", batch, scope=settings.consulting_lead_scope)
+        # TECH companies (software/SaaS/cloud/fintech) with verified emails — the
+        # right ICP for managed IT / cloud / SRE / security / AI consulting, NOT the
+        # local-business net used for insurance. Sells worldwide → global scope.
+        prospects = providers.fetch_consulting_leads(
+            batch, scope=settings.consulting_lead_scope)
 
         existing = {e for (e,) in self.db.query(Lead.email).filter(Lead.email.isnot(None)).all()}
 
