@@ -29,6 +29,7 @@ function Setup() {
   const { data, loading, error, reload } = useFetch<Status>(() => api.get<Status>("/setup"));
   const [health, setHealth] = useState<MailboxHealth | null>(null);
   const [checking, setChecking] = useState(false);
+  const { data: control, reload: reloadControl } = useFetch<{ insurance_relay?: boolean }>(() => api.get<{ insurance_relay?: boolean }>("/control/status"));
   const [form, setForm] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -41,6 +42,11 @@ function Setup() {
   }
 
   function set(k: string, v: string) { setForm((f) => ({ ...f, [k]: v })); }
+
+  async function toggleRelay(on: boolean) {
+    try { await api.post("/control/insurance-relay", { on }); reloadControl(); }
+    catch (e) { setMsg(`❌ ${e}`); }
+  }
 
   async function save() {
     setBusy(true); setMsg("");
@@ -118,7 +124,7 @@ function Setup() {
             <Badge ok={data.gmail_insurance.configured} />
           </div>
           <p className="mb-3 text-xs text-gray-500">
-            Separate mailbox for Thrust Insurance outreach. Leave blank to send insurance mail through your personal mailbox.
+            Separate mailbox for Thrust Insurance outreach. Leave blank and use the toggle below to send insurance mail through your personal mailbox.
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
             <input className="input" placeholder={data.gmail_insurance.address || "you@thrustinsurance.com"}
@@ -126,6 +132,14 @@ function Setup() {
             <input className="input" type="password" placeholder="16-character App Password"
               value={form.insurance_gmail_app_password || ""} onChange={(e) => set("insurance_gmail_app_password", e.target.value)} />
           </div>
+          <label className="mt-3 flex items-start gap-2 rounded-lg bg-gray-50 p-3 text-xs text-gray-600">
+            <input type="checkbox" className="mt-0.5" checked={!!control?.insurance_relay}
+              onChange={(e) => toggleRelay(e.target.checked)} />
+            <span>
+              <b>Send insurance through my personal mailbox</b> (Reply-To set to Thrust). Use this if you don&apos;t have a separate Thrust App Password — insurance emails still go out, and replies land in the Thrust inbox.
+              {control?.insurance_relay ? <span className="ml-1 font-medium text-green-700">ON</span> : null}
+            </span>
+          </label>
         </div>
 
         {/* Apollo */}

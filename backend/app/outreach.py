@@ -99,6 +99,14 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
         runtime_config.apply_to_settings(db)
     except Exception:  # never let config refresh block a send
         pass
+    # One-click relay: if enabled, insurance sends through the personal mailbox
+    # with a Thrust reply-to — so insurance goes out without separate credentials.
+    try:
+        from . import control
+        if control.insurance_relay_via_personal(db):
+            settings.insurance_via_personal_reply_to = True
+    except Exception:  # never let a toggle lookup block a send
+        pass
     body = email_template.clean_body(body)  # strip AI placeholders/sign-offs once
     msg = Message(channel="email", direction="outbound", entity_type=entity_type,
                   entity_id=entity_id, to_email=to_email, from_account=account,

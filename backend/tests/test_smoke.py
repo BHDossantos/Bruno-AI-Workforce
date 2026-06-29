@@ -166,6 +166,32 @@ def test_outreach_autopilot_defaults_on_and_toggles(client, auth_headers):
     assert on["outreach_autopilot"] is True
 
 
+@requires_db
+def test_insurance_relay_toggle_routes_through_personal(client, auth_headers):
+    """One-click relay: when ON, insurance sends through the personal mailbox with
+    a Thrust Reply-To (so it sends without separate Thrust credentials)."""
+    from app import control
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.integrations import gmail
+    assert client.get("/control/status", headers=auth_headers).json()["insurance_relay"] is False
+    on = client.post("/control/insurance-relay", json={"on": True}, headers=auth_headers).json()
+    assert on["insurance_relay"] is True
+    db = SessionLocal()
+    old = (settings.gmail_app_password, settings.gmail_address, settings.insurance_via_personal_reply_to)
+    try:
+        settings.gmail_app_password = "app-pw-xxxx"
+        settings.gmail_address = "me@gmail.com"
+        settings.insurance_via_personal_reply_to = control.insurance_relay_via_personal(db)
+        login_addr, pw, from_addr, reply_to = gmail._smtp_login("insurance")
+        assert login_addr == "me@gmail.com" and pw == "app-pw-xxxx"
+        assert reply_to == settings.insurance_gmail_address  # replies go to Thrust
+    finally:
+        settings.gmail_app_password, settings.gmail_address, settings.insurance_via_personal_reply_to = old
+        db.close()
+    client.post("/control/insurance-relay", json={"on": False}, headers=auth_headers)
+
+
 def test_memory_slot_prompts_format_cleanly():
     """Every prompt with a {memory} slot must format with the exact keys call sites
     pass — guards against the KeyError class of bug when a slot is added."""
