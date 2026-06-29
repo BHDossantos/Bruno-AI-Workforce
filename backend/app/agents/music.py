@@ -97,7 +97,6 @@ class MusicAgent(BaseAgent):
         if len(playlists) < PLAYLIST_TARGET:
             playlists += providers.fetch_playlists(PLAYLIST_TARGET - len(playlists))
         for pl in playlists:
-        for pl in providers.fetch_playlists(PLAYLIST_TARGET):
             if (pl.get("email") or "").lower() in pl_seen or (pl.get("name") or "").lower() in pl_names:
                 continue  # already pitched this playlist
             try:

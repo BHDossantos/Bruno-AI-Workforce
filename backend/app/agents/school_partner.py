@@ -29,11 +29,6 @@ class SchoolPartnershipAgent(BaseAgent):
         for p in prospects:
             p["segment"] = "school_partner"
             p.setdefault("category", "Education institution")
-        prospects = providers.fetch_insurance_leads(
-            "commercial", _PER_RUN_CAP, scope=settings.foundation_lead_scope)
-        for p in prospects:
-            p["segment"] = "school_partner"
-            p["category"] = "Education institution"
             p["reason"] = "Potential education partner for foundation programs."
 
         def build_prompt(p):

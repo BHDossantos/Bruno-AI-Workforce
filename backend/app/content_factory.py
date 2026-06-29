@@ -96,9 +96,6 @@ def _recent_matches(db: Session, qv: list[float] | None) -> tuple[list[str], flo
     """Compare a topic embedding against recent content. Returns (titles we've
     already covered closely → for a fresh-angle nudge, top cosine similarity →
     so the caller can hard-skip an effective duplicate)."""
-def covered_recently(db: Session, topic: str) -> list[str]:
-    """Titles of prior content on a very similar topic (for a fresh-angle nudge)."""
-    qv = client.embed(topic)
     if not qv:
         return [], 0.0
     rows = (db.query(ContentItem).filter(ContentItem.embedding.isnot(None))
@@ -151,7 +148,6 @@ def generate_pack(db: Session, topic: str, business: str = "executive",
     if top_sim >= _DUPLICATE:
         return {"ok": True, "topic": topic, "business": business, "channels": [],
                 "duplicate": True, "reason": "near-duplicate of recent content — skipped"}
-    prior = covered_recently(db, topic)
     freshness = (f"We've already covered: {', '.join(prior)}. Take a clearly NEW angle."
                  if prior else "This is a fresh topic.")
     # Learn & act: lean into what's actually earning engagement.

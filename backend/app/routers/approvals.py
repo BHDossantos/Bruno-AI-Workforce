@@ -118,20 +118,6 @@ def _auto_send_backlog(db: Session) -> int:
              .filter(Restaurant.kind == "prospect", Restaurant.status == "Drafted",
                      Restaurant.email.isnot(None)).scalar() or 0)
     return int(leads + rests)
-    # AI-drafted replies to inbound messages — approve to send.
-    for m in (db.query(Message).filter(
-            Message.entity_type == "reply", Message.direction == "outbound",
-            Message.status == "Drafted", Message.to_email.isnot(None))
-            .order_by(Message.created_at.desc()).limit(limit).all()):
-        items.append({
-            "type": "reply", "id": str(m.id), "risk": "low",
-            "title": f"Reply to {m.to_email}", "business": None,
-            "preview": _preview(m.body), "to": m.to_email,
-            "created_at": m.created_at.isoformat() if m.created_at else None,
-        })
-
-    items.sort(key=lambda i: i.get("created_at") or "", reverse=True)
-    return {"count": len(items), "items": items}
 
 
 @router.get("/count")
@@ -268,15 +254,6 @@ def approve_all(db: Session = Depends(get_db), _=Depends(_write)):
             "note": (f"Sent {sent_now + replies_sent} now; {queued} will send automatically "
                      "over the next days to protect deliverability." if queued else
                      "All approved items sent.")}
-    n += (db.query(func.count()).select_from(Lead)
-          .filter(Lead.status == "Drafted", Lead.email.isnot(None)).scalar() or 0)
-    n += (db.query(func.count()).select_from(Restaurant)
-          .filter(Restaurant.kind == "prospect", Restaurant.status == "Drafted",
-                  Restaurant.email.isnot(None)).scalar() or 0)
-    n += (db.query(func.count()).select_from(Message)
-          .filter(Message.entity_type == "reply", Message.direction == "outbound",
-                  Message.status == "Drafted", Message.to_email.isnot(None)).scalar() or 0)
-    return {"pending": int(n)}
 
 
 @router.post("/{item_type}/{item_id}/{action}")
@@ -297,24 +274,6 @@ def act(item_type: str, item_id: str, action: str,
         sent, note = _send_reply(db, m)
         db.commit()
         return {"ok": True, "type": "reply", "status": m.status, "sent": sent, "note": note}
-        # Send the drafted reply now (in place, no duplicate record).
-        from datetime import datetime, timezone
-
-        from .. import email_template
-        from ..integrations import gmail
-        sent = False
-        if gmail.is_configured(m.from_account):
-            html = email_template.render(m.body or "", m.from_account)
-            mid = gmail.send_message(m.to_email, m.subject or "", html or "", account=m.from_account)
-            if mid:
-                m.provider_id = mid
-                m.sent_at = datetime.now(timezone.utc)
-                sent = True
-        m.status = "Sent" if sent else "Approved"
-        m.approved = True
-        db.commit()
-        return {"ok": True, "type": "reply", "status": m.status, "sent": sent,
-                "note": None if sent else "Marked approved — connect that Gmail mailbox to actually send."}
 
     if item_type == "content":
         c = db.query(ContentItem).filter(ContentItem.id == item_id).first()

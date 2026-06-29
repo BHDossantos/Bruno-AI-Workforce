@@ -228,7 +228,6 @@ def learnings(db: Session = Depends(get_db), _=Depends(_read)):
     sample sizes, the bandit's next pick, learned posting hours, and which outreach
     subject-line styles earn the most replies."""
     from .. import learning, lead_intel, outreach_analytics
-    from .. import learning, outreach_analytics
     data = learning.learnings(db)
     rates = outreach_analytics.reply_rates(db)
     data["outreach"] = sorted(

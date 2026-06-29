@@ -569,8 +569,6 @@ def test_all_agents_registered():
         "follow_up_agent", "review_referral", "bnbglobal", "savorymind", "music",
         "music_pr", "music_collab", "music_sync", "instagram", "life_ops",
         "grant_research", "foundation_outreach", "school_partner", "ceo_dashboard",
-        "music_pr", "music_collab", "instagram", "grant_research", "foundation_outreach",
-        "school_partner", "ceo_dashboard",
     }
 
 
@@ -1413,7 +1411,11 @@ def test_outbound_messages_created_per_account(client, auth_headers):
     assert len(personal) >= batch           # restaurant prospects (+ any others)
     # Gmail is not configured in CI, so nothing is actually SENT (messages stay
     # Drafted, or Approved if a reply was approved without a mailbox — never Sent).
-    assert all(m["status"] != "Sent" for m in msgs)
+    # Scope to the agents' cold-outreach rows: other tests inject recap fixtures
+    # (to_email "*@x.co") with status="Sent" into the shared session DB, which are
+    # not what this test is asserting about.
+    cold = [m for m in msgs if not (m.get("to_email") or "").endswith("@x.co")]
+    assert all(m["status"] != "Sent" for m in cold)
 
 
 @requires_db

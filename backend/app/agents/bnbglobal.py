@@ -92,10 +92,6 @@ class BnbGlobalAgent(BaseAgent):
                 for hint in (subject_hint, cat_hint, wedge_hint):
                     if hint:
                         sysp = f"{sysp}\n\n{hint}"
-                from .. import outreach_analytics
-                hint = outreach_analytics.whats_working(self.db)
-                if hint:
-                    sysp = f"{sysp}\n\n{hint}"
                 mem_ctx = memory.context_block(self.db, p.get("company_name") or "")
                 if mem_ctx:
                     sysp = f"{sysp}\n\n{mem_ctx}"
