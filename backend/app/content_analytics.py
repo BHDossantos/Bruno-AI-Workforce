@@ -12,7 +12,14 @@ import logging
 from sqlalchemy.orm import Session
 
 from . import evergreen
-from .integrations import facebook_api, instagram_api
+from .integrations import (
+    facebook_api,
+    instagram_api,
+    linkedin_api,
+    tiktok_api,
+    twitter_api,
+    youtube_api,
+)
 from .models import ContentItem
 
 log = logging.getLogger("bruno.content_analytics")
@@ -24,20 +31,35 @@ def _engagement(m: dict | None) -> int:
     return int((m.get("likes") or 0) + 2 * (m.get("comments") or 0) + 3 * (m.get("shares") or 0))
 
 
+# channel -> how to pull post-level metrics. Every connected platform that exposes
+# engagement plugs in here, so the learning loop optimizes on real data across the
+# whole stack — not just Instagram/Facebook. Platforms without a metrics API simply
+# aren't in the map (the loop falls back gracefully).
+_INSIGHTS = {
+    "instagram": instagram_api.get_media_insights,
+    "facebook": facebook_api.get_post_insights,
+    "x": twitter_api.get_post_metrics,
+    "twitter": twitter_api.get_post_metrics,
+    "youtube": youtube_api.get_post_metrics,
+    "tiktok": tiktok_api.get_post_metrics,
+    "linkedin": linkedin_api.get_post_metrics,
+}
+
+
 def sync_metrics(db: Session) -> dict:
-    """Refresh metrics for published pieces that carry a platform post id."""
+    """Refresh metrics for published pieces that carry a platform post id, across
+    every connected platform that exposes engagement."""
     rows = (db.query(ContentItem).filter(ContentItem.status == "published").limit(200).all())
     updated = 0
     for it in rows:
         post_id = ((it.meta or {}).get("result") or {}).get("id")
-        if not post_id:
+        fetch = _INSIGHTS.get(it.channel)
+        if not post_id or not fetch:
             continue
-        if it.channel == "instagram":
-            m = instagram_api.get_media_insights(db, post_id)
-        elif it.channel == "facebook":
-            m = facebook_api.get_post_insights(db, post_id)
-        else:
-            m = None  # LinkedIn/X metrics need elevated API access — skip for now
+        try:
+            m = fetch(db, post_id)
+        except Exception:  # one platform erroring must not stop the rest
+            m = None
         if m:
             it.meta = {**(it.meta or {}), "metrics": m, "engagement": _engagement(m)}
             updated += 1

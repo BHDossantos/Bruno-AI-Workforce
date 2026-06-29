@@ -122,3 +122,28 @@ def post(db, caption: str, video_url: str | None = None) -> dict:
         return {"ok": False, "reason": (data.get("error") or {}).get("message") or up.text[:200]}
     except Exception as exc:  # pragma: no cover - network guard
         return {"ok": False, "reason": str(exc)}
+
+
+def get_post_metrics(db, video_id: str) -> dict | None:
+    """Public stats for a video (Data API v3 statistics). Normalized to
+    {likes, comments, shares, views} or None — feeds the learning loop."""
+    c = _creds(db)
+    if not c or not video_id:
+        return None
+    token = _access_token(db, c)
+    if not token:
+        return None
+    try:
+        r = httpx.get(f"{_API}/videos", params={"part": "statistics", "id": video_id},
+                      headers={"Authorization": f"Bearer {token}"}, timeout=_TIMEOUT)
+        if r.status_code != 200:
+            return None
+        items = (r.json() or {}).get("items") or []
+        if not items:
+            return None
+        s = items[0].get("statistics") or {}
+        return {"likes": int(s.get("likeCount", 0) or 0), "comments": int(s.get("commentCount", 0) or 0),
+                "shares": 0, "views": int(s.get("viewCount", 0) or 0)}
+    except Exception as exc:  # pragma: no cover - network guard
+        log.warning("YouTube metrics failed: %s", exc)
+        return None

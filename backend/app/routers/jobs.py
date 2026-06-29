@@ -27,15 +27,22 @@ def list_jobs(limit: int = 100, min_score: int = 0,
 # Compliant: we prepare the apply link + tailored materials; you click apply and
 # mark it done. No bot submits anything (that violates job-board ToS).
 @router.get("/queue")
-def apply_queue(limit: int = 100, db: Session = Depends(get_db),
+def apply_queue(limit: int = 100, include_stretch: bool = False,
+                db: Session = Depends(get_db),
                 _=Depends(require_role("admin", "operator", "viewer"))):
+    from ..config import settings
+    threshold = settings.job_score_threshold
     apps = {a.job_id: a for a in db.query(Application).all()}
-    jobs = db.query(Job).order_by(Job.score.desc(), Job.found_at.desc()).limit(limit * 2).all()
+    jobs = db.query(Job).order_by(Job.score.desc(), Job.found_at.desc()).limit(limit * 3).all()
     out = []
     for j in jobs:
         app = apps.get(j.id)
         status = app.status if app else "New"
         if status in _DONE_APP:
+            continue
+        # Strict quality bar: only ≥threshold matches are one-click-apply. Lower-fit
+        # "stretch" roles stay on the Jobs page unless explicitly requested.
+        if not include_stretch and (j.score or 0) < threshold:
             continue
         out.append({
             "job_id": str(j.id), "title": j.title, "company": j.company,
