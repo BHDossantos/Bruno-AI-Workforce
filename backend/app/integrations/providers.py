@@ -23,6 +23,20 @@ _FIRST = ["Alex", "Maria", "John", "Sofia", "Marco", "Lucia", "David", "Elena", 
 _LAST = ["Silva", "Rossi", "Smith", "Garcia", "Johnson", "Ferrari", "Costa", "Bianchi", "Lopez", "Reed"]
 
 
+# Scope keywords mean "worldwide/region" → no Apollo person-location filter; a
+# comma-list of place names (e.g. insurance "Massachusetts,New Hampshire,Florida")
+# becomes Apollo person_locations so leads stay in-territory.
+_GLOBAL_SCOPES = {"global", "worldwide", "world", "us", "usa", "united states",
+                  "eu", "europe", "us_eu", "us+eu", ""}
+
+
+def _scope_locations(scope: str | None) -> list[str] | None:
+    s = (scope or "").strip().lower()
+    if not s or s in _GLOBAL_SCOPES:
+        return None
+    return [p.strip() for p in scope.split(",") if p.strip()]
+
+
 def _person() -> str:
     return f"{_rng.choice(_FIRST)} {_rng.choice(_LAST)}"
 
@@ -108,7 +122,8 @@ def fetch_insurance_leads(segment: str, count: int, scope: str | None = None) ->
         if len(out) < count:
             out.extend(places.fetch_commercial_leads(count - len(out), scope=scope))  # Google Places (free credit)
         if apollo.is_configured() and len(out) < count:
-            for lead in apollo.fetch_commercial_leads(count - len(out)):    # paid, real
+            for lead in apollo.fetch_commercial_leads(count - len(out),
+                                                      locations=_scope_locations(scope)):  # paid, real
                 lead.setdefault("category", lead.get("industry") or "Commercial")
                 out.append(lead)
         if len(out) >= count:
@@ -211,7 +226,7 @@ def fetch_restaurants(count: int, scope: str | None = None) -> list[dict]:
     if len(out) >= count:
         return out[:count]
     if apollo.is_configured():
-        for c in apollo.fetch_restaurant_contacts(count):
+        for c in apollo.fetch_restaurant_contacts(count, locations=_scope_locations(scope)):
             name = c.get("company_name") or "Restaurant"
             out.append({
                 "kind": "prospect",

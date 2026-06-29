@@ -495,6 +495,25 @@ def test_live_sources_disabled_without_keys():
     assert jobs_api.fetch_jobs(["Director SRE"], limit=5) == []
 
 
+def test_apollo_enrichment_and_location_targeting():
+    """Apollo reveals verified emails (enrichment) + stays in-territory. Locked
+    placeholder emails are treated as no-email; enrich is a no-op without a key."""
+    from app.integrations import apollo, providers
+    # Locked / placeholder addresses Apollo returns before enrichment aren't real.
+    assert apollo._is_real("email_not_unlocked@domain.com") is False
+    assert apollo._is_real("") is False
+    assert apollo._is_real("owner@realbiz.com") is True
+    assert apollo._domain("https://www.acme.io/careers") == "acme.io"
+    # Enrichment + filtering are safe with no key.
+    assert apollo.enrich_email({"first_name": "A", "domain": "x.com"}) is None
+    assert apollo._with_emails([{"email": "good@x.com"}, {"email": None}], budget=5) == [{"email": "good@x.com"}]
+    # Insurance scope → Apollo person_locations (in-territory); global → unfiltered.
+    assert providers._scope_locations("Massachusetts,New Hampshire,Florida") == \
+        ["Massachusetts", "New Hampshire", "Florida"]
+    assert providers._scope_locations("global") is None
+    assert providers._scope_locations(None) is None
+
+
 def test_free_jobs_gated_off_in_tests_and_parse_salary():
     from app.integrations import jobs_free
 
