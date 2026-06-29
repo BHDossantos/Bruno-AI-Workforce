@@ -173,6 +173,22 @@ def test_bulk_dispatch_endpoints(client, auth_headers):
     assert r2.status_code == 200 and r2.json()["ok"] is True
 
 
+@requires_db
+def test_approve_all_clears_the_queue(client, auth_headers):
+    """One-click Approve all drains the whole queue: content scheduled, outreach
+    sent up to cap (rest stays queued for auto-pacing) — never 500s, and the
+    pending count is zero or only the cap-deferred remainder afterwards."""
+    r = client.post("/approvals/approve-all", headers=auth_headers)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["ok"] is True
+    for k in ("approved", "content_scheduled", "outreach_sent_now", "outreach_queued"):
+        assert k in d
+    # No content should remain in needs_approval (all scheduled).
+    after = client.get("/approvals", headers=auth_headers).json()
+    assert all(it["type"] != "content" for it in after["items"])
+
+
 def test_bridge_token_auth():
     """The iMessage bridge rejects a bad/empty token (machine-client auth)."""
     import pytest as _pytest
@@ -213,6 +229,30 @@ def test_newsletter_funnel_mapping():
     # subscribe() ignores unknown funnels / empty email (db not touched on those paths).
     assert newsletters.subscribe(db=None, funnel="nope", email="a@b.c") is False
     assert newsletters.subscribe(db=None, funnel="insurance", email=None) is False
+    # _issue always returns a written issue, even offline (template fallback).
+    subj, body = newsletters._issue("insurance")
+    assert subj and body
+
+
+@requires_db
+def test_newsletters_are_written_and_listed(client, auth_headers):
+    """'Write newsletters now' produces a visible, stored draft per funnel — so a
+    newsletter is actually written even before there are subscribers."""
+    w = client.post("/newsletters/write", headers=auth_headers).json()
+    assert len(w["funnels"]) == 4 and all(f.get("ok") for f in w["funnels"])
+    drafts = client.get("/newsletters/drafts", headers=auth_headers).json()["drafts"]
+    assert len(drafts) >= 4 and all(d["subject"] and d["body"] for d in drafts)
+    # Writing again refreshes (one open draft per funnel, no pile-up).
+    client.post("/newsletters/write", headers=auth_headers)
+    again = client.get("/newsletters/drafts", headers=auth_headers).json()["drafts"]
+    per_funnel = {}
+    for d in again:
+        per_funnel[d["funnel"]] = per_funnel.get(d["funnel"], 0) + 1
+    assert all(n == 1 for n in per_funnel.values())  # exactly one open draft per funnel
+    # Dismiss one — it leaves the list.
+    client.post(f"/newsletters/drafts/{again[0]['id']}/dismiss", headers=auth_headers)
+    after = client.get("/newsletters/drafts", headers=auth_headers).json()["drafts"]
+    assert all(d["id"] != again[0]["id"] for d in after)
 
 
 def test_bulk_outreach_helpers_exist():

@@ -110,6 +110,122 @@ def count(db: Session = Depends(get_db), _=Depends(_read)):
     return {"pending": int(n)}
 
 
+# ── Shared approve actions (reused by single-item act + bulk approve-all) ──────
+def _send_reply(db: Session, m: Message) -> tuple[bool, str | None]:
+    """Send a drafted reply in place. Never raises — returns (sent, note)."""
+    from .. import email_template
+    from ..integrations import gmail
+    sent = False
+    note = "Marked approved — connect that Gmail mailbox to actually send."
+    try:
+        if gmail.is_configured(m.from_account):
+            html = email_template.render(m.body or "", m.from_account)
+            mid = gmail.send_message(m.to_email, m.subject or "", html or "", account=m.from_account)
+            if mid:
+                m.provider_id = mid
+                m.sent_at = datetime.now(timezone.utc)
+                sent = True
+                note = None
+    except Exception as exc:  # token expired / API error — don't lose the item
+        log.warning("reply send failed: %s", exc)
+        note = f"Approved, but sending failed ({str(exc)[:80]}). Reconnect Gmail and resend."
+    m.status = "Sent" if sent else "Approved"
+    m.approved = True
+    return sent, note
+
+
+def _outreach_fields(item_type: str, row) -> tuple[str, str, str | None, str]:
+    """(account, subject, body, entity_type) for a lead/restaurant outreach send."""
+    if item_type == "lead":
+        account = "insurance" if row.segment in ("commercial", "personal") else "personal"
+        return account, f"A quick idea for {row.company_name or row.owner_name}", row.cold_email, "lead"
+    return "personal", f"Growing revenue at {row.name} with SavoryMind", row.pitch_email, "restaurant"
+
+
+def _send_outreach(db: Session, item_type: str, row) -> tuple[bool, str | None]:
+    """Send a drafted lead/restaurant email now. Never raises — returns (sent, note)."""
+    account, subject, body, etype = _outreach_fields(item_type, row)
+    note = "Marked approved — connect a Gmail mailbox to actually send."
+    sent = False
+    try:
+        msg = outreach.dispatch_email(db, entity_type=etype, entity_id=row.id,
+                                      to_email=row.email, subject=subject, body=body,
+                                      account=account, actor="approval", autonomous=False)
+        sent = msg.status == "Sent"
+        if sent:
+            note = None
+    except Exception as exc:  # token expired / API error — don't lose the item
+        log.warning("%s send failed: %s", item_type, exc)
+        note = f"Approved, but sending failed ({str(exc)[:80]}). Reconnect Gmail and resend."
+    # Only mark done when it actually sent — otherwise leave it Drafted so the
+    # daily auto-outreach keeps pushing it out (deliverability cap pacing).
+    if sent:
+        row.status = "Sent"
+    return sent, note
+
+
+@router.post("/approve-all")
+def approve_all(db: Session = Depends(get_db), _=Depends(_write)):
+    """One-click: approve EVERYTHING in the queue and push it through.
+
+    Content is scheduled, replies are sent, and outreach is sent up to today's
+    deliverability cap — the rest stays queued and the daily auto-outreach drains
+    it over the next days, so a big batch never gets the mailbox flagged as spam.
+    Outreach Autopilot is switched on so that pacing happens automatically."""
+    from .. import control
+    now = datetime.now(timezone.utc)
+    content_n = replies_sent = sent_now = queued = failed = 0
+
+    # 1. Content → scheduled (publishes on its normal cadence).
+    for c in db.query(ContentItem).filter(ContentItem.status == "needs_approval").all():
+        c.status = "scheduled"
+        c.scheduled_for = c.scheduled_for or now
+        content_n += 1
+
+    # 2. Replies to real humans → send now (small volume, highest priority).
+    for m in db.query(Message).filter(
+            Message.entity_type == "reply", Message.direction == "outbound",
+            Message.status == "Drafted", Message.to_email.isnot(None)).all():
+        ok, _note = _send_reply(db, m)
+        replies_sent += 1 if ok else 0
+
+    # 3. Outreach → send up to each mailbox's remaining daily cap; leave the rest
+    #    Drafted for the daily auto-outreach to pace out (no mass Gmail drafts).
+    control.set_outreach_autopilot(db, True)  # ensure the remainder keeps flowing
+    cap_left: dict[str, int] = {}
+
+    def _room(account: str) -> int:
+        if account not in cap_left:
+            cap_left[account] = max(0, outreach.effective_cap(db, account)
+                                    - outreach.sent_today_count(db, account))
+        return cap_left[account]
+
+    leads = (db.query(Lead).filter(Lead.status == "Drafted", Lead.email.isnot(None))
+             .order_by(Lead.score.desc()).all())
+    rests = (db.query(Restaurant).filter(Restaurant.kind == "prospect",
+             Restaurant.status == "Drafted", Restaurant.email.isnot(None)).all())
+    for item_type, row in ([("lead", l) for l in leads] + [("restaurant", r) for r in rests]):
+        account = _outreach_fields(item_type, row)[0]
+        if _room(account) <= 0:
+            queued += 1  # over today's cap — stays Drafted, auto-outreach sends it later
+            continue
+        ok, _note = _send_outreach(db, item_type, row)
+        if ok:
+            sent_now += 1
+            cap_left[account] -= 1
+        else:
+            queued += 1  # not sent (kept Drafted) — will retry automatically
+
+    db.commit()
+    approved = content_n + replies_sent + sent_now + queued
+    return {"ok": True, "approved": approved, "content_scheduled": content_n,
+            "replies_sent": replies_sent, "outreach_sent_now": sent_now,
+            "outreach_queued": queued, "failed": failed,
+            "note": (f"Sent {sent_now + replies_sent} now; {queued} will send automatically "
+                     "over the next days to protect deliverability." if queued else
+                     "All approved items sent.")}
+
+
 @router.post("/{item_type}/{item_id}/{action}")
 def act(item_type: str, item_id: str, action: str,
         db: Session = Depends(get_db), _=Depends(_write)):
@@ -125,26 +241,7 @@ def act(item_type: str, item_id: str, action: str,
             m.status = "Skipped"
             db.commit()
             return {"ok": True, "type": "reply", "status": "Skipped"}
-        # Send the drafted reply now (in place, no duplicate record). A send
-        # failure must never 500 — mark it approved (kept) with a clear note.
-        from .. import email_template
-        from ..integrations import gmail
-        sent = False
-        note = "Marked approved — connect that Gmail mailbox to actually send."
-        try:
-            if gmail.is_configured(m.from_account):
-                html = email_template.render(m.body or "", m.from_account)
-                mid = gmail.send_message(m.to_email, m.subject or "", html or "", account=m.from_account)
-                if mid:
-                    m.provider_id = mid
-                    m.sent_at = datetime.now(timezone.utc)
-                    sent = True
-                    note = None
-        except Exception as exc:  # token expired / API error — don't lose the item
-            log.warning("reply send failed: %s", exc)
-            note = f"Approved, but sending failed ({str(exc)[:80]}). Reconnect Gmail and resend."
-        m.status = "Sent" if sent else "Approved"
-        m.approved = True
+        sent, note = _send_reply(db, m)
         db.commit()
         return {"ok": True, "type": "reply", "status": m.status, "sent": sent, "note": note}
 
@@ -159,39 +256,18 @@ def act(item_type: str, item_id: str, action: str,
         return {"ok": True, "type": "content", "status": c.status}
 
     if item_type in ("lead", "restaurant"):
-        if item_type == "lead":
-            row = db.query(Lead).filter(Lead.id == item_id).first()
-            if not row:
-                raise HTTPException(404, "lead not found")
-            account = "insurance" if row.segment in ("commercial", "personal") else "personal"
-            subject = f"A quick idea for {row.company_name or row.owner_name}"
-            body, etype = row.cold_email, "lead"
-        else:
-            row = db.query(Restaurant).filter(Restaurant.id == item_id).first()
-            if not row:
-                raise HTTPException(404, "restaurant not found")
-            account, subject, body, etype = "personal", f"Growing revenue at {row.name} with SavoryMind", row.pitch_email, "restaurant"
+        model = Lead if item_type == "lead" else Restaurant
+        row = db.query(model).filter(model.id == item_id).first()
+        if not row:
+            raise HTTPException(404, f"{item_type} not found")
         if action == "reject":
             row.status = "Skipped"
             db.commit()
             return {"ok": True, "type": item_type, "status": "Skipped"}
-        # Explicit approval → send now (autonomous=False bypasses semi-auto drafting).
-        # A send failure must never 500 — mark it approved (kept) with a clear note.
-        note = "Marked approved — connect a Gmail mailbox to actually send."
-        sent = False
-        try:
-            msg = outreach.dispatch_email(db, entity_type=etype, entity_id=row.id,
-                                          to_email=row.email, subject=subject, body=body,
-                                          account=account, actor="approval", autonomous=False)
-            sent = msg.status == "Sent"
-            if sent:
-                note = None
-        except Exception as exc:  # token expired / API error — don't lose the item
-            log.warning("%s send failed: %s", item_type, exc)
-            note = f"Approved, but sending failed ({str(exc)[:80]}). Reconnect Gmail and resend."
-        # Always leave the queue: "Sent" if it actually went, else "Approved"
-        # so the same item never reappears.
-        row.status = "Sent" if sent else "Approved"
+        sent, note = _send_outreach(db, item_type, row)
+        # Always leave the queue: "Sent" if it actually went, else "Approved".
+        if not sent:
+            row.status = "Approved"
         db.commit()
         return {"ok": True, "type": item_type, "status": row.status, "sent": sent, "note": note}
 
