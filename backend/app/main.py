@@ -26,6 +26,7 @@ from .routers import (
     instagram,
     jobs,
     browser,
+    clients,
     content,
     crm,
     finance,
@@ -61,10 +62,11 @@ async def lifespan(app: FastAPI):
         log.exception("Startup seed() failed — check DATABASE_URL / Cloud SQL connection")
     try:
         from .database import SessionLocal
-        from . import runtime_config, selfcheck
+        from . import client_goal, runtime_config, selfcheck
         _db = SessionLocal()
         try:
             runtime_config.apply_to_settings(_db)  # load any in-app-connected creds
+            client_goal.apply_overrides(_db)        # restore autoscaled outreach volume
             selfcheck.run(_db)  # verify core features + auto-correct safe issues on boot
         finally:
             _db.close()
@@ -126,6 +128,7 @@ app.include_router(mission.router)
 app.include_router(grants.router)
 app.include_router(voice.router)
 app.include_router(setup.router)
+app.include_router(clients.router)
 
 
 @app.get("/health", tags=["system"])

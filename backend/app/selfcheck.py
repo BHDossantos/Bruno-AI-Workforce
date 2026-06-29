@@ -2,7 +2,7 @@
 fixes the safe issues automatically, surfacing anything that still needs a human.
 
 Runs on startup, daily via the scheduler, on demand (GET /admin/selfcheck), and by
-voice ("Jarvis, run a self check"). Auto-corrections are limited to SAFE, idempotent
+voice ("Jennifer, run a self check"). Auto-corrections are limited to SAFE, idempotent
 repairs (re-seed objectives, refresh connected credentials). Risky problems are
 reported, never silently changed. This is the "auto check + auto correct for
 everything" guarantee: every core capability is continuously validated.

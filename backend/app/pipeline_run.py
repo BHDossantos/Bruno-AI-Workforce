@@ -1,7 +1,7 @@
 """One-shot "work the pipeline" — source + draft everything, queue for approval.
 
 Runs every lead-sourcing agent and the content loops in one pass so the user (or
-"Hey Jarvis, work the pipeline") can fill the Approval Queue on demand. Respects
+"Hey Jennifer, work the pipeline") can fill the Approval Queue on demand. Respects
 the Emergency Stop; in semi-auto everything lands as drafts to approve.
 """
 from __future__ import annotations

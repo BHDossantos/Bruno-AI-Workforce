@@ -227,7 +227,7 @@ def command(body: VoiceIn, db: Session = Depends(get_db),
         if intent == "write_content":
             from .. import content_factory
             topic = (spec.get("topic") or text).strip()
-            for w in ("write", "a ", "post", "about", "linkedin", "instagram", "facebook", "blog", "tweet", "jarvis"):
+            for w in ("write", "a ", "post", "about", "linkedin", "instagram", "facebook", "blog", "tweet", "jarvis", "jennifer"):
                 topic = re.sub(rf"\b{w}\b", "", topic, flags=re.I)
             topic = topic.strip(" ,.-") or "an update"
             channel = (spec.get("channel") or "linkedin").lower()

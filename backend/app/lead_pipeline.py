@@ -91,7 +91,7 @@ def health(db: Session) -> dict:
                         "(or hit 'Work the pipeline').")
     if any_gmail and sent_total == 0 and drafted > 0:
         blockers.append(f"You have {drafted} drafted email(s) waiting — approve them in the "
-                        "Approval Queue (or switch Jarvis to autopilot) so they actually send.")
+                        "Approval Queue (or switch Jennifer to autopilot) so they actually send.")
     if any_gmail and not scheduler_on:
         blockers.append("Turn on the scheduler (ENABLE_SCHEDULER + CRON_SECRET) so replies "
                         "sync automatically — warm/hot leads are created when prospects reply.")
