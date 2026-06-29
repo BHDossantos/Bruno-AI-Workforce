@@ -20,8 +20,39 @@ _PAUSED_KEY = "agents_paused"
 _MODE_KEY = "automation_mode"
 _OUTREACH_KEY = "outreach_autopilot"
 _INS_RELAY_KEY = "insurance_relay_via_personal"
+_AUTOAPPLY_KEY = "auto_apply_mode"
 MODES = ("manual", "semi", "auto")
 _DEFAULT_MODE = "semi"  # agents prepare everything; you approve to send/post
+AUTO_APPLY_MODES = ("off", "compliant", "aggressive")
+
+
+def auto_apply_mode(db: Session) -> str:
+    """How the auto-apply engine submits job applications:
+    - off (default): prepare only — you click apply (no auto-submit).
+    - compliant: auto-submit on company ATS pages (Greenhouse/Lever/etc.);
+      LinkedIn/Indeed/unknown are queued for one click.
+    - aggressive: ALSO auto-submit LinkedIn/Indeed Easy Apply via your stored
+      session (higher volume; violates those platforms' ToS — account risk).
+    Stored in Settings so it survives restarts and toggles without a redeploy."""
+    try:
+        row = db.get(Setting, _AUTOAPPLY_KEY)
+        val = (row.value or "").lower() if row else ""
+        return val if val in AUTO_APPLY_MODES else "off"
+    except Exception:  # pragma: no cover - defensive
+        return "off"
+
+
+def set_auto_apply_mode(db: Session, mode: str) -> str:
+    mode = (mode or "").lower()
+    if mode not in AUTO_APPLY_MODES:
+        mode = "off"
+    row = db.get(Setting, _AUTOAPPLY_KEY)
+    if row is None:
+        row = Setting(key=_AUTOAPPLY_KEY)
+        db.add(row)
+    row.value = mode
+    db.commit()
+    return mode
 
 
 def insurance_relay_via_personal(db: Session) -> bool:

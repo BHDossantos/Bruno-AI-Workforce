@@ -144,15 +144,25 @@ def _match_field(identifier: str, field_map: dict) -> str | None:
     return None
 
 
-def _drive(task: BrowserTask, auto_submit: bool) -> dict:  # pragma: no cover - needs a browser
-    """Real browser run via Playwright. Returns a result dict."""
+def _drive(task: BrowserTask, auto_submit: bool, cookies: list | None = None) -> dict:  # pragma: no cover - needs a browser
+    """Real browser run via Playwright. Returns a result dict.
+
+    cookies (optional) authenticate the session for portals that gate the form
+    behind a login (LinkedIn/Indeed Easy Apply) — supply your own session cookies.
+    """
     from playwright.sync_api import sync_playwright
 
     fm = task.field_map or {}
     filled, shot = [], f"/tmp/browser_task_{task.id}.png"
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=settings.browser_headless)
-        page = browser.new_page()
+        context = browser.new_context()
+        if cookies:
+            try:
+                context.add_cookies(cookies)
+            except Exception:
+                log.warning("could not load session cookies for task %s", task.id)
+        page = context.new_page()
         page.goto(task.target_url, wait_until="domcontentloaded", timeout=45000)
 
         for el in page.query_selector_all("input, textarea"):
@@ -183,7 +193,8 @@ def _drive(task: BrowserTask, auto_submit: bool) -> dict:  # pragma: no cover - 
             "fields_filled": len(filled)}
 
 
-def run(db: Session, task_id: str, auto_submit: bool | None = None) -> BrowserTask | None:
+def run(db: Session, task_id: str, auto_submit: bool | None = None,
+        cookies: list | None = None) -> BrowserTask | None:
     task = db.query(BrowserTask).filter(BrowserTask.id == task_id).first()
     if not task:
         return None
@@ -195,7 +206,7 @@ def run(db: Session, task_id: str, auto_submit: bool | None = None) -> BrowserTa
         task.mode, task.status = "automation", "running"
         db.commit()
         try:
-            res = _drive(task, auto_submit)
+            res = _drive(task, auto_submit, cookies=cookies)
             task.status = "submitted" if res.get("submitted") else "needs_review"
             task.result = res
         except Exception as exc:

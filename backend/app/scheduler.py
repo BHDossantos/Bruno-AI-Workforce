@@ -142,6 +142,11 @@ def _run_selfcheck(db):
     return selfcheck.run(db)
 
 
+def _run_auto_apply(db):
+    from . import autoapply
+    return autoapply.run_auto_apply(db)
+
+
 # job_id -> (worker, cron expression). These run the marketing/advertising/sales
 # engine around the clock so the platform operates without any external scheduler.
 _JOBS: dict[str, tuple] = {
@@ -173,6 +178,9 @@ _JOBS: dict[str, tuple] = {
     "followups":        (_run_followups, "0 11 * * *"),
     # Self-check + auto-correct core features daily (re-seed, refresh creds, flag).
     "selfcheck":        (_run_selfcheck, "0 4 * * *"),
+    # Auto-apply to qualified jobs (self-gates: only acts when its mode != off),
+    # after the 5 AM job sourcing — so it works the freshly-prepared queue.
+    "auto_apply":       (_run_auto_apply, "30 9 * * *"),
 }
 
 

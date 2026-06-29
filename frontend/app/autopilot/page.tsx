@@ -17,22 +17,48 @@ const BADGE: Record<string, string> = {
   failed: "bg-red-100 text-red-700",
 };
 
+const AUTO_MODES: { key: string; label: string; hint: string }[] = [
+  { key: "off", label: "Off", hint: "Prepare only — you click apply." },
+  { key: "compliant", label: "Compliant", hint: "Auto-submit on company ATS pages; queue LinkedIn/Indeed." },
+  { key: "aggressive", label: "Aggressive", hint: "Also auto-submit LinkedIn/Indeed Easy Apply via your session (ToS risk)." },
+];
+
 function Autopilot() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
+  const [autoMode, setAutoMode] = useState<string>("off");
 
   async function load() {
-    const [j, t] = await Promise.all([
+    const [j, t, s] = await Promise.all([
       api.get<Job[]>("/jobs?limit=15").catch(() => []),
       api.get<Task[]>("/browser/tasks"),
+      api.get<{ auto_apply_mode?: string }>("/control/status").catch(() => ({} as { auto_apply_mode?: string })),
     ]);
-    setJobs(j); setTasks(t);
+    setJobs(j); setTasks(t); if (s.auto_apply_mode) setAutoMode(s.auto_apply_mode);
   }
   useEffect(() => { load().catch(() => {}); }, []);
 
   const ready = tasks[0]?.automation_ready;
+
+  async function setMode(mode: string) {
+    if (mode === "aggressive" && !confirm("Aggressive mode auto-submits LinkedIn/Indeed Easy Apply using your stored session cookies. This violates their Terms of Service and can get your account restricted. Continue?")) return;
+    setBusy("mode"); setMsg("");
+    try {
+      const r = await api.post<{ auto_apply_mode: string }>("/control/auto-apply", { mode });
+      setAutoMode(r.auto_apply_mode); setMsg(`Auto-apply mode: ${r.auto_apply_mode}.`);
+    } catch (e) { setMsg(String(e)); } finally { setBusy(null); }
+  }
+
+  async function autoApplyNow() {
+    setBusy("autorun"); setMsg("Auto-applying to qualified jobs…");
+    try {
+      const r = await api.post<{ ok: boolean; reason?: string; submitted?: number; queued?: number; needs_review?: number }>("/browser/auto-apply/run", {});
+      setMsg(r.ok ? `✅ Submitted ${r.submitted ?? 0}, queued ${r.queued ?? 0}, needs review ${r.needs_review ?? 0}.` : `⚠️ ${r.reason || "nothing to do"}`);
+      await load();
+    } catch (e) { setMsg(`❌ ${e}`); } finally { setBusy(null); }
+  }
 
   async function prepare(jobId: string) {
     setBusy(jobId); setMsg("");
@@ -57,6 +83,32 @@ function Autopilot() {
                : "📝 Assist mode — tasks prepare a ready-to-submit package (enable Playwright + BROWSER_AUTOMATION_ENABLED for full automation)."}
       </div>
       {msg && <p className="mb-3 text-sm text-gray-600">{msg}</p>}
+
+      {/* Auto-apply engine — set the mode + run it on demand */}
+      <div className="card mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-gray-700">Auto-apply engine</h2>
+            <p className="text-xs text-gray-500">{AUTO_MODES.find((m) => m.key === autoMode)?.hint}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex gap-1">
+              {AUTO_MODES.map((m) => (
+                <button key={m.key} onClick={() => setMode(m.key)} disabled={busy === "mode"}
+                  className={`rounded px-2.5 py-1 text-xs font-medium ${autoMode === m.key ? "bg-brand text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                  {m.label}
+                </button>
+              ))}
+            </div>
+            <button className="btn" disabled={busy === "autorun" || autoMode === "off"} onClick={autoApplyNow}>
+              {busy === "autorun" ? "Applying…" : "Auto-apply now"}
+            </button>
+          </div>
+        </div>
+        <p className="mt-2 text-xs text-gray-400">
+          Submits up to your daily cap to ≥75%-match jobs. Aggressive mode needs your LinkedIn session cookies on the Connect page.
+        </p>
+      </div>
 
       <h2 className="mb-2 text-sm font-semibold text-gray-700">Jobs ready to apply</h2>
       <div className="mb-6 space-y-2">
