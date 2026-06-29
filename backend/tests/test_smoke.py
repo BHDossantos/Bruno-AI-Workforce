@@ -1794,6 +1794,21 @@ def test_lead_pipeline_health_shape(client, auth_headers):
     assert {s["key"] for s in h["steps"]} == {"source", "send", "sent", "replies"}
     # No Gmail configured in CI → the top blocker is to connect a mailbox.
     assert any("Gmail" in b for b in h["blockers"])
+    # Replies-sync is GREEN when the in-process scheduler is on (default True) —
+    # it no longer requires CRON_SECRET to show healthy.
+    from app.config import settings
+    replies = next(s for s in h["steps"] if s["key"] == "replies")
+    assert replies["ok"] == bool(settings.enable_scheduler or settings.cron_secret)
+
+
+@requires_db
+def test_sync_replies_endpoint(client, auth_headers):
+    """On-demand reply sync runs without a scheduler — returns a clean summary so
+    leads can be warmed up on demand (no 500 even with no mailbox connected)."""
+    r = client.post("/leads/sync-replies", headers=auth_headers)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["ok"] is True and "scanned" in d and "matched" in d
 
 
 @requires_db
