@@ -64,19 +64,25 @@ def mission_control(db: Session = Depends(get_db), _=Depends(_read)):
         "status": "on track" if actuals.get(area, 0) >= target else "behind",
     } for area, target in _TARGETS.items()]
 
-    # Pending approvals (mirror /approvals/count exactly, incl. drafted replies).
+    # Pending approvals (mirror /approvals/count). With Outreach Autopilot ON, cold
+    # lead/restaurant emails auto-send and are NOT counted as needing you — only
+    # content + replies do. The auto-send backlog is reported separately.
+    auto = control.outreach_autopilot(db)
+    draft_leads = c(Lead, Lead.status == "Drafted", Lead.email.isnot(None))
+    draft_rests = c(Restaurant, Restaurant.kind == "prospect", Restaurant.status == "Drafted",
+                    Restaurant.email.isnot(None))
     pending = (c(ContentItem, ContentItem.status == "needs_approval")
-               + c(Lead, Lead.status == "Drafted", Lead.email.isnot(None))
-               + c(Restaurant, Restaurant.kind == "prospect", Restaurant.status == "Drafted",
-                   Restaurant.email.isnot(None))
                + c(Message, Message.entity_type == "reply", Message.direction == "outbound",
                    Message.status == "Drafted", Message.to_email.isnot(None)))
+    if not auto:
+        pending += draft_leads + draft_rests
 
     return {
         "paused": control.is_paused_safe(db),
         "today": today,
         "goals": goals,
         "approvals_pending": pending,
+        "auto_sending": (draft_leads + draft_rests) if auto else 0,
     }
 
 
