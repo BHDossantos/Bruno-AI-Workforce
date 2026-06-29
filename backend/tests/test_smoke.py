@@ -1409,8 +1409,9 @@ def test_outbound_messages_created_per_account(client, auth_headers):
     # referral-partner first touches, so it's a floor, not an exact batch.
     assert len(insurance) >= batch          # every insurance lead gets a first touch
     assert len(personal) >= batch           # restaurant prospects (+ any others)
-    # Gmail is not configured in CI, so nothing is actually sent.
-    assert all(m["status"] == "Drafted" for m in msgs)
+    # Gmail is not configured in CI, so nothing is actually SENT (messages stay
+    # Drafted, or Approved if a reply was approved without a mailbox — never Sent).
+    assert all(m["status"] != "Sent" for m in msgs)
 
 
 @requires_db
