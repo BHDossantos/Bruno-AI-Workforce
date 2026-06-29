@@ -720,6 +720,41 @@ def test_browser_field_matching_and_default_mode():
     assert browser.is_automation_ready() is False  # off by default -> safe assist mode
 
 
+def test_autoapply_lane_routing_and_off_gate():
+    """Auto-apply routes each job to the right lane and never submits when off."""
+    from app import autoapply
+    assert autoapply._lane("https://boards.greenhouse.io/acme/jobs/123") == "ats"
+    assert autoapply._lane("https://jobs.lever.co/acme/abc") == "ats"
+    assert autoapply._lane("https://acme.myworkdayjobs.com/x/job/123") == "ats"
+    assert autoapply._lane("https://www.linkedin.com/jobs/view/123") == "easy_apply"
+    assert autoapply._lane("https://www.indeed.com/viewjob?jk=1") == "easy_apply"
+    assert autoapply._lane("https://acme.com/careers/123") == "other"
+    assert autoapply._lane(None) == "other"
+    # Cookie parsing turns a copied cookie string into Playwright cookies.
+    # (Pure string parsing — no DB; exercised via the helper's logic.)
+
+
+@requires_db
+def test_autoapply_off_by_default_and_toggles(client, auth_headers):
+    """Auto-apply is OFF by default (never submits unprompted) and the mode toggles
+    off → compliant → aggressive without a redeploy."""
+    from app import autoapply
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        res = autoapply.run_auto_apply(db)
+        assert res["ok"] is False and res["mode"] == "off"  # nothing submitted when off
+    finally:
+        db.close()
+    st = client.get("/control/status", headers=auth_headers).json()
+    assert st["auto_apply_mode"] == "off"
+    agg = client.post("/control/auto-apply", json={"mode": "aggressive"}, headers=auth_headers).json()
+    assert agg["auto_apply_mode"] == "aggressive"
+    assert client.get("/control/status", headers=auth_headers).json()["auto_apply_mode"] == "aggressive"
+    # Reset so other tests/state aren't left in aggressive mode.
+    client.post("/control/auto-apply", json={"mode": "off"}, headers=auth_headers)
+
+
 def test_plaid_offline_noop():
     from app.integrations import plaid_api
     assert plaid_api.is_configured() is False

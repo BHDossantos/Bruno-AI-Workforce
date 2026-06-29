@@ -15,7 +15,20 @@ _write = require_role("admin", "operator")
 @router.get("/status")
 def status(db: Session = Depends(get_db), _=Depends(_read)):
     return {"paused": control.is_paused_safe(db), "mode": control.get_mode(db),
-            "outreach_autopilot": control.outreach_autopilot(db)}
+            "outreach_autopilot": control.outreach_autopilot(db),
+            "auto_apply_mode": control.auto_apply_mode(db)}
+
+
+class AutoApplyIn(BaseModel):
+    mode: str  # off | compliant | aggressive
+
+
+@router.post("/auto-apply")
+def set_auto_apply(body: AutoApplyIn, db: Session = Depends(get_db), _=Depends(_write)):
+    """Set the auto-apply mode: 'off' (prepare only), 'compliant' (auto-submit on
+    company ATS pages), or 'aggressive' (also LinkedIn/Indeed Easy Apply via your
+    stored session — violates their ToS, account risk)."""
+    return {"auto_apply_mode": control.set_auto_apply_mode(db, body.mode)}
 
 
 class OutreachIn(BaseModel):

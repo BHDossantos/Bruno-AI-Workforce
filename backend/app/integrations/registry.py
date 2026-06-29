@@ -80,7 +80,12 @@ PROVIDERS: list[dict] = [
                           help="GET https://api.linkedin.com/v2/userinfo (the 'sub' field) for a "
                                "person URN, or your Company Page admin URL for an organization URN."),
                    _field("profile_url", "Your profile / company URL", secret=False, required=False,
-                          help="Just your public LinkedIn URL — used for display only.")],
+                          help="Just your public LinkedIn URL — used for display only."),
+                   _field("session_cookies", "Session cookies (for auto-apply Easy Apply)", secret=True, required=False,
+                          help="OPTIONAL, only for aggressive auto-apply: from a logged-in LinkedIn "
+                               "browser tab, copy your cookies as 'name=value; name2=value2' (e.g. li_at=…). "
+                               "Lets the engine submit Easy Apply as you. Note: automating LinkedIn "
+                               "violates their ToS — use at your own account risk.")],
         "capabilities": ["publish_auto", "dm_assist", "analytics"],
         "stages": ["attract", "nurture", "convert"],
         "compliance": "Auto-publishes YOUR OWN posts via the official LinkedIn API "

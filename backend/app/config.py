@@ -223,6 +223,10 @@ class Settings(BaseSettings):
     # When True, the daily job hunter pre-builds each top job's fill package
     # (résumé + answers + cover letter) so the Apply Queue is submit-ready.
     auto_prepare_applications: bool = True
+    # Auto-apply engine (LoopCV-style). Max applications it will SUBMIT per day —
+    # paced to stay under board rate limits. The engine only runs when its mode
+    # (a runtime Setting: off | compliant | aggressive) is not "off".
+    auto_apply_daily_cap: int = 50
     # TikTok Content Posting API visibility. Pre-audit, TikTok forces SELF_ONLY
     # (private to your account); after your app passes audit, set this to
     # PUBLIC_TO_EVERYONE (or MUTUAL_FOLLOW_FRIENDS / FOLLOWER_OF_CREATOR).
