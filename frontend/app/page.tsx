@@ -32,6 +32,8 @@ type ClientGoal = {
 };
 type Mission = {
   paused: boolean; approvals_pending: number; auto_sending?: number; goals: Goal[];
+  outreach_backlog?: number; sent_today?: number; mailbox_connected?: boolean;
+  sending_stalled?: boolean; sending_reason?: string | null;
   today: {
     posts: number; insurance_leads: number; bnb_leads: number; savorymind_leads: number;
     outreach_sent: number; replies: number; applications: number; jobs_found: number;
@@ -142,9 +144,18 @@ function Home() {
           <span className="text-sm font-medium text-amber-800">Review now →</span>
         </Link>
       )}
-      {mission && (mission.auto_sending ?? 0) > 0 && (
+      {mission && (mission.sending_stalled || mission.mailbox_connected === false) && (mission.outreach_backlog ?? 0) > 0 && (
+        <Link href="/setup" className="mb-4 flex items-center justify-between rounded-xl border border-red-300 bg-red-50 p-4 hover:bg-red-100">
+          <span className="text-sm text-red-700">
+            ⚠️ <b>{mission.outreach_backlog}</b> outreach email{mission.outreach_backlog === 1 ? "" : "s"} are queued but <b>not going out</b>.{" "}
+            {mission.sending_reason || "Your mailbox isn't sending."}
+          </span>
+          <span className="whitespace-nowrap text-sm font-medium text-red-700">Fix sending →</span>
+        </Link>
+      )}
+      {mission && !mission.sending_stalled && (mission.auto_sending ?? 0) > 0 && (
         <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
-          📤 <b>{mission.auto_sending}</b> outreach email{mission.auto_sending === 1 ? "" : "s"} are sending automatically (Outreach Autopilot, paced to protect deliverability) — no action needed.
+          📤 <b>{mission.auto_sending}</b> outreach email{mission.auto_sending === 1 ? "" : "s"} queued and sending automatically (Outreach Autopilot, paced to protect deliverability){(mission.sent_today ?? 0) > 0 ? ` — ${mission.sent_today} sent today` : ""}.
         </div>
       )}
       {mission && (

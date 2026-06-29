@@ -77,12 +77,35 @@ def mission_control(db: Session = Depends(get_db), _=Depends(_read)):
     if not auto:
         pending += draft_leads + draft_rests
 
+    # Honest sending status: a big backlog of drafted outreach with ~nothing
+    # actually sent means sending is BLOCKED (mailbox can't send, or the engine
+    # isn't running) — don't reassure the user that it's "sending automatically".
+    from ..integrations import gmail
+    backlog = draft_leads + draft_rests
+    mailbox_connected = gmail.is_configured(gmail.PERSONAL) or gmail.is_configured(gmail.INSURANCE)
+    sending_stalled = bool(auto and backlog >= 25 and sent == 0)
+    if not mailbox_connected:
+        sending_reason = ("No mailbox is connected to SEND — connect your Gmail on the "
+                          "Connect page (and hit Test sending), or nothing goes out.")
+    elif sending_stalled:
+        sending_reason = ("Outreach is queued but not going out — your mailbox may not be "
+                          "authorized to send. Open Connect → Test sending to confirm.")
+    else:
+        sending_reason = None
+
     return {
         "paused": control.is_paused_safe(db),
         "today": today,
         "goals": goals,
         "approvals_pending": pending,
-        "auto_sending": (draft_leads + draft_rests) if auto else 0,
+        # Only call it "sending" when sends are actually happening today; otherwise
+        # report the backlog as stalled so the UI can warn instead of reassure.
+        "auto_sending": backlog if (auto and not sending_stalled) else 0,
+        "outreach_backlog": backlog,
+        "sent_today": sent,
+        "mailbox_connected": mailbox_connected,
+        "sending_stalled": sending_stalled,
+        "sending_reason": sending_reason,
     }
 
 

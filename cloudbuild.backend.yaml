@@ -24,5 +24,19 @@ steps:
       - --platform=managed
       - --allow-unauthenticated
       - --port=8080
+      # 24/7 engine: keep one instance always warm and give it CPU even between
+      # requests, so the in-process APScheduler (lead sourcing, auto-outreach,
+      # follow-ups, reply sync) actually runs around the clock instead of being
+      # frozen/reaped when the service is idle. Without these, outreach is drafted
+      # but never sent, and cold starts surface as "Failed to fetch" in the UI.
+      - --min-instances=1
+      - --no-cpu-throttling
+      - --cpu=1
+      - --memory=1Gi
+      # Long actions (Work the pipeline) can exceed the 5-min default.
+      - --timeout=600
+      # Ensure the scheduler is on in prod (config default, set explicitly here so
+      # it can't be silently off). Other env vars/secrets are left untouched.
+      - --update-env-vars=ENABLE_SCHEDULER=true
 options:
   logging: CLOUD_LOGGING_ONLY
