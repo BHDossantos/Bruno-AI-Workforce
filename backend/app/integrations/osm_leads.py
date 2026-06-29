@@ -32,18 +32,28 @@ _OVERPASS_HEADERS = {
     "Accept": "application/json",
 }
 
-# Commercial-insurance prospect categories → OpenStreetMap selectors.
+# Commercial-insurance prospect categories → OpenStreetMap selectors. Broad on
+# purpose: the wider the category net, the more real businesses we keep finding in
+# the same states before the email-tagged pool is exhausted.
 COMMERCIAL_OSM = {
-    "Restaurant": ['node["amenity"~"restaurant|cafe|fast_food|bar|pub"]'],
-    "Contractor": ['node["craft"~"plumber|electrician|carpenter|hvac|roofer|painter|builder"]'],
-    "Retail store": ['node["shop"~"convenience|clothes|hardware|florist|gift|bakery|butcher|jewelry|shoes|furniture"]'],
-    "Real estate agency": ['node["office"="estate_agent"]'],
-    "Medical office": ['node["amenity"~"clinic|doctors|dentist|veterinary|pharmacy"]'],
-    "Landscaper": ['node["craft"="gardener"]', 'node["shop"="garden_centre"]'],
-    "Auto services": ['node["shop"~"car_repair|car|tyres"]', 'node["amenity"="fuel"]'],
-    "Beauty & wellness": ['node["shop"~"hairdresser|beauty"]', 'node["leisure"="fitness_centre"]', 'node["amenity"="gym"]'],
-    "Professional services": ['node["office"~"lawyer|accountant|insurance|company|it|financial"]'],
-    "Hospitality": ['node["tourism"~"hotel|guest_house"]'],
+    "Restaurant": ['node["amenity"~"restaurant|cafe|fast_food|bar|pub|biergarten|food_court|ice_cream"]'],
+    "Contractor": ['node["craft"~"plumber|electrician|carpenter|hvac|roofer|painter|builder|tiler|plasterer|insulation|stonemason|metal_construction|scaffolder|window_construction|sawmill|floorer|handicraft"]'],
+    "Retail store": ['node["shop"~"convenience|clothes|hardware|florist|gift|bakery|butcher|jewelry|shoes|furniture|electronics|mobile_phone|bicycle|sports|toys|pet|stationery|books|optician|deli|greengrocer|wine|alcohol|cosmetics|variety_store|department_store|supermarket|doityourself|trade"]'],
+    "Real estate agency": ['node["office"~"estate_agent|property_management"]'],
+    "Medical office": ['node["amenity"~"clinic|doctors|dentist|veterinary|pharmacy"]',
+                       'node["healthcare"~"physiotherapist|psychotherapist|chiropractor|optometrist|podiatrist|dentist|doctor"]'],
+    "Landscaper": ['node["craft"="gardener"]', 'node["shop"="garden_centre"]',
+                   'node["landuse"="plant_nursery"]'],
+    "Auto services": ['node["shop"~"car_repair|car|tyres|car_parts|motorcycle"]',
+                      'node["amenity"~"fuel|car_wash|car_rental"]'],
+    "Beauty & wellness": ['node["shop"~"hairdresser|beauty|massage|nails|tattoo"]',
+                          'node["leisure"~"fitness_centre|spa"]', 'node["amenity"="gym"]'],
+    "Professional services": ['node["office"~"lawyer|accountant|insurance|company|it|financial|consulting|architect|engineer|tax_advisor|employment_agency|advertising_agency|notary|surveyor"]'],
+    "Hospitality": ['node["tourism"~"hotel|guest_house|motel|hostel|apartment|chalet"]'],
+    "Trades & industrial": ['node["shop"~"trade|building_materials|hvac|electrical"]',
+                            'node["craft"~"electronics_repair|sun_protection|key_cutter|locksmith|cleaning"]'],
+    "Childcare & education": ['node["amenity"~"childcare|kindergarten|driving_school|language_school|music_school|prep_school"]'],
+    "Funeral & specialty": ['node["shop"~"funeral_directors|pawnbroker|laundry|dry_cleaning|travel_agency|copyshop|locksmith"]'],
 }
 RESTAURANT_OSM = ['node["amenity"~"restaurant|cafe|bar|pub|fast_food"]']
 
@@ -56,8 +66,11 @@ EDUCATION_OSM = [
 ]
 
 # Bound website scraping per run so the agent stays fast (each scrape is a few
-# HTTP fetches). Most leads should come from OSM email tags (zero scraping).
-_SCRAPE_BUDGET = 15
+# HTTP fetches). Email-tagged businesses are instant; once that pool is exhausted
+# in a region, scraping website-only businesses is how we keep finding NEW leads —
+# so this is configurable (raise it to dig deeper per run).
+def _scrape_budget() -> int:
+    return max(0, int(getattr(settings, "osm_scrape_budget", 40) or 0))
 
 
 def is_enabled() -> bool:
@@ -224,7 +237,7 @@ def _harvest(selectors: list[str], segment: str, count: int,
 
     # Pass 2 — website-only businesses, scraped to fill the shortfall (bounded).
     if len(out) < count:
-        budget = [_SCRAPE_BUDGET]
+        budget = [_scrape_budget()]
         for label, head in areas:
             if len(out) >= count or budget[0] <= 0:
                 break

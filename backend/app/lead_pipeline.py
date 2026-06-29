@@ -28,7 +28,11 @@ def health(db: Session) -> dict:
     gmail_personal = gmail.is_configured(gmail.PERSONAL)
     gmail_insurance = gmail.is_configured(gmail.INSURANCE)
     any_gmail = gmail_personal or gmail_insurance
-    scheduler_on = bool(settings.enable_scheduler and settings.cron_secret)
+    # Replies sync whenever EITHER the in-process scheduler is on (default) OR an
+    # external cron is wired (cron_secret). cron_secret alone was too strict — it
+    # showed red even though the in-process scheduler was syncing.
+    scheduler_on = bool(settings.enable_scheduler or settings.cron_secret)
+    external_cron = bool(settings.cron_secret)
 
     sent_total = int(db.query(func.count()).select_from(Message).filter(
         Message.direction == "outbound", Message.status == "Sent").scalar() or 0)
@@ -70,8 +74,11 @@ def health(db: Session) -> dict:
                     (f"{drafted} drafted, waiting for your approval." if drafted
                      else "Nothing sent yet."))},
         {"key": "replies", "label": "Replies sync (warm/hot come from here)", "ok": scheduler_on,
-         "detail": ("Auto-syncing every 2h." if scheduler_on else
-                    "Scheduler off — replies won't sync automatically, so leads stay cold.")},
+         "detail": (("Auto-syncing" + ("" if external_cron else " (in-app scheduler; set CRON_SECRET "
+                     "for scale-to-zero reliability)") + ". Use “Sync replies now” anytime.")
+                    if scheduler_on else
+                    "Replies aren't syncing — hit “Sync replies now”, or enable the scheduler so "
+                    "leads warm up automatically.")},
     ]
 
     # ── The single most important next action ────────────────────────────────

@@ -13,12 +13,26 @@ type Rec = {
   lang: string; interimResults: boolean; continuous: boolean; maxAlternatives: number;
   start: () => void; stop: () => void; abort: () => void;
   onresult: ((e: { resultIndex: number; results: ArrayLike<SpeechResult> }) => void) | null;
+type Rec = {
+  lang: string; interimResults: boolean; continuous: boolean;
+  start: () => void; stop: () => void;
+  onresult: ((e: { results: ArrayLike<{ isFinal: boolean } & ArrayLike<{ transcript: string }>> }) => void) | null;
   onerror: ((e: { error?: string }) => void) | null;
   onend: (() => void) | null;
 };
 
 const WAKE = /\b(hey,?\s*)?jarvis\b/i;
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+const WAKE = /\b(hey )?jarvis\b/i;
+
+function speak(text: string) {
+  try {
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 1.05;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+  } catch { /* unsupported */ }
+}
 
 export default function VoiceCommand() {
   const router = useRouter();
@@ -81,6 +95,12 @@ export default function VoiceCommand() {
     try { rec.start(); }
     catch { setTimeout(() => { if (onRef.current) { try { rec.start(); } catch { /* already running */ } } }, 350); }
   }
+  const recRef = useRef<Rec | null>(null);
+  const onRef = useRef(false);          // latest "on" for async callbacks
+  const armedRef = useRef(false);       // heard "Jarvis", waiting for the order
+  const busyRef = useRef(false);
+
+  useEffect(() => { onRef.current = on; }, [on]);
 
   useEffect(() => {
     const W = window as unknown as { SpeechRecognition?: new () => Rec; webkitSpeechRecognition?: new () => Rec };
@@ -122,6 +142,25 @@ export default function VoiceCommand() {
       }
     };
     rec.onend = () => { restart(); };  // keep listening continuously
+    rec.lang = "en-US"; rec.interimResults = false; rec.continuous = true;
+    rec.onresult = (e) => {
+      for (let i = 0; i < e.results.length; i++) {
+        const res = e.results[i];
+        if (!res.isFinal) continue;
+        const text = (res[0]?.transcript || "").trim();
+        if (!text) continue;
+        if (armedRef.current) {            // wake word already heard → this is the order
+          armedRef.current = false;
+          handle(text);
+        } else if (WAKE.test(text)) {
+          const after = text.replace(WAKE, "").replace(/^[\s,]+/, "").trim();
+          if (after) handle(after);
+          else { armedRef.current = true; setLine("Yes?"); speak("Yes?"); }
+        }
+      }
+    };
+    rec.onerror = () => { /* keep going; onend will restart */ };
+    rec.onend = () => { if (onRef.current) { try { rec.start(); } catch { /* already */ } } };
     recRef.current = rec;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -148,6 +187,7 @@ export default function VoiceCommand() {
     if (!rec) return;
     if (on) {
       setOn(false); onRef.current = false; disarm();
+      setOn(false); onRef.current = false; armedRef.current = false;
       try { rec.stop(); } catch { /* */ }
       setLine(null);
     } else {
@@ -169,6 +209,10 @@ export default function VoiceCommand() {
       if (onRef.current) { try { rec.abort(); } catch { /* */ } /* onend → restart with new lang */ }
     }
     setLine(next.startsWith("pt") ? "Idioma: Português 🇧🇷" : "Language: English 🇺🇸");
+      try { rec.start(); } catch { /* already */ }
+      setLine("Hey Jarvis is listening… say “Jarvis, …”");
+      speak("Jarvis online.");
+    }
   }
 
   if (!supported) return null;
@@ -191,6 +235,12 @@ export default function VoiceCommand() {
           🎙️ {on ? "Jarvis on" : "Hey Jarvis"}
         </button>
       </div>
+      <button onClick={toggle} title='Toggle "Hey Jarvis"'
+        className={`flex items-center gap-2 rounded-full px-4 py-3 text-sm font-semibold text-white shadow-xl transition ${
+          on ? "animate-pulse bg-red-600" : "bg-brand hover:bg-brand-dark"
+        }`}>
+        🎙️ {on ? "Jarvis on" : "Hey Jarvis"}
+      </button>
     </div>
   );
 }

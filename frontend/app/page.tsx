@@ -26,7 +26,7 @@ type Score = {
 type Brand = { key: string; name: string; icon: string; metric: string; value: number; warm: number; hot: number; link: string };
 type Goal = { area: string; target: number; today: number; status: string };
 type Mission = {
-  paused: boolean; approvals_pending: number; goals: Goal[];
+  paused: boolean; approvals_pending: number; auto_sending?: number; goals: Goal[];
   today: {
     posts: number; insurance_leads: number; bnb_leads: number; savorymind_leads: number;
     outreach_sent: number; replies: number; applications: number; jobs_found: number;
@@ -108,6 +108,11 @@ function Home() {
           </span>
           <span className="text-sm font-medium text-amber-800">Review now →</span>
         </Link>
+      )}
+      {mission && (mission.auto_sending ?? 0) > 0 && (
+        <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+          📤 <b>{mission.auto_sending}</b> outreach email{mission.auto_sending === 1 ? "" : "s"} are sending automatically (Outreach Autopilot, paced to protect deliverability) — no action needed.
+        </div>
       )}
       {mission && (
         <div className="mb-6">

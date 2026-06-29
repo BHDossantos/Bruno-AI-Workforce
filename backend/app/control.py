@@ -19,8 +19,62 @@ log = logging.getLogger("bruno.control")
 _PAUSED_KEY = "agents_paused"
 _MODE_KEY = "automation_mode"
 _OUTREACH_KEY = "outreach_autopilot"
+_INS_RELAY_KEY = "insurance_relay_via_personal"
+_AUTOAPPLY_KEY = "auto_apply_mode"
 MODES = ("manual", "semi", "auto")
 _DEFAULT_MODE = "semi"  # agents prepare everything; you approve to send/post
+AUTO_APPLY_MODES = ("off", "compliant", "aggressive")
+
+
+def auto_apply_mode(db: Session) -> str:
+    """How the auto-apply engine submits job applications:
+    - off (default): prepare only — you click apply (no auto-submit).
+    - compliant: auto-submit on company ATS pages (Greenhouse/Lever/etc.);
+      LinkedIn/Indeed/unknown are queued for one click.
+    - aggressive: ALSO auto-submit LinkedIn/Indeed Easy Apply via your stored
+      session (higher volume; violates those platforms' ToS — account risk).
+    Stored in Settings so it survives restarts and toggles without a redeploy."""
+    try:
+        row = db.get(Setting, _AUTOAPPLY_KEY)
+        val = (row.value or "").lower() if row else ""
+        return val if val in AUTO_APPLY_MODES else "off"
+    except Exception:  # pragma: no cover - defensive
+        return "off"
+
+
+def set_auto_apply_mode(db: Session, mode: str) -> str:
+    mode = (mode or "").lower()
+    if mode not in AUTO_APPLY_MODES:
+        mode = "off"
+    row = db.get(Setting, _AUTOAPPLY_KEY)
+    if row is None:
+        row = Setting(key=_AUTOAPPLY_KEY)
+        db.add(row)
+    row.value = mode
+    db.commit()
+    return mode
+
+
+def insurance_relay_via_personal(db: Session) -> bool:
+    """When ON, insurance outreach sends THROUGH the personal mailbox with the
+    Thrust address as Reply-To — so insurance emails go out even without separate
+    Thrust mailbox credentials (replies still land in the Thrust inbox). Stored in
+    Settings so it toggles without a redeploy. Default OFF."""
+    try:
+        row = db.get(Setting, _INS_RELAY_KEY)
+        return bool(row and (row.value or "").lower() in ("1", "true", "yes", "on"))
+    except Exception:  # pragma: no cover - defensive
+        return False
+
+
+def set_insurance_relay_via_personal(db: Session, on: bool) -> bool:
+    row = db.get(Setting, _INS_RELAY_KEY)
+    if row is None:
+        row = Setting(key=_INS_RELAY_KEY)
+        db.add(row)
+    row.value = "true" if on else "false"
+    db.commit()
+    return on
 
 
 def outreach_autopilot(db: Session) -> bool:

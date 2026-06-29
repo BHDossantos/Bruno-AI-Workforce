@@ -62,6 +62,26 @@ _NAV = {
     "savorymind": "/savorymind", "consulting": "/bnbglobal", "consultoria": "/bnbglobal",
     "money": "/money", "dinheiro": "/money", "pipeline": "/pipeline", "connections": "/connections",
     "conexões": "/connections", "conexoes": "/connections",
+# Spoken business/topic → agent key.
+_AGENT_ALIASES = {
+    "insurance": "insurance", "commercial": "commercial_finder", "business insurance": "commercial_finder",
+    "homeowner": "homeowner", "home": "homeowner", "auto": "homeowner",
+    "referral": "referral_partner", "partner": "referral_partner",
+    "consulting": "bnbglobal", "bnb": "bnbglobal", "b and b": "bnbglobal", "b&b": "bnbglobal",
+    "savorymind": "savorymind", "savory": "savorymind", "restaurant": "savorymind", "restaurants": "savorymind",
+    "grant": "grant_research", "grants": "grant_research", "funding": "grant_research",
+    "foundation": "foundation_outreach", "donor": "foundation_outreach", "sponsor": "foundation_outreach",
+    "school": "school_partner", "schools": "school_partner",
+    "music": "music", "instagram": "instagram", "job": "job_hunter", "jobs": "job_hunter",
+    "follow up": "follow_up_agent", "followup": "follow_up_agent", "follow-up": "follow_up_agent",
+    "review": "review_referral",
+}
+_NAV = {
+    "mission": "/", "home": "/", "approvals": "/approvals", "approval": "/approvals",
+    "calendar": "/calendar", "content": "/calendar", "leads": "/insurance",
+    "insurance": "/insurance", "foundation": "/foundation", "grants": "/foundation",
+    "music": "/music", "savorymind": "/savorymind", "consulting": "/bnbglobal",
+    "money": "/money", "pipeline": "/pipeline", "connections": "/connections",
 }
 
 _INTENT_PROMPT = """You route a spoken order for an AI marketing/sales workforce to ONE action.
@@ -163,6 +183,40 @@ def _keyword_interpret(text: str) -> dict:
         return {"intent": "self_check", "reply": "Running a self-check and auto-correcting."}
     if (any(w in t for w in ("find", "source", "get", "run", "buscar", "encontrar", "procurar", "rodar", "gerar"))
             and _match_alias(t, _AGENT_ALIASES)):
+def _interpret(text: str) -> dict:
+    """LLM intent parse with a keyword fallback so it works offline too."""
+    if client.is_live():
+        out = client.complete_json(_INTENT_PROMPT.format(text=text[:300]),
+                                    system="You output only valid JSON.")
+        if isinstance(out, dict) and out.get("intent"):
+            return out
+    t = text.lower()
+    if any(w in t for w in ("pause", "stop everything", "emergency")):
+        return {"intent": "pause", "reply": "Pausing all agents."}
+    if "resume" in t:
+        return {"intent": "resume", "reply": "Resuming agents."}
+    if "autopilot" in t or "full auto" in t:
+        return {"intent": "set_mode", "mode": "auto", "reply": "Switching to autopilot."}
+    if "status" in t or "brief" in t:
+        return {"intent": "status", "reply": "Here's your status."}
+    if "approve" in t and ("safe" in t or "all" in t or "everything" in t):
+        return {"intent": "approve_safe", "reply": "Approving the safe items."}
+    if any(w in t for w in ("how many", "pipeline", "numbers", "metrics", "how much")):
+        return {"intent": "metrics", "reply": "Here are your numbers."}
+    if t.startswith("write ") or "write a" in t or "post about" in t:
+        return {"intent": "write_content", "topic": text, "reply": "Writing it now."}
+    if "draft outreach" in t or "reach out to" in t or "draft an email to" in t:
+        m = re.search(r"(?:outreach to|reach out to|email to)\s+(.+)$", text, re.I)
+        return {"intent": "draft_outreach", "company": (m.group(1).strip() if m else ""),
+                "reply": "Drafting that outreach."}
+    if t.startswith("schedule") or "schedule this" in t:
+        return {"intent": "schedule", "when": text, "reply": "Scheduling it."}
+    if "what failed" in t or "any errors" in t or "what broke" in t:
+        return {"intent": "what_failed", "reply": "Checking what failed."}
+    if "work the pipeline" in t or "work my pipeline" in t or "fill the pipeline" in t:
+        return {"intent": "work_pipeline", "reply": "Working the pipeline now."}
+    agent = _match_alias(t, _AGENT_ALIASES)
+    if agent:
         return {"intent": "run_agent", "target": text, "reply": "On it."}
     nav = _match_alias(t, _NAV)
     if nav:
@@ -185,6 +239,9 @@ def _interpret(text: str) -> dict:
         if isinstance(out, dict) and out.get("intent"):
             return out
     return fast
+
+
+    return {"intent": "unknown", "reply": "I didn't catch a clear order."}
 
 
 @router.post("/command")

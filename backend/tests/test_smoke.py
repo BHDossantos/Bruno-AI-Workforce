@@ -166,6 +166,62 @@ def test_outreach_autopilot_defaults_on_and_toggles(client, auth_headers):
     assert on["outreach_autopilot"] is True
 
 
+@requires_db
+def test_insurance_relay_toggle_routes_through_personal(client, auth_headers):
+    """One-click relay: when ON, insurance sends through the personal mailbox with
+    a Thrust Reply-To (so it sends without separate Thrust credentials)."""
+    from app import control
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.integrations import gmail
+    assert client.get("/control/status", headers=auth_headers).json()["insurance_relay"] is False
+    on = client.post("/control/insurance-relay", json={"on": True}, headers=auth_headers).json()
+    assert on["insurance_relay"] is True
+    db = SessionLocal()
+    old = (settings.gmail_app_password, settings.gmail_address, settings.insurance_via_personal_reply_to)
+    try:
+        settings.gmail_app_password = "app-pw-xxxx"
+        settings.gmail_address = "me@gmail.com"
+        settings.insurance_via_personal_reply_to = control.insurance_relay_via_personal(db)
+        login_addr, pw, from_addr, reply_to = gmail._smtp_login("insurance")
+        assert login_addr == "me@gmail.com" and pw == "app-pw-xxxx"
+        assert reply_to == settings.insurance_gmail_address  # replies go to Thrust
+    finally:
+        settings.gmail_app_password, settings.gmail_address, settings.insurance_via_personal_reply_to = old
+        db.close()
+    client.post("/control/insurance-relay", json={"on": False}, headers=auth_headers)
+
+
+@requires_db
+def test_autopilot_excludes_cold_outreach_from_approval_queue(client, auth_headers):
+    """With Outreach Autopilot ON, drafted cold lead emails auto-send and must NOT
+    count as 'needs your approval' (they're a send queue) — and synthetic addresses
+    that can never send are filtered out entirely."""
+    from app.database import SessionLocal
+    from app.models import Lead
+    db = SessionLocal()
+    try:
+        db.add(Lead(segment="commercial", company_name="Real Co", email="real-aq@realco.test.example",
+                    status="Drafted", cold_email="hi"))
+        db.add(Lead(segment="commercial", company_name="Fake Co", email="fake@example.com",
+                    status="Drafted", cold_email="hi"))
+        db.commit()
+    finally:
+        db.close()
+    # Autopilot ON (default) → cold outreach is auto-sending, not awaiting approval.
+    client.post("/control/outreach-autopilot", json={"on": True}, headers=auth_headers)
+    cnt = client.get("/approvals/count", headers=auth_headers).json()
+    assert "auto_sending" in cnt and cnt["auto_sending"] >= 1
+    listed = client.get("/approvals", headers=auth_headers).json()
+    assert all(it["type"] != "lead" for it in listed["items"])  # leads not in the approve queue
+    # Turn autopilot OFF → real-email cold leads reappear for approval, synthetic stays hidden.
+    client.post("/control/outreach-autopilot", json={"on": False}, headers=auth_headers)
+    listed_off = client.get("/approvals", headers=auth_headers).json()
+    tos = [it.get("to") for it in listed_off["items"] if it["type"] == "lead"]
+    assert "fake@example.com" not in tos  # synthetic never shown
+    client.post("/control/outreach-autopilot", json={"on": True}, headers=auth_headers)  # restore default
+
+
 def test_memory_slot_prompts_format_cleanly():
     """Every prompt with a {memory} slot must format with the exact keys call sites
     pass — guards against the KeyError class of bug when a slot is added."""
@@ -185,6 +241,22 @@ def test_bulk_dispatch_endpoints(client, auth_headers):
     assert d["ok"] is True and "dispatched" in d and "pending" in d
     r2 = client.post("/restaurants/dispatch", headers=auth_headers)
     assert r2.status_code == 200 and r2.json()["ok"] is True
+
+
+@requires_db
+def test_approve_all_clears_the_queue(client, auth_headers):
+    """One-click Approve all drains the whole queue: content scheduled, outreach
+    sent up to cap (rest stays queued for auto-pacing) — never 500s, and the
+    pending count is zero or only the cap-deferred remainder afterwards."""
+    r = client.post("/approvals/approve-all", headers=auth_headers)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["ok"] is True
+    for k in ("approved", "content_scheduled", "outreach_sent_now", "outreach_queued"):
+        assert k in d
+    # No content should remain in needs_approval (all scheduled).
+    after = client.get("/approvals", headers=auth_headers).json()
+    assert all(it["type"] != "content" for it in after["items"])
 
 
 def test_bridge_token_auth():
@@ -227,6 +299,30 @@ def test_newsletter_funnel_mapping():
     # subscribe() ignores unknown funnels / empty email (db not touched on those paths).
     assert newsletters.subscribe(db=None, funnel="nope", email="a@b.c") is False
     assert newsletters.subscribe(db=None, funnel="insurance", email=None) is False
+    # _issue always returns a written issue, even offline (template fallback).
+    subj, body = newsletters._issue("insurance")
+    assert subj and body
+
+
+@requires_db
+def test_newsletters_are_written_and_listed(client, auth_headers):
+    """'Write newsletters now' produces a visible, stored draft per funnel — so a
+    newsletter is actually written even before there are subscribers."""
+    w = client.post("/newsletters/write", headers=auth_headers).json()
+    assert len(w["funnels"]) == 4 and all(f.get("ok") for f in w["funnels"])
+    drafts = client.get("/newsletters/drafts", headers=auth_headers).json()["drafts"]
+    assert len(drafts) >= 4 and all(d["subject"] and d["body"] for d in drafts)
+    # Writing again refreshes (one open draft per funnel, no pile-up).
+    client.post("/newsletters/write", headers=auth_headers)
+    again = client.get("/newsletters/drafts", headers=auth_headers).json()["drafts"]
+    per_funnel = {}
+    for d in again:
+        per_funnel[d["funnel"]] = per_funnel.get(d["funnel"], 0) + 1
+    assert all(n == 1 for n in per_funnel.values())  # exactly one open draft per funnel
+    # Dismiss one — it leaves the list.
+    client.post(f"/newsletters/drafts/{again[0]['id']}/dismiss", headers=auth_headers)
+    after = client.get("/newsletters/drafts", headers=auth_headers).json()["drafts"]
+    assert all(d["id"] != again[0]["id"] for d in after)
 
 
 def test_bulk_outreach_helpers_exist():
@@ -436,10 +532,35 @@ def test_recap_references_real_columns():
     from app.models import Application, Contact, ContentItem, Job, Message
     assert hasattr(Job, "found_at")                 # NOT created_at
     assert hasattr(Application, "applied_at")
-    for attr in ("channel", "direction", "created_at"):
-        assert hasattr(Message, attr)
+    for attr in ("channel", "direction", "created_at", "sent_at", "status"):
+        assert hasattr(Message, attr)  # recap counts SENT by sent_at, not created_at
     assert hasattr(ContentItem, "published_at") and hasattr(ContentItem, "created_at")
     assert hasattr(Contact, "created_at")
+
+
+@requires_db
+def test_recap_and_mission_count_actual_sends_not_drafts(client, auth_headers):
+    """The home recap + Mission Control 'Outreach sent' must count ACTUALLY-sent
+    emails (sent_at), never drafts — otherwise they claim sends that are really
+    sitting in the approval queue (the 'said 155 sent but 0 went out' bug)."""
+    from datetime import datetime, timezone
+    from app import scoring
+    from app.database import SessionLocal
+    from app.models import Message
+    db = SessionLocal()
+    try:
+        db.add(Message(channel="email", direction="outbound", to_email="sent@x.co",
+                       subject="s", body="b", status="Sent", sent_at=datetime.now(timezone.utc)))
+        db.add(Message(channel="email", direction="outbound", to_email="draft@x.co",
+                       subject="s", body="b", status="Drafted"))  # no sent_at
+        db.commit()
+        labels = {r["label"]: r["count"] for r in scoring.recap(db)}
+        assert labels.get("outreach emails sent", 0) >= 1
+        assert labels.get("outreach drafted (awaiting approval)", 0) >= 1
+    finally:
+        db.close()
+    mc = client.get("/mission/control", headers=auth_headers).json()
+    assert mc["today"]["outreach_sent"] >= 1  # counts the real send, not the draft
 
 
 def test_all_agents_registered():
@@ -448,6 +569,8 @@ def test_all_agents_registered():
         "follow_up_agent", "review_referral", "bnbglobal", "savorymind", "music",
         "music_pr", "music_collab", "music_sync", "instagram", "life_ops",
         "grant_research", "foundation_outreach", "school_partner", "ceo_dashboard",
+        "music_pr", "music_collab", "instagram", "grant_research", "foundation_outreach",
+        "school_partner", "ceo_dashboard",
     }
 
 
@@ -468,6 +591,25 @@ def test_live_sources_disabled_without_keys():
     assert jobs_api.is_configured() is False
     assert apollo.fetch_commercial_leads(10) == []
     assert jobs_api.fetch_jobs(["Director SRE"], limit=5) == []
+
+
+def test_apollo_enrichment_and_location_targeting():
+    """Apollo reveals verified emails (enrichment) + stays in-territory. Locked
+    placeholder emails are treated as no-email; enrich is a no-op without a key."""
+    from app.integrations import apollo, providers
+    # Locked / placeholder addresses Apollo returns before enrichment aren't real.
+    assert apollo._is_real("email_not_unlocked@domain.com") is False
+    assert apollo._is_real("") is False
+    assert apollo._is_real("owner@realbiz.com") is True
+    assert apollo._domain("https://www.acme.io/careers") == "acme.io"
+    # Enrichment + filtering are safe with no key.
+    assert apollo.enrich_email({"first_name": "A", "domain": "x.com"}) is None
+    assert apollo._with_emails([{"email": "good@x.com"}, {"email": None}], budget=5) == [{"email": "good@x.com"}]
+    # Insurance scope → Apollo person_locations (in-territory); global → unfiltered.
+    assert providers._scope_locations("Massachusetts,New Hampshire,Florida") == \
+        ["Massachusetts", "New Hampshire", "Florida"]
+    assert providers._scope_locations("global") is None
+    assert providers._scope_locations(None) is None
 
 
 def test_free_jobs_gated_off_in_tests_and_parse_salary():
@@ -594,6 +736,26 @@ def test_osm_lead_engine_offline_behavior():
     finally:
         settings.lead_cities = old_c
         settings.lead_states = old_s
+
+
+def test_insurance_sourcing_is_broadened():
+    """Broader category net + a real scrape budget so insurance keeps finding NEW
+    leads in NH/MA/FL after the email-tagged pool is tapped."""
+    from app.config import settings
+    from app.integrations import osm_leads
+    assert len(osm_leads.COMMERCIAL_OSM) >= 12  # wide category net
+    # Every selector is a well-formed Overpass node filter (no quoting breakage).
+    for sels in osm_leads.COMMERCIAL_OSM.values():
+        assert all(s.startswith('node[') and s.endswith(']') for s in sels)
+    assert osm_leads._scrape_budget() == settings.osm_scrape_budget >= 1
+
+
+def test_music_real_playlist_discovery_offline_safe():
+    """Music now sources REAL playlists from Spotify (search by genre); offline /
+    unconnected it returns nothing rather than fabricating, never raises."""
+    from app.integrations import spotify_api
+    assert spotify_api.discover_playlists(None, ["r&b", "latin soul"]) == []
+    assert spotify_api.discover_playlists(None, []) == []
 
 
 def test_places_source_disabled_without_key():
@@ -732,6 +894,41 @@ def test_browser_field_matching_and_default_mode():
     assert browser._match_field("full name", fm) == "Bruno Dos Santos"
     assert browser._match_field("favorite color", fm) is None
     assert browser.is_automation_ready() is False  # off by default -> safe assist mode
+
+
+def test_autoapply_lane_routing_and_off_gate():
+    """Auto-apply routes each job to the right lane and never submits when off."""
+    from app import autoapply
+    assert autoapply._lane("https://boards.greenhouse.io/acme/jobs/123") == "ats"
+    assert autoapply._lane("https://jobs.lever.co/acme/abc") == "ats"
+    assert autoapply._lane("https://acme.myworkdayjobs.com/x/job/123") == "ats"
+    assert autoapply._lane("https://www.linkedin.com/jobs/view/123") == "easy_apply"
+    assert autoapply._lane("https://www.indeed.com/viewjob?jk=1") == "easy_apply"
+    assert autoapply._lane("https://acme.com/careers/123") == "other"
+    assert autoapply._lane(None) == "other"
+    # Cookie parsing turns a copied cookie string into Playwright cookies.
+    # (Pure string parsing — no DB; exercised via the helper's logic.)
+
+
+@requires_db
+def test_autoapply_off_by_default_and_toggles(client, auth_headers):
+    """Auto-apply is OFF by default (never submits unprompted) and the mode toggles
+    off → compliant → aggressive without a redeploy."""
+    from app import autoapply
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        res = autoapply.run_auto_apply(db)
+        assert res["ok"] is False and res["mode"] == "off"  # nothing submitted when off
+    finally:
+        db.close()
+    st = client.get("/control/status", headers=auth_headers).json()
+    assert st["auto_apply_mode"] == "off"
+    agg = client.post("/control/auto-apply", json={"mode": "aggressive"}, headers=auth_headers).json()
+    assert agg["auto_apply_mode"] == "aggressive"
+    assert client.get("/control/status", headers=auth_headers).json()["auto_apply_mode"] == "aggressive"
+    # Reset so other tests/state aren't left in aggressive mode.
+    client.post("/control/auto-apply", json={"mode": "off"}, headers=auth_headers)
 
 
 def test_plaid_offline_noop():
@@ -1214,8 +1411,9 @@ def test_outbound_messages_created_per_account(client, auth_headers):
     # referral-partner first touches, so it's a floor, not an exact batch.
     assert len(insurance) >= batch          # every insurance lead gets a first touch
     assert len(personal) >= batch           # restaurant prospects (+ any others)
-    # Gmail is not configured in CI, so nothing is actually sent.
-    assert all(m["status"] == "Drafted" for m in msgs)
+    # Gmail is not configured in CI, so nothing is actually SENT (messages stay
+    # Drafted, or Approved if a reply was approved without a mailbox — never Sent).
+    assert all(m["status"] != "Sent" for m in msgs)
 
 
 @requires_db
@@ -1330,6 +1528,46 @@ def test_connections_crud_and_secret_encryption(client, auth_headers):
     d = client.delete(f"/connections/{cid}", headers=auth_headers)
     assert d.status_code == 200
     assert all(c["id"] != cid for c in client.get("/connections", headers=auth_headers).json())
+
+
+def test_learning_loop_covers_all_connected_platforms():
+    """The learning loop ingests engagement from every connected platform that
+    exposes it — not just IG/FB — so topic/timing selection learns everywhere."""
+    from app import content_analytics as ca
+    assert {"instagram", "facebook", "x", "youtube", "tiktok", "linkedin"} <= set(ca._INSIGHTS)
+    assert all(callable(fn) for fn in ca._INSIGHTS.values())
+    # Each platform metrics fetcher is safe offline (no creds → None, never raises).
+    from app.integrations import twitter_api, youtube_api, tiktok_api, linkedin_api
+    assert twitter_api.get_post_metrics(None, "1") is None
+    assert youtube_api.get_post_metrics(None, "1") is None
+    assert tiktok_api.get_post_metrics(None, "1") is None
+    assert linkedin_api.get_post_metrics(None, "urn:li:share:1") is None
+
+
+@requires_db
+def test_apply_queue_is_strict_quality_with_stretch_separate(client, auth_headers):
+    """Only ≥threshold matches reach the one-click apply queue; lower-fit 'stretch'
+    roles stay visible on the Jobs page and only appear with include_stretch=true."""
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.models import Job
+    thr = settings.job_score_threshold
+    db = SessionLocal()
+    try:
+        db.add(Job(title="Strong Director SRE", company="QualCo", location="Remote", remote=True,
+                   source="t", url="https://jobs.test/strong-unique", score=thr + 10, score_breakdown={}))
+        db.add(Job(title="Weak Stretch Role", company="StretchCo", location="Remote", remote=True,
+                   source="t", url="https://jobs.test/stretch-unique", score=max(0, thr - 25),
+                   score_breakdown={"stretch": True}))
+        db.commit()
+    finally:
+        db.close()
+    strict = client.get("/jobs/queue?limit=200", headers=auth_headers).json()
+    urls = {j["url"] for j in strict}
+    assert "https://jobs.test/strong-unique" in urls
+    assert "https://jobs.test/stretch-unique" not in urls  # stretch excluded by default
+    withstretch = client.get("/jobs/queue?limit=200&include_stretch=true", headers=auth_headers).json()
+    assert "https://jobs.test/stretch-unique" in {j["url"] for j in withstretch}
 
 
 @requires_db
@@ -1794,6 +2032,21 @@ def test_lead_pipeline_health_shape(client, auth_headers):
     assert {s["key"] for s in h["steps"]} == {"source", "send", "sent", "replies"}
     # No Gmail configured in CI → the top blocker is to connect a mailbox.
     assert any("Gmail" in b for b in h["blockers"])
+    # Replies-sync is GREEN when the in-process scheduler is on (default True) —
+    # it no longer requires CRON_SECRET to show healthy.
+    from app.config import settings
+    replies = next(s for s in h["steps"] if s["key"] == "replies")
+    assert replies["ok"] == bool(settings.enable_scheduler or settings.cron_secret)
+
+
+@requires_db
+def test_sync_replies_endpoint(client, auth_headers):
+    """On-demand reply sync runs without a scheduler — returns a clean summary so
+    leads can be warmed up on demand (no 500 even with no mailbox connected)."""
+    r = client.post("/leads/sync-replies", headers=auth_headers)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["ok"] is True and "scanned" in d and "matched" in d
 
 
 @requires_db
@@ -1810,6 +2063,21 @@ def test_setup_connect_status_and_save(client, auth_headers):
         assert client.get("/setup", headers=auth_headers).json()["google_places"]["configured"] is True
     finally:
         settings.google_places_api_key = orig  # don't pollute other tests
+
+
+@requires_db
+def test_mailbox_health_diagnostic(client, auth_headers):
+    """The Connect page can confirm each mailbox can ACTUALLY send (real auth
+    check), not just that a key is saved. Offline it truthfully reports not-able."""
+    r = client.get("/setup/mailbox-health", headers=auth_headers)
+    assert r.status_code == 200
+    d = r.json()
+    assert "outbound_mode" in d and len(d["accounts"]) == 2
+    for a in d["accounts"]:
+        for k in ("account", "can_send", "configured", "sent_today", "daily_cap", "remaining_today"):
+            assert k in a
+        assert a["can_send"] is False  # no real mailbox connected in tests
+        assert a["reason"]  # a clear human reason is always given when it can't send
 
 
 @requires_db

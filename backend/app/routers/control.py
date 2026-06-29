@@ -15,7 +15,21 @@ _write = require_role("admin", "operator")
 @router.get("/status")
 def status(db: Session = Depends(get_db), _=Depends(_read)):
     return {"paused": control.is_paused_safe(db), "mode": control.get_mode(db),
-            "outreach_autopilot": control.outreach_autopilot(db)}
+            "outreach_autopilot": control.outreach_autopilot(db),
+            "insurance_relay": control.insurance_relay_via_personal(db),
+            "auto_apply_mode": control.auto_apply_mode(db)}
+
+
+class AutoApplyIn(BaseModel):
+    mode: str  # off | compliant | aggressive
+
+
+@router.post("/auto-apply")
+def set_auto_apply(body: AutoApplyIn, db: Session = Depends(get_db), _=Depends(_write)):
+    """Set the auto-apply mode: 'off' (prepare only), 'compliant' (auto-submit on
+    company ATS pages), or 'aggressive' (also LinkedIn/Indeed Easy Apply via your
+    stored session — violates their ToS, account risk)."""
+    return {"auto_apply_mode": control.set_auto_apply_mode(db, body.mode)}
 
 
 class OutreachIn(BaseModel):
@@ -27,6 +41,13 @@ def set_outreach_autopilot(body: OutreachIn, db: Session = Depends(get_db), _=De
     """Toggle Outreach Autopilot: when ON, cold sales outreach + follow-ups
     auto-send (even in semi mode); content still drafts for approval."""
     return {"outreach_autopilot": control.set_outreach_autopilot(db, body.on)}
+
+
+@router.post("/insurance-relay")
+def set_insurance_relay(body: OutreachIn, db: Session = Depends(get_db), _=Depends(_write)):
+    """Toggle: send insurance outreach through your personal mailbox with the
+    Thrust address as Reply-To — so it sends without separate Thrust credentials."""
+    return {"insurance_relay": control.set_insurance_relay_via_personal(db, body.on)}
 
 
 class ModeIn(BaseModel):

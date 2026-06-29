@@ -10,6 +10,12 @@ type Status = {
   apollo: Area; google_places: Area;
   sms?: Area; jobs_api?: Area;
 };
+type MailboxHealth = {
+  outbound_mode: string;
+  accounts: { account: string; label: string; configured: boolean; can_send: boolean;
+    method: string | null; address: string | null; reason: string | null;
+    sent_today: number; daily_cap: number; remaining_today: number }[];
+};
 
 function Badge({ ok }: { ok: boolean }) {
   return (
@@ -21,11 +27,26 @@ function Badge({ ok }: { ok: boolean }) {
 
 function Setup() {
   const { data, loading, error, reload } = useFetch<Status>(() => api.get<Status>("/setup"));
+  const [health, setHealth] = useState<MailboxHealth | null>(null);
+  const [checking, setChecking] = useState(false);
+  const { data: control, reload: reloadControl } = useFetch<{ insurance_relay?: boolean }>(() => api.get<{ insurance_relay?: boolean }>("/control/status"));
   const [form, setForm] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
 
+  async function checkMailboxes() {
+    setChecking(true);
+    try { setHealth(await api.get<MailboxHealth>("/setup/mailbox-health")); }
+    catch (e) { setMsg(`❌ ${e}`); }
+    finally { setChecking(false); }
+  }
+
   function set(k: string, v: string) { setForm((f) => ({ ...f, [k]: v })); }
+
+  async function toggleRelay(on: boolean) {
+    try { await api.post("/control/insurance-relay", { on }); reloadControl(); }
+    catch (e) { setMsg(`❌ ${e}`); }
+  }
 
   async function save() {
     setBusy(true); setMsg("");
@@ -45,6 +66,37 @@ function Setup() {
       <PageHeader title="Connect Email & Data"
         subtitle="The agents need a mailbox to send outreach and read replies, and a data source for high-quality leads. Connect them here — it takes effect immediately, no redeploy." />
       {msg && <p className="mb-3 text-sm text-gray-700">{msg}</p>}
+
+      {/* Mailbox send diagnostic — confirm outreach can ACTUALLY go out */}
+      <div className="card mb-4">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold">📤 Is my email actually sending?</h2>
+          <button className="btn" onClick={checkMailboxes} disabled={checking}>
+            {checking ? "Checking…" : "Test sending"}
+          </button>
+        </div>
+        {!health && <p className="mt-2 text-xs text-gray-500">Click “Test sending” to verify each mailbox can send right now (no email is sent — it just checks the login).</p>}
+        {health && (
+          <div className="mt-3 space-y-2">
+            <div className="text-xs text-gray-400">Outbound mode: <b>{health.outbound_mode}</b></div>
+            {health.accounts.map((a) => (
+              <div key={a.account} className="rounded-lg border border-gray-100 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">{a.label}{a.address ? ` · ${a.address}` : ""}</span>
+                  <span className={`badge ${a.can_send ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                    {a.can_send ? `✅ Sending (${a.method})` : "❌ Not sending"}
+                  </span>
+                </div>
+                {a.can_send ? (
+                  <div className="mt-1 text-xs text-gray-500">Sent today {a.sent_today}/{a.daily_cap} · {a.remaining_today} left today</div>
+                ) : (
+                  <div className="mt-1 text-xs text-red-600">{a.reason}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="space-y-4">
         {/* Gmail personal */}
@@ -72,7 +124,7 @@ function Setup() {
             <Badge ok={data.gmail_insurance.configured} />
           </div>
           <p className="mb-3 text-xs text-gray-500">
-            Separate mailbox for Thrust Insurance outreach. Leave blank to send insurance mail through your personal mailbox.
+            Separate mailbox for Thrust Insurance outreach. Leave blank and use the toggle below to send insurance mail through your personal mailbox.
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
             <input className="input" placeholder={data.gmail_insurance.address || "you@thrustinsurance.com"}
@@ -80,6 +132,14 @@ function Setup() {
             <input className="input" type="password" placeholder="16-character App Password"
               value={form.insurance_gmail_app_password || ""} onChange={(e) => set("insurance_gmail_app_password", e.target.value)} />
           </div>
+          <label className="mt-3 flex items-start gap-2 rounded-lg bg-gray-50 p-3 text-xs text-gray-600">
+            <input type="checkbox" className="mt-0.5" checked={!!control?.insurance_relay}
+              onChange={(e) => toggleRelay(e.target.checked)} />
+            <span>
+              <b>Send insurance through my personal mailbox</b> (Reply-To set to Thrust). Use this if you don&apos;t have a separate Thrust App Password — insurance emails still go out, and replies land in the Thrust inbox.
+              {control?.insurance_relay ? <span className="ml-1 font-medium text-green-700">ON</span> : null}
+            </span>
+          </label>
         </div>
 
         {/* Apollo */}

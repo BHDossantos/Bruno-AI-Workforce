@@ -62,6 +62,17 @@ function Insurance() {
     finally { setBusy(null); }
   }
 
+  async function syncReplies() {
+    setBusy("sync"); setMsg("Checking your inbox for replies…");
+    try {
+      const r = await api.post<{ scanned?: number; matched?: number }>("/leads/sync-replies", {});
+      const matched = r.matched ?? 0;
+      setMsg(`✅ Scanned ${r.scanned ?? 0} inbox message(s); ${matched} lead(s) warmed up from replies.`);
+      setRefresh((n) => n + 1);
+    } catch (e) { setMsg(`❌ ${e}`); }
+    finally { setBusy(null); }
+  }
+
   async function dispatchAll() {
     if (!confirm("Send the cold email to all pending leads now?")) return;
     setBusy("all"); setMsg("Dispatching all pending leads…");
@@ -96,6 +107,7 @@ function Insurance() {
             <button className="btn-ghost" onClick={() => api.download("/export/leads.csv", "leads.csv")}>Export CSV</button>
             <button className="btn" onClick={sourceNow} disabled={sourcing}>{sourcing ? "Sourcing…" : "Source leads now"}</button>
             <button className="btn" onClick={dispatchAll} disabled={busy === "all"}>{busy === "all" ? "Sending…" : "Send all pending"}</button>
+            <button className="btn-ghost" onClick={syncReplies} disabled={busy === "sync"} title="Pull inbox replies — turns repliers into warm/hot leads">{busy === "sync" ? "Syncing…" : "Sync replies now"}</button>
           </div>
         }
       />

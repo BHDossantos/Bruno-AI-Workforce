@@ -39,6 +39,33 @@ def get_status(db: Session = Depends(get_db),
     return runtime_config.status(db)
 
 
+@router.get("/mailbox-health")
+def mailbox_health(db: Session = Depends(get_db),
+                   _=Depends(require_role("admin", "operator", "viewer"))):
+    """Is each mailbox ACTUALLY able to send right now? Does a real auth check
+    (no email sent) per account, plus today's sent-count vs the daily cap, so you
+    can confirm outreach will go out — not just that a key is saved."""
+    runtime_config.apply_to_settings(db)  # use the latest connected creds
+    from .. import outreach
+    from ..config import settings
+    from ..integrations import gmail
+    accounts = [("personal", "Personal Gmail"), ("insurance", "Insurance (Thrust) mailbox")]
+    out = []
+    for key, label in accounts:
+        v = gmail.verify(key)
+        sent_today = outreach.sent_today_count(db, key)
+        cap = outreach.effective_cap(db, key)
+        out.append({
+            "account": key, "label": label,
+            "configured": gmail.is_configured(key),
+            "can_send": bool(v.get("ok")), "method": v.get("method"),
+            "address": v.get("address"), "reason": v.get("reason"),
+            "sent_today": int(sent_today), "daily_cap": int(cap),
+            "remaining_today": max(0, int(cap) - int(sent_today)),
+        })
+    return {"outbound_mode": settings.gmail_outbound_mode, "accounts": out}
+
+
 @router.post("")
 def save(body: CredIn, db: Session = Depends(get_db),
          _=Depends(require_role("admin", "operator"))):

@@ -82,6 +82,16 @@ def dispatch_pending(segment: str | None = None, db: Session = Depends(get_db),
     return {"ok": True, **bulk_outreach.dispatch_leads(db, segment=segment, autonomous=False)}
 
 
+@router.post("/sync-replies")
+def sync_replies(db: Session = Depends(get_db),
+                 _=Depends(require_role("admin", "operator"))):
+    """Pull recent inbound email replies now — anyone who replied becomes a warm/hot
+    lead. This is what the scheduler does automatically; this button runs it on
+    demand so leads don't stay cold while the scheduler is off."""
+    from .. import inbound
+    return {"ok": True, **inbound.sync_replies(db)}
+
+
 @router.post("/{lead_id}/status")
 def set_status(lead_id: str, body: StatusUpdate, db: Session = Depends(get_db),
                _=Depends(require_role("admin", "operator"))):

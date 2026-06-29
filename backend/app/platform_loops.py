@@ -36,10 +36,12 @@ log = logging.getLogger("bruno.platform_loops")
 LOOPS: dict[str, dict] = {
     # Instagram + Facebook: 3/day each — exactly music · BnB Global · insurance
     # (per the spec: 3 businesses × 3 posts × 2 platforms = 9 contents/day).
+    # Instagram + Facebook: 3/day each — music · BnB Global · insurance · Bruno D.
     "instagram": {"per_day": 3, "auto": True,
-                  "businesses": ["music", "bnbglobal", "insurance"]},
+                  "businesses": ["music", "bnbglobal", "insurance", "personal"]},
     "facebook":  {"per_day": 3, "auto": True,
                   "businesses": ["music", "bnbglobal", "insurance"]},
+                  "businesses": ["music", "bnbglobal", "insurance", "personal"]},
     # LinkedIn: 1/day — BnB + insurance + foundation + Bruno D personal brand
     # (no music on LinkedIn, per the rule).
     "linkedin":  {"per_day": 1, "auto": True,
