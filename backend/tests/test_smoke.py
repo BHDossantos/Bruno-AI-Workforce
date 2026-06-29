@@ -569,6 +569,8 @@ def test_all_agents_registered():
         "follow_up_agent", "review_referral", "bnbglobal", "savorymind", "music",
         "music_pr", "music_collab", "music_sync", "instagram", "life_ops",
         "grant_research", "foundation_outreach", "school_partner", "ceo_dashboard",
+        "music_pr", "music_collab", "instagram", "grant_research", "foundation_outreach",
+        "school_partner", "ceo_dashboard",
     }
 
 

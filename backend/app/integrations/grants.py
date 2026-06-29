@@ -102,6 +102,12 @@ def _curated(limit: int) -> list[dict]:
          "category": "Opportunity & Leadership"},
         {"title": "Neighborhood Community Development Grant", "funder": "Local Initiatives Support Corp",
          "category": "Community Development"},
+        {"title": "STEM Access for Underserved Youth", "funder": "Corporate STEM Fund",
+         "category": "Technology & Innovation"},
+        {"title": "Community Scholarship Initiative", "funder": "Community Foundation",
+         "category": "Education & Scholarships"},
+        {"title": "Youth Mentorship & Leadership", "funder": "Youth Development Fund",
+         "category": "Opportunity & Leadership"},
     ]
     out = []
     for i in range(limit):

@@ -12,6 +12,7 @@ import logging
 from .. import memory
 from ..ai import client, skills
 from ..ai.prompts import COLLAB_PITCH, MUSIC_PR_PITCH, SYNC_PITCH
+from ..ai.prompts import COLLAB_PITCH, MUSIC_PR_PITCH
 from ..integrations import providers
 from ..models import Influencer
 from .base import BaseAgent
