@@ -179,10 +179,14 @@ def recap(db: Session, hours: int = 24) -> list[dict]:
 
     add("💼", "jobs sourced", c(Job, Job.found_at >= since))
     add("✅", "applications submitted", c(Application, Application.applied_at >= since))
+    # "Sent" means ACTUALLY sent (sent_at set), not merely drafted — otherwise the
+    # recap claims sends that are really sitting in the approval queue.
     add("📧", "outreach emails sent", c(Message, Message.channel == "email",
-        Message.direction == "outbound", Message.created_at >= since))
+        Message.direction == "outbound", Message.sent_at >= since))
+    add("📝", "outreach drafted (awaiting approval)", c(Message, Message.channel == "email",
+        Message.direction == "outbound", Message.status == "Drafted", Message.created_at >= since))
     add("💬", "texts sent", c(Message, Message.channel == "sms",
-        Message.direction == "outbound", Message.created_at >= since))
+        Message.direction == "outbound", Message.sent_at >= since))
     add("📥", "replies received", c(Message, Message.direction == "inbound",
         Message.created_at >= since))
     add("📣", "posts published", c(ContentItem, ContentItem.published_at >= since))

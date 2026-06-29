@@ -42,8 +42,9 @@ def mission_control(db: Session = Depends(get_db), _=Depends(_read)):
     ins_leads = c(Lead, Lead.created_at >= start, Lead.segment.in_(["commercial", "personal"]))
     bnb_leads = c(Lead, Lead.created_at >= start, Lead.segment == "consulting")
     restaurants = c(Restaurant, Restaurant.kind == "prospect", Restaurant.created_at >= start)
-    sent = c(Message, Message.direction == "outbound", Message.created_at >= start,
-             Message.status.in_(["Sent", "Queued"]))
+    # Count what ACTUALLY went out today (sent_at set), not drafts created today —
+    # otherwise this disagrees with the recap and overstates outreach.
+    sent = c(Message, Message.direction == "outbound", Message.sent_at >= start)
     replies = c(Message, Message.direction == "inbound", Message.created_at >= start)
     apps = c(Application, Application.created_at >= start)
     jobs_found = c(Job, Job.found_at >= start)
@@ -63,11 +64,13 @@ def mission_control(db: Session = Depends(get_db), _=Depends(_read)):
         "status": "on track" if actuals.get(area, 0) >= target else "behind",
     } for area, target in _TARGETS.items()]
 
-    # Pending approvals (mirror /approvals/count).
+    # Pending approvals (mirror /approvals/count exactly, incl. drafted replies).
     pending = (c(ContentItem, ContentItem.status == "needs_approval")
                + c(Lead, Lead.status == "Drafted", Lead.email.isnot(None))
                + c(Restaurant, Restaurant.kind == "prospect", Restaurant.status == "Drafted",
-                   Restaurant.email.isnot(None)))
+                   Restaurant.email.isnot(None))
+               + c(Message, Message.entity_type == "reply", Message.direction == "outbound",
+                   Message.status == "Drafted", Message.to_email.isnot(None)))
 
     return {
         "paused": control.is_paused_safe(db),
