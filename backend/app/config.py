@@ -259,13 +259,17 @@ class Settings(BaseSettings):
     # Outbound mode: "send" (auto-send now), "send_on_approve", or "draft".
     gmail_outbound_mode: str = "send"
     # Safety cap on auto-sent outreach per day, per account (protects the mailbox).
-    # Sized for the 3×/day lead passes; lower it if a fresh mailbox gets flagged.
-    gmail_daily_send_cap: int = 120
+    # Higher ceiling so a backlog clears faster; warmup still ramps a fresh mailbox
+    # up to it gradually. Google Workspace allows ~2,000 sends/day, so 300 is well
+    # within limits — lower it if a fresh mailbox ever gets flagged.
+    gmail_daily_send_cap: int = 300
     # Deliverability warmup: ramp volume on a fresh mailbox so it isn't flagged
     # as spam. Effective cap = min(gmail_daily_send_cap, start + step × days_active).
+    # Starts higher and ramps faster than before, so the queue drains in days, not
+    # weeks, while still easing a brand-new mailbox in.
     email_warmup_enabled: bool = True
-    email_warmup_start: int = 20
-    email_warmup_step: int = 10
+    email_warmup_start: int = 40
+    email_warmup_step: int = 25
 
     # Insurance outreach to your imported personal contacts (warm network). Each
     # contact is emailed once; small daily batches drip through the list within

@@ -149,6 +149,39 @@ def _send_smtp(account: str, to: str, subject: str, body: str) -> str | None:
         return None
 
 
+def verify(account: str = PERSONAL) -> dict:
+    """Check whether ``account`` can ACTUALLY send right now — without sending.
+
+    OAuth: a lightweight getProfile call. SMTP: a real login (no message). Returns
+    {ok, method, address, reason} so the Connect page can show a true green/red,
+    not just 'a key is saved'."""
+    cfg = _account_cfg(account)
+    # OAuth path first (matches send_message's preference).
+    svc = _service(account)
+    if svc is not None:
+        try:
+            prof = svc.users().getProfile(userId="me").execute()
+            return {"ok": True, "method": "oauth",
+                    "address": prof.get("emailAddress") or cfg.get("address"), "reason": None}
+        except Exception as exc:  # pragma: no cover - network guard
+            return {"ok": False, "method": "oauth", "address": cfg.get("address"),
+                    "reason": f"OAuth token rejected ({str(exc)[:80]}) — reconnect."}
+    # SMTP app-password path.
+    login_addr, pw, from_addr, _reply = _smtp_login(account)
+    if not (login_addr and pw):
+        return {"ok": False, "method": None, "address": cfg.get("address"),
+                "reason": "not connected — add an App Password or OAuth for this mailbox."}
+    try:
+        import smtplib
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=20) as server:
+            server.starttls()
+            server.login(login_addr, pw)
+        return {"ok": True, "method": "smtp", "address": from_addr or login_addr, "reason": None}
+    except Exception as exc:  # pragma: no cover - network guard
+        return {"ok": False, "method": "smtp", "address": from_addr or login_addr,
+                "reason": f"SMTP login failed ({str(exc)[:80]}) — check the App Password."}
+
+
 def _raw(account: str, to: str, subject: str, body: str) -> dict:
     mime = MIMEText(body, "html")
     mime["to"] = to

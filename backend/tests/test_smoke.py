@@ -1917,6 +1917,21 @@ def test_setup_connect_status_and_save(client, auth_headers):
 
 
 @requires_db
+def test_mailbox_health_diagnostic(client, auth_headers):
+    """The Connect page can confirm each mailbox can ACTUALLY send (real auth
+    check), not just that a key is saved. Offline it truthfully reports not-able."""
+    r = client.get("/setup/mailbox-health", headers=auth_headers)
+    assert r.status_code == 200
+    d = r.json()
+    assert "outbound_mode" in d and len(d["accounts"]) == 2
+    for a in d["accounts"]:
+        for k in ("account", "can_send", "configured", "sent_today", "daily_cap", "remaining_today"):
+            assert k in a
+        assert a["can_send"] is False  # no real mailbox connected in tests
+        assert a["reason"]  # a clear human reason is always given when it can't send
+
+
+@requires_db
 def test_content_apply_hook_swaps_first_line(client, auth_headers):
     """Applying an alternative hook replaces only the post's opening line."""
     from app.database import SessionLocal
