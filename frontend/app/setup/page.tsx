@@ -10,6 +10,12 @@ type Status = {
   apollo: Area; google_places: Area;
   sms?: Area; jobs_api?: Area;
 };
+type MailboxHealth = {
+  outbound_mode: string;
+  accounts: { account: string; label: string; configured: boolean; can_send: boolean;
+    method: string | null; address: string | null; reason: string | null;
+    sent_today: number; daily_cap: number; remaining_today: number }[];
+};
 
 function Badge({ ok }: { ok: boolean }) {
   return (
@@ -21,9 +27,18 @@ function Badge({ ok }: { ok: boolean }) {
 
 function Setup() {
   const { data, loading, error, reload } = useFetch<Status>(() => api.get<Status>("/setup"));
+  const [health, setHealth] = useState<MailboxHealth | null>(null);
+  const [checking, setChecking] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+
+  async function checkMailboxes() {
+    setChecking(true);
+    try { setHealth(await api.get<MailboxHealth>("/setup/mailbox-health")); }
+    catch (e) { setMsg(`❌ ${e}`); }
+    finally { setChecking(false); }
+  }
 
   function set(k: string, v: string) { setForm((f) => ({ ...f, [k]: v })); }
 
@@ -45,6 +60,37 @@ function Setup() {
       <PageHeader title="Connect Email & Data"
         subtitle="The agents need a mailbox to send outreach and read replies, and a data source for high-quality leads. Connect them here — it takes effect immediately, no redeploy." />
       {msg && <p className="mb-3 text-sm text-gray-700">{msg}</p>}
+
+      {/* Mailbox send diagnostic — confirm outreach can ACTUALLY go out */}
+      <div className="card mb-4">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold">📤 Is my email actually sending?</h2>
+          <button className="btn" onClick={checkMailboxes} disabled={checking}>
+            {checking ? "Checking…" : "Test sending"}
+          </button>
+        </div>
+        {!health && <p className="mt-2 text-xs text-gray-500">Click “Test sending” to verify each mailbox can send right now (no email is sent — it just checks the login).</p>}
+        {health && (
+          <div className="mt-3 space-y-2">
+            <div className="text-xs text-gray-400">Outbound mode: <b>{health.outbound_mode}</b></div>
+            {health.accounts.map((a) => (
+              <div key={a.account} className="rounded-lg border border-gray-100 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">{a.label}{a.address ? ` · ${a.address}` : ""}</span>
+                  <span className={`badge ${a.can_send ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                    {a.can_send ? `✅ Sending (${a.method})` : "❌ Not sending"}
+                  </span>
+                </div>
+                {a.can_send ? (
+                  <div className="mt-1 text-xs text-gray-500">Sent today {a.sent_today}/{a.daily_cap} · {a.remaining_today} left today</div>
+                ) : (
+                  <div className="mt-1 text-xs text-red-600">{a.reason}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="space-y-4">
         {/* Gmail personal */}
