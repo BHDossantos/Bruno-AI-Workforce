@@ -11,6 +11,7 @@ import logging
 
 from .. import memory
 from ..ai import client, skills
+from ..ai.prompts import COLLAB_PITCH, MUSIC_PR_PITCH, SYNC_PITCH
 from ..ai.prompts import COLLAB_PITCH, MUSIC_PR_PITCH
 from ..integrations import providers
 from ..models import Influencer
@@ -58,6 +59,42 @@ class MusicPRAgent(BaseAgent):
                 self.db.rollback()
         self.log_action("music_pr", entity="music", detail={"drafted": made})
         return {"summary": f"Music PR: drafted {made} press pitch(es) for review.", "drafted": made}
+
+
+class SyncLicensingAgent(BaseAgent):
+    key = "music_sync"
+    name = "Music Sync Licensing Agent"
+    description = "Drafts sync-licensing pitches to music supervisors (TV/film/ads/games)."
+    schedule_cron = "0 15 * * *"
+
+    def execute(self) -> dict:
+        seen = _seen_emails(self.db)
+        sys = skills.system_prompt("cold-email", "copywriting")
+        made = 0
+        for o in providers.fetch_sync_targets(20):
+            if (o.get("email") or "").lower() in seen:
+                continue
+            try:
+                mem = memory.entity_context(self.db, name=o.get("contact"), email=o.get("email"))
+                art = client.complete_json(SYNC_PITCH.format(
+                    name=o["name"], kind=o["kind"], focus=o["focus"],
+                    contact=o.get("contact") or "", memory=mem), system=sys) if client.is_live() else {}
+                pitch = art.get("pitch") if isinstance(art, dict) else None
+                row = Influencer(name=o["name"], niche=f"Sync · {o['kind']}", platform="sync",
+                                 handle=o["name"], email=o.get("email"), dm_pitch=pitch, status="Drafted")
+                self.db.add(row)
+                self.db.flush()
+                self.dispatch_email(entity_type="influencer", entity_id=row.id, to_email=o.get("email"),
+                                    subject=f"Music for your placements — Bruno D", body=pitch, account="personal")
+                self.schedule_follow_ups("influencer", row.id)
+                seen.add((o.get("email") or "").lower())
+                made += 1
+                self.db.commit()
+            except Exception:
+                log.exception("sync pitch failed for %s", o.get("name"))
+                self.db.rollback()
+        self.log_action("music_sync", entity="music", detail={"drafted": made})
+        return {"summary": f"Sync Licensing: drafted {made} supervisor pitch(es) for review.", "drafted": made}
 
 
 class CollaborationAgent(BaseAgent):

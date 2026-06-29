@@ -80,7 +80,12 @@ PROVIDERS: list[dict] = [
                           help="GET https://api.linkedin.com/v2/userinfo (the 'sub' field) for a "
                                "person URN, or your Company Page admin URL for an organization URN."),
                    _field("profile_url", "Your profile / company URL", secret=False, required=False,
-                          help="Just your public LinkedIn URL — used for display only.")],
+                          help="Just your public LinkedIn URL — used for display only."),
+                   _field("session_cookies", "Session cookies (for auto-apply Easy Apply)", secret=True, required=False,
+                          help="OPTIONAL, only for aggressive auto-apply: from a logged-in LinkedIn "
+                               "browser tab, copy your cookies as 'name=value; name2=value2' (e.g. li_at=…). "
+                               "Lets the engine submit Easy Apply as you. Note: automating LinkedIn "
+                               "violates their ToS — use at your own account risk.")],
         "capabilities": ["publish_auto", "dm_assist", "analytics"],
         "stages": ["attract", "nurture", "convert"],
         "compliance": "Auto-publishes YOUR OWN posts via the official LinkedIn API "
@@ -132,18 +137,6 @@ PROVIDERS: list[dict] = [
         "stages": ["attract"],
         "compliance": "Publishes via the official TikTok Content Posting API.",
         "goals": ["followers", "sales"],
-    },
-    {
-        "key": "x_twitter", "name": "X (Twitter)", "category": "social", "icon": "🐦",
-        "auth_type": "api_key",
-        "fields": [_field("api_key", "API key", secret=True),
-                   _field("api_secret", "API secret", secret=True),
-                   _field("access_token", "Access token", secret=True),
-                   _field("access_secret", "Access token secret", secret=True)],
-        "capabilities": ["publish_auto", "analytics"],
-        "stages": ["attract", "nurture"],
-        "compliance": "Posts via the official X API v2.",
-        "goals": ["followers", "leads"],
     },
     {
         "key": "youtube", "name": "YouTube", "category": "social", "icon": "▶️",

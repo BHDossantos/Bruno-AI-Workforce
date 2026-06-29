@@ -28,6 +28,40 @@ from ..security import require_role
 router = APIRouter(prefix="/voice", tags=["voice"])
 log = logging.getLogger("bruno.voice")
 
+# Spoken business/topic → agent key. English + Portuguese (the user is bilingual).
+_AGENT_ALIASES = {
+    "insurance": "insurance", "seguro": "insurance", "seguros": "insurance",
+    "commercial": "commercial_finder", "business insurance": "commercial_finder",
+    "comercial": "commercial_finder", "comerciais": "commercial_finder",
+    "homeowner": "homeowner", "home": "homeowner", "auto": "homeowner", "casa": "homeowner",
+    "referral": "referral_partner", "partner": "referral_partner", "parceiro": "referral_partner",
+    "consulting": "bnbglobal", "bnb": "bnbglobal", "b and b": "bnbglobal", "b&b": "bnbglobal",
+    "consultoria": "bnbglobal",
+    "savorymind": "savorymind", "savory": "savorymind", "restaurant": "savorymind", "restaurants": "savorymind",
+    "restaurante": "savorymind", "restaurantes": "savorymind",
+    "grant": "grant_research", "grants": "grant_research", "funding": "grant_research",
+    "bolsa": "grant_research", "subvenção": "grant_research", "subvencao": "grant_research",
+    "foundation": "foundation_outreach", "donor": "foundation_outreach", "sponsor": "foundation_outreach",
+    "fundação": "foundation_outreach", "fundacao": "foundation_outreach", "doador": "foundation_outreach",
+    "school": "school_partner", "schools": "school_partner", "escola": "school_partner", "escolas": "school_partner",
+    "music": "music", "música": "music", "musica": "music",
+    "instagram": "instagram", "job": "job_hunter", "jobs": "job_hunter",
+    "emprego": "job_hunter", "vaga": "job_hunter", "vagas": "job_hunter",
+    "follow up": "follow_up_agent", "followup": "follow_up_agent", "follow-up": "follow_up_agent",
+    "acompanhamento": "follow_up_agent",
+    "review": "review_referral",
+}
+_NAV = {
+    "mission": "/", "home": "/", "início": "/", "inicio": "/",
+    "approvals": "/approvals", "approval": "/approvals", "aprovações": "/approvals",
+    "aprovacoes": "/approvals", "aprovar": "/approvals", "fila": "/approvals",
+    "calendar": "/calendar", "content": "/calendar", "calendário": "/calendar", "calendario": "/calendar",
+    "leads": "/insurance", "insurance": "/insurance", "seguro": "/insurance",
+    "foundation": "/foundation", "grants": "/foundation", "fundação": "/foundation", "fundacao": "/foundation",
+    "music": "/music", "música": "/music", "musica": "/music",
+    "savorymind": "/savorymind", "consulting": "/bnbglobal", "consultoria": "/bnbglobal",
+    "money": "/money", "dinheiro": "/money", "pipeline": "/pipeline", "connections": "/connections",
+    "conexões": "/connections", "conexoes": "/connections",
 # Spoken business/topic → agent key.
 _AGENT_ALIASES = {
     "insurance": "insurance", "commercial": "commercial_finder", "business insurance": "commercial_finder",
@@ -108,6 +142,47 @@ def _match_alias(text: str, table: dict) -> str | None:
     return None
 
 
+def _keyword_interpret(text: str) -> dict:
+    """Fast, no-network intent match (English + Portuguese). Returns an 'unknown'
+    intent if nothing clear matches, so the caller can fall back to the LLM."""
+    t = text.lower()
+    if any(w in t for w in ("pause", "stop everything", "emergency", "pausar", "parar", "pare", "para tudo")):
+        return {"intent": "pause", "reply": "Pausing all agents."}
+    if "resume" in t or "continuar" in t or "retomar" in t or "continua" in t:
+        return {"intent": "resume", "reply": "Resuming agents."}
+    if any(w in t for w in ("autopilot", "full auto", "piloto automático", "piloto automatico", "automático", "automatico")):
+        return {"intent": "set_mode", "mode": "auto", "reply": "Switching to autopilot."}
+    if any(w in t for w in ("status", "brief", "resumo", "situação", "situacao")):
+        return {"intent": "status", "reply": "Here's your status."}
+    if (("approve" in t and any(w in t for w in ("safe", "all", "everything")))
+            or "aprovar tudo" in t or "aprove tudo" in t or "aprovar todos" in t):
+        return {"intent": "approve_safe", "reply": "Approving the safe items."}
+    if any(w in t for w in ("how many", "pipeline", "numbers", "metrics", "how much",
+                            "quantos", "quantas", "números", "numeros", "quanto")):
+        return {"intent": "metrics", "reply": "Here are your numbers."}
+    if (t.startswith("write ") or "write a" in t or "post about" in t
+            or t.startswith("escreva") or t.startswith("escreve") or "post sobre" in t or "postagem sobre" in t):
+        return {"intent": "write_content", "topic": text, "reply": "Writing it now."}
+    if any(w in t for w in ("draft outreach", "reach out to", "draft an email to", "contatar", "escreva para", "email para")):
+        m = re.search(r"(?:outreach to|reach out to|email to|para|contatar)\s+(.+)$", text, re.I)
+        return {"intent": "draft_outreach", "company": (m.group(1).strip() if m else ""),
+                "reply": "Drafting that outreach."}
+    if t.startswith("schedule") or "schedule this" in t or "agendar" in t or t.startswith("agende"):
+        return {"intent": "schedule", "when": text, "reply": "Scheduling it."}
+    if any(w in t for w in ("what failed", "any errors", "what broke", "o que falhou", "erros", "deu erro")):
+        return {"intent": "what_failed", "reply": "Checking what failed."}
+    if any(w in t for w in ("work the pipeline", "work my pipeline", "fill the pipeline",
+                            "trabalhar o pipeline", "encher o pipeline")):
+        return {"intent": "work_pipeline", "reply": "Working the pipeline now."}
+    if any(w in t for w in ("run everything", "daily cycle", "rodar tudo", "ciclo diário", "ciclo diario")):
+        return {"intent": "run_all", "reply": "Running the full daily cycle."}
+    if any(w in t for w in ("self check", "self-check", "selfcheck", "check yourself", "diagnostic",
+                            "diagnostics", "verificação", "verificacao", "autoteste", "check everything",
+                            "do the same", "same thing", "same as before", "auto check", "auto correct",
+                            "auto-correct", "faça o mesmo", "faca o mesmo", "mesma coisa", "verifique tudo")):
+        return {"intent": "self_check", "reply": "Running a self-check and auto-correcting."}
+    if (any(w in t for w in ("find", "source", "get", "run", "buscar", "encontrar", "procurar", "rodar", "gerar"))
+            and _match_alias(t, _AGENT_ALIASES)):
 def _interpret(text: str) -> dict:
     """LLM intent parse with a keyword fallback so it works offline too."""
     if client.is_live():
@@ -146,6 +221,26 @@ def _interpret(text: str) -> dict:
     nav = _match_alias(t, _NAV)
     if nav:
         return {"intent": "navigate", "path": nav, "reply": "Opening it."}
+    agent = _match_alias(t, _AGENT_ALIASES)
+    if agent:
+        return {"intent": "run_agent", "target": text, "reply": "On it."}
+    return {"intent": "unknown", "reply": "I didn't catch a clear order."}
+
+
+def _interpret(text: str) -> dict:
+    """Keyword-first (instant, works in EN + PT) and only fall back to the LLM for
+    orders the fast path can't classify — so common commands respond immediately."""
+    fast = _keyword_interpret(text)
+    if fast.get("intent") != "unknown":
+        return fast
+    if client.is_live():
+        out = client.complete_json(_INTENT_PROMPT.format(text=text[:300]),
+                                    system="You output only valid JSON.")
+        if isinstance(out, dict) and out.get("intent"):
+            return out
+    return fast
+
+
     return {"intent": "unknown", "reply": "I didn't catch a clear order."}
 
 
@@ -277,6 +372,17 @@ def command(body: VoiceIn, db: Session = Depends(get_db),
             return {"ok": True, "intent": intent,
                     "reply": (f"{n} agent run(s) failed today — check Agent Performance."
                               if n else "Nothing failed today. All clear.")}
+        if intent == "self_check":
+            from .. import selfcheck
+            res = selfcheck.run(db)
+            issues = res.get("issues") or []
+            fixed = res.get("fixed", 0)
+            if res.get("healthy"):
+                reply = f"Self-check passed. {fixed} item(s) auto-corrected. Everything's healthy."
+            else:
+                reply = (f"Self-check found {len(issues)} issue(s): {', '.join(issues)}. "
+                         f"Auto-corrected {fixed}. The rest need your attention.")
+            return {"ok": True, "intent": intent, "reply": reply}
         if intent == "run_all":
             from .. import commanders
             commanders.run_ceo(db)

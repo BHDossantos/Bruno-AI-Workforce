@@ -134,3 +134,32 @@ def post(db, caption: str, video_url: str | None = None) -> dict:
         return {"ok": False, "reason": err.get("message") or r.text[:200]}
     except Exception as exc:  # pragma: no cover - network guard
         return {"ok": False, "reason": str(exc)}
+
+
+def get_post_metrics(db, video_id: str) -> dict | None:
+    """Public engagement for a TikTok video (Video Query API). Normalized to
+    {likes, comments, shares, views} or None — feeds the learning loop. Requires
+    the video.list scope; degrades safely when unavailable."""
+    c = _creds(db)
+    if not c or not video_id:
+        return None
+    try:
+        r = httpx.post(
+            f"{_BASE}/video/query/",
+            params={"fields": "like_count,comment_count,share_count,view_count"},
+            json={"filters": {"video_ids": [video_id]}},
+            headers={"Authorization": f"Bearer {c['access_token']}",
+                     "Content-Type": "application/json"}, timeout=_TIMEOUT)
+        if r.status_code != 200:
+            return None
+        vids = ((r.json() or {}).get("data") or {}).get("videos") or []
+        if not vids:
+            return None
+        v = vids[0]
+        return {"likes": int(v.get("like_count", 0) or 0),
+                "comments": int(v.get("comment_count", 0) or 0),
+                "shares": int(v.get("share_count", 0) or 0),
+                "views": int(v.get("view_count", 0) or 0)}
+    except Exception as exc:  # pragma: no cover - network guard
+        log.warning("TikTok metrics failed: %s", exc)
+        return None

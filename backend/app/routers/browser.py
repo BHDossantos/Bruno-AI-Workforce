@@ -51,3 +51,11 @@ def run_task(task_id: str, body: RunIn = RunIn(), db: Session = Depends(get_db),
     if not t:
         raise HTTPException(404, "task not found")
     return browser._out(t)
+
+
+@router.post("/auto-apply/run")
+def run_auto_apply(db: Session = Depends(get_db), _=Depends(_write)):
+    """Run the auto-apply engine now: submit qualified, prepared applications up to
+    the daily cap, per the current auto-apply mode (off/compliant/aggressive)."""
+    from .. import autoapply
+    return autoapply.run_auto_apply(db)

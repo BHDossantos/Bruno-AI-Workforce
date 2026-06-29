@@ -14,13 +14,44 @@ type Overview = { funnels: Funnel[]; history: Send[] };
 const ICON: Record<string, string> = { insurance: "🛡️", bnbglobal: "💻", savorymind: "🍽️", music: "🎵" };
 
 type Preview = { funnel: string; label: string; subject: string; body: string; subscribers: number };
+type Draft = { id: string; funnel: string; label: string; subject: string; body: string; created_at: string | null };
 
 function Newsletters() {
   const [tick, setTick] = useState(0);
   const { data } = useFetch<Overview>(() => api.get<Overview>("/newsletters"), [tick]);
+  const { data: draftData } = useFetch<{ drafts: Draft[] }>(() => api.get<{ drafts: Draft[] }>("/newsletters/drafts"), [tick]);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
+
+  async function writeNow() {
+    setBusy("write"); setMsg("Writing this week's newsletters…");
+    try {
+      await api.post("/newsletters/write", {});
+      setMsg("✅ Newsletters written — see them below.");
+      setTick((t) => t + 1);
+    } catch (e) { setMsg(`❌ ${e}`); }
+    finally { setBusy(null); }
+  }
+
+  async function sendDraft(id: string) {
+    setBusy(id); setMsg("");
+    try {
+      const r = await api.post<{ sent: number; subscribers: number }>(`/newsletters/drafts/${id}/send`, {});
+      setMsg(`✅ Sent to ${r.sent}/${r.subscribers} subscribers.`);
+      setTick((t) => t + 1);
+    } catch (e) { setMsg(`❌ ${e}`); }
+    finally { setBusy(null); }
+  }
+
+  async function dismissDraft(id: string) {
+    setBusy(id); setMsg("");
+    try {
+      await api.post(`/newsletters/drafts/${id}/dismiss`, {});
+      setTick((t) => t + 1);
+    } catch (e) { setMsg(`❌ ${e}`); }
+    finally { setBusy(null); }
+  }
 
   async function send(funnel: string) {
     if (!confirm(`Send the ${funnel} newsletter to its warm subscribers now?`)) return;
@@ -44,8 +75,45 @@ function Newsletters() {
   return (
     <div className="space-y-8">
       <PageHeader title="Newsletters"
-        subtitle="One newsletter per funnel, sent 3×/week to people who replied (warm). Unsubscribe + send cap built in." />
+        subtitle="One newsletter per funnel, written for you 3×/week and sent to everyone you've emailed (unsubscribe + send cap built in)."
+        action={
+          <button onClick={writeNow} disabled={busy === "write"}
+            className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-40">
+            {busy === "write" ? "Writing…" : "Write newsletters now"}
+          </button>
+        } />
       {msg && <p className="text-sm text-gray-600">{msg}</p>}
+
+      {/* Written, ready-to-review newsletters */}
+      <div>
+        <h2 className="mb-3 font-semibold">Written newsletters</h2>
+        {(draftData?.drafts || []).length === 0 ? (
+          <div className="card text-sm text-gray-500">
+            No newsletters written yet — click <span className="font-medium">“Write newsletters now”</span> and the AI will draft one per funnel for you to review.
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {(draftData?.drafts || []).map((d) => (
+              <div key={d.id} className="card">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold">{ICON[d.funnel] || "📰"} {d.label}</span>
+                  <span className="text-xs text-gray-400">{d.created_at?.slice(0, 10)}</span>
+                </div>
+                <div className="mt-2 text-xs text-gray-400">Subject</div>
+                <div className="font-medium">{d.subject}</div>
+                <div className="mt-2 text-xs text-gray-400">Body</div>
+                <pre className="mt-1 whitespace-pre-wrap rounded bg-gray-50 p-3 text-sm text-gray-700">{d.body}</pre>
+                <div className="mt-3 flex gap-2">
+                  <button onClick={() => sendDraft(d.id)} disabled={busy === d.id}
+                    className="btn disabled:opacity-40">{busy === d.id ? "Sending…" : "Approve & send"}</button>
+                  <button onClick={() => dismissDraft(d.id)} disabled={busy === d.id}
+                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-600 disabled:opacity-40">Dismiss</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {(data?.funnels || []).map((f) => (
@@ -84,7 +152,7 @@ function Newsletters() {
             <div className="text-xs text-gray-400">Body</div>
             <pre className="mt-1 whitespace-pre-wrap rounded bg-gray-50 p-3 text-sm text-gray-700">{preview.body}</pre>
             <p className="mt-3 text-xs text-gray-400">
-              {preview.subscribers} warm subscriber(s). This is a draft — “Send now” delivers it to warm repliers only.
+              {preview.subscribers} subscriber(s). This is a draft — “Send now” delivers it to everyone on this funnel’s list (each issue has an unsubscribe link).
             </p>
           </div>
         </div>
@@ -107,7 +175,7 @@ function Newsletters() {
                 </tr>
               ))}
               {data && data.history.length === 0 && (
-                <tr><td colSpan={4} className="p-6 text-center text-gray-400">No newsletters sent yet — warm repliers get added automatically.</td></tr>
+                <tr><td colSpan={4} className="p-6 text-center text-gray-400">No newsletters sent yet — everyone you email gets added automatically.</td></tr>
               )}
             </tbody>
           </table>

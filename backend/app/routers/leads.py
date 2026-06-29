@@ -13,7 +13,7 @@ router = APIRouter(prefix="/leads", tags=["insurance"])
 
 @router.get("", response_model=list[LeadOut])
 def list_leads(segment: str | None = None, status: str | None = None,
-               temperature: str | None = None, limit: int = 200,
+               temperature: str | None = None, sort: str | None = None, limit: int = 200,
                db: Session = Depends(get_db), _=Depends(require_role("admin", "operator", "viewer"))):
     from ..lead_temperature import classify
     q = db.query(Lead)
@@ -24,6 +24,9 @@ def list_leads(segment: str | None = None, status: str | None = None,
     rows = q.order_by(Lead.score.desc(), Lead.created_at.desc()).limit(limit).all()
     if temperature:
         rows = [l for l in rows if classify(l.status) == temperature.lower()]
+    if sort == "fit":  # surface the strongest prospects first
+        from ..lead_fit import score as _fit
+        rows = sorted(rows, key=_fit, reverse=True)
     return rows
 
 
@@ -39,6 +42,14 @@ def leads_summary(segment: str | None = None, db: Session = Depends(get_db),
     for (status,) in q.all():
         buckets[classify(status)] = buckets.get(classify(status), 0) + 1
     return buckets
+
+
+@router.get("/pipeline-health")
+def pipeline_health(db: Session = Depends(get_db),
+                    _=Depends(require_role("admin", "operator", "viewer"))):
+    """Why warm/hot leads aren't flowing yet, and the exact next action to fix it."""
+    from .. import lead_pipeline
+    return lead_pipeline.health(db)
 
 
 @router.post("/{lead_id}/send")
@@ -69,6 +80,16 @@ def dispatch_pending(segment: str | None = None, db: Session = Depends(get_db),
     email). Optional ?segment= for insurance (commercial/personal) or consulting."""
     from .. import bulk_outreach
     return {"ok": True, **bulk_outreach.dispatch_leads(db, segment=segment, autonomous=False)}
+
+
+@router.post("/sync-replies")
+def sync_replies(db: Session = Depends(get_db),
+                 _=Depends(require_role("admin", "operator"))):
+    """Pull recent inbound email replies now — anyone who replied becomes a warm/hot
+    lead. This is what the scheduler does automatically; this button runs it on
+    demand so leads don't stay cold while the scheduler is off."""
+    from .. import inbound
+    return {"ok": True, **inbound.sync_replies(db)}
 
 
 @router.post("/{lead_id}/status")

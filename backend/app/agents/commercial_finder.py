@@ -29,10 +29,11 @@ class CommercialLeadFinderAgent(BaseAgent):
         target = min(settings.commercial_lead_daily_target, _PER_RUN_CAP)
         prospects = providers.fetch_insurance_leads(
             "commercial", target, scope=settings.insurance_lead_scope)
+        from .. import insurance_needs
         for p in prospects:
             p["segment"] = "commercial"
-            p["reason"] = (f"{p.get('category', 'Commercial')} businesses typically need "
-                           "liability, property and professional coverage.")
+            # Category-specific coverage so the cold email speaks to their real risk.
+            p["reason"] = insurance_needs.reason_for(p.get("category"), "commercial")
 
         def build_prompt(p):
             return INSURANCE_OUTREACH.format(

@@ -87,6 +87,16 @@ class MusicAgent(BaseAgent):
                     .filter(Influencer.email.isnot(None)).all()}
         inf_handles = {(h or "").lower() for (h,) in self.db.query(Influencer.handle).all()}
         sent = 0
+        # Real playlists first (Spotify search by the brand's genres), then top up
+        # with the provider. Real targets have a submission link but no email, so
+        # they're prepared for manual submission rather than auto-emailed.
+        from ..integrations import spotify_api
+        genre_terms = [g.strip() for g in (genres or "").replace(";", ",").split(",") if g.strip()]
+        playlists = list(spotify_api.discover_playlists(self.db, genre_terms or list(ARTIST_GENRES),
+                                                        PLAYLIST_TARGET))
+        if len(playlists) < PLAYLIST_TARGET:
+            playlists += providers.fetch_playlists(PLAYLIST_TARGET - len(playlists))
+        for pl in playlists:
         for pl in providers.fetch_playlists(PLAYLIST_TARGET):
             if (pl.get("email") or "").lower() in pl_seen or (pl.get("name") or "").lower() in pl_names:
                 continue  # already pitched this playlist

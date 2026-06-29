@@ -78,6 +78,20 @@ def test_content_factory_drops_linkedin_for_music(monkeypatch):
     assert res["ok"] is False  # generation unavailable offline
 
 
+def test_content_factory_skips_near_duplicates(monkeypatch):
+    """A topic that's effectively identical to recent content is skipped, not
+    re-published — the 'never repeat content' guarantee is enforced, not advisory."""
+    from app import content_factory as cf
+    monkeypatch.setattr(cf.client, "is_live", lambda: True)
+    monkeypatch.setattr(cf.client, "embed", lambda t: [0.1, 0.2, 0.3])
+    # Simulate a recent near-identical item (top cosine above the hard threshold).
+    monkeypatch.setattr(cf, "_recent_matches", lambda db, qv: ([], 0.99))
+    res = cf.generate_pack(db=None, topic="cutting cloud spend", business="bnbglobal",
+                           channels=["linkedin"])
+    assert res.get("duplicate") is True and res.get("channels") == []
+    assert cf._DUPLICATE > cf._SIMILAR  # hard-skip bar is stricter than the nudge bar
+
+
 def test_music_links_include_all_platforms():
     """Apple Music + YouTube Music wired alongside Spotify (Pandora intentionally
     omitted — region-restricted)."""
@@ -117,9 +131,95 @@ def test_followups_are_memory_aware():
     # No name/email → no DB calls, empty block (safe to call anywhere).
     assert memory.entity_context(db=None, name=None, email=None) == ""
     # The follow-up prompt carries a memory slot that gets injected.
-    out = FOLLOWUP_EMAIL.format(step=2, name="Ana", context="insurance",
+    out = FOLLOWUP_EMAIL.format(step=2, name="Ana", context="insurance", purpose="social proof",
                                 memory="What you remember about Ana:\n- prefers mornings")
     assert "prefers mornings" in out
+
+
+def test_followup_cadence_has_distinct_purposes():
+    """Each follow-up touch has its own job (real funnel), and the last is a breakup."""
+    from app.followups import _STEP_PURPOSE, _purpose_for
+    purposes = [_purpose_for(s) for s in range(1, 8)]
+    assert len(set(purposes)) == 7  # every touch is distinct, not a repeat "bump"
+    assert "BREAKUP" in _purpose_for(7)
+    assert _STEP_PURPOSE[1] != _STEP_PURPOSE[2]
+
+
+def test_followup_cadence_is_every_two_days_for_seven_touches():
+    """Automated follow-ups fire every 2 days for ~2 weeks (7 touches: days
+    2,4,6,8,10,12,14 from first contact) — the user's requested cadence."""
+    from app.agents.base import FOLLOW_UP_OFFSETS
+    assert sorted(FOLLOW_UP_OFFSETS.keys()) == [1, 2, 3, 4, 5, 6, 7]
+    assert [FOLLOW_UP_OFFSETS[s] for s in range(1, 8)] == [2, 4, 6, 8, 10, 12, 14]
+
+
+@requires_db
+def test_outreach_autopilot_defaults_on_and_toggles(client, auth_headers):
+    """Outreach Autopilot is ON by default (cold leads + follow-ups auto-send even
+    in semi mode) and can be toggled off/on without a redeploy."""
+    status = client.get("/control/status", headers=auth_headers).json()
+    assert status["outreach_autopilot"] is True  # default ON
+    off = client.post("/control/outreach-autopilot", json={"on": False}, headers=auth_headers).json()
+    assert off["outreach_autopilot"] is False
+    assert client.get("/control/status", headers=auth_headers).json()["outreach_autopilot"] is False
+    on = client.post("/control/outreach-autopilot", json={"on": True}, headers=auth_headers).json()
+    assert on["outreach_autopilot"] is True
+
+
+@requires_db
+def test_insurance_relay_toggle_routes_through_personal(client, auth_headers):
+    """One-click relay: when ON, insurance sends through the personal mailbox with
+    a Thrust Reply-To (so it sends without separate Thrust credentials)."""
+    from app import control
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.integrations import gmail
+    assert client.get("/control/status", headers=auth_headers).json()["insurance_relay"] is False
+    on = client.post("/control/insurance-relay", json={"on": True}, headers=auth_headers).json()
+    assert on["insurance_relay"] is True
+    db = SessionLocal()
+    old = (settings.gmail_app_password, settings.gmail_address, settings.insurance_via_personal_reply_to)
+    try:
+        settings.gmail_app_password = "app-pw-xxxx"
+        settings.gmail_address = "me@gmail.com"
+        settings.insurance_via_personal_reply_to = control.insurance_relay_via_personal(db)
+        login_addr, pw, from_addr, reply_to = gmail._smtp_login("insurance")
+        assert login_addr == "me@gmail.com" and pw == "app-pw-xxxx"
+        assert reply_to == settings.insurance_gmail_address  # replies go to Thrust
+    finally:
+        settings.gmail_app_password, settings.gmail_address, settings.insurance_via_personal_reply_to = old
+        db.close()
+    client.post("/control/insurance-relay", json={"on": False}, headers=auth_headers)
+
+
+@requires_db
+def test_autopilot_excludes_cold_outreach_from_approval_queue(client, auth_headers):
+    """With Outreach Autopilot ON, drafted cold lead emails auto-send and must NOT
+    count as 'needs your approval' (they're a send queue) — and synthetic addresses
+    that can never send are filtered out entirely."""
+    from app.database import SessionLocal
+    from app.models import Lead
+    db = SessionLocal()
+    try:
+        db.add(Lead(segment="commercial", company_name="Real Co", email="real-aq@realco.test.example",
+                    status="Drafted", cold_email="hi"))
+        db.add(Lead(segment="commercial", company_name="Fake Co", email="fake@example.com",
+                    status="Drafted", cold_email="hi"))
+        db.commit()
+    finally:
+        db.close()
+    # Autopilot ON (default) → cold outreach is auto-sending, not awaiting approval.
+    client.post("/control/outreach-autopilot", json={"on": True}, headers=auth_headers)
+    cnt = client.get("/approvals/count", headers=auth_headers).json()
+    assert "auto_sending" in cnt and cnt["auto_sending"] >= 1
+    listed = client.get("/approvals", headers=auth_headers).json()
+    assert all(it["type"] != "lead" for it in listed["items"])  # leads not in the approve queue
+    # Turn autopilot OFF → real-email cold leads reappear for approval, synthetic stays hidden.
+    client.post("/control/outreach-autopilot", json={"on": False}, headers=auth_headers)
+    listed_off = client.get("/approvals", headers=auth_headers).json()
+    tos = [it.get("to") for it in listed_off["items"] if it["type"] == "lead"]
+    assert "fake@example.com" not in tos  # synthetic never shown
+    client.post("/control/outreach-autopilot", json={"on": True}, headers=auth_headers)  # restore default
 
 
 def test_memory_slot_prompts_format_cleanly():
@@ -127,7 +227,7 @@ def test_memory_slot_prompts_format_cleanly():
     pass — guards against the KeyError class of bug when a slot is added."""
     from app.ai.prompts import FOLLOWUP_EMAIL, INFLUENCER_PITCH, PLAYLIST_PITCH
     assert all("{memory}" in p for p in (FOLLOWUP_EMAIL, PLAYLIST_PITCH, INFLUENCER_PITCH))
-    FOLLOWUP_EMAIL.format(step=1, name="A", context="x", memory="m")
+    FOLLOWUP_EMAIL.format(step=1, name="A", context="x", purpose="p", memory="m")
     PLAYLIST_PITCH.format(name="P", genre="g", curator="c", memory="m")
     INFLUENCER_PITCH.format(name="N", niche="n", platform="ig", handle="h", memory="m")
 
@@ -141,6 +241,22 @@ def test_bulk_dispatch_endpoints(client, auth_headers):
     assert d["ok"] is True and "dispatched" in d and "pending" in d
     r2 = client.post("/restaurants/dispatch", headers=auth_headers)
     assert r2.status_code == 200 and r2.json()["ok"] is True
+
+
+@requires_db
+def test_approve_all_clears_the_queue(client, auth_headers):
+    """One-click Approve all drains the whole queue: content scheduled, outreach
+    sent up to cap (rest stays queued for auto-pacing) — never 500s, and the
+    pending count is zero or only the cap-deferred remainder afterwards."""
+    r = client.post("/approvals/approve-all", headers=auth_headers)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["ok"] is True
+    for k in ("approved", "content_scheduled", "outreach_sent_now", "outreach_queued"):
+        assert k in d
+    # No content should remain in needs_approval (all scheduled).
+    after = client.get("/approvals", headers=auth_headers).json()
+    assert all(it["type"] != "content" for it in after["items"])
 
 
 def test_bridge_token_auth():
@@ -183,6 +299,30 @@ def test_newsletter_funnel_mapping():
     # subscribe() ignores unknown funnels / empty email (db not touched on those paths).
     assert newsletters.subscribe(db=None, funnel="nope", email="a@b.c") is False
     assert newsletters.subscribe(db=None, funnel="insurance", email=None) is False
+    # _issue always returns a written issue, even offline (template fallback).
+    subj, body = newsletters._issue("insurance")
+    assert subj and body
+
+
+@requires_db
+def test_newsletters_are_written_and_listed(client, auth_headers):
+    """'Write newsletters now' produces a visible, stored draft per funnel — so a
+    newsletter is actually written even before there are subscribers."""
+    w = client.post("/newsletters/write", headers=auth_headers).json()
+    assert len(w["funnels"]) == 4 and all(f.get("ok") for f in w["funnels"])
+    drafts = client.get("/newsletters/drafts", headers=auth_headers).json()["drafts"]
+    assert len(drafts) >= 4 and all(d["subject"] and d["body"] for d in drafts)
+    # Writing again refreshes (one open draft per funnel, no pile-up).
+    client.post("/newsletters/write", headers=auth_headers)
+    again = client.get("/newsletters/drafts", headers=auth_headers).json()["drafts"]
+    per_funnel = {}
+    for d in again:
+        per_funnel[d["funnel"]] = per_funnel.get(d["funnel"], 0) + 1
+    assert all(n == 1 for n in per_funnel.values())  # exactly one open draft per funnel
+    # Dismiss one — it leaves the list.
+    client.post(f"/newsletters/drafts/{again[0]['id']}/dismiss", headers=auth_headers)
+    after = client.get("/newsletters/drafts", headers=auth_headers).json()["drafts"]
+    assert all(d["id"] != again[0]["id"] for d in after)
 
 
 def test_bulk_outreach_helpers_exist():
@@ -249,6 +389,30 @@ def test_contact_import_any_platform():
     assert len(cards) == 1
     c = importer.normalize_contact(cards[0])
     assert c["name"] == "Dina Ray" and c["email"] == "dina@a.com" and c["phone"] == "+1999"
+
+
+def test_import_real_world_exports():
+    """The two exports users actually download must parse — LinkedIn CSV (with its
+    preamble) and a real iCloud .vcf (item-grouped + folded lines)."""
+    from app import importer
+    from app.routers.imports import _csv_rows
+    # LinkedIn Connections.csv ships a 3-line "Notes:" preamble before the header.
+    linkedin = ('Notes:\n"When exporting your connections..."\n\n'
+                'First Name,Last Name,Email Address,Company,Position\n'
+                'Ada,Lovelace,ada@math.org,Analytical,Engineer\n')
+    rows = _csv_rows(linkedin)
+    assert rows and importer.normalize_contact(rows[0])["email"] == "ada@math.org"
+    # iCloud: item-grouped props (item1.EMAIL) + a folded value (continuation line
+    # begins with a space). Both are real iCloud quirks that used to drop the email.
+    icloud = ("BEGIN:VCARD\nVERSION:3.0\nFN:Maria Garcia\n"
+              "item1.EMAIL;type=INTERNET:maria@longdomain\n .com\n"
+              "item1.X-ABLabel:HOME\nTEL;type=CELL:+1222\nEND:VCARD\n")
+    cards = importer.parse_vcards(icloud)
+    assert len(cards) == 1
+    c = importer.normalize_contact(cards[0])
+    assert c["name"] == "Maria Garcia"
+    assert c["email"] == "maria@longdomain.com"  # unfolded + item-prefix stripped
+    assert c["phone"] == "+1222"
 
 
 def test_meta_token_upgrade_is_safe():
@@ -368,19 +532,57 @@ def test_recap_references_real_columns():
     from app.models import Application, Contact, ContentItem, Job, Message
     assert hasattr(Job, "found_at")                 # NOT created_at
     assert hasattr(Application, "applied_at")
-    for attr in ("channel", "direction", "created_at"):
-        assert hasattr(Message, attr)
+    for attr in ("channel", "direction", "created_at", "sent_at", "status"):
+        assert hasattr(Message, attr)  # recap counts SENT by sent_at, not created_at
     assert hasattr(ContentItem, "published_at") and hasattr(ContentItem, "created_at")
     assert hasattr(Contact, "created_at")
+
+
+@requires_db
+def test_recap_and_mission_count_actual_sends_not_drafts(client, auth_headers):
+    """The home recap + Mission Control 'Outreach sent' must count ACTUALLY-sent
+    emails (sent_at), never drafts — otherwise they claim sends that are really
+    sitting in the approval queue (the 'said 155 sent but 0 went out' bug)."""
+    from datetime import datetime, timezone
+    from app import scoring
+    from app.database import SessionLocal
+    from app.models import Message
+    db = SessionLocal()
+    try:
+        db.add(Message(channel="email", direction="outbound", to_email="sent@x.co",
+                       subject="s", body="b", status="Sent", sent_at=datetime.now(timezone.utc)))
+        db.add(Message(channel="email", direction="outbound", to_email="draft@x.co",
+                       subject="s", body="b", status="Drafted"))  # no sent_at
+        db.commit()
+        labels = {r["label"]: r["count"] for r in scoring.recap(db)}
+        assert labels.get("outreach emails sent", 0) >= 1
+        assert labels.get("outreach drafted (awaiting approval)", 0) >= 1
+    finally:
+        db.close()
+    mc = client.get("/mission/control", headers=auth_headers).json()
+    assert mc["today"]["outreach_sent"] >= 1  # counts the real send, not the draft
 
 
 def test_all_agents_registered():
     assert set(AGENTS) == {
         "job_hunter", "insurance", "commercial_finder", "homeowner", "referral_partner",
         "follow_up_agent", "review_referral", "bnbglobal", "savorymind", "music",
+        "music_pr", "music_collab", "music_sync", "instagram", "life_ops",
+        "grant_research", "foundation_outreach", "school_partner", "ceo_dashboard",
         "music_pr", "music_collab", "instagram", "grant_research", "foundation_outreach",
         "school_partner", "ceo_dashboard",
     }
+
+
+def test_sync_licensing_targets_and_prompt():
+    """The music growth team includes sync licensing — supervisor targets + pitch prompt."""
+    from app.ai.prompts import SYNC_PITCH
+    from app.integrations import providers
+    rows = providers.fetch_sync_targets(4)
+    assert rows and all(r.get("email") and r.get("kind") for r in rows)
+    # Prompt formats with the call site's exact keys (guards KeyError).
+    SYNC_PITCH.format(name="X Sync", kind="TV music supervisor", focus="dramas",
+                      contact="A. Reed", memory="")
 
 
 # ── Live-source integrations (no network; key-gated) ─────────────────────────
@@ -389,6 +591,25 @@ def test_live_sources_disabled_without_keys():
     assert jobs_api.is_configured() is False
     assert apollo.fetch_commercial_leads(10) == []
     assert jobs_api.fetch_jobs(["Director SRE"], limit=5) == []
+
+
+def test_apollo_enrichment_and_location_targeting():
+    """Apollo reveals verified emails (enrichment) + stays in-territory. Locked
+    placeholder emails are treated as no-email; enrich is a no-op without a key."""
+    from app.integrations import apollo, providers
+    # Locked / placeholder addresses Apollo returns before enrichment aren't real.
+    assert apollo._is_real("email_not_unlocked@domain.com") is False
+    assert apollo._is_real("") is False
+    assert apollo._is_real("owner@realbiz.com") is True
+    assert apollo._domain("https://www.acme.io/careers") == "acme.io"
+    # Enrichment + filtering are safe with no key.
+    assert apollo.enrich_email({"first_name": "A", "domain": "x.com"}) is None
+    assert apollo._with_emails([{"email": "good@x.com"}, {"email": None}], budget=5) == [{"email": "good@x.com"}]
+    # Insurance scope → Apollo person_locations (in-territory); global → unfiltered.
+    assert providers._scope_locations("Massachusetts,New Hampshire,Florida") == \
+        ["Massachusetts", "New Hampshire", "Florida"]
+    assert providers._scope_locations("global") is None
+    assert providers._scope_locations(None) is None
 
 
 def test_free_jobs_gated_off_in_tests_and_parse_salary():
@@ -517,6 +738,26 @@ def test_osm_lead_engine_offline_behavior():
         settings.lead_states = old_s
 
 
+def test_insurance_sourcing_is_broadened():
+    """Broader category net + a real scrape budget so insurance keeps finding NEW
+    leads in NH/MA/FL after the email-tagged pool is tapped."""
+    from app.config import settings
+    from app.integrations import osm_leads
+    assert len(osm_leads.COMMERCIAL_OSM) >= 12  # wide category net
+    # Every selector is a well-formed Overpass node filter (no quoting breakage).
+    for sels in osm_leads.COMMERCIAL_OSM.values():
+        assert all(s.startswith('node[') and s.endswith(']') for s in sels)
+    assert osm_leads._scrape_budget() == settings.osm_scrape_budget >= 1
+
+
+def test_music_real_playlist_discovery_offline_safe():
+    """Music now sources REAL playlists from Spotify (search by genre); offline /
+    unconnected it returns nothing rather than fabricating, never raises."""
+    from app.integrations import spotify_api
+    assert spotify_api.discover_playlists(None, ["r&b", "latin soul"]) == []
+    assert spotify_api.discover_playlists(None, []) == []
+
+
 def test_places_source_disabled_without_key():
     from app.integrations import email_finder, places
 
@@ -526,6 +767,26 @@ def test_places_source_disabled_without_key():
     # Shared email finder cleans correctly.
     assert email_finder.clean_email("Sales@Acme.com") == "sales@acme.com"
     assert email_finder.clean_email("hero@2x.png") is None
+
+
+def test_leads_search_statewide_not_by_city():
+    """No narrow city list by default: every source sweeps whole STATES. Google
+    Places honors the per-business scope (e.g. insurance NH/MA/FL) statewide,
+    instead of a fixed handful of cities (which could leak out-of-state leads)."""
+    from app.config import settings
+    from app.integrations import places
+    # Default config carries no cities — we search states, not cities.
+    assert settings.lead_cities == ""
+    # A per-business scope drives Places area names statewide (same as OSM).
+    areas = places._areas("Massachusetts,New Hampshire,Florida")
+    assert areas == ["Massachusetts", "New Hampshire", "Florida"]
+    # With no scope, Places falls back to the configured whole states.
+    old_c, old_s = settings.lead_cities, settings.lead_states
+    settings.lead_cities, settings.lead_states = "", "Massachusetts,New Hampshire"
+    try:
+        assert places._areas() == ["Massachusetts", "New Hampshire"]
+    finally:
+        settings.lead_cities, settings.lead_states = old_c, old_s
 
 
 def test_providers_fallback_meets_targets_without_keys():
@@ -635,6 +896,41 @@ def test_browser_field_matching_and_default_mode():
     assert browser.is_automation_ready() is False  # off by default -> safe assist mode
 
 
+def test_autoapply_lane_routing_and_off_gate():
+    """Auto-apply routes each job to the right lane and never submits when off."""
+    from app import autoapply
+    assert autoapply._lane("https://boards.greenhouse.io/acme/jobs/123") == "ats"
+    assert autoapply._lane("https://jobs.lever.co/acme/abc") == "ats"
+    assert autoapply._lane("https://acme.myworkdayjobs.com/x/job/123") == "ats"
+    assert autoapply._lane("https://www.linkedin.com/jobs/view/123") == "easy_apply"
+    assert autoapply._lane("https://www.indeed.com/viewjob?jk=1") == "easy_apply"
+    assert autoapply._lane("https://acme.com/careers/123") == "other"
+    assert autoapply._lane(None) == "other"
+    # Cookie parsing turns a copied cookie string into Playwright cookies.
+    # (Pure string parsing — no DB; exercised via the helper's logic.)
+
+
+@requires_db
+def test_autoapply_off_by_default_and_toggles(client, auth_headers):
+    """Auto-apply is OFF by default (never submits unprompted) and the mode toggles
+    off → compliant → aggressive without a redeploy."""
+    from app import autoapply
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        res = autoapply.run_auto_apply(db)
+        assert res["ok"] is False and res["mode"] == "off"  # nothing submitted when off
+    finally:
+        db.close()
+    st = client.get("/control/status", headers=auth_headers).json()
+    assert st["auto_apply_mode"] == "off"
+    agg = client.post("/control/auto-apply", json={"mode": "aggressive"}, headers=auth_headers).json()
+    assert agg["auto_apply_mode"] == "aggressive"
+    assert client.get("/control/status", headers=auth_headers).json()["auto_apply_mode"] == "aggressive"
+    # Reset so other tests/state aren't left in aggressive mode.
+    client.post("/control/auto-apply", json={"mode": "off"}, headers=auth_headers)
+
+
 def test_plaid_offline_noop():
     from app.integrations import plaid_api
     assert plaid_api.is_configured() is False
@@ -726,6 +1022,8 @@ def test_applicant_profile_and_field_matching():
     assert browser._match_field("Current City", flat) == "Hollis"
     assert browser._match_field("Will you require visa sponsorship?", flat) == "No"
     assert browser._match_field("Desired Salary", flat) == "180000"
+    # "Current salary" must NOT leak the target — it maps to current_salary.
+    assert browser._match_field("Current Salary", flat) == "Prefer Not to Disclose"
 
 
 def test_instagram_api_not_connected():
@@ -1113,8 +1411,9 @@ def test_outbound_messages_created_per_account(client, auth_headers):
     # referral-partner first touches, so it's a floor, not an exact batch.
     assert len(insurance) >= batch          # every insurance lead gets a first touch
     assert len(personal) >= batch           # restaurant prospects (+ any others)
-    # Gmail is not configured in CI, so nothing is actually sent.
-    assert all(m["status"] == "Drafted" for m in msgs)
+    # Gmail is not configured in CI, so nothing is actually SENT (messages stay
+    # Drafted, or Approved if a reply was approved without a mailbox — never Sent).
+    assert all(m["status"] != "Sent" for m in msgs)
 
 
 @requires_db
@@ -1229,6 +1528,46 @@ def test_connections_crud_and_secret_encryption(client, auth_headers):
     d = client.delete(f"/connections/{cid}", headers=auth_headers)
     assert d.status_code == 200
     assert all(c["id"] != cid for c in client.get("/connections", headers=auth_headers).json())
+
+
+def test_learning_loop_covers_all_connected_platforms():
+    """The learning loop ingests engagement from every connected platform that
+    exposes it — not just IG/FB — so topic/timing selection learns everywhere."""
+    from app import content_analytics as ca
+    assert {"instagram", "facebook", "x", "youtube", "tiktok", "linkedin"} <= set(ca._INSIGHTS)
+    assert all(callable(fn) for fn in ca._INSIGHTS.values())
+    # Each platform metrics fetcher is safe offline (no creds → None, never raises).
+    from app.integrations import twitter_api, youtube_api, tiktok_api, linkedin_api
+    assert twitter_api.get_post_metrics(None, "1") is None
+    assert youtube_api.get_post_metrics(None, "1") is None
+    assert tiktok_api.get_post_metrics(None, "1") is None
+    assert linkedin_api.get_post_metrics(None, "urn:li:share:1") is None
+
+
+@requires_db
+def test_apply_queue_is_strict_quality_with_stretch_separate(client, auth_headers):
+    """Only ≥threshold matches reach the one-click apply queue; lower-fit 'stretch'
+    roles stay visible on the Jobs page and only appear with include_stretch=true."""
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.models import Job
+    thr = settings.job_score_threshold
+    db = SessionLocal()
+    try:
+        db.add(Job(title="Strong Director SRE", company="QualCo", location="Remote", remote=True,
+                   source="t", url="https://jobs.test/strong-unique", score=thr + 10, score_breakdown={}))
+        db.add(Job(title="Weak Stretch Role", company="StretchCo", location="Remote", remote=True,
+                   source="t", url="https://jobs.test/stretch-unique", score=max(0, thr - 25),
+                   score_breakdown={"stretch": True}))
+        db.commit()
+    finally:
+        db.close()
+    strict = client.get("/jobs/queue?limit=200", headers=auth_headers).json()
+    urls = {j["url"] for j in strict}
+    assert "https://jobs.test/strong-unique" in urls
+    assert "https://jobs.test/stretch-unique" not in urls  # stretch excluded by default
+    withstretch = client.get("/jobs/queue?limit=200&include_stretch=true", headers=auth_headers).json()
+    assert "https://jobs.test/stretch-unique" in {j["url"] for j in withstretch}
 
 
 @requires_db
@@ -1516,12 +1855,112 @@ def test_emergency_stop_pauses_sending(client, auth_headers):
         db.close()
 
 
+@requires_db
+def test_no_newsletter_subscribe_without_actual_send():
+    """We must only add people to a newsletter when we ACTUALLY email them — never
+    for drafts/paused/unconfigured (consent/CAN-SPAM). Gmail is unconfigured in
+    tests, so dispatch drafts and must NOT subscribe."""
+    from app import models, outreach
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        lead = models.Lead(segment="commercial", company_name="NoSend Co",
+                           email="nosend@realbusiness.com", status="New")
+        db.add(lead); db.flush()
+        msg = outreach.dispatch_email(
+            db, entity_type="lead", entity_id=lead.id, to_email="nosend@realbusiness.com",
+            subject="x", body="hi", account="insurance", actor="test", autonomous=False)
+        db.flush()
+        assert msg.status == "Drafted"  # no Gmail in tests → drafted, not sent
+        subs = (db.query(models.NewsletterSubscriber)
+                .filter(models.NewsletterSubscriber.email == "nosend@realbusiness.com").count())
+        assert subs == 0  # never subscribed someone we didn't email
+    finally:
+        db.rollback(); db.close()
+
+
 def test_grant_fit_scoring_prioritizes_mission():
     from app.agents.grant_research import score_fit
     music_score, pillar = score_fit("Youth music education scholarship program")
     off_score, _ = score_fit("Highway bridge maintenance contract")
     assert music_score > off_score
     assert pillar in ("Music & Arts", "Education & Scholarships")
+
+
+def test_insurance_needs_are_category_specific():
+    """Each business category maps to the coverage it actually needs (not generic)."""
+    from app import insurance_needs as n
+    assert "workers' comp" in n.coverage_for("Contractor")
+    assert "liquor" in n.coverage_for("Restaurant")
+    assert "malpractice" in n.coverage_for("Medical office")
+    assert "errors & omissions" in n.coverage_for("Law Firm")
+    # Unknown category still returns a sensible commercial default, never empty.
+    assert n.coverage_for("Totally Unknown") == n._COMMERCIAL_DEFAULT
+    # Personal lines get their own framing.
+    assert "auto" in n.coverage_for("Auto owner", "personal")
+    assert n.reason_for("Contractor").startswith("A contractor typically needs")
+
+
+@requires_db
+def test_selfcheck_runs_and_autocorrects(client, auth_headers):
+    """Self-check verifies core features, returns a report, and auto-seeds objectives."""
+    r = client.post("/admin/selfcheck", headers=auth_headers)
+    assert r.status_code == 200
+    data = r.json()
+    assert {"healthy", "fixed", "issues", "checks"} <= set(data)
+    names = {c["name"] for c in data["checks"]}
+    assert {"objectives", "credentials", "agents", "command_centers", "lead_pipeline"} <= names
+
+
+def test_content_cadence_matches_spec():
+    """IG/FB = exactly music+bnb+insurance at 3/day; LinkedIn 1/day with no music."""
+    from app.platform_loops import LOOPS
+    for ch in ("instagram", "facebook"):
+        assert LOOPS[ch]["per_day"] == 3
+        assert set(LOOPS[ch]["businesses"]) == {"music", "bnbglobal", "insurance"}
+    assert LOOPS["linkedin"]["per_day"] == 1 and "music" not in LOOPS["linkedin"]["businesses"]
+    assert LOOPS["blog"]["per_day"] == 1  # Medium 1/day
+
+
+def test_newsletter_funnels_and_cadence():
+    """One newsletter per funnel; sent 3x/week (Mon/Wed/Fri)."""
+    from app import newsletters
+    assert set(newsletters.FUNNELS) == {"insurance", "bnbglobal", "savorymind", "music"}
+    assert newsletters.funnel_for_segment("commercial") == "insurance"
+    assert newsletters.funnel_for_segment("consulting") == "bnbglobal"
+    from app.scheduler import _JOBS
+    assert _JOBS["newsletters"][1] == "0 11 * * 1,3,5"
+
+
+def test_consulting_wedge_is_industry_specific():
+    """BnB Global outreach leads with the right wedge per industry, not generic."""
+    from app import consulting_value as c
+    assert "HIPAA" in c.wedge_for("Medical office")
+    assert "checkout" in c.wedge_for("Retail store")
+    assert "fractional-CTO" in c.wedge_for("SaaS startup")
+    assert c.wedge_for("Totally Unknown") == c._DEFAULT  # sensible default, never empty
+    assert "lead with" in c.hint_for("Medical office").lower()
+
+
+def test_savorymind_value_is_pain_specific():
+    """SavoryMind pitch leads with a quantified outcome mapped from the pain signal."""
+    from app import savorymind_value as s
+    assert "average check" in s.value_for("Low average ticket")
+    assert "review" in s.value_for("Weak online reviews")
+    assert "high-margin" in s.value_for("No upsell at point of sale")
+    assert s.value_for("anything else") == s._DEFAULT
+    # Prefer a real menu insight; fall back to the value for placeholder pains.
+    assert s.best_insight("Add a wine flight", "x") == "Add a wine flight"
+    assert s.best_insight("Research before outreach", "Low average ticket") == s.value_for("Low average ticket")
+
+
+def test_ab_subject_styles_rotate_evenly():
+    """A/B exploration rotates through every subject style for balanced sampling."""
+    from app.outreach_analytics import _STYLE_ORDER, experiment_hint, experiment_style
+    seen = [experiment_style(i) for i in range(len(_STYLE_ORDER))]
+    assert set(seen) == set(_STYLE_ORDER)          # one full sweep covers every style
+    assert experiment_style(len(_STYLE_ORDER)) == _STYLE_ORDER[0]  # wraps around
+    assert "subject line" in experiment_hint(0).lower()
 
 
 def test_voice_interpreter_keyword_fallback():
@@ -1537,3 +1976,135 @@ def test_voice_interpreter_keyword_fallback():
     assert _interpret("draft outreach to Acme Corp")["intent"] == "draft_outreach"
     assert _interpret("schedule this for tomorrow at 9")["intent"] == "schedule"
     assert _interpret("what failed today")["intent"] == "what_failed"
+    assert _interpret("run a self check")["intent"] == "self_check"
+    # "Jarvis, do the same" — the user's colloquial way of asking for the
+    # auto-check/auto-correct must resolve offline, not depend on the LLM.
+    assert _interpret("do the same")["intent"] == "self_check"
+    assert _interpret("auto check and auto correct")["intent"] == "self_check"
+    assert _interpret("faça o mesmo")["intent"] == "self_check"
+
+
+def test_voice_interpreter_portuguese():
+    """The user is bilingual — common Portuguese orders map correctly offline."""
+    from app.routers.voice import _interpret
+    assert _interpret("pausar tudo")["intent"] == "pause"
+    assert _interpret("continuar")["intent"] == "resume"
+    assert _interpret("aprovar tudo")["intent"] == "approve_safe"
+    assert _interpret("quantos leads hoje")["intent"] == "metrics"
+    assert _interpret("buscar leads comerciais")["intent"] == "run_agent"
+    assert _interpret("abrir aprovações")["intent"] == "navigate"
+
+
+@requires_db
+def test_approval_approve_resolves_items_without_500(client, auth_headers):
+    """Approving content schedules it; approving a lead never 500s even with no
+    Gmail connected — it's kept (Approved) and leaves the queue."""
+    from app.database import SessionLocal
+    from app.models import ContentItem, Lead
+    db = SessionLocal()
+    c = ContentItem(channel="linkedin", topic="cloud savings", title="T", body="hello",
+                    status="needs_approval", business="executive")
+    l = Lead(segment="commercial", category="Contractor", company_name="Acme",
+             email="owner@acmeexample.com", cold_email="hi there", status="Drafted", score=80)
+    db.add_all([c, l]); db.commit()
+    cid, lid = str(c.id), str(l.id)
+    db.close()
+
+    r = client.post(f"/approvals/content/{cid}/approve", headers=auth_headers)
+    assert r.status_code == 200 and r.json()["ok"] is True
+
+    r = client.post(f"/approvals/lead/{lid}/approve", headers=auth_headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True and body["status"] in ("Approved", "Sent")
+
+    ids = {i["id"] for i in client.get("/approvals", headers=auth_headers).json()["items"]}
+    assert cid not in ids and lid not in ids
+
+
+@requires_db
+def test_lead_pipeline_health_shape(client, auth_headers):
+    """The lead-health diagnostic returns the chain, counts and actionable blockers."""
+    r = client.get("/leads/pipeline-health", headers=auth_headers)
+    assert r.status_code == 200
+    h = r.json()
+    assert {"healthy", "summary", "counts", "by_brand", "sources", "steps", "blockers"} <= set(h)
+    assert {s["key"] for s in h["steps"]} == {"source", "send", "sent", "replies"}
+    # No Gmail configured in CI → the top blocker is to connect a mailbox.
+    assert any("Gmail" in b for b in h["blockers"])
+    # Replies-sync is GREEN when the in-process scheduler is on (default True) —
+    # it no longer requires CRON_SECRET to show healthy.
+    from app.config import settings
+    replies = next(s for s in h["steps"] if s["key"] == "replies")
+    assert replies["ok"] == bool(settings.enable_scheduler or settings.cron_secret)
+
+
+@requires_db
+def test_sync_replies_endpoint(client, auth_headers):
+    """On-demand reply sync runs without a scheduler — returns a clean summary so
+    leads can be warmed up on demand (no 500 even with no mailbox connected)."""
+    r = client.post("/leads/sync-replies", headers=auth_headers)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["ok"] is True and "scanned" in d and "matched" in d
+
+
+@requires_db
+def test_setup_connect_status_and_save(client, auth_headers):
+    """The in-app setup page reports connection status and applies a saved key."""
+    from app.config import settings
+    s = client.get("/setup", headers=auth_headers).json()
+    assert set(s) == {"gmail_personal", "gmail_insurance", "apollo", "google_places", "sms", "jobs_api"}
+    assert s["apollo"]["configured"] is False
+    orig = settings.google_places_api_key
+    try:
+        r = client.post("/setup", headers=auth_headers, json={"google_places_api_key": "test-key-123"})
+        assert r.status_code == 200 and "google_places_api_key" in r.json()["saved"]
+        assert client.get("/setup", headers=auth_headers).json()["google_places"]["configured"] is True
+    finally:
+        settings.google_places_api_key = orig  # don't pollute other tests
+
+
+@requires_db
+def test_mailbox_health_diagnostic(client, auth_headers):
+    """The Connect page can confirm each mailbox can ACTUALLY send (real auth
+    check), not just that a key is saved. Offline it truthfully reports not-able."""
+    r = client.get("/setup/mailbox-health", headers=auth_headers)
+    assert r.status_code == 200
+    d = r.json()
+    assert "outbound_mode" in d and len(d["accounts"]) == 2
+    for a in d["accounts"]:
+        for k in ("account", "can_send", "configured", "sent_today", "daily_cap", "remaining_today"):
+            assert k in a
+        assert a["can_send"] is False  # no real mailbox connected in tests
+        assert a["reason"]  # a clear human reason is always given when it can't send
+
+
+@requires_db
+def test_content_apply_hook_swaps_first_line(client, auth_headers):
+    """Applying an alternative hook replaces only the post's opening line."""
+    from app.database import SessionLocal
+    from app.models import ContentItem
+    db = SessionLocal()
+    c = ContentItem(channel="linkedin", topic="t", title="T", business="executive",
+                    body="Old first line.\nSecond line stays.", status="needs_approval",
+                    meta={"hooks": ["A punchy new hook."]})
+    db.add(c); db.commit(); cid = str(c.id); db.close()
+    r = client.post(f"/content/{cid}/apply-hook", headers=auth_headers,
+                    json={"hook": "A punchy new hook."})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["body"].startswith("A punchy new hook.")
+    assert "Second line stays." in body["body"]
+
+
+def test_education_partners_target_schools_not_generic_businesses():
+    """The foundation's school agent sources real education institutions, not
+    generic commercial leads (synthetic fallback stays education-categorized)."""
+    from app.integrations import providers
+    rows = providers.fetch_education_partners(5, scope="global")
+    assert rows, "should always produce at least synthetic institutions"
+    assert all(r["segment"] == "school_partner" for r in rows)
+    assert all(r.get("category") in providers.EDUCATION_CATEGORIES
+               or r.get("industry") == "Education" for r in rows)

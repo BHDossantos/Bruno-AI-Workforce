@@ -64,6 +64,50 @@ def _get(path: str, token: str, **params) -> dict | None:
         return None
 
 
+def _search_token(db) -> str | None:
+    """A token for public search — only needs client_id/secret (or a stored
+    access_token); the artist_id requirement doesn't apply to discovery."""
+    c = connectors.get_credentials(db, "spotify")
+    if not c:
+        return None
+    if c.get("client_id") and c.get("client_secret"):
+        return _access_token(db, c)
+    return c.get("access_token")
+
+
+def discover_playlists(db, genres, limit: int = 50) -> list[dict]:
+    """Find REAL public playlists to pitch, by genre, via the Spotify Search API.
+    Returns dicts shaped like the synthetic provider (name/curator/genre/
+    submission_link/email/instagram/followers). Spotify exposes no curator email,
+    so email is None — these are pitched via their submission link (manual), but
+    they're real, on-brand targets instead of fabricated ones. [] if not connected."""
+    token = _search_token(db)
+    if not token:
+        return []
+    terms = [g.strip() for g in (genres or []) if g and g.strip()][:6]
+    out: list[dict] = []
+    seen: set[str] = set()
+    for g in terms:
+        data = _get("search", token, q=g, type="playlist", limit=20, market="US")
+        items = ((data or {}).get("playlists") or {}).get("items") or []
+        for p in items:
+            pid = p.get("id")
+            if not pid or pid in seen or not p.get("name"):
+                continue
+            seen.add(pid)
+            out.append({
+                "name": p.get("name"),
+                "curator_name": (p.get("owner") or {}).get("display_name") or "Curator",
+                "genre": g,
+                "submission_link": (p.get("external_urls") or {}).get("spotify"),
+                "email": None, "instagram": None,
+                "followers": int((p.get("followers") or {}).get("total") or 0),
+            })
+            if len(out) >= limit:
+                return out
+    return out
+
+
 def overview(db) -> dict:
     c = _creds(db)
     if not c:

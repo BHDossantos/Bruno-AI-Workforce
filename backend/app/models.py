@@ -118,6 +118,20 @@ class NewsletterSend(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class NewsletterDraft(Base):
+    """An AI-written newsletter issue, stored so it's visible and reviewable before
+    it goes out. status: draft (written, awaiting you) | sent | dismissed."""
+    __tablename__ = "newsletter_drafts"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    funnel: Mapped[str] = mapped_column(String, index=True)
+    subject: Mapped[str | None] = mapped_column(String)
+    body: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String, default="draft", index=True)
+    sent_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class Decision(Base):
     """A logged major decision — what was decided, the reasoning, the expected
     outcome and confidence — later marked with the ACTUAL outcome. Over time the

@@ -24,9 +24,14 @@ function Importer() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(JSON.stringify(data));
-      setResult(type === "contacts"
-        ? `✅ Imported ${data.imported} contacts (${data.leads_added ?? 0} now show as Personal leads), skipped ${data.skipped}. They'll get a warm insurance intro automatically.`
-        : `✅ Imported ${data.imported}, sent ${data.sent}, skipped (no email) ${data.skipped_no_email}.`);
+      if ((data.imported ?? 0) === 0) {
+        // Don't show a green check for a total no-op — surface why nothing imported.
+        setResult(`❌ Imported 0. ${data.reason || "Check the file format — it should be a Google/Outlook/LinkedIn CSV or an iCloud .vcf with email/phone columns."}`);
+      } else {
+        setResult(type === "contacts"
+          ? `✅ Imported ${data.imported} contacts (${data.leads_added ?? 0} now show as Personal leads), skipped ${data.skipped}. They'll get a warm insurance intro automatically.`
+          : `✅ Imported ${data.imported}, sent ${data.sent}, skipped (no email) ${data.skipped_no_email}.`);
+      }
     } catch (e) {
       setResult(`❌ ${e}`);
     } finally {

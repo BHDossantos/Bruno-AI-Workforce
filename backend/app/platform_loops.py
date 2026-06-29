@@ -34,10 +34,13 @@ log = logging.getLogger("bruno.platform_loops")
 #               False → assist mode (drafts only, a human posts on-platform)
 #   businesses— business lines that feed this platform, rotated day-to-day
 LOOPS: dict[str, dict] = {
+    # Instagram + Facebook: 3/day each — exactly music · BnB Global · insurance
+    # (per the spec: 3 businesses × 3 posts × 2 platforms = 9 contents/day).
     # Instagram + Facebook: 3/day each — music · BnB Global · insurance · Bruno D.
     "instagram": {"per_day": 3, "auto": True,
                   "businesses": ["music", "bnbglobal", "insurance", "personal"]},
     "facebook":  {"per_day": 3, "auto": True,
+                  "businesses": ["music", "bnbglobal", "insurance"]},
                   "businesses": ["music", "bnbglobal", "insurance", "personal"]},
     # LinkedIn: 1/day — BnB + insurance + foundation + Bruno D personal brand
     # (no music on LinkedIn, per the rule).
@@ -97,6 +100,8 @@ def run_platform(db: Session, platform: str, seed: int | None = None) -> dict:
         if res.get("ok") and platform in (res.get("channels") or []):
             made += 1
             topics.append(topic)
+        elif res.get("duplicate"):
+            continue  # near-duplicate idea — skip this slot, try the next topic
         else:
             # generation unavailable (offline) — stop trying this run
             return {"platform": platform, "ok": False, "made": made,
@@ -134,6 +139,8 @@ def ensure_music_cadence(db: Session, target: int = MUSIC_MIN_PER_DAY) -> dict:
         res = content_factory.generate_pack(db, topic, "music", channels=[channel])
         if res.get("ok") and channel in (res.get("channels") or []):
             made += 1
+        elif res.get("duplicate"):
+            continue  # near-duplicate idea — skip this slot, try the next topic
         else:
             return {"ok": False, "made": made, "had": have,
                     "reason": res.get("reason", "generation failed")}

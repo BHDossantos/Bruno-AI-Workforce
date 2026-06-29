@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { AuthGate, Expandable, PageHeader, StatusBadge, TempBadge, TempFilter, useFetch, LoadState } from "@/components/ui";
+import LeadHealth from "@/components/LeadHealth";
 
 type Lead = {
   id: string;
@@ -22,16 +23,18 @@ type Lead = {
   times_contacted: number;
   last_contacted_at: string | null;
   temperature: string;
+  fit_score: number;
 };
 type Temp = { cold: number; warm: number; hot: number; dead: number };
 
 function Insurance() {
   const [segment, setSegment] = useState("");
   const [temp, setTemp] = useState("");
+  const [status, setStatus] = useState("");
   const [refresh, setRefresh] = useState(0);
   const { data, loading, error, reload } = useFetch<Lead[]>(
-    () => api.get<Lead[]>(`/leads?limit=200${segment ? `&segment=${segment}` : ""}${temp ? `&temperature=${temp}` : ""}`),
-    [segment, temp, refresh]
+    () => api.get<Lead[]>(`/leads?limit=200&sort=fit${segment ? `&segment=${segment}` : ""}${temp ? `&temperature=${temp}` : ""}${status ? `&status=${status}` : ""}`),
+    [segment, temp, status, refresh]
   );
   const { data: counts } = useFetch<Temp>(
     () => api.get<Temp>(`/leads/summary${segment ? `?segment=${segment}` : ""}`), [segment, refresh]);
@@ -59,6 +62,17 @@ function Insurance() {
     finally { setBusy(null); }
   }
 
+  async function syncReplies() {
+    setBusy("sync"); setMsg("Checking your inbox for replies…");
+    try {
+      const r = await api.post<{ scanned?: number; matched?: number }>("/leads/sync-replies", {});
+      const matched = r.matched ?? 0;
+      setMsg(`✅ Scanned ${r.scanned ?? 0} inbox message(s); ${matched} lead(s) warmed up from replies.`);
+      setRefresh((n) => n + 1);
+    } catch (e) { setMsg(`❌ ${e}`); }
+    finally { setBusy(null); }
+  }
+
   async function dispatchAll() {
     if (!confirm("Send the cold email to all pending leads now?")) return;
     setBusy("all"); setMsg("Dispatching all pending leads…");
@@ -82,19 +96,30 @@ function Insurance() {
               <option value="commercial">Commercial</option>
               <option value="personal">Personal</option>
             </select>
+            <select value={status} onChange={(e) => setStatus(e.target.value)} className="rounded-lg border border-gray-300 px-3 py-2 text-sm" title="Filter by stage">
+              <option value="">Any stage</option>
+              <option value="New">New (not contacted)</option>
+              <option value="Drafted">Drafted (awaiting send)</option>
+              <option value="Sent">Sent (emailed)</option>
+              <option value="Replied">Replied</option>
+              <option value="Interested">Interested</option>
+            </select>
             <button className="btn-ghost" onClick={() => api.download("/export/leads.csv", "leads.csv")}>Export CSV</button>
             <button className="btn" onClick={sourceNow} disabled={sourcing}>{sourcing ? "Sourcing…" : "Source leads now"}</button>
             <button className="btn" onClick={dispatchAll} disabled={busy === "all"}>{busy === "all" ? "Sending…" : "Send all pending"}</button>
+            <button className="btn-ghost" onClick={syncReplies} disabled={busy === "sync"} title="Pull inbox replies — turns repliers into warm/hot leads">{busy === "sync" ? "Syncing…" : "Sync replies now"}</button>
           </div>
         }
       />
       {msg && <p className="mb-2 text-sm text-gray-600">{msg}</p>}
+      <LeadHealth refresh={refresh} />
       <div className="mb-3"><TempFilter counts={counts} value={temp} onChange={setTemp} /></div>
       {(loading || error) && <LoadState loading={loading} error={error} onRetry={reload} />}
       <div className="card overflow-x-auto">
         <table className="w-full">
           <thead>
             <tr>
+              <th className="th">Fit</th>
               <th className="th">Score</th>
               <th className="th">Company / Owner</th>
               <th className="th">Segment</th>
@@ -110,7 +135,8 @@ function Insurance() {
           <tbody>
             {(data || []).map((l) => (
               <tr key={l.id} className="border-t border-gray-100">
-                <td className="td"><span className="badge bg-brand/10 text-brand-dark">{l.score}</span></td>
+                <td className="td"><span className="badge bg-brand/10 text-brand-dark">{l.fit_score}</span></td>
+                <td className="td"><span className="badge bg-gray-100 text-gray-600">{l.score}</span></td>
                 <td className="td"><div className="font-medium">{l.company_name}</div><div className="text-xs text-gray-400">{l.owner_name}</div></td>
                 <td className="td capitalize">{l.segment}<div className="text-xs text-gray-400">{l.category}</div></td>
                 <td className="td"><TempBadge t={l.temperature} /></td>
@@ -137,7 +163,7 @@ function Insurance() {
               </tr>
             ))}
             {!loading && (data || []).length === 0 && (
-              <tr><td colSpan={10} className="td text-center text-gray-400">No leads yet — hit “Source leads now” to find prospects.</td></tr>
+              <tr><td colSpan={11} className="td text-center text-gray-400">No leads yet — hit “Source leads now” to find prospects.</td></tr>
             )}
           </tbody>
         </table>

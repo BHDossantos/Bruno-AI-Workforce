@@ -25,7 +25,8 @@ log = logging.getLogger("bruno.content_factory")
 # Channels the factory produces; which can be auto-published to a connected account.
 CHANNELS = ["blog", "linkedin", "instagram", "tiktok", "youtube", "x", "facebook", "email", "podcast"]
 _PUBLISHABLE = {"linkedin", "instagram", "facebook", "x"}  # via the social publisher
-_SIMILAR = 0.88  # cosine above this == "we've covered this"
+_SIMILAR = 0.88    # cosine above this == "we've covered this" → nudge a fresh angle
+_DUPLICATE = 0.95  # cosine above this == effectively the same topic → skip (don't repeat)
 
 
 def _dedupe_hashtags(s: str | None) -> str | None:
@@ -91,15 +92,26 @@ def _whats_working(db: Session) -> str:
             + "; ".join(w for w in winners if w))
 
 
+def _recent_matches(db: Session, qv: list[float] | None) -> tuple[list[str], float]:
+    """Compare a topic embedding against recent content. Returns (titles we've
+    already covered closely → for a fresh-angle nudge, top cosine similarity →
+    so the caller can hard-skip an effective duplicate)."""
 def covered_recently(db: Session, topic: str) -> list[str]:
     """Titles of prior content on a very similar topic (for a fresh-angle nudge)."""
     qv = client.embed(topic)
     if not qv:
-        return []
+        return [], 0.0
     rows = (db.query(ContentItem).filter(ContentItem.embedding.isnot(None))
             .order_by(ContentItem.created_at.desc()).limit(500).all())
-    hits = [r for r in rows if memory._cosine(qv, r.embedding or []) >= _SIMILAR]
-    return list({r.topic for r in hits})[:5]
+    sims = [(memory._cosine(qv, r.embedding or []), r.topic) for r in rows]
+    titles = list({t for s, t in sims if s >= _SIMILAR})[:5]
+    top = max((s for s, _ in sims), default=0.0)
+    return titles, top
+
+
+def covered_recently(db: Session, topic: str) -> list[str]:
+    """Titles of prior content on a very similar topic (for a fresh-angle nudge)."""
+    return _recent_matches(db, client.embed(topic))[0]
 
 
 def generate_pack(db: Session, topic: str, business: str = "executive",
@@ -131,6 +143,14 @@ def generate_pack(db: Session, topic: str, business: str = "executive",
                     "fitness & discipline, Rome/Italy life, books & ideas, fatherhood & "
                     "resilience. Build authority + relatability; not a product pitch. End with "
                     "a question or reflection that invites conversation.")
+    emb = client.embed(topic)
+    prior, top_sim = _recent_matches(db, emb)
+    # Hard de-dup: if this topic is effectively identical to something we recently
+    # made, skip it entirely rather than publish a near-duplicate. Reported as a
+    # skip (ok=True, no channels) so the content loop simply moves to the next idea.
+    if top_sim >= _DUPLICATE:
+        return {"ok": True, "topic": topic, "business": business, "channels": [],
+                "duplicate": True, "reason": "near-duplicate of recent content — skipped"}
     prior = covered_recently(db, topic)
     freshness = (f"We've already covered: {', '.join(prior)}. Take a clearly NEW angle."
                  if prior else "This is a fresh topic.")
@@ -148,7 +168,6 @@ def generate_pack(db: Session, topic: str, business: str = "executive",
     if not pack:
         return {"ok": False, "reason": "generation unavailable (set OPENAI_API_KEY)", "topic": topic}
 
-    emb = client.embed(topic)
     created = []
     for ch in channels:
         data = pack.get(ch)
@@ -163,7 +182,8 @@ def generate_pack(db: Session, topic: str, business: str = "executive",
             title=data.get("title") or data.get("subject"),
             body=data.get("body") or data.get("caption") or data.get("script"),
             hashtags=_dedupe_hashtags(data.get("hashtags")), status=status, embedding=emb,
-            meta={"angle": pack.get("angle")}, scheduled_for=sched)
+            meta={"angle": pack.get("angle"), "hooks": pack.get("hooks") or []},
+            scheduled_for=sched)
         db.add(item)
         created.append(ch)
     db.commit()
@@ -208,10 +228,32 @@ def regenerate_stale(db: Session, business: str | None = None,
 
 
 def out(i: ContentItem) -> dict:
+    meta = i.meta or {}
     return {"id": str(i.id), "topic": i.topic, "business": i.business, "channel": i.channel,
             "title": i.title, "body": i.body, "hashtags": i.hashtags, "status": i.status,
+            "hooks": meta.get("hooks") or [],
             "scheduled_for": i.scheduled_for.isoformat() if i.scheduled_for else None,
             "created_at": i.created_at.isoformat() if i.created_at else None}
+
+
+def apply_hook(db: Session, content_id: str, hook: str) -> dict:
+    """Swap a post's opening line for the chosen alternative hook (keeps the rest)."""
+    item = db.query(ContentItem).filter(ContentItem.id == content_id).first()
+    if not item:
+        return {"ok": False, "reason": "content not found"}
+    hook = (hook or "").strip()
+    if not hook:
+        return {"ok": False, "reason": "empty hook"}
+    lines = (item.body or "").split("\n")
+    for idx, ln in enumerate(lines):
+        if ln.strip():
+            lines[idx] = hook  # replace the first non-empty line
+            break
+    else:
+        lines = [hook]
+    item.body = "\n".join(lines)
+    db.commit()
+    return {"ok": True, **out(item)}
 
 
 def publish_due(db: Session) -> dict:

@@ -23,6 +23,20 @@ _FIRST = ["Alex", "Maria", "John", "Sofia", "Marco", "Lucia", "David", "Elena", 
 _LAST = ["Silva", "Rossi", "Smith", "Garcia", "Johnson", "Ferrari", "Costa", "Bianchi", "Lopez", "Reed"]
 
 
+# Scope keywords mean "worldwide/region" → no Apollo person-location filter; a
+# comma-list of place names (e.g. insurance "Massachusetts,New Hampshire,Florida")
+# becomes Apollo person_locations so leads stay in-territory.
+_GLOBAL_SCOPES = {"global", "worldwide", "world", "us", "usa", "united states",
+                  "eu", "europe", "us_eu", "us+eu", ""}
+
+
+def _scope_locations(scope: str | None) -> list[str] | None:
+    s = (scope or "").strip().lower()
+    if not s or s in _GLOBAL_SCOPES:
+        return None
+    return [p.strip() for p in scope.split(",") if p.strip()]
+
+
 def _person() -> str:
     return f"{_rng.choice(_FIRST)} {_rng.choice(_LAST)}"
 
@@ -106,9 +120,10 @@ def fetch_insurance_leads(segment: str, count: int, scope: str | None = None) ->
     if segment == "commercial":
         out.extend(osm_leads.fetch_commercial_leads(count, scope=scope))    # free, real
         if len(out) < count:
-            out.extend(places.fetch_commercial_leads(count - len(out)))     # Google Places (free credit)
+            out.extend(places.fetch_commercial_leads(count - len(out), scope=scope))  # Google Places (free credit)
         if apollo.is_configured() and len(out) < count:
-            for lead in apollo.fetch_commercial_leads(count - len(out)):    # paid, real
+            for lead in apollo.fetch_commercial_leads(count - len(out),
+                                                      locations=_scope_locations(scope)):  # paid, real
                 lead.setdefault("category", lead.get("industry") or "Commercial")
                 out.append(lead)
         if len(out) >= count:
@@ -170,6 +185,33 @@ def fetch_referral_partners(count: int, scope: str | None = None) -> list[dict]:
     return out[:count]
 
 
+# ── Foundation: real education institutions (schools/universities/centers) ────
+EDUCATION_CATEGORIES = ["Public School", "Private School", "University", "College",
+                        "Music Conservatory", "Community Center", "Library"]
+
+
+def fetch_education_partners(count: int, scope: str | None = None) -> list[dict]:
+    """Real schools/universities/community centers for the foundation's School
+    Partnership agent (OSM), topped up with synthetic institutions if needed."""
+    out: list[dict] = list(osm_leads.fetch_education_leads(count, scope=scope))  # free, real
+    for lead in out:
+        lead["segment"] = "school_partner"
+        lead.setdefault("category", "Education institution")
+    if len(out) >= count or not settings.allow_synthetic_fallback:
+        return out[:count]
+    for i in range(count - len(out)):
+        cat = _rng.choice(EDUCATION_CATEGORIES)
+        name = f"{_rng.choice(_LAST)} {cat}"
+        out.append({
+            "segment": "school_partner", "category": cat, "company_name": name,
+            "owner_name": _person(), "email": f"info-{i}@{_slug(name)}.org",
+            "phone": f"+1{_rng.randint(2000000000, 9999999999)}",
+            "website": f"https://{_slug(name)}.org", "linkedin": None,
+            "industry": "Education", "city": _rng.choice(_CITIES),
+        })
+    return out[:count]
+
+
 # ── Agent 3: SavoryMind restaurants + consumers ──────────────────────────────
 RESTAURANT_TYPES = ["Fine dining", "Wine bar", "Cafe", "Family restaurant",
                     "Hospitality group", "Food truck", "Hotel restaurant"]
@@ -180,11 +222,11 @@ def fetch_restaurants(count: int, scope: str | None = None) -> list[dict]:
     """Real restaurants from OpenStreetMap (free) + Apollo, topped up with synthetic."""
     out: list[dict] = list(osm_leads.fetch_restaurants(count, scope=scope))  # free, real
     if len(out) < count:
-        out.extend(places.fetch_restaurants(count - len(out)))  # Google Places (free credit)
+        out.extend(places.fetch_restaurants(count - len(out), scope=scope))  # Google Places (free credit)
     if len(out) >= count:
         return out[:count]
     if apollo.is_configured():
-        for c in apollo.fetch_restaurant_contacts(count):
+        for c in apollo.fetch_restaurant_contacts(count, locations=_scope_locations(scope)):
             name = c.get("company_name") or "Restaurant"
             out.append({
                 "kind": "prospect",
@@ -259,6 +301,27 @@ def fetch_music_pr(count: int) -> list[dict]:
         name = f"{_rng.choice(_LAST)} {_rng.choice(['Sounds', 'Notes', 'Sessions', 'Radio', 'Review'])}"
         out.append({"name": name, "kind": kind, "focus": _rng.choice(_PR_FOCUS),
                     "email": f"editor-{i}@{_slug(name)}.com", "contact": _person()})
+    return out
+
+
+# Sync-licensing contacts — music supervisors / libraries / ad & game studios.
+_SYNC_KINDS = ["TV music supervisor", "film music supervisor", "ad agency music lead",
+               "trailer house", "sync library", "game studio audio"]
+_SYNC_FOCUS = ["romantic drama scenes", "luxury & beauty brand ads", "travel/lifestyle spots",
+               "Latin-market campaigns", "indie film soundtracks", "reality TV beds"]
+
+
+def fetch_sync_targets(count: int) -> list[dict]:
+    """Sync-licensing prospects to pitch the catalog for TV/film/ad/game placements
+    (synthetic until a sync-contact DB/API is wired)."""
+    if not settings.allow_synthetic_fallback:
+        return []
+    out = []
+    for i in range(count):
+        kind = _rng.choice(_SYNC_KINDS)
+        name = f"{_rng.choice(_LAST)} {_rng.choice(['Sync', 'Music', 'Sound', 'Licensing', 'Media'])}"
+        out.append({"name": name, "kind": kind, "focus": _rng.choice(_SYNC_FOCUS),
+                    "email": f"music-{i}@{_slug(name)}.com", "contact": _person()})
     return out
 
 

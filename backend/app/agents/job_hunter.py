@@ -53,21 +53,23 @@ class JobHunterAgent(BaseAgent):
         scored = []
         for job in raw:
             score, breakdown = self.score_job(job)
-            if score >= threshold:
-                job["score"] = score
-                job["score_breakdown"] = breakdown
-                scored.append(job)
+            job["score"] = score
+            job["score_breakdown"] = breakdown
+            scored.append(job)
         scored.sort(key=lambda j: j["score"], reverse=True)
-        top = scored[:target]
-
-        # Don't re-add jobs we already have (dedupe by apply URL across runs).
+        # Quality FIRST: only genuine ≥threshold matches go to the one-click apply
+        # queue (auto-prepared + ready to send). Lower-fit "stretch" roles are still
+        # saved so they're visible on the Jobs page, but they are NOT auto-applied —
+        # no enrichment, no queued Application. Quality over a padded queue.
         existing_urls = {u for (u,) in self.db.query(Job.url).filter(Job.url.isnot(None)).all()}
-        top = [j for j in top if j.get("url") not in existing_urls][:target]
+        fresh = [j for j in scored if j.get("url") not in existing_urls]
+        qualified = [j for j in fresh if j["score"] >= threshold][:target]
+        stretch = [j for j in fresh if j["score"] < threshold][:target]
 
         # ── Phase 1: persist scored jobs FAST (no AI) and commit, so the apply
         # queue always has the roles even if enrichment is slow/errors. ──────────
         pairs: list[tuple[Job, dict]] = []
-        for job in top:
+        for job in qualified:
             row = Job(
                 title=job["title"], company=job["company"], location=job["location"],
                 remote=job["remote"], salary_min=job["salary_min"], salary_max=job["salary_max"],
@@ -76,6 +78,15 @@ class JobHunterAgent(BaseAgent):
             )
             self.db.add(row)
             pairs.append((row, job))
+        # Stretch roles: saved for visibility only (no Application/enrichment), so
+        # they live on the Jobs page and stay out of the one-click apply queue.
+        for job in stretch:
+            self.db.add(Job(
+                title=job["title"], company=job["company"], location=job["location"],
+                remote=job["remote"], salary_min=job["salary_min"], salary_max=job["salary_max"],
+                source=job["source"], url=job["url"], description=job["description"],
+                score=job["score"], score_breakdown={**job["score_breakdown"], "stretch": True},
+            ))
         self.db.commit()
         saved = len(pairs)
 
@@ -125,15 +136,18 @@ class JobHunterAgent(BaseAgent):
             except Exception:  # one bad job must not drop the rest
                 self.db.rollback()
 
-        self.log_action("jobs_saved", entity="jobs", detail={"count": saved, "applied": applied})
+        self.log_action("jobs_saved", entity="jobs",
+                        detail={"count": saved, "stretch": len(stretch), "applied": applied})
         return {
-            "summary": f"Found {len(scored)} qualified jobs, queued top {saved} for one-click apply "
-                       f"({applied} hiring contacts emailed directly).",
+            "summary": f"Queued {saved} ≥{threshold}% matches for one-click apply "
+                       f"({applied} hiring contacts emailed); saved {len(stretch)} stretch roles "
+                       "to the Jobs page.",
             "found": len(scored),
-            "saved": saved,
+            "qualified": saved,
+            "stretch": len(stretch),
             "enriched": enriched,
             "applied": applied,
-            "top_titles": [j["title"] for j in top[:10]],
+            "top_titles": [j["title"] for j in qualified[:10]],
         }
 
 

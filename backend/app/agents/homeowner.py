@@ -27,11 +27,12 @@ class HomeownerLeadAgent(BaseAgent):
         target = min(settings.homeowner_lead_daily_target, _PER_RUN_CAP)
         prospects = providers.fetch_insurance_leads(
             "personal", target, scope=settings.insurance_lead_scope)
+        from .. import insurance_needs
         for p in prospects:
             p["segment"] = "personal"
             p.setdefault("category", "New homeowner")
-            p["reason"] = ("New homeowners and recent movers need home + auto coverage — "
-                           "a great moment for a quick rate review.")
+            # Tailor the rate-review pitch to the personal-lines category.
+            p["reason"] = insurance_needs.reason_for(p.get("category"), "personal")
 
         def build_prompt(p):
             return INSURANCE_OUTREACH.format(

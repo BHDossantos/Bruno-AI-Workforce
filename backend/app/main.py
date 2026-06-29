@@ -41,6 +41,7 @@ from .routers import (
     profile,
     reports,
     restaurants,
+    setup,
     sms,
 )
 from .scheduler import shutdown_scheduler, start_scheduler
@@ -58,6 +59,17 @@ async def lifespan(app: FastAPI):
         seed()
     except Exception:
         log.exception("Startup seed() failed — check DATABASE_URL / Cloud SQL connection")
+    try:
+        from .database import SessionLocal
+        from . import runtime_config, selfcheck
+        _db = SessionLocal()
+        try:
+            runtime_config.apply_to_settings(_db)  # load any in-app-connected creds
+            selfcheck.run(_db)  # verify core features + auto-correct safe issues on boot
+        finally:
+            _db.close()
+    except Exception:
+        log.exception("Startup runtime-config / self-check failed")
     try:
         start_scheduler()
     except Exception:
@@ -113,6 +125,7 @@ app.include_router(approvals.router)
 app.include_router(mission.router)
 app.include_router(grants.router)
 app.include_router(voice.router)
+app.include_router(setup.router)
 
 
 @app.get("/health", tags=["system"])

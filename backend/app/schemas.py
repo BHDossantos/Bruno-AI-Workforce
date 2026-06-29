@@ -84,6 +84,12 @@ class LeadOut(ORMModel):
     def temperature(self) -> str:
         return _temperature(self.status)
 
+    @computed_field
+    @property
+    def fit_score(self) -> int:
+        from .lead_fit import score
+        return score(self)
+
 
 class RestaurantOut(ORMModel):
     id: uuid.UUID

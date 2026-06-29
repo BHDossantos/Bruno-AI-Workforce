@@ -78,10 +78,12 @@ class Settings(BaseSettings):
     # When False, agents use ONLY live-sourced data (no synthetic top-up to hit
     # target counts). Set False in production once real sourcing is in place.
     allow_synthetic_fallback: bool = True
-    # Cities the lead-finder agents search for real businesses (free, via
-    # OpenStreetMap). Comma-separated. Fallback when no per-business scope is set.
-    lead_cities: str = "Boston,New York,Miami,Chicago,Austin"
-    # Whole STATES to search (OSM names, comma-separated) — global fallback.
+    # Optional narrow city list for lead sourcing. Left EMPTY by default: we search
+    # each whole STATE statewide instead (see lead_states / per-business scopes),
+    # not a handful of cities. Set this only to deliberately restrict to cities.
+    lead_cities: str = ""
+    # Whole STATES to search statewide (OSM names, comma-separated) — the default
+    # geography. Each state is swept entirely, not city-by-city.
     lead_states: str = "Massachusetts,New Hampshire,Florida"
 
     # Per-business lead geography (where each sales engine sources prospects).
@@ -134,6 +136,10 @@ class Settings(BaseSettings):
     # How many areas each lead run sweeps. Big scopes (US+EU) rotate through the
     # full list over days so a single run never times out Overpass.
     lead_areas_per_run: int = 16
+    # How many website-only businesses to scrape for an email per run. Once a
+    # region's email-tagged pool is exhausted, this is how we keep finding NEW
+    # leads — raise it to dig deeper (slower runs, more leads).
+    osm_scrape_budget: int = 40
     # Location bias for job-search queries (JSearch). Blank = no location filter.
     job_location: str = "United States"
     # How many leads each lead-finder agent produces per run. Small batches keep
@@ -221,6 +227,10 @@ class Settings(BaseSettings):
     # When True, the daily job hunter pre-builds each top job's fill package
     # (résumé + answers + cover letter) so the Apply Queue is submit-ready.
     auto_prepare_applications: bool = True
+    # Auto-apply engine (LoopCV-style). Max applications it will SUBMIT per day —
+    # paced to stay under board rate limits. The engine only runs when its mode
+    # (a runtime Setting: off | compliant | aggressive) is not "off".
+    auto_apply_daily_cap: int = 50
     # TikTok Content Posting API visibility. Pre-audit, TikTok forces SELF_ONLY
     # (private to your account); after your app passes audit, set this to
     # PUBLIC_TO_EVERYONE (or MUTUAL_FOLLOW_FRIENDS / FOLLOWER_OF_CREATOR).
@@ -253,13 +263,17 @@ class Settings(BaseSettings):
     # Outbound mode: "send" (auto-send now), "send_on_approve", or "draft".
     gmail_outbound_mode: str = "send"
     # Safety cap on auto-sent outreach per day, per account (protects the mailbox).
-    # Sized for the 3×/day lead passes; lower it if a fresh mailbox gets flagged.
-    gmail_daily_send_cap: int = 120
+    # Higher ceiling so a backlog clears faster; warmup still ramps a fresh mailbox
+    # up to it gradually. Google Workspace allows ~2,000 sends/day, so 300 is well
+    # within limits — lower it if a fresh mailbox ever gets flagged.
+    gmail_daily_send_cap: int = 300
     # Deliverability warmup: ramp volume on a fresh mailbox so it isn't flagged
     # as spam. Effective cap = min(gmail_daily_send_cap, start + step × days_active).
+    # Starts higher and ramps faster than before, so the queue drains in days, not
+    # weeks, while still easing a brand-new mailbox in.
     email_warmup_enabled: bool = True
-    email_warmup_start: int = 20
-    email_warmup_step: int = 10
+    email_warmup_start: int = 40
+    email_warmup_step: int = 25
 
     # Insurance outreach to your imported personal contacts (warm network). Each
     # contact is emailed once; small daily batches drip through the list within

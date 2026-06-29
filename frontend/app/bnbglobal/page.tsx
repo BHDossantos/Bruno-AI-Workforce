@@ -3,12 +3,13 @@
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { AuthGate, Expandable, PageHeader, StatusBadge, TempBadge, TempFilter, useFetch, LoadState } from "@/components/ui";
+import LeadHealth from "@/components/LeadHealth";
 
 type Lead = {
   id: string; company_name: string | null; owner_name: string | null; category: string | null;
   industry: string | null; email: string | null; phone: string | null;
   cold_email: string | null; linkedin_msg: string | null; call_script: string | null; status: string;
-  temperature: string;
+  temperature: string; fit_score: number;
 };
 type Temp = { cold: number; warm: number; hot: number; dead: number };
 
@@ -16,7 +17,7 @@ function BnbGlobal() {
   const [refresh, setRefresh] = useState(0);
   const [temp, setTemp] = useState("");
   const { data, loading, error, reload } = useFetch<Lead[]>(
-    () => api.get<Lead[]>(`/leads?segment=consulting&limit=200${temp ? `&temperature=${temp}` : ""}`), [temp, refresh]);
+    () => api.get<Lead[]>(`/leads?segment=consulting&limit=200&sort=fit${temp ? `&temperature=${temp}` : ""}`), [temp, refresh]);
   const { data: counts } = useFetch<Temp>(
     () => api.get<Temp>("/leads/summary?segment=consulting"), [refresh]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -63,17 +64,19 @@ function BnbGlobal() {
           <button className="btn" onClick={dispatchAll} disabled={busy === "all"}>{busy === "all" ? "Sending…" : "Send all pending"}</button>
         </div>} />
       {msg && <p className="mb-2 text-sm text-gray-600">{msg}</p>}
+      <LeadHealth refresh={refresh} />
       <div className="mb-3"><TempFilter counts={counts} value={temp} onChange={setTemp} /></div>
       {(loading || error) && <LoadState loading={loading} error={error} onRetry={reload} />}
       <div className="card overflow-x-auto">
         <table className="w-full">
           <thead><tr>
-            <th className="th">Company</th><th className="th">Industry</th><th className="th">Temp</th><th className="th">Contact</th>
+            <th className="th">Fit</th><th className="th">Company</th><th className="th">Industry</th><th className="th">Temp</th><th className="th">Contact</th>
             <th className="th">Status</th><th className="th">Outreach</th><th className="th">Action</th>
           </tr></thead>
           <tbody>
             {(data || []).map((l) => (
               <tr key={l.id} className="border-t border-gray-100">
+                <td className="td"><span className="badge bg-brand/10 text-brand-dark">{l.fit_score}</span></td>
                 <td className="td"><div className="font-medium">{l.company_name}</div><div className="text-xs text-gray-400">{l.owner_name}</div></td>
                 <td className="td">{l.industry || l.category}</td>
                 <td className="td"><TempBadge t={l.temperature} /></td>
@@ -93,7 +96,7 @@ function BnbGlobal() {
               </tr>
             ))}
             {!loading && (data || []).length === 0 &&
-              <tr><td colSpan={7} className="td text-center text-gray-400">No prospects yet — run the BnB Global agent (or the daily cycle).</td></tr>}
+              <tr><td colSpan={8} className="td text-center text-gray-400">No prospects yet — run the BnB Global agent (or the daily cycle).</td></tr>}
           </tbody>
         </table>
       </div>

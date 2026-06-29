@@ -22,6 +22,13 @@ class SchoolPartnershipAgent(BaseAgent):
     schedule_cron = "40 9 * * 1-5"
 
     def execute(self) -> dict:
+        # Source REAL education institutions (schools/universities/conservatories/
+        # community centers), not generic businesses.
+        prospects = providers.fetch_education_partners(
+            _PER_RUN_CAP, scope=settings.foundation_lead_scope)
+        for p in prospects:
+            p["segment"] = "school_partner"
+            p.setdefault("category", "Education institution")
         prospects = providers.fetch_insurance_leads(
             "commercial", _PER_RUN_CAP, scope=settings.foundation_lead_scope)
         for p in prospects:

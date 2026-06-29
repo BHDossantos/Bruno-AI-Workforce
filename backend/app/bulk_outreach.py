@@ -22,8 +22,14 @@ def dispatch_leads(db: Session, segment: str | None = None, limit: int = 1000,
     if segment:
         q = q.filter(Lead.segment == segment)
     rows = q.order_by(Lead.score.desc()).limit(limit).all()
-    sent = failed = 0
+    sent = failed = retired = 0
     for lead in rows:
+        # Retire un-sendable (synthetic/placeholder) addresses so they stop sitting
+        # in the queue forever and inflating the backlog.
+        if not outreach.is_real_email(lead.email):
+            lead.status = "Skipped"
+            retired += 1
+            continue
         account = "insurance" if lead.segment in ("commercial", "personal") else "personal"
         subject = f"A quick idea for {lead.company_name or lead.owner_name}"
         try:
@@ -40,15 +46,19 @@ def dispatch_leads(db: Session, segment: str | None = None, limit: int = 1000,
         except Exception:
             failed += 1
     db.commit()
-    return {"pending": len(rows), "dispatched": sent, "failed": failed}
+    return {"pending": len(rows), "dispatched": sent, "failed": failed, "retired": retired}
 
 
 def dispatch_restaurants(db: Session, limit: int = 1000, autonomous: bool = True) -> dict:
     rows = (db.query(Restaurant).filter(
         Restaurant.kind == "prospect", Restaurant.status.in_(_PENDING),
         Restaurant.email.isnot(None)).limit(limit).all())
-    sent = failed = 0
+    sent = failed = retired = 0
     for r in rows:
+        if not outreach.is_real_email(r.email):
+            r.status = "Skipped"  # retire un-sendable synthetic/placeholder rows
+            retired += 1
+            continue
         subject = f"Growing revenue at {r.name} with SavoryMind"
         try:
             msg = outreach.dispatch_email(db, entity_type="restaurant", entity_id=r.id,
@@ -64,4 +74,4 @@ def dispatch_restaurants(db: Session, limit: int = 1000, autonomous: bool = True
         except Exception:
             failed += 1
     db.commit()
-    return {"pending": len(rows), "dispatched": sent, "failed": failed}
+    return {"pending": len(rows), "dispatched": sent, "failed": failed, "retired": retired}

@@ -104,3 +104,25 @@ def post(db, message: str, image_url: str | None = None) -> dict:
         return {"ok": False, "reason": r.text[:200]}
     except Exception as exc:  # pragma: no cover - network guard
         return {"ok": False, "reason": str(exc)}
+
+
+def get_post_metrics(db, urn: str) -> dict | None:
+    """Public engagement for a LinkedIn post (socialActions on the share/ugcPost
+    URN). Normalized to {likes, comments, shares} or None — feeds the learning
+    loop. Needs r_organization_social / member social scope; degrades safely."""
+    c = _creds(db)
+    if not c or not urn:
+        return None
+    try:
+        r = httpx.get(f"{_BASE}/socialActions/{urn}", timeout=_TIMEOUT, headers={
+            "Authorization": f"Bearer {c['access_token']}",
+            "X-Restli-Protocol-Version": "2.0.0"})
+        if r.status_code != 200:
+            return None
+        d = r.json() or {}
+        likes = (d.get("likesSummary") or {}).get("totalLikes", 0)
+        comments = (d.get("commentsSummary") or {}).get("aggregatedTotalComments", 0)
+        return {"likes": int(likes or 0), "comments": int(comments or 0), "shares": 0}
+    except Exception as exc:  # pragma: no cover - network guard
+        log.warning("LinkedIn metrics failed: %s", exc)
+        return None

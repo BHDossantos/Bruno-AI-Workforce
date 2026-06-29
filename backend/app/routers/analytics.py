@@ -227,12 +227,17 @@ def learnings(db: Session = Depends(get_db), _=Depends(_read)):
     """What the adaptive layer has learned — per-channel category performance with
     sample sizes, the bandit's next pick, learned posting hours, and which outreach
     subject-line styles earn the most replies."""
+    from .. import learning, lead_intel, outreach_analytics
     from .. import learning, outreach_analytics
     data = learning.learnings(db)
     rates = outreach_analytics.reply_rates(db)
     data["outreach"] = sorted(
         ([{"style": st, **a} for st, a in rates.items() if st != "none"]),
         key=lambda x: x.get("rate", 0), reverse=True)
+    cat_rates = lead_intel.category_reply_rates(db)
+    data["lead_categories"] = sorted(
+        ([{"category": c, **a} for c, a in cat_rates.items()]),
+        key=lambda x: (x.get("rate", 0), x.get("sent", 0)), reverse=True)
     return data
 
 

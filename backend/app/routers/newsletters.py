@@ -49,6 +49,34 @@ def send(funnel: str, db: Session = Depends(get_db), _=Depends(_write)):
     return res
 
 
+@router.get("/drafts")
+def drafts(db: Session = Depends(get_db), _=Depends(_read)):
+    """The AI-written newsletters waiting for you to read/approve."""
+    return {"drafts": nl.list_drafts(db)}
+
+
+@router.post("/write")
+def write(db: Session = Depends(get_db), _=Depends(_write)):
+    """Write a fresh newsletter draft for every funnel right now."""
+    return nl.write_all(db)
+
+
+@router.post("/drafts/{draft_id}/send")
+def send_draft(draft_id: str, db: Session = Depends(get_db), _=Depends(_write)):
+    res = nl.send_draft(db, draft_id)
+    if res.get("ok") is False:
+        raise HTTPException(400, res.get("reason", "send failed"))
+    return res
+
+
+@router.post("/drafts/{draft_id}/dismiss")
+def dismiss_draft(draft_id: str, db: Session = Depends(get_db), _=Depends(_write)):
+    res = nl.dismiss_draft(db, draft_id)
+    if res.get("ok") is False:
+        raise HTTPException(404, res.get("reason", "not found"))
+    return res
+
+
 # Public — no auth (people click this from their inbox).
 @router.get("/unsubscribe", response_class=PlainTextResponse)
 def unsubscribe(token: str, db: Session = Depends(get_db)):

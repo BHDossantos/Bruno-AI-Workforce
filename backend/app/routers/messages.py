@@ -75,3 +75,36 @@ def sync_inbound(newer_than_days: int = 3, db: Session = Depends(get_db), _=Depe
 def run_followups(db: Session = Depends(get_db), _=Depends(_write)):
     """Send all due follow-ups now (skips anyone who replied)."""
     return followups.process_due_followups(db)
+
+
+@router.get("/followups")
+def list_followups(limit: int = 200, db: Session = Depends(get_db), _=Depends(_read)):
+    """Every contacted prospect's pending follow-up — who to follow up with, when,
+    which step, and whether it's due now. The single place to manage follow-ups."""
+    from datetime import date
+    from ..models import FollowUp
+    rows = (db.query(FollowUp).filter(FollowUp.completed.is_(False))
+            .order_by(FollowUp.due_date).limit(limit).all())
+    today = date.today()
+    items = []
+    for fu in rows:
+        name, _ctx = followups._entity_context(db, fu.entity_type, fu.entity_id)
+        # Recipient + last touch from the first outreach message for this entity.
+        msgs = (db.query(Message).filter(Message.entity_type == fu.entity_type,
+                Message.entity_id == fu.entity_id).all())
+        to_email = next((m.to_email for m in msgs if m.to_email), None)
+        if not to_email:
+            continue  # nothing to follow up with
+        replied = any(m.status == "Replied" for m in msgs)
+        last_sent = max((m.sent_at or m.created_at for m in msgs if m.direction == "outbound"),
+                        default=None)
+        items.append({
+            "id": str(fu.id), "entity_type": fu.entity_type,
+            "name": name or to_email, "to": to_email, "step": fu.step,
+            "due_date": fu.due_date.isoformat() if fu.due_date else None,
+            "due": bool(fu.due_date and fu.due_date <= today),
+            "replied": replied,
+            "last_sent": last_sent.isoformat() if last_sent else None,
+        })
+    due = sum(1 for i in items if i["due"] and not i["replied"])
+    return {"due": due, "total": len(items), "items": items}

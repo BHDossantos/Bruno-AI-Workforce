@@ -173,6 +173,20 @@ Return JSON with keys:
   to personalize — never repeat a pitch they already declined.
 """
 
+SYNC_PITCH = """Write a concise sync-licensing pitch for Bruno D — a "Luxury Latin Soul"
+artist (romantic R&B with a signature alto sax, sung in English/Spanish/Portuguese) —
+to a music supervisor / sync contact who places music in TV, film, ads, trailers and games.
+
+Contact: {name} ({kind}) — works on {focus}. Contact person: {contact}
+{memory}
+Return JSON with key "pitch": a respectful 80-120 word pitch that (1) leads with the
+mood/vibe and where the music fits (scene type, brand tone), (2) notes one-stop clearance
+(masters + publishing controlled by the artist = fast, easy licensing), and (3) makes one
+clear ask (add to your library / consider for a current brief). No hard sell, no hype.
+Never repeat a pitch they already declined.
+"""
+
+
 MUSIC_PR_PITCH = """Write a concise press pitch for Bruno D — a "Luxury Latin Soul" artist
 (romantic R&B with a signature alto sax, sung in English/Spanish/Portuguese).
 
@@ -273,11 +287,13 @@ Return JSON with key "calendar": a list of 9 objects
 # ── Automated follow-ups ─────────────────────────────────────────────────────
 FOLLOWUP_EMAIL = """Write follow-up email #{step} (of 7) to {name}, who has not replied yet.
 Context of the original outreach: {context}
+THIS TOUCH'S JOB: {purpose}
 {memory}
-Keep it under 80 words, polite and value-add (don't be pushy), reference that you
-reached out before, and end with a soft CTA plus a one-line unsubscribe note.
-Use anything you remember above to make it personal and well-timed — never repeat
-yourself or contradict what you already know. Return JSON with keys "subject" and "body".
+Keep it under 80 words, polite and genuinely value-add (never pushy or guilt-trippy).
+Lead with the new value/angle above — do NOT just "bump" or say "circling back".
+Briefly nod to the prior note, end with a soft CTA, and add a one-line unsubscribe note.
+Use anything you remember above to stay personal and well-timed — never repeat a
+previous touch or contradict what you already know. Return JSON with keys "subject" and "body".
 """
 
 # ── Warm SMS (sent after a lead replies to our email) ────────────────────────
@@ -379,6 +395,9 @@ NON-NEGOTIABLE QUALITY BAR (most AI content fails here — don't):
 
 Return a JSON object with these keys (omit none; keep each tight and high-quality):
 - "angle": the specific angle/hook you chose (one sentence).
+- "hooks": an array of 3 DISTINCT scroll-stopping opening lines for this topic
+  (each a different style — e.g. a number/result, a blunt contrarian claim, a
+  sharp question), each usable as the first line of a LinkedIn/Instagram/X post.
 - "blog": {{"title": ..., "body": 500-800 word article in markdown}}.
 - "linkedin": {{"body": native post, strong first line then short lines/line breaks,
   ~120-220 words, ONE insight, no hashtags inside the body,

@@ -20,6 +20,30 @@ from .models import FollowUp, Influencer, Lead, Message, MusicPlaylist, Restaura
 
 log = logging.getLogger("bruno.followups")
 
+# A proven multi-touch cadence: every touch has a DISTINCT job, so the sequence
+# adds value instead of nagging. Steps map to base.FOLLOW_UP_OFFSETS (1–7).
+_STEP_PURPOSE = {
+    1: "Share one concrete, useful insight or quick win relevant to their world — "
+       "give value first, ask for nothing big.",
+    2: "Offer social proof: a brief, specific result or example of someone like them "
+       "who benefited (no name-dropping fluff, a real outcome).",
+    3: "Reframe from a DIFFERENT angle or pain point than before — maybe the prior "
+       "angle wasn't their priority; try another concrete problem you solve.",
+    4: "Share a helpful resource (a short guide, checklist, or data point) with no "
+       "strings attached — pure goodwill.",
+    5: "A light, human check-in on timing — ask if this is even a priority right now, "
+       "make it easy to say 'not now'.",
+    6: "Create gentle, honest urgency or a clear next step (a 15-min call, a quick "
+       "yes/no) — still respectful, no fake scarcity.",
+    7: "BREAKUP email: this is your last note. Say you'll close their file for now, "
+       "keep the door open ('reply anytime and I'll pick it back up'). Often the "
+       "highest-replying touch — make it warm and zero-pressure.",
+}
+
+
+def _purpose_for(step: int) -> str:
+    return _STEP_PURPOSE.get(step, _STEP_PURPOSE[7])  # beyond the map → breakup tone
+
 
 def _entity_context(db: Session, etype: str, eid) -> tuple[str | None, str]:
     if etype == "lead":
@@ -72,7 +96,7 @@ def process_due_followups(db: Session, limit: int = 400) -> dict:
         memory_block = memory.entity_context(db, name=name, email=to_email)
         art = client.complete_json(
             FOLLOWUP_EMAIL.format(step=fu.step, name=name or "there", context=context,
-                                  memory=memory_block),
+                                  purpose=_purpose_for(fu.step), memory=memory_block),
             system=sysp)
         subject = (art.get("subject") if isinstance(art, dict) else None) or f"Following up ({fu.step})"
         body = art.get("body") if isinstance(art, dict) else None

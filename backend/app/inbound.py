@@ -38,6 +38,12 @@ def _draft_reply(db: Session, sender: str, reply: dict, cls: dict, account: str)
 
 
 def sync_replies(db: Session, newer_than_days: int = 3) -> dict:
+    # Pick up Gmail credentials connected via the in-app Setup page on any instance.
+    try:
+        from . import runtime_config
+        runtime_config.apply_to_settings(db)
+    except Exception:
+        pass
     matched = 0
     scanned = 0
     for account in ACCOUNTS:

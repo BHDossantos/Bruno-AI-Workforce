@@ -92,6 +92,21 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
     autonomous=True (the default, used by agents/cron) means: in semi/manual mode
     the message is drafted and waits for approval. Explicit user actions (approval
     queue, manual 'send' buttons) pass autonomous=False so they send immediately."""
+    # Pick up any Gmail/data credentials connected via the in-app Setup page — even
+    # if THIS process/instance started before they were saved (multi-instance safe).
+    try:
+        from . import runtime_config
+        runtime_config.apply_to_settings(db)
+    except Exception:  # never let config refresh block a send
+        pass
+    # One-click relay: if enabled, insurance sends through the personal mailbox
+    # with a Thrust reply-to — so insurance goes out without separate credentials.
+    try:
+        from . import control
+        if control.insurance_relay_via_personal(db):
+            settings.insurance_via_personal_reply_to = True
+    except Exception:  # never let a toggle lookup block a send
+        pass
     body = email_template.clean_body(body)  # strip AI placeholders/sign-offs once
     msg = Message(channel="email", direction="outbound", entity_type=entity_type,
                   entity_id=entity_id, to_email=to_email, from_account=account,
@@ -114,7 +129,12 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
     # Semi-auto / manual mode: agent- and cron-initiated sends DRAFT and wait for
     # the user to approve in the Approval Queue. Only full-auto mode auto-sends.
     # Explicit user actions (approval, manual buttons) pass autonomous=False → send.
-    if autonomous and control.get_mode(db) != "auto":
+    # EXCEPTION: with Outreach Autopilot on, SALES outreach (cold leads + their
+    # follow-ups) auto-sends even in semi mode — the lead machine runs on its own,
+    # while content still waits for approval.
+    outreach_auto = (entity_type in ("lead", "restaurant", "contact")
+                     and control.outreach_autopilot(db))
+    if autonomous and control.get_mode(db) != "auto" and not outreach_auto:
         _log(db, actor, "email_drafted_semi", msg, to=to_email)
         return msg
 
@@ -135,6 +155,15 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
             msg.sent_at = datetime.now(timezone.utc)
             _bump_contact(db, entity_type, entity_id)  # track reach-out count
             _log(db, actor, "email_sent", msg, to=to_email, account=account)
+            # Add people we ACTUALLY emailed to their funnel newsletter (CAN-SPAM:
+            # every issue has an unsubscribe link). Only on a real send — never for
+            # drafts/paused/capped/unapproved, so we never subscribe someone we
+            # didn't email.
+            try:
+                from . import newsletters
+                newsletters.subscribe_on_outreach(db, entity_type, entity_id, to_email)
+            except Exception:
+                pass
     else:  # draft / send_on_approve
         did = gmail.create_draft(to_email, subject or "", html or "", account=account)
         if did:
