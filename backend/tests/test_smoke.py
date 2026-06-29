@@ -190,6 +190,9 @@ def test_insurance_relay_toggle_routes_through_personal(client, auth_headers):
         settings.gmail_app_password, settings.gmail_address, settings.insurance_via_personal_reply_to = old
         db.close()
     client.post("/control/insurance-relay", json={"on": False}, headers=auth_headers)
+
+
+@requires_db
 def test_autopilot_excludes_cold_outreach_from_approval_queue(client, auth_headers):
     """With Outreach Autopilot ON, drafted cold lead emails auto-send and must NOT
     count as 'needs your approval' (they're a send queue) — and synthetic addresses
