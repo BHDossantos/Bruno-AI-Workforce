@@ -4,10 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, getToken } from "@/lib/api";
 
-/** "Hey Jarvis" — hands-free voice assistant. Toggle it on and it listens
- * continuously for the wake word "Jarvis", then acts on the order that follows
- * and speaks the result. Uses the browser Web Speech API (speech-to-text). No
- * keyboard needed. Respects semi-auto + Emergency Stop on the backend. */
+/** "Hey Jennifer" — hands-free voice assistant. Toggle it on and it listens
+ * continuously for the wake word "Jennifer", then acts on the order that follows
+ * and speaks the result in a warm, sultry female voice. Uses the browser Web
+ * Speech API (speech-to-text + text-to-speech). No keyboard needed. Respects
+ * semi-auto + Emergency Stop on the backend. */
 type SpeechResult = { isFinal: boolean } & ArrayLike<{ transcript: string }>;
 type Rec = {
   lang: string; interimResults: boolean; continuous: boolean; maxAlternatives: number;
@@ -17,8 +18,36 @@ type Rec = {
   onend: (() => void) | null;
 };
 
-const WAKE = /\b(hey,?\s*)?jarvis\b/i;
+// Wake on "Jennifer" (primary) — keep "Jarvis" as a fallback alias so old habits
+// still work. Speech-to-text often mishears the name, so accept close variants.
+const WAKE = /\b(hey,?\s*)?(jennifer|jenifer|jennefer|jen|jenny|jarvis)\b/i;
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+
+// Pick the most natural-sounding female voice the browser offers, matching the
+// active language. We prefer known-good female voices, then anything tagged
+// "female", then any voice for the language. The voice list loads async, so we
+// re-resolve lazily on each utterance.
+const FEMALE_HINTS = [
+  "samantha", "victoria", "karen", "moira", "tessa", "fiona", "serena", "allison",
+  "ava", "susan", "zira", "jenny", "aria", "sonia", "luciana", "google uk english female",
+  "google português do brasil", "female", "mulher", "feminin",
+];
+function pickVoice(lang: string): SpeechSynthesisVoice | null {
+  try {
+    const voices = window.speechSynthesis.getVoices() || [];
+    if (!voices.length) return null;
+    const base = lang.slice(0, 2).toLowerCase();
+    const forLang = voices.filter((v) => v.lang?.toLowerCase().startsWith(base));
+    const pool = forLang.length ? forLang : voices;
+    for (const hint of FEMALE_HINTS) {
+      const hit = pool.find((v) => v.name.toLowerCase().includes(hint));
+      if (hit) return hit;
+    }
+    return pool[0] || null;
+  } catch {
+    return null;
+  }
+}
 
 export default function VoiceCommand() {
   const router = useRouter();
@@ -38,6 +67,12 @@ export default function VoiceCommand() {
   useEffect(() => {
     const saved = typeof window !== "undefined" ? localStorage.getItem("jarvis_lang") : null;
     if (saved) { setLang(saved); langRef.current = saved; }
+    // Warm up the TTS voice list — Chrome loads it asynchronously, so trigger it
+    // now and again on the voiceschanged event so a female voice is ready.
+    try {
+      window.speechSynthesis?.getVoices();
+      if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.getVoices(); };
+    } catch { /* TTS unsupported — non-fatal */ }
   }, []);
 
   // Speak a reply (in the active language). We remember the text so the recognizer
@@ -46,7 +81,14 @@ export default function VoiceCommand() {
     try {
       window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
-      u.lang = langRef.current; u.rate = 1.05;
+      u.lang = langRef.current;
+      // Seductive delivery: a real female voice, slowed down with a lower,
+      // breathier pitch and a touch more volume warmth.
+      const v = pickVoice(langRef.current);
+      if (v) u.voice = v;
+      u.rate = 0.88;     // unhurried
+      u.pitch = 0.8;     // lower, sultrier register
+      u.volume = 1;
       lastSpokenRef.current = norm(text);
       // Stop treating it as an echo a moment after it should have finished.
       setTimeout(() => { lastSpokenRef.current = ""; }, 1500 + text.length * 60);
@@ -71,7 +113,7 @@ export default function VoiceCommand() {
     if (armTimer.current) clearTimeout(armTimer.current);
     // If no order arrives soon, stop waiting so a later stray phrase isn't treated as a command.
     armTimer.current = setTimeout(() => {
-      if (armedRef.current) { armedRef.current = false; setLine('Still here — say "Jarvis, …"'); }
+      if (armedRef.current) { armedRef.current = false; setLine('Still here — say "Jennifer, …"'); }
     }, 12000);
   }
 
@@ -106,8 +148,8 @@ export default function VoiceCommand() {
           if (after) handle(after);                      // "Jarvis, source leads" in one breath
           else {
             arm();
-            setLine(langRef.current.startsWith("pt") ? "Sim? Estou ouvindo…" : "Yes? I'm listening…");
-            speak(langRef.current.startsWith("pt") ? "Sim?" : "Yes?");
+            setLine(langRef.current.startsWith("pt") ? "Sim, amor? Estou ouvindo…" : "Yes, darling? I'm listening…");
+            speak(langRef.current.startsWith("pt") ? "Sim, amor?" : "Yes, darling?");
           }
         }
         // No wake word and not armed → ambient speech, ignored.
@@ -153,8 +195,8 @@ export default function VoiceCommand() {
     } else {
       setOn(true); onRef.current = true;
       restart();
-      setLine(PT() ? "Jarvis está ouvindo… diga “Jarvis, …”" : 'Hey Jarvis is listening… say “Jarvis, …”');
-      speak(PT() ? "Jarvis online." : "Jarvis online.");
+      setLine(PT() ? "Jennifer está ouvindo… diga “Jennifer, …”" : 'Jennifer is listening… say “Jennifer, …”');
+      speak(PT() ? "Jennifer online, amor." : "Jennifer here. I'm all yours.");
     }
   }
 
@@ -184,11 +226,11 @@ export default function VoiceCommand() {
           className="rounded-full bg-white px-3 py-3 text-sm font-semibold text-gray-700 shadow-xl ring-1 ring-gray-200 hover:bg-gray-50">
           {lang.startsWith("pt") ? "🇧🇷 PT" : "🇺🇸 EN"}
         </button>
-        <button onClick={toggle} title='Toggle "Hey Jarvis"'
+        <button onClick={toggle} title='Toggle "Hey Jennifer"'
           className={`flex items-center gap-2 rounded-full px-4 py-3 text-sm font-semibold text-white shadow-xl transition ${
             on ? "animate-pulse bg-red-600" : "bg-brand hover:bg-brand-dark"
           }`}>
-          🎙️ {on ? "Jarvis on" : "Hey Jarvis"}
+          🎙️ {on ? "Jennifer on" : "Hey Jennifer"}
         </button>
       </div>
     </div>

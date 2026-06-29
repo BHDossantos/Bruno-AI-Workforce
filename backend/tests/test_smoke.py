@@ -1419,6 +1419,29 @@ def test_outbound_messages_created_per_account(client, auth_headers):
 
 
 @requires_db
+def test_client_goal_status_and_autoscale(client, auth_headers):
+    """The client-acquisition engine reports progress and sizes outreach to the
+    daily target without ever exceeding the safe ceilings."""
+    from app.config import settings
+
+    g = client.get("/clients/goal", headers=auth_headers).json()
+    assert g["target"] >= 1
+    assert 0 < g["conversion_rate"] <= 1
+    assert g["needed_touches_per_day"] >= g["target"]
+    assert g["won_today"] >= 0 and "on_track" in g
+
+    # Setting a target re-sizes the volume knobs but stays within ceilings.
+    r = client.post("/clients/target", json={"target": 15}, headers=auth_headers).json()
+    assert r["enabled"] and r["target"] == 15
+    assert settings.gmail_daily_send_cap <= settings.client_send_cap_ceiling
+    assert settings.commercial_lead_daily_target <= settings.client_lead_target_ceiling
+
+    # Idempotent: a second autoscale with no target change makes no further changes.
+    r2 = client.post("/clients/autoscale", headers=auth_headers).json()
+    assert r2["enabled"] and r2["changed"] == {}
+
+
+@requires_db
 def test_inbound_sync_is_safe_without_gmail(client, auth_headers):
     resp = client.post("/inbound/sync", headers=auth_headers)
     assert resp.status_code == 200

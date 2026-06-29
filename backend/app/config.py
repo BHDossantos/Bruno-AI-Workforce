@@ -260,6 +260,21 @@ class Settings(BaseSettings):
     # browser worker attaches it to file uploads. Override via env if needed.
     applicant_resume_path: str = "/app/assets/resume/Bruno_Dos_Santos_Resume.pdf"
 
+    # ── Client-acquisition engine ────────────────────────────────────────────
+    # The standing goal: bring in at least this many NEW CLIENTS per day. The
+    # client engine sizes outreach volume to hit this at the funnel's measured
+    # conversion rate, auto-ramping the knobs below within their safe ceilings.
+    daily_client_target: int = 15
+    client_autoscale_enabled: bool = True
+    # Conservative cold→client conversion used until there's a real sample to
+    # measure (industry cold-B2B is ~0.5–2%); the engine switches to the measured
+    # rate once enough prospects have been contacted.
+    client_default_conversion: float = 0.01
+    # Safe ceilings the autoscaler will never exceed. Per-account send cap protects
+    # mailbox reputation; per-business lead target keeps a single run timeout-safe.
+    client_send_cap_ceiling: int = 500
+    client_lead_target_ceiling: int = 600
+
     # Outbound mode: "send" (auto-send now), "send_on_approve", or "draft".
     gmail_outbound_mode: str = "send"
     # Safety cap on auto-sent outreach per day, per account (protects the mailbox).

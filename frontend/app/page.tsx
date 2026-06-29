@@ -25,6 +25,11 @@ type Score = {
 };
 type Brand = { key: string; name: string; icon: string; metric: string; value: number; warm: number; hot: number; link: string };
 type Goal = { area: string; target: number; today: number; status: string };
+type ClientGoal = {
+  target: number; won_today: number; won_total: number; on_track: boolean; deficit: number;
+  conversion_rate: number; conversion_measured: boolean; prospects_contacted: number;
+  needed_touches_per_day: number; sent_today: number;
+};
 type Mission = {
   paused: boolean; approvals_pending: number; auto_sending?: number; goals: Goal[];
   today: {
@@ -48,6 +53,7 @@ function Home() {
   const { data: golive } = useFetch<Activation>(() => api.get<Activation>("/activation"), [refresh]);
   const { data: mission } = useFetch<Mission>(() => api.get<Mission>("/mission/control"), [refresh]);
   const { data: brands } = useFetch<Brand[]>(() => api.get<Brand[]>("/mission/brands"), [refresh]);
+  const { data: cgoal } = useFetch<ClientGoal>(() => api.get<ClientGoal>("/clients/goal"), [refresh]);
   const [running, setRunning] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
@@ -94,6 +100,33 @@ function Home() {
         }
       />
       {msg && <p className="mb-4 rounded bg-brand/10 p-3 text-sm text-brand-dark">{msg}</p>}
+
+      {/* Daily client goal — the standing order: bring in N new clients/day. */}
+      {cgoal && (
+        <div className={`mb-6 rounded-xl border p-4 ${cgoal.on_track ? "border-emerald-300 bg-emerald-50" : "border-brand/30 bg-brand/5"}`}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">Today&apos;s client goal</div>
+              <div className="mt-0.5 text-2xl font-bold">
+                {cgoal.won_today}<span className="text-base font-normal text-gray-400"> / {cgoal.target} new clients</span>
+                {cgoal.on_track
+                  ? <span className="ml-2 badge bg-green-100 text-green-700">on track 🎉</span>
+                  : <span className="ml-2 badge bg-amber-100 text-amber-700">{cgoal.deficit} to go</span>}
+              </div>
+              <div className="mt-1 text-xs text-gray-500">
+                Engine sized for ~{cgoal.needed_touches_per_day.toLocaleString()} outreach touches/day at a{" "}
+                {(cgoal.conversion_rate * 100).toFixed(1)}% {cgoal.conversion_measured ? "measured" : "assumed"} conversion ·{" "}
+                {cgoal.sent_today.toLocaleString()} sent today
+              </div>
+            </div>
+            <Link href="/clients" className="text-sm font-medium text-brand">Tune the engine →</Link>
+          </div>
+          <div className="mt-3 h-2 overflow-hidden rounded bg-white">
+            <div className={`h-full rounded ${cgoal.on_track ? "bg-emerald-500" : "bg-brand"}`}
+                 style={{ width: `${Math.min(100, cgoal.target ? (cgoal.won_today / cgoal.target) * 100 : 0)}%` }} />
+          </div>
+        </div>
+      )}
 
       {/* Mission Control — today's status, approvals, paused state */}
       {mission?.paused && (

@@ -147,6 +147,11 @@ def _run_auto_apply(db):
     return autoapply.run_auto_apply(db)
 
 
+def _run_client_autoscale(db):
+    from . import client_goal
+    return client_goal.autoscale(db)
+
+
 # job_id -> (worker, cron expression). These run the marketing/advertising/sales
 # engine around the clock so the platform operates without any external scheduler.
 _JOBS: dict[str, tuple] = {
@@ -158,6 +163,9 @@ _JOBS: dict[str, tuple] = {
     "publish_content":  (_publish_due, "5 * * * *"),
     # Publish approved blog posts to Medium daily.
     "publish_blog":     (_publish_blog_due, "20 12 * * *"),
+    # Size the outreach machine to the daily client target before sourcing starts,
+    # so the day's lead + send volume is calibrated to actually hit the goal.
+    "client_autoscale": (_run_client_autoscale, "30 5 * * *"),
     # Lead sourcing + cold email, 4×/day (insurance + SavoryMind + BnB Global).
     "leads":            (_run_leads, "0 8,12,16,20 * * *"),
     # Drain the outreach backlog (leads + restaurants + warm contacts), 2×/day.
