@@ -19,8 +19,31 @@ log = logging.getLogger("bruno.control")
 _PAUSED_KEY = "agents_paused"
 _MODE_KEY = "automation_mode"
 _OUTREACH_KEY = "outreach_autopilot"
+_INS_RELAY_KEY = "insurance_relay_via_personal"
 MODES = ("manual", "semi", "auto")
 _DEFAULT_MODE = "semi"  # agents prepare everything; you approve to send/post
+
+
+def insurance_relay_via_personal(db: Session) -> bool:
+    """When ON, insurance outreach sends THROUGH the personal mailbox with the
+    Thrust address as Reply-To — so insurance emails go out even without separate
+    Thrust mailbox credentials (replies still land in the Thrust inbox). Stored in
+    Settings so it toggles without a redeploy. Default OFF."""
+    try:
+        row = db.get(Setting, _INS_RELAY_KEY)
+        return bool(row and (row.value or "").lower() in ("1", "true", "yes", "on"))
+    except Exception:  # pragma: no cover - defensive
+        return False
+
+
+def set_insurance_relay_via_personal(db: Session, on: bool) -> bool:
+    row = db.get(Setting, _INS_RELAY_KEY)
+    if row is None:
+        row = Setting(key=_INS_RELAY_KEY)
+        db.add(row)
+    row.value = "true" if on else "false"
+    db.commit()
+    return on
 
 
 def outreach_autopilot(db: Session) -> bool:
