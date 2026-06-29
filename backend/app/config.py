@@ -136,6 +136,10 @@ class Settings(BaseSettings):
     # How many areas each lead run sweeps. Big scopes (US+EU) rotate through the
     # full list over days so a single run never times out Overpass.
     lead_areas_per_run: int = 16
+    # How many website-only businesses to scrape for an email per run. Once a
+    # region's email-tagged pool is exhausted, this is how we keep finding NEW
+    # leads — raise it to dig deeper (slower runs, more leads).
+    osm_scrape_budget: int = 40
     # Location bias for job-search queries (JSearch). Blank = no location filter.
     job_location: str = "United States"
     # How many leads each lead-finder agent produces per run. Small batches keep

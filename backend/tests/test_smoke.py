@@ -582,6 +582,26 @@ def test_osm_lead_engine_offline_behavior():
         settings.lead_states = old_s
 
 
+def test_insurance_sourcing_is_broadened():
+    """Broader category net + a real scrape budget so insurance keeps finding NEW
+    leads in NH/MA/FL after the email-tagged pool is tapped."""
+    from app.config import settings
+    from app.integrations import osm_leads
+    assert len(osm_leads.COMMERCIAL_OSM) >= 12  # wide category net
+    # Every selector is a well-formed Overpass node filter (no quoting breakage).
+    for sels in osm_leads.COMMERCIAL_OSM.values():
+        assert all(s.startswith('node[') and s.endswith(']') for s in sels)
+    assert osm_leads._scrape_budget() == settings.osm_scrape_budget >= 1
+
+
+def test_music_real_playlist_discovery_offline_safe():
+    """Music now sources REAL playlists from Spotify (search by genre); offline /
+    unconnected it returns nothing rather than fabricating, never raises."""
+    from app.integrations import spotify_api
+    assert spotify_api.discover_playlists(None, ["r&b", "latin soul"]) == []
+    assert spotify_api.discover_playlists(None, []) == []
+
+
 def test_places_source_disabled_without_key():
     from app.integrations import email_finder, places
 
