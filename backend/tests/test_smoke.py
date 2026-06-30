@@ -1418,6 +1418,31 @@ def test_outbound_messages_created_per_account(client, auth_headers):
     assert all(m["status"] != "Sent" for m in cold)
 
 
+def test_lead_scoring_explains_score():
+    """The explainable score returns a 0-100 number, a band, and reasons."""
+    from app.lead_scoring import score_lead
+    from app.models import Lead
+    strong = Lead(segment="commercial", company_name="Acme", owner_name="Jane Doe",
+                  email="jane@acme.com", phone="555", status="Interested", score=80)
+    s = score_lead(strong)
+    assert 0 <= s["score"] <= 100 and s["band"] in ("hot", "warm", "cold")
+    assert any("Hot" in r or "email" in r.lower() for r in s["reasons"])
+    weak = Lead(segment="personal", status="New")
+    assert score_lead(weak)["score"] <= s["score"]
+
+
+@requires_db
+def test_lead_finder_search(client, auth_headers):
+    """Lead Finder returns scored, filtered rows."""
+    rows = client.get("/leads/search?has_email=true&min_score=0", headers=auth_headers).json()
+    assert isinstance(rows, list)
+    for r in rows[:5]:
+        assert "score" in r and "reasons" in r and r["email"]
+    # Scores are sorted descending.
+    scores = [r["score"] for r in rows]
+    assert scores == sorted(scores, reverse=True)
+
+
 @requires_db
 def test_agent_builder_blueprints(client, auth_headers, monkeypatch):
     """Agent-from-URL generates + persists a blueprint (model mocked); list works."""
