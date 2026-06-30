@@ -201,7 +201,13 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
             _log(db, actor, "provider_handoff_failed", msg, to=to_email)
         return msg
 
-    mode = "draft" if force_draft else settings.gmail_outbound_mode
+    # Normalize the configured mode: only the three known values are valid;
+    # anything else (e.g. a stray env var like "15") must NOT silently disable
+    # sending — default unknown values to "send" since auto-send is the intent.
+    configured = (settings.gmail_outbound_mode or "send").strip().lower()
+    if configured not in ("send", "send_on_approve", "draft"):
+        configured = "send"
+    mode = "draft" if force_draft else configured
     if mode == "send" and already_contacted_today(db, to_email):
         _log(db, actor, "send_skipped_duplicate", msg, to=to_email)
         return msg

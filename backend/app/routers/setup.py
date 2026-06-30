@@ -91,7 +91,10 @@ def mailbox_health(db: Session = Depends(get_db),
             "sent_today": int(sent_today), "daily_cap": int(cap),
             "remaining_today": max(0, int(cap) - int(sent_today)),
         })
-    return {"outbound_mode": settings.gmail_outbound_mode, "accounts": out}
+    # Show the EFFECTIVE mode (an invalid value like "15" is treated as "send").
+    _m = (settings.gmail_outbound_mode or "send").strip().lower()
+    effective_mode = _m if _m in ("send", "send_on_approve", "draft") else "send"
+    return {"outbound_mode": effective_mode, "accounts": out}
 
 
 @router.post("")
