@@ -1520,6 +1520,48 @@ def test_crm_pipeline_board_and_move(client, auth_headers):
 
 
 @requires_db
+def test_revenue_analytics(client, auth_headers):
+    """Revenue report returns per-business funnel + totals; ROI when cost given."""
+    r = client.get("/analytics/revenue", headers=auth_headers).json()
+    assert set(r["businesses"]) == {"Insurance", "BnB Global", "SavoryMind"}
+    for b in r["businesses"].values():
+        for k in ("leads", "won", "revenue_won", "pipeline_value", "reply_rate", "win_rate"):
+            assert k in b
+    assert r["cost_metrics"] is None  # no cost given
+    withcost = client.get("/analytics/revenue?cost=500", headers=auth_headers).json()
+    assert withcost["cost_metrics"]["spend"] == 500
+    assert "roi" in withcost["cost_metrics"]
+
+
+@requires_db
+def test_campaign_builder_plan(client, auth_headers, monkeypatch):
+    """NL brief → structured campaign plan (model mocked), persisted + listable."""
+    from app import campaign_builder
+    from app.ai import client as ai_client
+    monkeypatch.setattr(ai_client, "is_live", lambda: True)
+    monkeypatch.setattr(ai_client, "complete_json", lambda *a, **k: {
+        "business": "SavoryMind", "audience": "Boston restaurant owners",
+        "filters": {"location": "Boston", "min_rating": "4.3"},
+        "channels": ["email"], "sequence": [{"step": 1, "purpose": "intro"}],
+        "schedule": "weekdays", "success_metric": "booked demos",
+        "summary": "Pitch SavoryMind to Boston restaurants."})
+
+    r = client.post("/campaigns/plan", json={"brief": "Boston restaurants, pitch SavoryMind"},
+                    headers=auth_headers).json()
+    assert r["ok"] and r["business"] == "SavoryMind" and r["agent_key"] == "savorymind"
+    assert r["plan"]["filters"]["location"] == "Boston"
+    lst = client.get("/campaigns", headers=auth_headers).json()
+    assert any(p["business"] == "SavoryMind" for p in lst)
+
+
+@requires_db
+def test_campaign_builder_bad_brief(client, auth_headers):
+    """Blank brief returns a clean error, not a 500."""
+    r = client.post("/campaigns/plan", json={"brief": ""}, headers=auth_headers).json()
+    assert r["ok"] is False and "error" in r
+
+
+@requires_db
 def test_unified_inbox_feed(client, auth_headers):
     """The unified inbox aggregates classified replies with label + drafted reply."""
     from app.database import SessionLocal

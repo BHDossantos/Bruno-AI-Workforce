@@ -27,6 +27,7 @@ from .routers import (
     jobs,
     automations,
     browser,
+    campaigns,
     clients,
     content,
     crm,
@@ -131,6 +132,7 @@ app.include_router(voice.router)
 app.include_router(setup.router)
 app.include_router(clients.router)
 app.include_router(automations.router)
+app.include_router(campaigns.router)
 
 
 @app.get("/health", tags=["system"])

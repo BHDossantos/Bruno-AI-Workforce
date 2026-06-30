@@ -162,6 +162,14 @@ def growth(db: Session = Depends(get_db), _=Depends(_read)):
     }
 
 
+@router.get("/revenue")
+def revenue(cost: float | None = None, db: Session = Depends(get_db), _=Depends(_read)):
+    """Revenue & ROI by business — revenue won, weighted pipeline, win/reply rates,
+    and (with ?cost=) cost-per-lead, cost-per-won and ROI."""
+    from .. import revenue_analytics
+    return revenue_analytics.report(db, cost=cost)
+
+
 @router.get("/pipeline")
 def pipeline(db: Session = Depends(get_db), _=Depends(_read)):
     """Sales pipeline across all three lead businesses — Insurance (NH/MA/FL),
