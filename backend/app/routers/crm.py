@@ -23,6 +23,26 @@ class ContactIn(BaseModel):
     notes: str | None = None
 
 
+@router.get("/pipeline")
+def pipeline_board(segment: str | None = None, db: Session = Depends(get_db), _=Depends(_read)):
+    """Actionable CRM pipeline (Kanban): leads grouped into deal stages with the
+    next action, score, temperature and expected value per card."""
+    from .. import crm_pipeline
+    return crm_pipeline.board(db, segment=segment)
+
+
+class MoveIn(BaseModel):
+    lead_id: str
+    stage: str
+
+
+@router.post("/pipeline/move")
+def pipeline_move(body: MoveIn, db: Session = Depends(get_db), _=Depends(_write)):
+    """Advance a lead to a pipeline stage (drag-and-drop on the board)."""
+    from .. import crm_pipeline
+    return crm_pipeline.move(db, body.lead_id, body.stage)
+
+
 @router.get("")
 def list_contacts(q: str | None = None, source: str | None = None,
                   limit: int = 200, db: Session = Depends(get_db), _=Depends(_read)):

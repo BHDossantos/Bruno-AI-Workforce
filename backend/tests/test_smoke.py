@@ -1418,6 +1418,21 @@ def test_outbound_messages_created_per_account(client, auth_headers):
     assert all(m["status"] != "Sent" for m in cold)
 
 
+@requires_db
+def test_crm_pipeline_board_and_move(client, auth_headers):
+    """The deal pipeline groups leads into stages, and a lead can be moved."""
+    board = client.get("/crm/pipeline", headers=auth_headers).json()
+    stages = {s["stage"] for s in board["stages"]}
+    assert {"New", "Contacted", "Replied", "Qualified", "Meeting", "Won", "Lost", "Nurture"} <= stages
+    assert "pipeline_value" in board
+    # Grab any card and move it to "Qualified".
+    card = next((c for s in board["stages"] for c in s["cards"]), None)
+    if card:
+        r = client.post("/crm/pipeline/move",
+                        json={"lead_id": card["id"], "stage": "Qualified"}, headers=auth_headers).json()
+        assert r["ok"] and r["stage"] == "Qualified"
+
+
 def test_sender_selector_gating():
     """The unified sender picks whichever cold-email provider is configured."""
     from app.config import settings
