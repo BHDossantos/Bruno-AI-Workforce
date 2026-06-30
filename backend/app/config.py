@@ -332,9 +332,10 @@ class Settings(BaseSettings):
     sendgrid_replyto_insurance: str = ""
     sendgrid_replyto_bnb: str = "braxandbrie@gmail.com"
     sendgrid_replyto_savorymind: str = ""
-    # SendGrid handles volume far better than a personal Gmail, so when it's the
-    # sender the daily auto-send cap is this much higher (still bounded for sanity).
-    sendgrid_daily_cap: int = 1000
+    # SendGrid's GLOBAL daily send cap (across all businesses). On the free trial
+    # SendGrid allows ~100/day, so keep this at 90 until the paid plan is active;
+    # raise it after the upgrade.
+    sendgrid_daily_cap: int = 90
 
     # Outbound mode: "send" (auto-send now), "send_on_approve", or "draft".
     gmail_outbound_mode: str = "send"
