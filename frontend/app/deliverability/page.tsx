@@ -16,6 +16,16 @@ type Snapshot = {
   failures: Record<string, number>;
   paused: boolean; autopilot: boolean; can_send: boolean;
 };
+type SgTotals = {
+  requests: number; delivered: number; opens: number; unique_opens: number;
+  clicks: number; unique_clicks: number; bounces: number; blocks: number;
+  spam_reports: number; unsubscribes: number;
+};
+type SgStats = {
+  ok: boolean; reason?: string; days?: number;
+  totals?: SgTotals;
+  delivered_rate?: number; open_rate?: number; bounce_rate?: number; spam_rate?: number;
+};
 
 const TONE: Record<string, string> = {
   good: "border-emerald-300 bg-emerald-50 text-emerald-800",
@@ -32,6 +42,7 @@ const FAIL_LABEL: Record<string, string> = {
 function Deliverability() {
   const [refresh, setRefresh] = useState(0);
   const { data, error } = useFetch<Snapshot>(() => api.get<Snapshot>("/deliverability"), [refresh]);
+  const { data: sg, reload: reloadSg } = useFetch<SgStats>(() => api.get<SgStats>("/deliverability/sendgrid-stats?days=7"), [refresh]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
 
@@ -91,6 +102,33 @@ function Deliverability() {
               </div>
             </div>
           )}
+
+          {/* SendGrid real delivery stats (last 7 days) */}
+          <div className="card mb-6">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="font-semibold">📊 SendGrid delivery — last 7 days</h2>
+              <button className="btn-ghost text-sm" onClick={() => reloadSg()}>Sync from SendGrid</button>
+            </div>
+            {sg?.ok && sg.totals ? (
+              <>
+                <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                  <KpiCard label="Delivered" value={`${sg.totals.delivered.toLocaleString()}`} hint={`${sg.delivered_rate}% of sent`} />
+                  <KpiCard label="Opens (unique)" value={`${sg.totals.unique_opens.toLocaleString()}`} hint={`${sg.open_rate}% open rate`} />
+                  <KpiCard label="Bounced" value={`${sg.totals.bounces.toLocaleString()}`} hint={`${sg.bounce_rate}% bounce rate`} />
+                  <KpiCard label="Spam reports" value={`${sg.totals.spam_reports.toLocaleString()}`} hint={`${sg.spam_rate}% · ${sg.totals.unsubscribes} unsub`} />
+                </div>
+                <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-gray-500">
+                  <span>Requests: <b>{sg.totals.requests.toLocaleString()}</b></span>
+                  <span>Clicks: <b>{sg.totals.clicks.toLocaleString()}</b> ({sg.totals.unique_clicks.toLocaleString()} unique)</span>
+                  <span>Blocks: <b>{sg.totals.blocks.toLocaleString()}</b></span>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-gray-500">
+                {sg?.reason || "Connect SendGrid to see real delivery, open and bounce stats here."}
+              </p>
+            )}
+          </div>
 
           {/* Backlog */}
           <div className="card mb-6 flex flex-wrap items-center justify-between gap-3">

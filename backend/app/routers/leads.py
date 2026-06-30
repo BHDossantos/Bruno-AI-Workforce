@@ -13,8 +13,10 @@ router = APIRouter(prefix="/leads", tags=["insurance"])
 
 @router.get("", response_model=list[LeadOut])
 def list_leads(segment: str | None = None, status: str | None = None,
-               temperature: str | None = None, sort: str | None = None, limit: int = 200,
+               temperature: str | None = None, line: str | None = None,
+               sort: str | None = None, limit: int = 200,
                db: Session = Depends(get_db), _=Depends(require_role("admin", "operator", "viewer"))):
+    from ..insurance_lines import line_for
     from ..lead_temperature import classify
     q = db.query(Lead)
     if segment:
@@ -24,6 +26,8 @@ def list_leads(segment: str | None = None, status: str | None = None,
     rows = q.order_by(Lead.score.desc(), Lead.created_at.desc()).limit(limit).all()
     if temperature:
         rows = [l for l in rows if classify(l.status) == temperature.lower()]
+    if line:  # Home / Auto / Life / Commercial line of business
+        rows = [l for l in rows if line_for(l.category, l.segment, l.industry) == line.lower()]
     if sort == "fit":  # surface the strongest prospects first
         from ..lead_fit import score as _fit
         rows = sorted(rows, key=_fit, reverse=True)
@@ -75,15 +79,19 @@ def lead_finder(segment: str | None = None, temperature: str | None = None,
 @router.get("/summary")
 def leads_summary(segment: str | None = None, db: Session = Depends(get_db),
                   _=Depends(require_role("admin", "operator", "viewer"))):
-    """Cold / warm / hot counts (per segment if given) — the funnel at a glance."""
+    """Cold / warm / hot counts + Home / Auto / Life / Commercial line counts
+    (per segment if given) — the funnel and the book of business at a glance."""
+    from ..insurance_lines import LINES, line_for
     from ..lead_temperature import classify
-    q = db.query(Lead.status)
+    q = db.query(Lead.status, Lead.category, Lead.segment, Lead.industry)
     if segment:
         q = q.filter(Lead.segment == segment)
     buckets = {"cold": 0, "warm": 0, "hot": 0, "dead": 0}
-    for (status,) in q.all():
+    lines = {ln: 0 for ln in LINES}
+    for status, category, seg, industry in q.all():
         buckets[classify(status)] = buckets.get(classify(status), 0) + 1
-    return buckets
+        lines[line_for(category, seg, industry)] += 1
+    return {**buckets, "lines": lines}
 
 
 @router.get("/pipeline-health")
