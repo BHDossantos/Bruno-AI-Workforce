@@ -46,6 +46,10 @@ class CredIn(BaseModel):
     sendgrid_replyto_insurance: str | None = None
     sendgrid_replyto_bnb: str | None = None
     sendgrid_replyto_savorymind: str | None = None
+    calendar_link: str | None = None
+    calendar_link_insurance: str | None = None
+    calendar_link_bnb: str | None = None
+    calendar_link_savorymind: str | None = None
 
 
 @router.get("")

@@ -34,6 +34,20 @@ def clean_body(body: str | None) -> str | None:
     return text.strip()
 
 
+# dispatch account → its per-business booking-link setting.
+_ACCOUNT_CALENDAR = {
+    "insurance": "calendar_link_insurance",
+    "bnb": "calendar_link_bnb",
+    "savorymind": "calendar_link_savorymind",
+}
+
+
+def booking_link(account: str | None) -> str:
+    """The booking link for a business: its own if set, else the default link."""
+    attr = _ACCOUNT_CALENDAR.get(account or "")
+    return (getattr(settings, attr, "") if attr else "") or settings.calendar_link
+
+
 def _business(account: str) -> str:
     if account == "insurance":
         return settings.insurance_business_name or ""
@@ -71,11 +85,12 @@ def render(body: str | None, account: str = "personal") -> str | None:
     signature = _signature(account)
     business = _business(account)
 
-    # Optional booking-link call-to-action.
+    # Optional booking-link call-to-action (per-business, else default).
     cta = ""
-    if settings.calendar_link:
+    link = booking_link(account)
+    if link:
         cta = (f'<div style="margin-top:16px">'
-               f'<a href="{settings.calendar_link}" '
+               f'<a href="{link}" '
                f'style="background:#6d28d9;color:#fff;padding:10px 18px;border-radius:8px;'
                f'text-decoration:none;font-weight:600;display:inline-block">Book a time</a></div>')
 

@@ -53,6 +53,11 @@ FIELDS: dict[str, bool] = {
     "sendgrid_replyto_insurance": False,
     "sendgrid_replyto_bnb": False,
     "sendgrid_replyto_savorymind": False,
+    # Booking links (Calendly/Cal.com) — turn an interested reply into a booked call.
+    "calendar_link": False,
+    "calendar_link_insurance": False,
+    "calendar_link_bnb": False,
+    "calendar_link_savorymind": False,
 }
 
 
@@ -134,4 +139,11 @@ def status(db) -> dict:
         "sms": {"configured": sms.is_configured() or bridge_on,
                 "via": "twilio" if sms.is_configured() else ("bridge" if bridge_on else None)},
         "jobs_api": {"configured": jobs_api.is_configured()},
+        # Booking links are not secret — return them so Setup can show/edit them.
+        "booking": {
+            "default": settings.calendar_link or "",
+            "insurance": settings.calendar_link_insurance or "",
+            "bnb": settings.calendar_link_bnb or "",
+            "savorymind": settings.calendar_link_savorymind or "",
+        },
     }

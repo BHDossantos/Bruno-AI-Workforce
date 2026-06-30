@@ -226,7 +226,12 @@ class Settings(BaseSettings):
     personal_business_name: str = ""
     insurance_business_name: str = "Thrust Insurance"
     company_address: str = ""  # physical mailing address shown in the footer
-    calendar_link: str = ""     # booking link (Calendly/Cal.com) added to email CTAs
+    calendar_link: str = ""     # default booking link (Calendly/Cal.com) added to email CTAs
+    # Per-business booking links: a prospect of each business books the right
+    # calendar. Empty falls back to the default calendar_link above.
+    calendar_link_insurance: str = ""
+    calendar_link_bnb: str = ""
+    calendar_link_savorymind: str = ""
 
     # Browser-Use worker — drives a headless browser to fill forms on YOUR own /
     # authorized portals. Off by default: when disabled (or Playwright isn't

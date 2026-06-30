@@ -698,6 +698,38 @@ def test_email_template_wraps_body_with_signature_and_footer():
     assert "[Your Name]" not in rendered and "Bruno Dossantos" in rendered
 
 
+def test_per_business_booking_link():
+    """Each business gets its own 'Book a time' link; empty falls back to the
+    default. So a SavoryMind prospect books a SavoryMind call, not insurance."""
+    from app import email_template
+    from app.config import settings
+
+    orig = (settings.calendar_link, settings.calendar_link_insurance,
+            settings.calendar_link_savorymind)
+    try:
+        settings.calendar_link = "https://cal.com/default"
+        settings.calendar_link_insurance = "https://cal.com/insurance"
+        settings.calendar_link_savorymind = ""  # no own link → falls back to default
+
+        assert email_template.booking_link("insurance") == "https://cal.com/insurance"
+        assert email_template.booking_link("savorymind") == "https://cal.com/default"
+        assert email_template.booking_link("personal") == "https://cal.com/default"
+
+        ins = email_template.render("Hi there", account="insurance")
+        assert "https://cal.com/insurance" in ins and "Book a time" in ins
+        sm = email_template.render("Hi there", account="savorymind")
+        assert "https://cal.com/default" in sm  # fell back, not insurance's link
+        assert "https://cal.com/insurance" not in sm
+
+        # No links configured anywhere → no CTA at all.
+        settings.calendar_link = ""
+        settings.calendar_link_insurance = ""
+        assert "Book a time" not in email_template.render("Hi there", account="insurance")
+    finally:
+        (settings.calendar_link, settings.calendar_link_insurance,
+         settings.calendar_link_savorymind) = orig
+
+
 def test_reply_classifier_safe_without_ai():
     from app import classify
 
@@ -2442,8 +2474,10 @@ def test_setup_connect_status_and_save(client, auth_headers):
     from app.config import settings
     s = client.get("/setup", headers=auth_headers).json()
     assert set(s) == {"gmail_personal", "gmail_insurance", "gmail_bnb", "gmail_savorymind",
-                      "apollo", "google_places", "sms", "jobs_api", "instantly", "smartlead", "sendgrid"}
+                      "apollo", "google_places", "sms", "jobs_api", "instantly", "smartlead",
+                      "sendgrid", "booking"}
     assert s["apollo"]["configured"] is False
+    assert set(s["booking"]) == {"default", "insurance", "bnb", "savorymind"}
     orig = settings.google_places_api_key
     try:
         r = client.post("/setup", headers=auth_headers, json={"google_places_api_key": "test-key-123"})

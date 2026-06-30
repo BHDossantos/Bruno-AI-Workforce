@@ -10,6 +10,7 @@ type Status = {
   apollo: Area; google_places: Area;
   sms?: Area; jobs_api?: Area;
   instantly?: Area; smartlead?: Area; sendgrid?: Area;
+  booking?: { default: string; insurance: string; bnb: string; savorymind: string };
 };
 type MailboxHealth = {
   outbound_mode: string;
@@ -252,6 +253,29 @@ function Setup() {
               value={form.sendgrid_replyto_bnb || ""} onChange={(e) => set("sendgrid_replyto_bnb", e.target.value)} />
             <input className="input" placeholder="SavoryMind reply-to"
               value={form.sendgrid_replyto_savorymind || ""} onChange={(e) => set("sendgrid_replyto_savorymind", e.target.value)} />
+          </div>
+        </div>
+
+        {/* Booking links — turn an interested reply into a booked call */}
+        <div className="card">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">📅 Booking links (Calendly / Cal.com)</h2>
+            <Badge ok={!!(data.booking && (data.booking.default || data.booking.insurance || data.booking.bnb || data.booking.savorymind))} />
+          </div>
+          <p className="mb-2 text-xs text-gray-500">
+            Paste a scheduling link and a <b>&ldquo;Book a time&rdquo;</b> button is added to every outreach
+            email and AI-drafted reply — so an interested prospect books a call instead of trading emails.
+            Set a link per business; the default is used for anything without its own.
+          </p>
+          <input className="input w-full" placeholder={data.booking?.default || "Default booking link (https://calendly.com/…)"}
+            value={form.calendar_link || ""} onChange={(e) => set("calendar_link", e.target.value)} />
+          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+            <input className="input" placeholder={data.booking?.insurance || "Insurance booking link"}
+              value={form.calendar_link_insurance || ""} onChange={(e) => set("calendar_link_insurance", e.target.value)} />
+            <input className="input" placeholder={data.booking?.bnb || "BnB Global booking link"}
+              value={form.calendar_link_bnb || ""} onChange={(e) => set("calendar_link_bnb", e.target.value)} />
+            <input className="input" placeholder={data.booking?.savorymind || "SavoryMind booking link"}
+              value={form.calendar_link_savorymind || ""} onChange={(e) => set("calendar_link_savorymind", e.target.value)} />
           </div>
         </div>
 
