@@ -25,6 +25,7 @@ from .routers import (
     imports,
     instagram,
     jobs,
+    automations,
     browser,
     clients,
     content,
@@ -129,6 +130,7 @@ app.include_router(grants.router)
 app.include_router(voice.router)
 app.include_router(setup.router)
 app.include_router(clients.router)
+app.include_router(automations.router)
 
 
 @app.get("/health", tags=["system"])

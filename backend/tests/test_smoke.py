@@ -1418,6 +1418,41 @@ def test_outbound_messages_created_per_account(client, auth_headers):
     assert all(m["status"] != "Sent" for m in cold)
 
 
+@requires_db
+def test_automation_rules_and_branching(client, auth_headers):
+    """Automation rules list + toggle, and reply branching (interested→task,
+    unsubscribe→suppress) acts on real records."""
+    from app import automation
+    from app.database import SessionLocal
+    from app.models import Lead, Task
+
+    rules = client.get("/automations", headers=auth_headers).json()
+    keys = {r["key"] for r in rules}
+    assert "interested_to_task" in keys and "unsubscribe_suppress" in keys
+    assert all(r["enabled"] for r in rules)  # default ON
+    # Toggle one off and back.
+    assert client.post("/automations/toggle", json={"key": "question_to_task", "on": False},
+                       headers=auth_headers).json()["enabled"] is False
+
+    db = SessionLocal()
+    try:
+        lead = Lead(segment="commercial", company_name="Branch Co", email="boss@branchco.io", status="New")
+        db.add(lead); db.flush()
+        before = db.query(Task).count()
+        automation.on_reply(db, intent="interested", sender="boss@branchco.io",
+                            entity_type="lead", entity_id=lead.id, summary="wants a quote")
+        db.flush()
+        assert db.query(Task).count() == before + 1  # task created
+        # Unsubscribe suppresses the address forever.
+        automation.on_reply(db, intent="unsubscribe", sender="boss@branchco.io",
+                            entity_type="lead", entity_id=lead.id)
+        db.flush()
+        assert lead.status == "do_not_contact"
+        db.rollback()
+    finally:
+        db.close()
+
+
 def test_lead_scoring_explains_score():
     """The explainable score returns a 0-100 number, a band, and reasons."""
     from app.lead_scoring import score_lead

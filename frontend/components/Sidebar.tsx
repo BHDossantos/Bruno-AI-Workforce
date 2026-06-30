@@ -12,6 +12,7 @@ const NAV = [
   { href: "/agent-builder", label: "Create AI Agent", icon: "✨" },
   { href: "/lead-finder", label: "Lead Finder", icon: "🔎" },
   { href: "/deals", label: "Deal Pipeline", icon: "🗂️" },
+  { href: "/automations", label: "Automations", icon: "⚡" },
   { href: "/approvals", label: "Approval Queue", icon: "☑️" },
   { href: "/followups", label: "Follow-ups", icon: "🔁" },
   { href: "/activation", label: "Go-Live Setup", icon: "🚀" },
