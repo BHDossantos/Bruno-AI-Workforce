@@ -9,6 +9,7 @@ type Status = {
   gmail_personal: Area; gmail_insurance: Area;
   apollo: Area; google_places: Area;
   sms?: Area; jobs_api?: Area;
+  instantly?: Area; smartlead?: Area;
 };
 type MailboxHealth = {
   outbound_mode: string;
@@ -151,6 +152,31 @@ function Setup() {
               {control?.insurance_relay ? <span className="ml-1 font-medium text-green-700">ON</span> : null}
             </span>
           </label>
+        </div>
+
+        {/* Cold-email engine: Instantly / Smartlead */}
+        <div className="card">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">🚀 Cold-email engine (Instantly / Smartlead)</h2>
+            <Badge ok={!!(data.instantly?.configured || data.smartlead?.configured)} />
+          </div>
+          <p className="mb-3 text-xs text-gray-500">
+            The durable way to send cold outreach at volume — many warmed inboxes + deliverability,
+            instead of a personal Gmail (which Google revokes at volume). Connect EITHER: paste the
+            API key + the campaign ID to send into. The app hands every lead to that campaign and
+            passes our AI-written copy as <code>{`{{personalization}}`}</code> — set your campaign&apos;s
+            email step to use it. When connected, this replaces Gmail sending automatically.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input className="input" type="password" placeholder="Instantly API key"
+              value={form.instantly_api_key || ""} onChange={(e) => set("instantly_api_key", e.target.value)} />
+            <input className="input" placeholder="Instantly campaign ID"
+              value={form.instantly_campaign_id || ""} onChange={(e) => set("instantly_campaign_id", e.target.value)} />
+            <input className="input" type="password" placeholder="Smartlead API key"
+              value={form.smartlead_api_key || ""} onChange={(e) => set("smartlead_api_key", e.target.value)} />
+            <input className="input" placeholder="Smartlead campaign ID"
+              value={form.smartlead_campaign_id || ""} onChange={(e) => set("smartlead_campaign_id", e.target.value)} />
+          </div>
         </div>
 
         {/* Apollo */}

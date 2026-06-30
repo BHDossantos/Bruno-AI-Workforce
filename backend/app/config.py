@@ -291,6 +291,16 @@ class Settings(BaseSettings):
     client_send_cap_ceiling: int = 50
     client_lead_target_ceiling: int = 600
 
+    # Instantly.ai — dedicated cold-email engine (many warmed inboxes + deliverability
+    # + sequences). When both are set, outreach is handed to Instantly instead of the
+    # personal Gmail (which Google revokes at volume). Reference {{personalization}}
+    # in the Instantly campaign's email step to send our AI-written copy.
+    instantly_api_key: str = ""
+    instantly_campaign_id: str = ""
+    # Smartlead.ai — same idea as Instantly (the app picks whichever is connected).
+    smartlead_api_key: str = ""
+    smartlead_campaign_id: str = ""
+
     # Outbound mode: "send" (auto-send now), "send_on_approve", or "draft".
     gmail_outbound_mode: str = "send"
     # Safety cap on auto-sent outreach per day, per account (protects the mailbox).

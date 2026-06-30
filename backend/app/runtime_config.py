@@ -35,6 +35,11 @@ FIELDS: dict[str, bool] = {
     "twilio_insurance_number": False,  # optional separate number for insurance texts
     # JSearch / RapidAPI key → live LinkedIn/Indeed/Glassdoor/ZipRecruiter jobs.
     "jobs_api_key": True,
+    # Instantly.ai / Smartlead.ai — dedicated cold-email sending engines.
+    "instantly_api_key": True,
+    "instantly_campaign_id": False,
+    "smartlead_api_key": True,
+    "smartlead_campaign_id": False,
 }
 
 
@@ -85,10 +90,14 @@ def save(db, field: str, value: str) -> bool:
 
 def status(db) -> dict:
     """Connection status — booleans + non-secret addresses only, never secrets."""
-    from .integrations import apollo, gmail, jobs_api, places, sms
+    from .integrations import apollo, gmail, instantly, jobs_api, places, smartlead, sms
     apply_to_settings(db)  # make sure the live view reflects stored values
     bridge_on = bool(settings.bridge_token)
     return {
+        "instantly": {"configured": instantly.is_configured(),
+                      "has_key": instantly.has_key()},
+        "smartlead": {"configured": smartlead.is_configured(),
+                      "has_key": smartlead.has_key()},
         "gmail_personal": {
             "configured": gmail.is_configured(gmail.PERSONAL),
             "address": settings.gmail_address or "",

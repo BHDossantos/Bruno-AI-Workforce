@@ -1418,6 +1418,62 @@ def test_outbound_messages_created_per_account(client, auth_headers):
     assert all(m["status"] != "Sent" for m in cold)
 
 
+def test_sender_selector_gating():
+    """The unified sender picks whichever cold-email provider is configured."""
+    from app.config import settings
+    from app.integrations import sender
+    assert sender.is_configured() is False  # nothing connected in tests
+    settings.instantly_api_key = "k"; settings.instantly_campaign_id = "c"
+    try:
+        assert sender.name() == "instantly" and sender.is_configured()
+    finally:
+        settings.instantly_api_key = ""; settings.instantly_campaign_id = ""
+    settings.smartlead_api_key = "k"; settings.smartlead_campaign_id = "c"
+    try:
+        assert sender.name() == "smartlead"
+    finally:
+        settings.smartlead_api_key = ""; settings.smartlead_campaign_id = ""
+
+
+@requires_db
+def test_outreach_hands_off_to_provider(monkeypatch):
+    """With a cold-email provider connected, a lead is handed off and marked Sent
+    even with no Gmail configured — and nothing is sent via Gmail SMTP."""
+    from app import outreach
+    from app.database import SessionLocal
+    from app.integrations import sender
+    from app.models import Lead
+
+    captured = {}
+
+    def fake_add_lead(**kw):
+        captured.update(kw)
+        return True
+
+    monkeypatch.setattr(sender, "is_configured", lambda: True)
+    monkeypatch.setattr(sender, "name", lambda: "instantly")
+    monkeypatch.setattr(sender, "add_lead", fake_add_lead)
+
+    db = SessionLocal()
+    try:
+        lead = Lead(segment="consulting", company_name="Acme Co", owner_name="Jane Roe",
+                    email="jane@acmeco.io", website="https://acmeco.io", status="New",
+                    cold_email="Hi — quick idea for Acme.")
+        db.add(lead); db.flush()
+        msg = outreach.dispatch_email(db, entity_type="lead", entity_id=lead.id,
+                                      to_email=lead.email, subject="quick idea",
+                                      body=lead.cold_email, account="personal",
+                                      actor="test", autonomous=False)
+        assert msg.status == "Sent"
+        assert msg.provider_id == "instantly"
+        assert captured.get("email") == "jane@acmeco.io"
+        assert captured.get("company_name") == "Acme Co"
+        assert captured.get("personalization")  # our copy goes as personalization
+        db.rollback()
+    finally:
+        db.close()
+
+
 def test_voice_say_offline_returns_204(client, auth_headers):
     """Jennifer's neural TTS endpoint returns 204 when no OpenAI key is set, so the
     frontend cleanly falls back to the browser voice."""
@@ -2096,7 +2152,8 @@ def test_setup_connect_status_and_save(client, auth_headers):
     """The in-app setup page reports connection status and applies a saved key."""
     from app.config import settings
     s = client.get("/setup", headers=auth_headers).json()
-    assert set(s) == {"gmail_personal", "gmail_insurance", "apollo", "google_places", "sms", "jobs_api"}
+    assert set(s) == {"gmail_personal", "gmail_insurance", "apollo", "google_places",
+                      "sms", "jobs_api", "instantly", "smartlead"}
     assert s["apollo"]["configured"] is False
     orig = settings.google_places_api_key
     try:
