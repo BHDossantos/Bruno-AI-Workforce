@@ -30,7 +30,8 @@ def dispatch_leads(db: Session, segment: str | None = None, limit: int = 1000,
             lead.status = "Skipped"
             retired += 1
             continue
-        account = "insurance" if lead.segment in ("commercial", "personal") else "personal"
+        from .integrations import gmail
+        account = gmail.account_for_segment(lead.segment)
         subject = f"A quick idea for {lead.company_name or lead.owner_name}"
         try:
             msg = outreach.dispatch_email(db, entity_type="lead", entity_id=lead.id,

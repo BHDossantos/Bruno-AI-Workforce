@@ -192,6 +192,15 @@ class Settings(BaseSettings):
     insurance_google_oauth_refresh_token: str = ""
     insurance_google_token_json: str = ""
     insurance_gmail_app_password: str = ""  # App Password for the Thrust mailbox
+
+    # BnB Global account — dedicated mailbox for consulting outreach (keeps it off
+    # the personal Gmail). Connect via App Password or OAuth, same as the others.
+    bnb_gmail_address: str = "braxandbrie@gmail.com"
+    bnb_google_oauth_client_id: str = ""
+    bnb_google_oauth_client_secret: str = ""
+    bnb_google_oauth_refresh_token: str = ""
+    bnb_google_token_json: str = ""
+    bnb_gmail_app_password: str = ""
     # No-admin workaround: when True, insurance emails are sent THROUGH the
     # personal mailbox (personal App Password) but with the Thrust address as the
     # From — requires adding bruno@thrustinsurance.com as a verified "Send mail

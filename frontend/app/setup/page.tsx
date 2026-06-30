@@ -6,7 +6,7 @@ import { AuthGate, PageHeader, useFetch, LoadState } from "@/components/ui";
 
 type Area = { configured: boolean; address?: string };
 type Status = {
-  gmail_personal: Area; gmail_insurance: Area;
+  gmail_personal: Area; gmail_insurance: Area; gmail_bnb?: Area;
   apollo: Area; google_places: Area;
   sms?: Area; jobs_api?: Area;
   instantly?: Area; smartlead?: Area; sendgrid?: Area;
@@ -152,6 +152,25 @@ function Setup() {
               {control?.insurance_relay ? <span className="ml-1 font-medium text-green-700">ON</span> : null}
             </span>
           </label>
+        </div>
+
+        {/* BnB Global mailbox */}
+        <div className="card">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">💻 Gmail — BnB Global mailbox</h2>
+            <Badge ok={!!data.gmail_bnb?.configured} />
+          </div>
+          <p className="mb-3 text-xs text-gray-500">
+            Dedicated mailbox for BnB Global consulting outreach (keeps it off your personal Gmail).
+            Use a Google <b>App Password</b> (not your login password). Note: a single Gmail still has
+            a low safe cold-volume limit — for real volume, route BnB through Smartlead/SendGrid.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input className="input" placeholder={data.gmail_bnb?.address || "braxandbrie@gmail.com"}
+              value={form.bnb_gmail_address || ""} onChange={(e) => set("bnb_gmail_address", e.target.value)} />
+            <input className="input" type="password" placeholder="16-character App Password"
+              value={form.bnb_gmail_app_password || ""} onChange={(e) => set("bnb_gmail_app_password", e.target.value)} />
+          </div>
         </div>
 
         {/* Cold-email engine: Instantly / Smartlead */}

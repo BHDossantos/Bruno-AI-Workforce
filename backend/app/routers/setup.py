@@ -23,6 +23,8 @@ class CredIn(BaseModel):
     gmail_app_password: str | None = None
     insurance_gmail_address: str | None = None
     insurance_gmail_app_password: str | None = None
+    bnb_gmail_address: str | None = None
+    bnb_gmail_app_password: str | None = None
     apollo_api_key: str | None = None
     google_places_api_key: str | None = None
     twilio_account_sid: str | None = None
@@ -55,7 +57,8 @@ def mailbox_health(db: Session = Depends(get_db),
     from .. import outreach
     from ..config import settings
     from ..integrations import gmail, sendgrid
-    accounts = [("personal", "Personal Gmail"), ("insurance", "Insurance (Thrust) mailbox")]
+    accounts = [("personal", "Personal Gmail"), ("insurance", "Insurance (Thrust) mailbox"),
+                ("bnb", "BnB Global mailbox")]
     out = []
     # SendGrid (if connected) is the actual sender — show its health first.
     if sendgrid.has_key():

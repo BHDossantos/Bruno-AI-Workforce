@@ -1519,6 +1519,20 @@ def test_crm_pipeline_board_and_move(client, auth_headers):
         assert r["ok"] and r["stage"] == "Qualified"
 
 
+def test_bnb_mailbox_routing():
+    """Consulting routes to the BnB mailbox only when it's configured; otherwise
+    falls back to personal. Insurance segments use the insurance mailbox."""
+    from app.config import settings
+    from app.integrations import gmail
+    assert gmail.account_for_segment("commercial") == "insurance"
+    assert gmail.account_for_segment("consulting") == "personal"  # BnB not connected
+    settings.bnb_gmail_app_password = "x" * 16
+    try:
+        assert gmail.account_for_segment("consulting") == "bnb"
+    finally:
+        settings.bnb_gmail_app_password = ""
+
+
 @requires_db
 def test_sendgrid_direct_send(monkeypatch):
     """With SendGrid connected, outreach delivers via SendGrid (not Gmail) even
@@ -2285,7 +2299,7 @@ def test_setup_connect_status_and_save(client, auth_headers):
     """The in-app setup page reports connection status and applies a saved key."""
     from app.config import settings
     s = client.get("/setup", headers=auth_headers).json()
-    assert set(s) == {"gmail_personal", "gmail_insurance", "apollo", "google_places",
+    assert set(s) == {"gmail_personal", "gmail_insurance", "gmail_bnb", "apollo", "google_places",
                       "sms", "jobs_api", "instantly", "smartlead", "sendgrid"}
     assert s["apollo"]["configured"] is False
     orig = settings.google_places_api_key
@@ -2304,7 +2318,7 @@ def test_mailbox_health_diagnostic(client, auth_headers):
     r = client.get("/setup/mailbox-health", headers=auth_headers)
     assert r.status_code == 200
     d = r.json()
-    assert "outbound_mode" in d and len(d["accounts"]) == 2
+    assert "outbound_mode" in d and len(d["accounts"]) == 3  # personal, insurance, bnb
     for a in d["accounts"]:
         for k in ("account", "can_send", "configured", "sent_today", "daily_cap", "remaining_today"):
             assert k in a
