@@ -75,13 +75,19 @@ def send_email(to: str, subject: str, html: str, *, from_email: str | None = Non
 
 
 def verify() -> dict:
-    """Check the API key is valid (lists verified senders). For the Connect page."""
+    """Check the API key is valid. Uses /v3/scopes, which works even for a
+    restricted 'Mail Send' key (unlike /verified_senders, which needs broader
+    access) — so a correctly-scoped send key still shows green."""
     if not has_key():
         return {"ok": False, "reason": "no API key"}
     try:
-        r = httpx.get("https://api.sendgrid.com/v3/verified_senders",
-                      headers=_headers(), timeout=20)
+        r = httpx.get("https://api.sendgrid.com/v3/scopes", headers=_headers(), timeout=20)
+        if r.status_code == 401:
+            return {"ok": False, "reason": "API key rejected (401) — check the key."}
         r.raise_for_status()
+        scopes = (r.json() or {}).get("scopes", []) if r.headers.get("content-type", "").startswith("application/json") else []
+        if scopes and not any("mail.send" in s for s in scopes):
+            return {"ok": False, "reason": "Key is missing the 'Mail Send' permission."}
         return {"ok": True, "reason": None}
     except Exception as exc:  # pragma: no cover - network guard
         return {"ok": False, "reason": f"{str(exc)[:100]}"}
