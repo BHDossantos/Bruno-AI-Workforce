@@ -1418,6 +1418,47 @@ def test_outbound_messages_created_per_account(client, auth_headers):
     assert all(m["status"] != "Sent" for m in cold)
 
 
+@requires_db
+def test_agent_builder_blueprints(client, auth_headers, monkeypatch):
+    """Agent-from-URL generates + persists a blueprint (model mocked); list works."""
+    from app import agent_builder
+    from app.ai import client as ai_client
+    monkeypatch.setattr(agent_builder, "_fetch_text", lambda url, limit=6000: "We help restaurants grow revenue.")
+    monkeypatch.setattr(ai_client, "is_live", lambda: True)
+    monkeypatch.setattr(ai_client, "complete_json", lambda *a, **k: {
+        "business": "SavoryMind", "offer": "AI menu intelligence", "icp": "Restaurant owners",
+        "industries": ["Restaurants", "Cafes"], "pain_points": "slow tables; thin margins",
+        "angles": "table turns; reviews", "scripts": {"cold_email": {"subject": "table turns", "body": "Hi"}}})
+
+    r = client.post("/agents/blueprint", json={"url": "savorymind.net"}, headers=auth_headers).json()
+    assert r["ok"] and r["business"] == "SavoryMind"
+    assert r["industries"] == "Restaurants, Cafes"  # list flattened to a string
+    lst = client.get("/agents/blueprints", headers=auth_headers).json()
+    assert any(b["business"] == "SavoryMind" for b in lst)
+
+
+@requires_db
+def test_agent_builder_handles_bad_url(client, auth_headers):
+    """A blank/garbage URL returns a clean error, never a 500."""
+    r = client.post("/agents/blueprint", json={"url": ""}, headers=auth_headers).json()
+    assert r["ok"] is False and "error" in r
+
+
+@requires_db
+def test_crm_pipeline_board_and_move(client, auth_headers):
+    """The deal pipeline groups leads into stages, and a lead can be moved."""
+    board = client.get("/crm/pipeline", headers=auth_headers).json()
+    stages = {s["stage"] for s in board["stages"]}
+    assert {"New", "Contacted", "Replied", "Qualified", "Meeting", "Won", "Lost", "Nurture"} <= stages
+    assert "pipeline_value" in board
+    # Grab any card and move it to "Qualified".
+    card = next((c for s in board["stages"] for c in s["cards"]), None)
+    if card:
+        r = client.post("/crm/pipeline/move",
+                        json={"lead_id": card["id"], "stage": "Qualified"}, headers=auth_headers).json()
+        assert r["ok"] and r["stage"] == "Qualified"
+
+
 def test_sender_selector_gating():
     """The unified sender picks whichever cold-email provider is configured."""
     from app.config import settings
