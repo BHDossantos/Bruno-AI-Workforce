@@ -62,9 +62,10 @@ def dispatch_restaurants(db: Session, limit: int = 1000, autonomous: bool = True
             continue
         subject = f"Growing revenue at {r.name} with SavoryMind"
         try:
+            from .integrations import gmail
             msg = outreach.dispatch_email(db, entity_type="restaurant", entity_id=r.id,
                                           to_email=r.email, subject=subject,
-                                          body=r.pitch_email, account="personal", actor="bulk",
+                                          body=r.pitch_email, account=gmail.restaurant_account(), actor="bulk",
                                           autonomous=autonomous)
             if msg.status in ("Sent", "Drafted"):
                 if msg.status == "Sent" and r.status in (None, "New", "Drafted"):

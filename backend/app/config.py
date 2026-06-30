@@ -201,6 +201,14 @@ class Settings(BaseSettings):
     bnb_google_oauth_refresh_token: str = ""
     bnb_google_token_json: str = ""
     bnb_gmail_app_password: str = ""
+
+    # SavoryMind account — dedicated mailbox for restaurant (SavoryMind) outreach.
+    savorymind_gmail_address: str = "taste@savorymindfood.com"
+    savorymind_google_oauth_client_id: str = ""
+    savorymind_google_oauth_client_secret: str = ""
+    savorymind_google_oauth_refresh_token: str = ""
+    savorymind_google_token_json: str = ""
+    savorymind_gmail_app_password: str = ""
     # No-admin workaround: when True, insurance emails are sent THROUGH the
     # personal mailbox (personal App Password) but with the Thrust address as the
     # From — requires adding bruno@thrustinsurance.com as a verified "Send mail

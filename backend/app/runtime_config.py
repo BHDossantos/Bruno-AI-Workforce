@@ -28,6 +28,8 @@ FIELDS: dict[str, bool] = {
     "insurance_gmail_app_password": True,
     "bnb_gmail_address": False,
     "bnb_gmail_app_password": True,
+    "savorymind_gmail_address": False,
+    "savorymind_gmail_app_password": True,
     "apollo_api_key": True,
     "google_places_api_key": True,
     # Twilio (two-way SMS) — connect texting in-app instead of env vars.
@@ -116,6 +118,10 @@ def status(db) -> dict:
         "gmail_bnb": {
             "configured": gmail.is_configured(gmail.BNB),
             "address": settings.bnb_gmail_address or "",
+        },
+        "gmail_savorymind": {
+            "configured": gmail.is_configured(gmail.SAVORYMIND),
+            "address": settings.savorymind_gmail_address or "",
         },
         "apollo": {"configured": apollo.is_configured()},
         "google_places": {"configured": places.is_configured()},

@@ -26,6 +26,7 @@ SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 PERSONAL = "personal"
 INSURANCE = "insurance"
 BNB = "bnb"
+SAVORYMIND = "savorymind"
 
 
 def _account_cfg(account: str) -> dict:
@@ -46,6 +47,15 @@ def _account_cfg(account: str) -> dict:
             "client_secret": settings.bnb_google_oauth_client_secret,
             "refresh_token": settings.bnb_google_oauth_refresh_token,
             "app_password": settings.bnb_gmail_app_password,
+        }
+    if account == SAVORYMIND:
+        return {
+            "address": settings.savorymind_gmail_address,
+            "token_json": settings.savorymind_google_token_json,
+            "client_id": settings.savorymind_google_oauth_client_id,
+            "client_secret": settings.savorymind_google_oauth_client_secret,
+            "refresh_token": settings.savorymind_google_oauth_refresh_token,
+            "app_password": settings.savorymind_gmail_app_password,
         }
     return {
         "address": settings.gmail_address,
@@ -70,6 +80,11 @@ def account_for_segment(segment: str | None) -> str:
     if segment in ("commercial", "personal"):
         return INSURANCE
     return PERSONAL
+
+
+def restaurant_account() -> str:
+    """Mailbox for SavoryMind restaurant outreach: its own when connected, else personal."""
+    return SAVORYMIND if is_configured(SAVORYMIND) else PERSONAL
 
 
 def _credentials(account: str):

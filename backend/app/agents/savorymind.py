@@ -93,8 +93,10 @@ class SavoryMindAgent(BaseAgent):
                 row.status = "Drafted"
                 self.schedule_follow_ups("restaurant", row.id)
 
+                from ..integrations import gmail
                 msg = self.dispatch_email(entity_type="restaurant", entity_id=row.id,
-                                          to_email=r.get("email"), subject=subject, body=body)
+                                          to_email=r.get("email"), subject=subject, body=body,
+                                          account=gmail.restaurant_account())
                 if msg.status == "Sent":
                     row.status = "Sent"
                     sent += 1

@@ -1531,6 +1531,13 @@ def test_bnb_mailbox_routing():
         assert gmail.account_for_segment("consulting") == "bnb"
     finally:
         settings.bnb_gmail_app_password = ""
+    # SavoryMind restaurant mailbox routes only when connected.
+    assert gmail.restaurant_account() == "personal"
+    settings.savorymind_gmail_app_password = "y" * 16
+    try:
+        assert gmail.restaurant_account() == "savorymind"
+    finally:
+        settings.savorymind_gmail_app_password = ""
 
 
 @requires_db
@@ -2299,8 +2306,8 @@ def test_setup_connect_status_and_save(client, auth_headers):
     """The in-app setup page reports connection status and applies a saved key."""
     from app.config import settings
     s = client.get("/setup", headers=auth_headers).json()
-    assert set(s) == {"gmail_personal", "gmail_insurance", "gmail_bnb", "apollo", "google_places",
-                      "sms", "jobs_api", "instantly", "smartlead", "sendgrid"}
+    assert set(s) == {"gmail_personal", "gmail_insurance", "gmail_bnb", "gmail_savorymind",
+                      "apollo", "google_places", "sms", "jobs_api", "instantly", "smartlead", "sendgrid"}
     assert s["apollo"]["configured"] is False
     orig = settings.google_places_api_key
     try:
@@ -2318,7 +2325,7 @@ def test_mailbox_health_diagnostic(client, auth_headers):
     r = client.get("/setup/mailbox-health", headers=auth_headers)
     assert r.status_code == 200
     d = r.json()
-    assert "outbound_mode" in d and len(d["accounts"]) == 3  # personal, insurance, bnb
+    assert "outbound_mode" in d and len(d["accounts"]) == 4  # personal, insurance, bnb, savorymind
     for a in d["accounts"]:
         for k in ("account", "can_send", "configured", "sent_today", "daily_cap", "remaining_today"):
             assert k in a

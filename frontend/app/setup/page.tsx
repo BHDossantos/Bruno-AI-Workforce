@@ -6,7 +6,7 @@ import { AuthGate, PageHeader, useFetch, LoadState } from "@/components/ui";
 
 type Area = { configured: boolean; address?: string };
 type Status = {
-  gmail_personal: Area; gmail_insurance: Area; gmail_bnb?: Area;
+  gmail_personal: Area; gmail_insurance: Area; gmail_bnb?: Area; gmail_savorymind?: Area;
   apollo: Area; google_places: Area;
   sms?: Area; jobs_api?: Area;
   instantly?: Area; smartlead?: Area; sendgrid?: Area;
@@ -170,6 +170,24 @@ function Setup() {
               value={form.bnb_gmail_address || ""} onChange={(e) => set("bnb_gmail_address", e.target.value)} />
             <input className="input" type="password" placeholder="16-character App Password"
               value={form.bnb_gmail_app_password || ""} onChange={(e) => set("bnb_gmail_app_password", e.target.value)} />
+          </div>
+        </div>
+
+        {/* SavoryMind mailbox */}
+        <div className="card">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">🍽️ Gmail — SavoryMind mailbox</h2>
+            <Badge ok={!!data.gmail_savorymind?.configured} />
+          </div>
+          <p className="mb-3 text-xs text-gray-500">
+            Dedicated mailbox for SavoryMind restaurant outreach. Use a Google <b>App Password</b>.
+            For real volume, route SavoryMind through Smartlead/SendGrid instead of a single Gmail.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input className="input" placeholder={data.gmail_savorymind?.address || "taste@savorymindfood.com"}
+              value={form.savorymind_gmail_address || ""} onChange={(e) => set("savorymind_gmail_address", e.target.value)} />
+            <input className="input" type="password" placeholder="16-character App Password"
+              value={form.savorymind_gmail_app_password || ""} onChange={(e) => set("savorymind_gmail_app_password", e.target.value)} />
           </div>
         </div>
 
