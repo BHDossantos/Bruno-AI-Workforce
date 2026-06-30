@@ -285,8 +285,21 @@ class Settings(BaseSettings):
     client_default_conversion: float = 0.01
     # Safe ceilings the autoscaler will never exceed. Per-account send cap protects
     # mailbox reputation; per-business lead target keeps a single run timeout-safe.
-    client_send_cap_ceiling: int = 500
+    # NOTE: a personal Gmail App Password gets revoked/flagged by Google if it sends
+    # cold email at volume — keep the cold cap LOW (~50/day) for a consumer Gmail.
+    # Raise this only when sending through a dedicated provider (SES/SendGrid/etc).
+    client_send_cap_ceiling: int = 50
     client_lead_target_ceiling: int = 600
+
+    # Instantly.ai — dedicated cold-email engine (many warmed inboxes + deliverability
+    # + sequences). When both are set, outreach is handed to Instantly instead of the
+    # personal Gmail (which Google revokes at volume). Reference {{personalization}}
+    # in the Instantly campaign's email step to send our AI-written copy.
+    instantly_api_key: str = ""
+    instantly_campaign_id: str = ""
+    # Smartlead.ai — same idea as Instantly (the app picks whichever is connected).
+    smartlead_api_key: str = ""
+    smartlead_campaign_id: str = ""
 
     # Outbound mode: "send" (auto-send now), "send_on_approve", or "draft".
     gmail_outbound_mode: str = "send"
@@ -294,14 +307,14 @@ class Settings(BaseSettings):
     # Higher ceiling so a backlog clears faster; warmup still ramps a fresh mailbox
     # up to it gradually. Google Workspace allows ~2,000 sends/day, so 300 is well
     # within limits — lower it if a fresh mailbox ever gets flagged.
-    gmail_daily_send_cap: int = 300
+    gmail_daily_send_cap: int = 50
     # Deliverability warmup: ramp volume on a fresh mailbox so it isn't flagged
     # as spam. Effective cap = min(gmail_daily_send_cap, start + step × days_active).
     # Starts higher and ramps faster than before, so the queue drains in days, not
     # weeks, while still easing a brand-new mailbox in.
     email_warmup_enabled: bool = True
-    email_warmup_start: int = 40
-    email_warmup_step: int = 25
+    email_warmup_start: int = 12
+    email_warmup_step: int = 4
 
     # Insurance outreach to your imported personal contacts (warm network). Each
     # contact is emailed once; small daily batches drip through the list within

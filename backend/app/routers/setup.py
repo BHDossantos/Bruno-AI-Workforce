@@ -30,6 +30,10 @@ class CredIn(BaseModel):
     twilio_from_number: str | None = None
     twilio_insurance_number: str | None = None
     jobs_api_key: str | None = None
+    instantly_api_key: str | None = None
+    instantly_campaign_id: str | None = None
+    smartlead_api_key: str | None = None
+    smartlead_campaign_id: str | None = None
 
 
 @router.get("")

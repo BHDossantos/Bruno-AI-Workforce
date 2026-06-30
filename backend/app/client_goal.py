@@ -84,14 +84,22 @@ def apply_overrides(db: Session) -> None:
                 settings.daily_client_target = int(tgt)
             except Exception:  # pragma: no cover
                 pass
-    for field in _SCALABLE:
+    for field, ceiling_attr in _SCALABLE.items():
         if os.environ.get(field.upper()):
             continue
         val = _get(db, _PREFIX + field)
         if not val:
             continue
         try:
-            setattr(settings, field, int(val))
+            # Clamp to the current ceiling so an OLD stored override (e.g. a high
+            # send cap saved before we tightened limits) can never exceed today's
+            # safe maximum — critical so a personal Gmail isn't pushed back into
+            # the volume that gets its App Password revoked.
+            ceiling = int(getattr(settings, ceiling_attr, 0) or 0)
+            v = int(val)
+            if ceiling:
+                v = min(v, ceiling)
+            setattr(settings, field, v)
         except Exception:  # pragma: no cover
             log.warning("could not apply scaled override %s=%s", field, val)
 

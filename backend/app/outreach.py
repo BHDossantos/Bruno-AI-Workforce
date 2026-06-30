@@ -28,6 +28,29 @@ def _bump_contact(db: Session, entity_type: str | None, entity_id) -> None:
         row.last_contacted_at = datetime.now(timezone.utc)
 
 
+def _split_name(full: str | None) -> tuple[str | None, str | None]:
+    parts = (full or "").strip().split()
+    if not parts:
+        return None, None
+    return parts[0], (" ".join(parts[1:]) or None)
+
+
+def _entity_fields(db: Session, entity_type: str | None, entity_id):
+    """(first, last, company, website, phone) for the lead/restaurant behind a message,
+    used to enrich the lead we hand to Instantly. Best-effort; never raises."""
+    if entity_type == "lead":
+        row = db.query(Lead).filter(Lead.id == entity_id).first()
+        if row:
+            first, last = _split_name(row.owner_name)
+            return first, last, row.company_name, row.website, row.phone
+    elif entity_type == "restaurant":
+        row = db.query(Restaurant).filter(Restaurant.id == entity_id).first()
+        if row:
+            first, last = _split_name(row.owner_manager)
+            return first, last, row.name, row.website, row.phone
+    return None, None, None, None, None
+
+
 # Placeholder/sample domains that must never receive real outreach.
 _PLACEHOLDER_DOMAINS = {"example.com", "example.org", "example.net", "test.com",
                         "email.com", "domain.com", "sample.com"}
@@ -121,8 +144,12 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
     db.add(msg)
     db.flush()
 
-    if not to_email or not gmail.is_configured(account):
-        return msg  # nothing to send to / account unconfigured — keep as stored draft
+    from .integrations import sender
+    # If a dedicated sending engine (Instantly/Smartlead) is connected, IT (not Gmail)
+    # is the sender — so don't draft just because Gmail is unconfigured; let the lead
+    # reach the provider hand-off below.
+    if not to_email or (not gmail.is_configured(account) and not sender.is_configured()):
+        return msg  # nothing to send to / no sender configured — keep as stored draft
     if not is_real_email(to_email):
         # Never email sample/placeholder data — keep it as a draft only.
         _log(db, actor, "send_skipped_synthetic", msg, to=to_email)
@@ -143,6 +170,35 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
                      and control.outreach_autopilot(db))
     if autonomous and control.get_mode(db) != "auto" and not outreach_auto:
         _log(db, actor, "email_drafted_semi", msg, to=to_email)
+        return msg
+
+    # Provider hand-off: when a dedicated engine (Instantly/Smartlead) is connected,
+    # push the lead into its campaign, which sends + follows up + warms across its own
+    # inboxes. We pass our AI-written body as the personalization variable. The
+    # provider paces itself, so OUR daily cap doesn't apply here. This is the durable
+    # path for cold email at volume.
+    if not force_draft and sender.is_configured() and entity_type in ("lead", "restaurant", "contact"):
+        first = last = company = website = phone = None
+        try:
+            first, last, company, website, phone = _entity_fields(db, entity_type, entity_id)
+        except Exception:
+            pass
+        if sender.add_lead(email=to_email, first_name=first, last_name=last,
+                           company_name=company, website=website, phone=phone,
+                           personalization=body):
+            msg.provider_id = sender.name() or "provider"
+            msg.approved = True
+            msg.status = "Sent"
+            msg.sent_at = datetime.now(timezone.utc)
+            _bump_contact(db, entity_type, entity_id)
+            _log(db, actor, "email_sent_provider", msg, to=to_email, account=sender.name())
+            try:
+                from . import newsletters
+                newsletters.subscribe_on_outreach(db, entity_type, entity_id, to_email)
+            except Exception:
+                pass
+        else:
+            _log(db, actor, "provider_handoff_failed", msg, to=to_email)
         return msg
 
     mode = "draft" if force_draft else settings.gmail_outbound_mode
