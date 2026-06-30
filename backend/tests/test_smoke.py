@@ -1663,6 +1663,9 @@ def test_sendgrid_per_business_sender():
         assert sendgrid.from_for("bnb") == "braxandbrie@gmail.com"
         assert sendgrid.from_for("savorymind") == "taste@savorymindfood.com"
         assert sendgrid.from_for("personal") == "hello@default.com"
+        # Reply-To: BnB routes replies to the monitored inbox; others default to from.
+        assert sendgrid.replyto_for("bnb", "hello@bnbglobal.net") == "braxandbrie@gmail.com"
+        assert sendgrid.replyto_for("savorymind", "taste@savorymindfood.com") == "taste@savorymindfood.com"
     finally:
         for k, v in saved.items():
             setattr(settings, k, v)

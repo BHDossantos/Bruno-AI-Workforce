@@ -28,10 +28,23 @@ _ACCOUNT_FROM = {
 }
 
 
+_ACCOUNT_REPLYTO = {
+    "insurance": "sendgrid_replyto_insurance",
+    "bnb": "sendgrid_replyto_bnb",
+    "savorymind": "sendgrid_replyto_savorymind",
+}
+
+
 def from_for(account: str | None) -> str:
     """The verified sender address for a dispatch account, else the default."""
     attr = _ACCOUNT_FROM.get(account or "")
     return (getattr(settings, attr, "") if attr else "") or settings.sendgrid_from_email
+
+
+def replyto_for(account: str | None, from_email: str) -> str:
+    """The Reply-To for a dispatch account: configured override, else the from."""
+    attr = _ACCOUNT_REPLYTO.get(account or "")
+    return (getattr(settings, attr, "") if attr else "") or from_email
 
 
 def is_configured() -> bool:

@@ -50,6 +50,9 @@ FIELDS: dict[str, bool] = {
     "sendgrid_from_insurance": False,
     "sendgrid_from_bnb": False,
     "sendgrid_from_savorymind": False,
+    "sendgrid_replyto_insurance": False,
+    "sendgrid_replyto_bnb": False,
+    "sendgrid_replyto_savorymind": False,
 }
 
 
