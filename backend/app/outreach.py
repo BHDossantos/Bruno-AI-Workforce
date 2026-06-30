@@ -144,11 +144,11 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
     db.add(msg)
     db.flush()
 
-    from .integrations import sender
-    # If a dedicated sending engine (Instantly/Smartlead) is connected, IT (not Gmail)
-    # is the sender — so don't draft just because Gmail is unconfigured; let the lead
-    # reach the provider hand-off below.
-    if not to_email or (not gmail.is_configured(account) and not sender.is_configured()):
+    from .integrations import sender, sendgrid
+    # A sender is anything that can deliver: a campaign engine (Instantly/Smartlead),
+    # SendGrid (direct delivery), or Gmail. Only draft if NONE is configured.
+    if not to_email or not (gmail.is_configured(account) or sender.is_configured()
+                            or sendgrid.is_configured()):
         return msg  # nothing to send to / no sender configured — keep as stored draft
     if not is_real_email(to_email):
         # Never email sample/placeholder data — keep it as a draft only.
@@ -205,12 +205,19 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
     if mode == "send" and already_contacted_today(db, to_email):
         _log(db, actor, "send_skipped_duplicate", msg, to=to_email)
         return msg
-    if mode == "send" and sent_today_count(db, account) >= effective_cap(db, account):
+    _cap = settings.sendgrid_daily_cap if sendgrid.is_configured() else effective_cap(db, account)
+    if mode == "send" and sent_today_count(db, account) >= _cap:
         mode = "draft"  # hit the (warmup-aware) daily cap — degrade to a draft
 
     html = email_template.render(body, account)  # consistent template + compliant footer
     if mode == "send":
-        mid = gmail.send_message(to_email, subject or "", html or "", account=account)
+        # Deliver via SendGrid when connected (reliable at volume), else Gmail.
+        # For insurance, route replies to the Thrust inbox via Reply-To.
+        if sendgrid.is_configured():
+            reply_to = gmail.address_for(account) if account == gmail.INSURANCE else None
+            mid = sendgrid.send_email(to_email, subject or "", html or "", reply_to=reply_to)
+        else:
+            mid = gmail.send_message(to_email, subject or "", html or "", account=account)
         if mid:
             msg.provider_id = mid
             msg.approved = True

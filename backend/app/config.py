@@ -300,6 +300,13 @@ class Settings(BaseSettings):
     # Smartlead.ai — same idea as Instantly (the app picks whichever is connected).
     smartlead_api_key: str = ""
     smartlead_campaign_id: str = ""
+    # SendGrid — reliable DELIVERY (we keep our copy + sequences; SendGrid just sends).
+    # Requires a VERIFIED sender. Used for direct sends when Gmail is too fragile.
+    sendgrid_api_key: str = ""
+    sendgrid_from_email: str = ""
+    # SendGrid handles volume far better than a personal Gmail, so when it's the
+    # sender the daily auto-send cap is this much higher (still bounded for sanity).
+    sendgrid_daily_cap: int = 1000
 
     # Outbound mode: "send" (auto-send now), "send_on_approve", or "draft".
     gmail_outbound_mode: str = "send"

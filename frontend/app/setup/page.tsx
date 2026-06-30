@@ -9,7 +9,7 @@ type Status = {
   gmail_personal: Area; gmail_insurance: Area;
   apollo: Area; google_places: Area;
   sms?: Area; jobs_api?: Area;
-  instantly?: Area; smartlead?: Area;
+  instantly?: Area; smartlead?: Area; sendgrid?: Area;
 };
 type MailboxHealth = {
   outbound_mode: string;
@@ -176,6 +176,27 @@ function Setup() {
               value={form.smartlead_api_key || ""} onChange={(e) => set("smartlead_api_key", e.target.value)} />
             <input className="input" placeholder="Smartlead campaign ID"
               value={form.smartlead_campaign_id || ""} onChange={(e) => set("smartlead_campaign_id", e.target.value)} />
+          </div>
+        </div>
+
+        {/* SendGrid — reliable delivery */}
+        <div className="card">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">📨 SendGrid (reliable email delivery)</h2>
+            <Badge ok={!!data.sendgrid?.configured} />
+          </div>
+          <p className="mb-3 text-xs text-gray-500">
+            Sends your outreach through SendGrid instead of Gmail (which Google revokes at volume) —
+            you keep all your copy, sequences and automation. Paste your <b>API key</b> and a{" "}
+            <b>verified sender</b> email (verify it first in SendGrid → Sender Authentication; full
+            domain auth with SPF/DKIM gives the best inbox placement). When connected, outreach
+            sends via SendGrid automatically at a higher daily cap.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input className="input" type="password" placeholder="SendGrid API key"
+              value={form.sendgrid_api_key || ""} onChange={(e) => set("sendgrid_api_key", e.target.value)} />
+            <input className="input" placeholder="Verified sender email (from)"
+              value={form.sendgrid_from_email || ""} onChange={(e) => set("sendgrid_from_email", e.target.value)} />
           </div>
         </div>
 

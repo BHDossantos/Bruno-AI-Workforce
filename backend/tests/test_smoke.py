@@ -1519,6 +1519,38 @@ def test_crm_pipeline_board_and_move(client, auth_headers):
         assert r["ok"] and r["stage"] == "Qualified"
 
 
+@requires_db
+def test_sendgrid_direct_send(monkeypatch):
+    """With SendGrid connected, outreach delivers via SendGrid (not Gmail) even
+    with no Gmail App Password, and the message is marked Sent."""
+    from app import outreach
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.integrations import sendgrid
+    from app.models import Lead
+
+    monkeypatch.setattr(settings, "sendgrid_api_key", "SG.key")
+    monkeypatch.setattr(settings, "sendgrid_from_email", "hello@bnbglobal.net")
+    sent = {}
+    monkeypatch.setattr(sendgrid, "send_email",
+                        lambda to, subject, html, reply_to=None: sent.update(to=to, reply_to=reply_to) or "sg-1")
+
+    db = SessionLocal()
+    try:
+        lead = Lead(segment="consulting", company_name="SG Co", email="ceo@sgco.io",
+                    status="New", cold_email="Hi there.")
+        db.add(lead); db.flush()
+        msg = outreach.dispatch_email(db, entity_type="lead", entity_id=lead.id,
+                                      to_email=lead.email, subject="quick idea",
+                                      body=lead.cold_email, account="personal",
+                                      actor="test", autonomous=False)
+        assert msg.status == "Sent" and msg.provider_id == "sg-1"
+        assert sent.get("to") == "ceo@sgco.io"
+        db.rollback()
+    finally:
+        db.close()
+
+
 def test_sender_selector_gating():
     """The unified sender picks whichever cold-email provider is configured."""
     from app.config import settings
@@ -2254,7 +2286,7 @@ def test_setup_connect_status_and_save(client, auth_headers):
     from app.config import settings
     s = client.get("/setup", headers=auth_headers).json()
     assert set(s) == {"gmail_personal", "gmail_insurance", "apollo", "google_places",
-                      "sms", "jobs_api", "instantly", "smartlead"}
+                      "sms", "jobs_api", "instantly", "smartlead", "sendgrid"}
     assert s["apollo"]["configured"] is False
     orig = settings.google_places_api_key
     try:
