@@ -332,6 +332,32 @@ def test_bulk_outreach_helpers_exist():
     assert hasattr(bulk_outreach, "dispatch_restaurants")
 
 
+@requires_db
+def test_deliverability_dashboard(client, auth_headers):
+    """The deliverability screen reports the sending channel, today's sends vs cap,
+    the backlog and per-mailbox breakdown — and 'Send all pending now' works."""
+    r = client.get("/deliverability", headers=auth_headers)
+    assert r.status_code == 200
+    d = r.json()
+    # Shape the UI depends on.
+    for key in ("status", "tone", "channel", "sent_today", "daily_cap",
+                "backlog", "accounts", "failures", "can_send"):
+        assert key in d, key
+    assert d["tone"] in ("good", "warn", "bad")
+    accts = {a["account"] for a in d["accounts"]}
+    assert {"personal", "insurance", "bnb", "savorymind"} <= accts
+    # In CI nothing is connected, so there's no sender and nothing to send.
+    assert d["can_send"] is False
+    assert d["channel"]["channel"] is None
+
+    # Drain endpoint is callable and reports a dispatched count (0 with no leads).
+    s = client.post("/deliverability/send-now", headers=auth_headers)
+    assert s.status_code == 200
+    body = s.json()
+    assert body["ok"] is True
+    assert "dispatched" in body and "leads" in body and "restaurants" in body
+
+
 def test_instagram_dm_deeplink():
     """The IG assist queue links straight to the DM thread (ig.me/m/<handle>)."""
     from app.routers.outreach_queue import _ig, _ig_dm

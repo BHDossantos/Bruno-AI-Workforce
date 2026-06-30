@@ -15,6 +15,7 @@ const NAV = [
   { href: "/lead-finder", label: "Lead Finder", icon: "🔎" },
   { href: "/deals", label: "Deal Pipeline", icon: "🗂️" },
   { href: "/automations", label: "Automations", icon: "⚡" },
+  { href: "/deliverability", label: "Email Deliverability", icon: "📬" },
   { href: "/approvals", label: "Approval Queue", icon: "☑️" },
   { href: "/followups", label: "Follow-ups", icon: "🔁" },
   { href: "/activation", label: "Go-Live Setup", icon: "🚀" },
