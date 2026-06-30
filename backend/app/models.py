@@ -636,6 +636,20 @@ class AgentBlueprint(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class CampaignPlan(Base):
+    """A campaign generated from a natural-language brief ("find Boston restaurants
+    under 4.3 stars and pitch SavoryMind, follow up 6×") — parsed into a structured
+    plan the user can review and launch. (Instantly/Smartlead NL campaign builder.)"""
+    __tablename__ = "campaign_plans"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    brief: Mapped[str] = mapped_column(Text, nullable=False)
+    business: Mapped[str | None] = mapped_column(String)
+    agent_key: Mapped[str | None] = mapped_column(String)   # which agent runs it
+    plan: Mapped[dict | None] = mapped_column(JSONB)        # audience, filters, sequence, schedule
+    status: Mapped[str] = mapped_column(String, default="planned")  # planned|launched
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Setting(Base):
     """Runtime key/value settings that change without a redeploy — e.g. the global
     'agents_paused' kill-switch behind the Emergency Stop button."""

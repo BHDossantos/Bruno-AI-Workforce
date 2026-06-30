@@ -463,6 +463,29 @@ Be specific to THIS business — no generic filler, no banned AI phrases. Plain 
 """
 
 
+# ── Natural-language campaign builder ────────────────────────────────────────
+CAMPAIGN_FROM_BRIEF = """Turn this plain-English outreach brief into a structured campaign plan.
+
+Brief: "{brief}"
+
+The businesses available are: Insurance (commercial + home/auto, licensed NH/MA/FL only),
+BnB Global (tech consulting, worldwide), SavoryMind (restaurant growth SaaS, worldwide).
+
+Return JSON with keys:
+- "business": one of "Insurance", "BnB Global", "SavoryMind" (best match for the brief).
+- "audience": one sentence describing who to target.
+- "filters": an object with any of {{"location", "industry", "company_size", "min_rating",
+  "min_reviews", "keywords"}} you can infer (omit unknown ones).
+- "channels": array from ["email","linkedin","sms"] implied by the brief (default ["email"]).
+- "sequence": array of steps, each {{"step": <int>, "purpose": <short>}} — honor any follow-up
+  count in the brief (e.g. "follow up 6 times" → 1 first touch + 6 follow-ups).
+- "schedule": one sentence (e.g. "send weekdays, 1 follow-up every 3 days").
+- "success_metric": the one metric that defines success (e.g. "booked demos").
+- "summary": a one-sentence plain-English summary of the campaign.
+Be concrete and faithful to the brief; never invent a business that isn't listed.
+"""
+
+
 # ── Weekly Board Report (recommends + challenges, like a board meeting) ────────
 BOARD_REPORT = """You are Bruno's Chief of Staff presenting the weekly board review.
 You are given this week's metrics vs last week (JSON) and the objective priorities.
