@@ -4,6 +4,22 @@ Prompts are plain ``str.format`` templates so they stay readable and are easy
 to tune. Each agent imports the templates it needs.
 """
 
+# Shared cold-outreach rules, prepended to every first-touch outreach prompt.
+# These encode what actually drives replies + protects deliverability (peer
+# tone, reader-first, one low-friction ask, no AI/sales tells, internal-looking
+# subject lines). Contains NO curly braces so it composes with str.format.
+_OUTREACH_RULES = """COLD-OUTREACH RULES — follow exactly; they drive replies and protect deliverability:
+- Write like a sharp human peer emailing a colleague, NOT a vendor. Use contractions. Read it aloud; if it sounds like marketing copy, rewrite it.
+- Lead with THEIR world and a specific problem they have. "You/your" must dominate over "I/we". Don't open with who we are or what we do.
+- Ruthlessly short — every sentence must earn its place; shorter beats longer.
+- ONE low-friction ask. On a FIRST touch, an interest-based CTA ("Worth a look?", "Open to it?", "Want the details?") beats asking for a meeting or call.
+- Personalization must connect to the problem: if removing the opening line still leaves the email making sense, it isn't working.
+- NEVER use these AI/sales tells (or anything like them): "I hope this email finds you well", "I came across", "I wanted to reach out", "leverage", "synergy", "best-in-class", "leading provider", "in today's", "elevate", "unlock", "delve", "game-changer", "revolutionize", "circle back", "touch base", "exciting opportunity". No emojis, no exclamation spam.
+- Plain text only — no markdown, no extra links, no images.
+SUBJECT-LINE RULES: 2-4 words, lowercase, looks like an internal note from a coworker (e.g. "quick question", "your renewal", "table turns", "cloud spend"). It is NOT a pitch — no company-name stuffing, no punctuation tricks, no emojis, never the word "free".
+
+"""
+
 # Candidate profile used by the Job Hunter for resume/cover-letter matching.
 CANDIDATE_PROFILE = (
     "Bruno Dos Santos — Director-level SRE & Cloud Operations leader (Boston). "
@@ -36,24 +52,24 @@ Return JSON with keys:
 """
 
 # ── Agent 2: Insurance Lead Generator ────────────────────────────────────────
-INSURANCE_OUTREACH = """You are an insurance producer writing outreach for a prospect.
+INSURANCE_OUTREACH = _OUTREACH_RULES + """You are an insurance producer writing outreach for a prospect.
 
 Prospect: {company_name} ({category}, {segment}) — {industry}, {city}
 Why they may need insurance: {reason}
 
 Return JSON with keys:
-- "cold_email_subject": a short, compelling subject line (no placeholders).
-- "cold_email_body": the email body ONLY. Address the business by its real name
-  ({company_name}); never use placeholders like [Name] or [Your Name]. Open with
-  a specific line, give one clear value point, end with a one-line CTA question.
-  Do NOT add any greeting placeholder, sign-off, signature, or unsubscribe line —
-  those are appended automatically. Keep it under 110 words.
+- "cold_email_subject": follow the SUBJECT-LINE RULES above (no placeholders).
+- "cold_email_body": the email body ONLY, under 90 words. Address the business by
+  its real name ({company_name}); never use placeholders like [Name] or [Your Name].
+  Open with a specific line about THEIR situation/risk, give one concrete value point,
+  end with a single low-friction interest CTA question. Do NOT add any greeting
+  placeholder, sign-off, signature, or unsubscribe line — those are appended automatically.
 - "call_script": a 5-line phone opener.
 - "linkedin_msg": a friendly LinkedIn connection message (max 80 words).
 """
 
 # Referral-partner outreach (mortgage brokers, realtors, lenders, CPAs, attorneys).
-REFERRAL_PARTNER_OUTREACH = """Write outreach from an insurance producer (Thrust Insurance,
+REFERRAL_PARTNER_OUTREACH = _OUTREACH_RULES + """Write outreach from an insurance producer (Thrust Insurance,
 licensed in NH/MA/FL) to a potential REFERRAL PARTNER — not a customer.
 
 Partner: {company_name} ({category}) in {city}.
@@ -61,11 +77,12 @@ Goal: build a two-way referral relationship (you send their clients insurance;
 they send you clients who need coverage — e.g. a new mortgage needs home insurance).
 
 Return JSON with keys:
-- "cold_email_subject": short, partnership-oriented (no placeholders).
-- "cold_email_body": email body ONLY, under 110 words. Address them by name
-  ({company_name}); no placeholders. Lead with a specific reason their clients need
-  insurance, propose a simple two-way referral, end by asking to grab 15 minutes.
-  No greeting placeholder, sign-off, signature or unsubscribe — appended automatically.
+- "cold_email_subject": follow the SUBJECT-LINE RULES above (no placeholders).
+- "cold_email_body": email body ONLY, under 90 words. Address them by name
+  ({company_name}); no placeholders. Lead with a specific reason THEIR clients need
+  insurance, propose a simple two-way referral, end with a low-friction interest CTA
+  (e.g. "worth a quick chat?"). No greeting placeholder, sign-off, signature or
+  unsubscribe — appended automatically.
 - "call_script": a 5-line phone opener for a partnership intro.
 - "linkedin_msg": a warm LinkedIn connection note (max 80 words).
 """
@@ -144,17 +161,20 @@ Return JSON with keys:
 - "reputation_gaps": 2 likely review/reputation gaps to address.
 """
 
-SAVORYMIND_PITCH = """Write personalized SavoryMind outreach to a restaurant.
+SAVORYMIND_PITCH = _OUTREACH_RULES + """Write personalized SavoryMind outreach to a restaurant.
+The reader is a busy restaurant owner/operator — talk covers, margins, no-shows,
+reviews, table turns; never tech/ML jargon.
 
 Restaurant: {name} ({cuisine}, {city}). Owner/manager: {owner}
 Key insight to lead with: {insight}
 
 Return JSON with keys:
-- "pitch_subject": a short, compelling subject line (no placeholders).
-- "pitch_body": the email body ONLY (max 150 words). Address the restaurant by
-  its real name ({name}); never use placeholders like [Name] or [Your Name]. Do
-  NOT add a greeting placeholder, sign-off, signature, or unsubscribe line — those
-  are appended automatically.
+- "pitch_subject": follow the SUBJECT-LINE RULES above (no placeholders).
+- "pitch_body": the email body ONLY, under 90 words. Address the restaurant by
+  its real name ({name}); never use placeholders like [Name] or [Your Name]. Open
+  with the specific insight about THEIR restaurant, one concrete result, one
+  low-friction interest CTA. Do NOT add a greeting placeholder, sign-off, signature,
+  or unsubscribe line — those are appended automatically.
 - "linkedin_msg": a short LinkedIn message (max 80 words).
 - "demo_invite": a one-paragraph demo invitation.
 """
@@ -312,14 +332,19 @@ a call or meeting. Return JSON with key "body".
 """
 
 # ── Reply classification ─────────────────────────────────────────────────────
-CLASSIFY_REPLY = """Classify this inbound reply from a prospect.
+CLASSIFY_REPLY = """Classify this inbound reply from a prospect and draft the best response.
 
 Reply: "{text}"
 
 Return JSON with keys:
 - "intent": one of "interested", "question", "objection", "not_interested", "unsubscribe", "neutral".
 - "summary": a 1-line summary of what they want.
-- "suggested_reply": a short suggested response (max 60 words).
+- "suggested_reply": a short response (max 70 words) that sounds like a sharp human peer,
+  not a sales bot. Match their energy. If interested → make booking trivially easy (propose
+  two concrete time windows or ask for their link). If a question → answer it directly and
+  briefly, then a soft next step. If an objection → acknowledge it honestly, reframe with one
+  specific point, no pressure. If not_interested/unsubscribe → be gracious and stop. Use
+  contractions; no "I hope this finds you well", no jargon, no hard sell.
 """
 
 # ── Agent 6: CEO Dashboard ───────────────────────────────────────────────────
@@ -337,7 +362,7 @@ Return JSON with keys:
 
 
 # ── Agent: BnB Global (tech consulting) ──────────────────────────────────────
-CONSULTING_OUTREACH = """Write founder-led B2B outreach for B&B Global Services, a tech
+CONSULTING_OUTREACH = _OUTREACH_RULES + """Write founder-led B2B outreach for B&B Global Services, a tech
 consultancy ("From Idea to Operations"). Services: Strategy & fractional-CTO advisory,
 Application & Product development, Data/Analytics/AI (GenAI, LLM apps, MLOps), Cloud/DevOps/
 Platform engineering (AWS/Azure/GCP, IaC, Kubernetes, CI/CD), DevSecOps & Cybersecurity
@@ -351,12 +376,12 @@ Prospect: {company_name} - {category} {industry} in {city}.
 Pick the SINGLE most relevant, highest-ROI wedge for THIS prospect - e.g. cut cloud spend
 20-40%, raise uptime/reliability and stop incidents, security/compliance (SOC 2) readiness,
 ship a first production GenAI use case, or managed IT for a growing team. Lead with a specific
-pain + measurable outcome, cite one proof point, close with a low-friction CTA: a free
-20-minute assessment / "book a consultation". Concise, human, honest, CAN-SPAM compliant.
+pain + measurable outcome, cite one proof point, close with a low-friction interest CTA
+(e.g. "worth a look?" / "want a free 20-min teardown?"). Concise, human, honest, CAN-SPAM compliant.
 
 Return JSON with keys:
-- "cold_email_subject": under 60 chars, specific, no clickbait.
-- "cold_email_body": 90-140 words - one wedge, the outcome, one proof point, a soft CTA.
+- "cold_email_subject": follow the SUBJECT-LINE RULES above (no clickbait, no placeholders).
+- "cold_email_body": under 90 words - one wedge, the outcome, one proof point, one soft interest CTA.
 - "linkedin_msg": under 90 words, a warm connection note.
 - "call_script": a 4-5 sentence phone opener.
 """

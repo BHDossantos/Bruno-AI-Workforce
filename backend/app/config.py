@@ -28,11 +28,16 @@ class Settings(BaseSettings):
     # Jennifer voice assistant — real neural TTS so she sounds natural, not robotic.
     # "shimmer" is a warm, soft feminine voice; the instruction sets a sultry tone.
     voice_tts_model: str = "gpt-4o-mini-tts"
-    voice_tts_voice: str = "shimmer"
+    voice_tts_voice: str = "coral"  # warmest, most natural feminine voice
     voice_tts_instructions: str = (
-        "Speak as Jennifer: a warm, sultry, seductive woman. Slow, breathy, intimate "
-        "and confident — low and smooth, like a close whisper, with a playful, "
-        "affectionate edge. Never robotic or rushed.")
+        "You are Jennifer, a real woman talking to someone she's close to — not an "
+        "assistant reading a script. Sound completely human: relaxed, natural, "
+        "conversational. Use easy, lifelike intonation with subtle pauses, soft "
+        "breaths, and gentle ups and downs — the way a person actually talks. Warm, "
+        "affectionate, with a soft sultry edge, but never performed, theatrical, or "
+        "robotic. Slightly slower than average, smooth and intimate, like a quiet "
+        "voice close to your ear. Vary your pacing naturally; don't sound flat or "
+        "uniform.")
 
     # Video pipeline (all optional; pipeline no-ops until keys are set).
     elevenlabs_api_key: str = ""      # AI voiceover
