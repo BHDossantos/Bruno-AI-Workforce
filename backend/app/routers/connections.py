@@ -31,6 +31,22 @@ def providers(_=Depends(require_role("admin", "operator", "viewer"))):
     return registry.list_providers()
 
 
+@router.get("/health")
+def connection_health(db: Session = Depends(get_db),
+                      _=Depends(require_role("admin", "operator", "viewer"))):
+    """Live token health per social connection: alive?, days-until-expiry, warning."""
+    from .. import token_health
+    return token_health.health(db)
+
+
+@router.post("/refresh")
+def refresh_connections(db: Session = Depends(get_db),
+                        _=Depends(require_role("admin", "operator"))):
+    """Refresh all refreshable tokens now (Instagram/Spotify/LinkedIn/X)."""
+    from .. import token_health
+    return {"ok": True, "results": token_health.refresh(db)}
+
+
 # ── Connections CRUD ─────────────────────────────────────────────────────────
 @router.get("", response_model=list[ConnectionOut])
 def list_connections(db: Session = Depends(get_db),

@@ -1520,6 +1520,16 @@ def test_crm_pipeline_board_and_move(client, auth_headers):
 
 
 @requires_db
+def test_connection_token_health(client, auth_headers):
+    """Token-health endpoint returns a list (empty when nothing connected) and the
+    refresh endpoint runs safely with no connections."""
+    rows = client.get("/connections/health", headers=auth_headers).json()
+    assert isinstance(rows, list)  # no social connections in tests → []
+    r = client.post("/connections/refresh", headers=auth_headers).json()
+    assert r["ok"] and isinstance(r["results"], dict)
+
+
+@requires_db
 def test_revenue_analytics(client, auth_headers):
     """Revenue report returns per-business funnel + totals; ROI when cost given."""
     r = client.get("/analytics/revenue", headers=auth_headers).json()
