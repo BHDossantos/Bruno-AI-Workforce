@@ -125,6 +125,8 @@ function Connections() {
 
       {msg && <p className="mb-4 rounded bg-gray-50 p-3 text-sm">{msg}</p>}
 
+      <TokenHealth />
+
       {/* Connected accounts */}
       <div className="card mb-6">
         <h2 className="mb-3 text-sm font-semibold text-gray-700">Your connected accounts</h2>
@@ -268,6 +270,62 @@ function Connections() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+type Health = { provider: string; label: string; connected: boolean; days_left: number | null; note: string; warn: boolean };
+
+function TokenHealth() {
+  const [rows, setRows] = useState<Health[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  async function load() {
+    try { setRows(await api.get<Health[]>("/connections/health")); } catch { /* */ }
+  }
+  useEffect(() => { load(); }, []);
+
+  async function refresh() {
+    setBusy(true); setMsg("");
+    try {
+      await api.post("/connections/refresh", {});
+      setMsg("✅ Refreshed — tokens extended.");
+      await load();
+    } catch (e) { setMsg(`❌ ${e}`); }
+    finally { setBusy(false); }
+  }
+
+  if (!rows || rows.length === 0) return null;
+  return (
+    <div className="card mb-6">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-gray-700">🔌 Connection health</h2>
+        <button onClick={refresh} disabled={busy}
+          className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm disabled:opacity-50">
+          {busy ? "Refreshing…" : "Refresh tokens now"}
+        </button>
+      </div>
+      {msg && <p className="mb-2 text-sm text-gray-600">{msg}</p>}
+      <div className="space-y-2">
+        {rows.map((r) => (
+          <div key={r.provider} className="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2">
+            <span className="text-sm font-medium">{r.label}</span>
+            <span className="flex items-center gap-3 text-xs">
+              {r.days_left != null && (
+                <span className={r.days_left <= 7 ? "text-amber-600" : "text-gray-400"}>
+                  {r.days_left}d left
+                </span>
+              )}
+              <span className="text-gray-500">{r.note}</span>
+              <span className={`badge ${r.connected && !r.warn ? "bg-green-100 text-green-700"
+                : r.connected ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"}`}>
+                {r.connected ? (r.warn ? "Expiring soon" : "Healthy") : "Reconnect"}
+              </span>
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

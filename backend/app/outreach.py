@@ -74,10 +74,13 @@ def _day_start():
     return datetime.combine(date.today(), datetime.min.time(), tzinfo=timezone.utc)
 
 
-def sent_today_count(db: Session, account: str) -> int:
-    return db.query(func.count()).select_from(Message).filter(
-        Message.from_account == account, Message.sent_at >= _day_start(),
-    ).scalar() or 0
+def sent_today_count(db: Session, account: str | None = None) -> int:
+    """Emails actually sent today. Per-account when account is given, else GLOBAL
+    across all accounts (used for the provider-wide cap, e.g. SendGrid's daily limit)."""
+    q = db.query(func.count()).select_from(Message).filter(Message.sent_at >= _day_start())
+    if account is not None:
+        q = q.filter(Message.from_account == account)
+    return q.scalar() or 0
 
 
 def effective_cap(db: Session, account: str) -> int:
@@ -211,9 +214,14 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
     if mode == "send" and already_contacted_today(db, to_email):
         _log(db, actor, "send_skipped_duplicate", msg, to=to_email)
         return msg
-    _cap = settings.sendgrid_daily_cap if sendgrid.is_configured() else effective_cap(db, account)
-    if mode == "send" and sent_today_count(db, account) >= _cap:
-        mode = "draft"  # hit the (warmup-aware) daily cap — degrade to a draft
+    # SendGrid has ONE global daily limit (not per-mailbox), so cap on the global
+    # sent-today count; Gmail mailboxes are capped per-account with warmup.
+    if sendgrid.is_configured():
+        _cap, _sent = settings.sendgrid_daily_cap, sent_today_count(db)
+    else:
+        _cap, _sent = effective_cap(db, account), sent_today_count(db, account)
+    if mode == "send" and _sent >= _cap:
+        mode = "draft"  # hit the daily cap — degrade to a draft
 
     html = email_template.render(body, account)  # consistent template + compliant footer
     if mode == "send":
