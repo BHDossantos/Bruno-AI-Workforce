@@ -1519,6 +1519,36 @@ def test_crm_pipeline_board_and_move(client, auth_headers):
         assert r["ok"] and r["stage"] == "Qualified"
 
 
+@requires_db
+def test_unified_inbox_feed(client, auth_headers):
+    """The unified inbox aggregates classified replies with label + drafted reply."""
+    from app.database import SessionLocal
+    from app.models import ActionLog, Lead, Message
+
+    db = SessionLocal()
+    try:
+        lead = Lead(segment="consulting", company_name="Inbox Co", email="boss@inboxco.io", status="Replied")
+        db.add(lead)
+        db.add(ActionLog(actor="inbound", action="reply_classified", entity="email",
+                         entity_id="boss@inboxco.io",
+                         detail={"intent": "interested", "summary": "wants a demo", "subject": "your note"}))
+        db.add(Message(channel="email", direction="outbound", entity_type="reply",
+                       to_email="boss@inboxco.io", subject="Re: your note", body="Happy to help!",
+                       status="Drafted"))
+        db.commit()
+    finally:
+        db.close()
+
+    feed = client.get("/messages/inbox", headers=auth_headers).json()
+    item = next((i for i in feed["items"] if i["sender"] == "boss@inboxco.io"), None)
+    assert item is not None
+    assert item["label"] == "Interested" and item["business"] == "BnB Global"
+    assert item["draft_id"] and item["draft_body"]
+    # Label filter works.
+    only = client.get("/messages/inbox?label=Interested", headers=auth_headers).json()
+    assert all(i["label"] == "Interested" for i in only["items"])
+
+
 def test_bnb_mailbox_routing():
     """Consulting routes to the BnB mailbox only when it's configured; otherwise
     falls back to personal. Insurance segments use the insurance mailbox."""
