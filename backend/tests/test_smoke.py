@@ -1584,7 +1584,8 @@ def test_sendgrid_direct_send(monkeypatch):
     monkeypatch.setattr(settings, "sendgrid_from_email", "hello@bnbglobal.net")
     sent = {}
     monkeypatch.setattr(sendgrid, "send_email",
-                        lambda to, subject, html, reply_to=None: sent.update(to=to, reply_to=reply_to) or "sg-1")
+                        lambda to, subject, html, from_email=None, reply_to=None:
+                            sent.update(to=to, from_email=from_email) or "sg-1")
 
     db = SessionLocal()
     try:
@@ -1600,6 +1601,29 @@ def test_sendgrid_direct_send(monkeypatch):
         db.rollback()
     finally:
         db.close()
+
+
+def test_sendgrid_per_business_sender():
+    """SendGrid sends AS each business's verified sender; default otherwise."""
+    from app.config import settings
+    from app.integrations import sendgrid
+    monkeypatch_vals = {
+        "sendgrid_from_insurance": "b@dossantosinsurance.org",
+        "sendgrid_from_bnb": "braxandbrie@gmail.com",
+        "sendgrid_from_savorymind": "taste@savorymindfood.com",
+        "sendgrid_from_email": "hello@default.com",
+    }
+    saved = {k: getattr(settings, k) for k in monkeypatch_vals}
+    for k, v in monkeypatch_vals.items():
+        setattr(settings, k, v)
+    try:
+        assert sendgrid.from_for("insurance") == "b@dossantosinsurance.org"
+        assert sendgrid.from_for("bnb") == "braxandbrie@gmail.com"
+        assert sendgrid.from_for("savorymind") == "taste@savorymindfood.com"
+        assert sendgrid.from_for("personal") == "hello@default.com"
+    finally:
+        for k, v in saved.items():
+            setattr(settings, k, v)
 
 
 def test_sender_selector_gating():

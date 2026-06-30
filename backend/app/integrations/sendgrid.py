@@ -20,8 +20,25 @@ log = logging.getLogger("bruno.sendgrid")
 _SEND = "https://api.sendgrid.com/v3/mail/send"
 
 
+# dispatch account → its verified SendGrid sender.
+_ACCOUNT_FROM = {
+    "insurance": "sendgrid_from_insurance",
+    "bnb": "sendgrid_from_bnb",
+    "savorymind": "sendgrid_from_savorymind",
+}
+
+
+def from_for(account: str | None) -> str:
+    """The verified sender address for a dispatch account, else the default."""
+    attr = _ACCOUNT_FROM.get(account or "")
+    return (getattr(settings, attr, "") if attr else "") or settings.sendgrid_from_email
+
+
 def is_configured() -> bool:
-    return bool(settings.sendgrid_api_key and settings.sendgrid_from_email)
+    """Configured if we have a key AND at least one verified sender to send from."""
+    return bool(settings.sendgrid_api_key and (
+        settings.sendgrid_from_email or settings.sendgrid_from_insurance
+        or settings.sendgrid_from_bnb or settings.sendgrid_from_savorymind))
 
 
 def has_key() -> bool:
@@ -33,14 +50,17 @@ def _headers() -> dict:
             "Content-Type": "application/json"}
 
 
-def send_email(to: str, subject: str, html: str, *, reply_to: str | None = None) -> str | None:
-    """Send one HTML email via SendGrid. Returns a message id on success, else None."""
-    if not is_configured() or not to:
+def send_email(to: str, subject: str, html: str, *, from_email: str | None = None,
+               reply_to: str | None = None) -> str | None:
+    """Send one HTML email via SendGrid from a verified sender. Returns a message id."""
+    if not settings.sendgrid_api_key or not to:
         return None
+    sender = from_email or settings.sendgrid_from_email
+    if not sender:
+        return None  # no verified sender to send from
     payload: dict = {
         "personalizations": [{"to": [{"email": to}], "subject": subject or "(no subject)"}],
-        "from": {"email": settings.sendgrid_from_email,
-                 "name": settings.sender_name or settings.sendgrid_from_email},
+        "from": {"email": sender, "name": settings.sender_name or sender},
         "content": [{"type": "text/html", "value": html or ""}],
     }
     if reply_to:

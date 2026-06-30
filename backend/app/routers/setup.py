@@ -40,6 +40,9 @@ class CredIn(BaseModel):
     smartlead_campaign_id: str | None = None
     sendgrid_api_key: str | None = None
     sendgrid_from_email: str | None = None
+    sendgrid_from_insurance: str | None = None
+    sendgrid_from_bnb: str | None = None
+    sendgrid_from_savorymind: str | None = None
 
 
 @router.get("")

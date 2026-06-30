@@ -232,8 +232,17 @@ function Setup() {
           <div className="grid gap-2 sm:grid-cols-2">
             <input className="input" type="password" placeholder="SendGrid API key"
               value={form.sendgrid_api_key || ""} onChange={(e) => set("sendgrid_api_key", e.target.value)} />
-            <input className="input" placeholder="Verified sender email (from)"
+            <input className="input" placeholder="Default verified sender (from)"
               value={form.sendgrid_from_email || ""} onChange={(e) => set("sendgrid_from_email", e.target.value)} />
+          </div>
+          <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Verified sender per business</div>
+          <div className="mt-1 grid gap-2 sm:grid-cols-3">
+            <input className="input" placeholder="Insurance from"
+              value={form.sendgrid_from_insurance || ""} onChange={(e) => set("sendgrid_from_insurance", e.target.value)} />
+            <input className="input" placeholder="BnB Global from"
+              value={form.sendgrid_from_bnb || ""} onChange={(e) => set("sendgrid_from_bnb", e.target.value)} />
+            <input className="input" placeholder="SavoryMind from"
+              value={form.sendgrid_from_savorymind || ""} onChange={(e) => set("sendgrid_from_savorymind", e.target.value)} />
           </div>
         </div>
 

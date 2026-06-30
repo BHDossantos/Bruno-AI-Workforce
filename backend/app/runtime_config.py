@@ -47,6 +47,9 @@ FIELDS: dict[str, bool] = {
     # SendGrid — reliable email delivery (verified sender required).
     "sendgrid_api_key": True,
     "sendgrid_from_email": False,
+    "sendgrid_from_insurance": False,
+    "sendgrid_from_bnb": False,
+    "sendgrid_from_savorymind": False,
 }
 
 

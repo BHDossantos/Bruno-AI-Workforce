@@ -320,7 +320,12 @@ class Settings(BaseSettings):
     # SendGrid — reliable DELIVERY (we keep our copy + sequences; SendGrid just sends).
     # Requires a VERIFIED sender. Used for direct sends when Gmail is too fragile.
     sendgrid_api_key: str = ""
-    sendgrid_from_email: str = ""
+    sendgrid_from_email: str = ""  # default / personal sender
+    # Per-business verified senders (SendGrid Single Sender) so each business sends
+    # AS its own brand. Defaults match the verified senders already set up.
+    sendgrid_from_insurance: str = "b@dossantosinsurance.org"
+    sendgrid_from_bnb: str = "braxandbrie@gmail.com"
+    sendgrid_from_savorymind: str = "taste@savorymindfood.com"
     # SendGrid handles volume far better than a personal Gmail, so when it's the
     # sender the daily auto-send cap is this much higher (still bounded for sanity).
     sendgrid_daily_cap: int = 1000

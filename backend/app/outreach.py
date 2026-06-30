@@ -212,10 +212,11 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
     html = email_template.render(body, account)  # consistent template + compliant footer
     if mode == "send":
         # Deliver via SendGrid when connected (reliable at volume), else Gmail.
-        # For insurance, route replies to the Thrust inbox via Reply-To.
+        # Send AS the business's verified sender; replies come back to that address.
         if sendgrid.is_configured():
-            reply_to = gmail.address_for(account) if account == gmail.INSURANCE else None
-            mid = sendgrid.send_email(to_email, subject or "", html or "", reply_to=reply_to)
+            from_email = sendgrid.from_for(account)
+            mid = sendgrid.send_email(to_email, subject or "", html or "",
+                                      from_email=from_email, reply_to=from_email)
         else:
             mid = gmail.send_message(to_email, subject or "", html or "", account=account)
         if mid:
