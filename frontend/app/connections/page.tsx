@@ -47,9 +47,13 @@ function Connections() {
   }
   useEffect(() => {
     reload().catch((e) => setMsg(`❌ ${e}`));
-    const tk = new URLSearchParams(window.location.search).get("tiktok");
+    const params = new URLSearchParams(window.location.search);
+    const tk = params.get("tiktok");
     if (tk === "connected") setMsg("✅ TikTok connected via official login. Click Test to verify.");
     else if (tk === "error") setMsg("❌ TikTok connection failed — try again or paste a token manually.");
+    const meta = params.get("meta");
+    if (meta === "connected") setMsg("✅ Facebook & Instagram connected via official login. Click Test to verify.");
+    else if (meta === "error") setMsg("❌ Facebook/Instagram connection failed — try again or paste a token manually.");
   }, []);
 
   async function openProvider(p: Provider) {
@@ -69,6 +73,15 @@ function Connections() {
       window.location.href = url;
     } catch (e) {
       setMsg(`❌ TikTok OAuth isn't configured yet (${e}). Set TIKTOK_CLIENT_KEY / SECRET / REDIRECT_URI, or paste a token below.`);
+    }
+  }
+
+  async function metaOauth() {
+    try {
+      const { url } = await api.get<{ url: string }>("/connections/meta/oauth/start");
+      window.location.href = url;
+    } catch (e) {
+      setMsg(`❌ Facebook/Instagram OAuth isn't configured yet (${e}). Set FACEBOOK_APP_ID / FACEBOOK_APP_SECRET / META_REDIRECT_URI, or paste a token below.`);
     }
   }
 
@@ -198,6 +211,19 @@ function Connections() {
                 </button>
                 <p className="mt-2 text-xs text-gray-500">
                   Authorizes via TikTok&apos;s official login. Or paste a token manually below.
+                </p>
+              </div>
+            )}
+
+            {(selected.key === "facebook" || selected.key === "instagram") && (
+              <div className="mb-4 rounded-lg border border-gray-200 p-3">
+                <button onClick={metaOauth} className="btn w-full">
+                  Connect with Facebook/Instagram (recommended)
+                </button>
+                <p className="mt-2 text-xs text-gray-500">
+                  One click via Facebook&apos;s official login — connects your Page and its linked
+                  Instagram together, with a long-lived token that auto-refreshes (no more
+                  surprise disconnects). Or paste a token manually below.
                 </p>
               </div>
             )}

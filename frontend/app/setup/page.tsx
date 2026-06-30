@@ -10,6 +10,7 @@ type Status = {
   apollo: Area; google_places: Area;
   sms?: Area; jobs_api?: Area;
   instantly?: Area; smartlead?: Area; sendgrid?: Area;
+  meta_app?: { configured: boolean; app_id: string; redirect_uri: string };
   booking?: { default: string; insurance: string; bnb: string; savorymind: string };
 };
 type MailboxHealth = {
@@ -253,6 +254,28 @@ function Setup() {
               value={form.sendgrid_replyto_bnb || ""} onChange={(e) => set("sendgrid_replyto_bnb", e.target.value)} />
             <input className="input" placeholder="SavoryMind reply-to"
               value={form.sendgrid_replyto_savorymind || ""} onChange={(e) => set("sendgrid_replyto_savorymind", e.target.value)} />
+          </div>
+        </div>
+
+        {/* Meta app — powers the one-click Facebook/Instagram connect button */}
+        <div className="card">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">📘 Facebook / Instagram app (one-click connect)</h2>
+            <Badge ok={!!data.meta_app?.configured} />
+          </div>
+          <p className="mb-2 text-xs text-gray-500">
+            Enables the <b>&ldquo;Connect with Facebook/Instagram&rdquo;</b> button on the Connections
+            page — one click instead of pasting tokens, with a long-lived token that auto-refreshes
+            (no more surprise disconnects). From your Meta app (developers.facebook.com): App ID,
+            App Secret, and add the redirect URI below as a <b>Valid OAuth Redirect URI</b>.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input className="input" placeholder={data.meta_app?.app_id || "Facebook App ID"}
+              value={form.facebook_app_id || ""} onChange={(e) => set("facebook_app_id", e.target.value)} />
+            <input className="input" type="password" placeholder="Facebook App Secret"
+              value={form.facebook_app_secret || ""} onChange={(e) => set("facebook_app_secret", e.target.value)} />
+            <input className="input sm:col-span-2" placeholder={data.meta_app?.redirect_uri || "Redirect URI — https://<backend>/connections/meta/oauth/callback"}
+              value={form.meta_redirect_uri || ""} onChange={(e) => set("meta_redirect_uri", e.target.value)} />
           </div>
         </div>
 

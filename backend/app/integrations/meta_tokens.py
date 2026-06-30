@@ -10,6 +10,7 @@ unchanged so connecting never breaks.
 from __future__ import annotations
 
 import logging
+import urllib.parse
 
 import httpx
 
@@ -18,12 +19,94 @@ from ..config import settings
 log = logging.getLogger("bruno.meta_tokens")
 _TIMEOUT = httpx.Timeout(20.0, connect=5.0)
 _GRAPH = "https://graph.facebook.com/v19.0"
+_DIALOG = "https://www.facebook.com/v19.0/dialog/oauth"
+# Scopes for the one-click connect: read + publish to the Page and its linked
+# Instagram business account (so both Facebook and Instagram connect at once).
+_SCOPES = ("pages_show_list,pages_read_engagement,pages_manage_posts,"
+           "business_management,instagram_basic,instagram_content_publish,"
+           "instagram_manage_insights")
 
 
 def _app_creds(creds: dict) -> tuple[str, str]:
     app_id = creds.get("app_id") or settings.facebook_app_id
     app_secret = creds.get("app_secret") or settings.facebook_app_secret
     return app_id, app_secret
+
+
+# ── One-click OAuth (Facebook Login) ─────────────────────────────────────────
+def oauth_configured() -> bool:
+    """True when the in-app 'Connect with Facebook/Instagram' button can run."""
+    return bool(settings.facebook_app_id and settings.facebook_app_secret
+                and settings.meta_redirect_uri)
+
+
+def build_auth_url(state: str) -> str:
+    """The Facebook consent URL to send the user to for one-click connect."""
+    params = {
+        "client_id": settings.facebook_app_id,
+        "redirect_uri": settings.meta_redirect_uri,
+        "state": state,
+        "response_type": "code",
+        "scope": _SCOPES,
+    }
+    return f"{_DIALOG}?{urllib.parse.urlencode(params)}"
+
+
+def _code_to_user_token(code: str) -> str | None:
+    """Exchange an OAuth code for a (short-lived) user access token."""
+    try:
+        r = httpx.get(f"{_GRAPH}/oauth/access_token", timeout=_TIMEOUT, params={
+            "client_id": settings.facebook_app_id,
+            "client_secret": settings.facebook_app_secret,
+            "redirect_uri": settings.meta_redirect_uri, "code": code})
+        if r.status_code == 200:
+            return (r.json() or {}).get("access_token")
+        log.warning("Meta code exchange -> %s: %s", r.status_code, r.text[:200])
+    except Exception as exc:  # pragma: no cover - network guard
+        log.warning("Meta code exchange failed: %s", exc)
+    return None
+
+
+def _ig_account(page_id: str, page_token: str) -> dict | None:
+    """The Instagram business account linked to a Page (id + username), if any."""
+    try:
+        r = httpx.get(f"{_GRAPH}/{page_id}", timeout=_TIMEOUT, params={
+            "fields": "instagram_business_account{id,username}", "access_token": page_token})
+        if r.status_code != 200:
+            return None
+        iga = (r.json() or {}).get("instagram_business_account") or {}
+        return iga or None
+    except Exception as exc:  # pragma: no cover - network guard
+        log.warning("Meta IG-account lookup failed: %s", exc)
+        return None
+
+
+def connect_from_code(code: str) -> dict:
+    """Full one-click connect: code → long-lived Page token + linked IG account.
+
+    Returns {facebook: {...creds}, instagram: {...creds}} for the connections to
+    store. Either key may be absent if that surface isn't available (e.g. no IG
+    business account linked to the Page). Empty dict on failure."""
+    user_token = _code_to_user_token(code)
+    if not user_token:
+        return {}
+    long_user = _exchange(user_token, settings.facebook_app_id, settings.facebook_app_secret) or user_token
+    page = _page_token(long_user, None)
+    if not (page and page.get("access_token")):
+        return {}
+    out: dict = {"facebook": {
+        "access_token": page["access_token"], "page_id": page.get("id"),
+        "page_name": page.get("name"), "token_type": "long_lived"}}
+    iga = _ig_account(page.get("id"), page["access_token"])
+    if iga and iga.get("id"):
+        # IG publishing uses the PAGE token together with the IG business id.
+        out["instagram"] = {
+            "access_token": page["access_token"], "ig_user_id": iga["id"],
+            "username": iga.get("username"), "page_id": page.get("id"),
+            "token_type": "long_lived"}
+    log.info("Meta one-click connect resolved page=%s ig=%s",
+             bool(out.get("facebook")), bool(out.get("instagram")))
+    return out
 
 
 def _exchange(token: str, app_id: str, app_secret: str) -> str | None:

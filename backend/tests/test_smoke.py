@@ -698,6 +698,40 @@ def test_email_template_wraps_body_with_signature_and_footer():
     assert "[Your Name]" not in rendered and "Bruno Dossantos" in rendered
 
 
+def test_meta_oauth_url_and_gate():
+    """The one-click Facebook/Instagram connect builds a proper consent URL and is
+    gated on app credentials being present."""
+    from app.config import settings
+    from app.integrations import meta_tokens
+    orig = (settings.facebook_app_id, settings.facebook_app_secret, settings.meta_redirect_uri)
+    try:
+        settings.facebook_app_id = settings.facebook_app_secret = settings.meta_redirect_uri = ""
+        assert meta_tokens.oauth_configured() is False
+        settings.facebook_app_id = "123"
+        settings.facebook_app_secret = "secret"
+        settings.meta_redirect_uri = "https://api.example.com/connections/meta/oauth/callback"
+        assert meta_tokens.oauth_configured() is True
+        url = meta_tokens.build_auth_url("st.sig")
+        assert url.startswith("https://www.facebook.com/") and "client_id=123" in url
+        assert "instagram_content_publish" in url and "pages_manage_posts" in url
+        assert "state=st.sig" in url
+    finally:
+        (settings.facebook_app_id, settings.facebook_app_secret, settings.meta_redirect_uri) = orig
+
+
+@requires_db
+def test_meta_oauth_start_requires_config(client, auth_headers):
+    """/connections/meta/oauth/start refuses cleanly when the Meta app isn't set up."""
+    from app.config import settings
+    orig = (settings.facebook_app_id, settings.facebook_app_secret, settings.meta_redirect_uri)
+    try:
+        settings.facebook_app_id = settings.facebook_app_secret = settings.meta_redirect_uri = ""
+        r = client.get("/connections/meta/oauth/start", headers=auth_headers)
+        assert r.status_code == 400
+    finally:
+        (settings.facebook_app_id, settings.facebook_app_secret, settings.meta_redirect_uri) = orig
+
+
 def test_sendgrid_stats_safe_without_key():
     """SendGrid stats degrade cleanly when no key is set (no crash, clear reason)."""
     from app.config import settings
@@ -2550,7 +2584,7 @@ def test_setup_connect_status_and_save(client, auth_headers):
     s = client.get("/setup", headers=auth_headers).json()
     assert set(s) == {"gmail_personal", "gmail_insurance", "gmail_bnb", "gmail_savorymind",
                       "apollo", "google_places", "sms", "jobs_api", "instantly", "smartlead",
-                      "sendgrid", "booking"}
+                      "sendgrid", "meta_app", "booking"}
     assert s["apollo"]["configured"] is False
     assert set(s["booking"]) == {"default", "insurance", "bnb", "savorymind"}
     orig = settings.google_places_api_key

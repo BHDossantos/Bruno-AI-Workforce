@@ -220,6 +220,56 @@ def test_connection(conn_id: str, db: Session = Depends(get_db),
     return {"ok": ok, "detail": detail, "status": conn.status, "provider": conn.provider}
 
 
+# ── Meta one-click connect (Facebook Login → Page + Instagram) ───────────────
+@router.get("/meta/oauth/start")
+def meta_oauth_start(_=Depends(require_role("admin", "operator"))):
+    """Return the Facebook consent URL for the 'Connect with Facebook/Instagram'
+    button. Connects the Page AND its linked Instagram business account at once."""
+    from ..integrations import meta_tokens
+    if not meta_tokens.oauth_configured():
+        raise HTTPException(400, "Meta OAuth not configured (set FACEBOOK_APP_ID, "
+                                 "FACEBOOK_APP_SECRET, META_REDIRECT_URI)")
+    return {"url": meta_tokens.build_auth_url(_sign_state())}
+
+
+@router.get("/meta/oauth/callback")
+def meta_oauth_callback(code: str | None = None, state: str | None = None,
+                        error: str | None = None, db: Session = Depends(get_db)):
+    """Facebook redirects here after consent — exchange the code, store the
+    Facebook Page (and linked Instagram) connections, send the user back. Public
+    (Meta can't send a bearer) but the signed `state` guards against CSRF."""
+    from ..integrations import meta_tokens
+
+    def _back(status: str) -> HTMLResponse | RedirectResponse:
+        if settings.frontend_url:
+            return RedirectResponse(f"{settings.frontend_url.rstrip('/')}/connections?meta={status}")
+        msg = ("✅ Facebook/Instagram connected — you can close this tab and return to the app."
+               if status == "connected" else f"❌ Connection failed ({status}).")
+        return HTMLResponse(f"<html><body style='font-family:sans-serif;padding:40px'>{msg}</body></html>")
+
+    if error or not code or not _valid_state(state or ""):
+        return _back("error")
+    creds = meta_tokens.connect_from_code(code)
+    if not creds.get("facebook"):
+        return _back("error")
+
+    for provider in ("facebook", "instagram"):
+        c = creds.get(provider)
+        if not c:
+            continue
+        conn = db.query(Connection).filter(Connection.provider == provider).first()
+        if not conn:
+            conn = Connection(provider=provider,
+                              display_name=("Facebook Page" if provider == "facebook" else "Instagram"),
+                              goal="leads" if provider == "facebook" else "followers")
+            db.add(conn)
+        conn.credentials_enc = encrypt_secret(json.dumps(c))
+        conn.account_ref = c.get("page_id") if provider == "facebook" else c.get("ig_user_id")
+        conn.status = "connected"
+    db.commit()
+    return _back("connected")
+
+
 # ── TikTok Login Kit (OAuth) ─────────────────────────────────────────────────
 def _sign_state() -> str:
     """A short-lived signed state token to protect the OAuth round-trip (CSRF)."""
