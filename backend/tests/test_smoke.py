@@ -1520,6 +1520,20 @@ def test_crm_pipeline_board_and_move(client, auth_headers):
 
 
 @requires_db
+def test_revenue_analytics(client, auth_headers):
+    """Revenue report returns per-business funnel + totals; ROI when cost given."""
+    r = client.get("/analytics/revenue", headers=auth_headers).json()
+    assert set(r["businesses"]) == {"Insurance", "BnB Global", "SavoryMind"}
+    for b in r["businesses"].values():
+        for k in ("leads", "won", "revenue_won", "pipeline_value", "reply_rate", "win_rate"):
+            assert k in b
+    assert r["cost_metrics"] is None  # no cost given
+    withcost = client.get("/analytics/revenue?cost=500", headers=auth_headers).json()
+    assert withcost["cost_metrics"]["spend"] == 500
+    assert "roi" in withcost["cost_metrics"]
+
+
+@requires_db
 def test_campaign_builder_plan(client, auth_headers, monkeypatch):
     """NL brief → structured campaign plan (model mocked), persisted + listable."""
     from app import campaign_builder

@@ -35,6 +35,7 @@ const NAV = [
   { href: "/analytics", label: "Funnel Analytics", icon: "📊" },
   { href: "/growth", label: "Growth Analytics", icon: "📈" },
   { href: "/pipeline", label: "Sales Pipeline", icon: "💰" },
+  { href: "/revenue", label: "Revenue & ROI", icon: "💵" },
   { href: "/learnings", label: "AI Learnings", icon: "🎓" },
   { href: "/jobs", label: "Jobs", icon: "💼" },
   { href: "/apply", label: "Apply Queue", icon: "✅" },
