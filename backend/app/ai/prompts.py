@@ -439,6 +439,30 @@ Be specific and useful; no filler, no false claims, no duplicate hashtags.
 """
 
 
+# ── AI Agent builder (learn a business from its website) ─────────────────────
+AGENT_FROM_URL = """You are a senior outbound-sales strategist. Learn this business
+from its website text and design an outbound sales agent for it.
+
+Business URL: {url}
+Website text (truncated):
+\"\"\"{site_text}\"\"\"
+
+Return JSON with keys:
+- "business": the brand/company name.
+- "offer": 1-2 sentences on what they sell and the core value.
+- "icp": the ideal customer profile (who buys — role, company type, size, situation).
+- "industries": a comma-separated list of 4-8 target industries/verticals.
+- "pain_points": 3-5 specific pains this offer removes (as one string, semicolon-separated).
+- "angles": 3 distinct outreach angles/hooks (one string, semicolon-separated).
+- "scripts": an object with:
+    - "cold_email": {{"subject": short internal-note style, "body": <90 words, peer tone, one interest CTA}}
+    - "linkedin_dm": <60 words, warm, no pitch-dump
+    - "follow_up_1": <60 words, new angle, not a 'bump'
+    - "breakup": <50 words, warm, door-open last touch
+Be specific to THIS business — no generic filler, no banned AI phrases. Plain text.
+"""
+
+
 # ── Weekly Board Report (recommends + challenges, like a board meeting) ────────
 BOARD_REPORT = """You are Bruno's Chief of Staff presenting the weekly board review.
 You are given this week's metrics vs last week (JSON) and the objective priorities.

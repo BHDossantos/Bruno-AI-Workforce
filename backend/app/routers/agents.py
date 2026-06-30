@@ -1,5 +1,6 @@
 """Agent management: list agents, trigger runs, and per-agent performance health."""
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..agents import AGENTS
@@ -14,6 +15,26 @@ router = APIRouter(prefix="/agents", tags=["agents"])
 @router.get("", response_model=list[AgentOut])
 def list_agents(db: Session = Depends(get_db), _=Depends(require_role("admin", "operator", "viewer"))):
     return db.query(Agent).order_by(Agent.schedule_cron).all()
+
+
+class BlueprintIn(BaseModel):
+    url: str
+
+
+@router.post("/blueprint")
+def create_blueprint(body: BlueprintIn, db: Session = Depends(get_db),
+                     _=Depends(require_role("admin", "operator"))):
+    """Create an AI sales agent from a business URL — scans the site and generates
+    the offer, ICP, target industries, pain points, angles and message scripts."""
+    from .. import agent_builder
+    return agent_builder.build_from_url(db, body.url)
+
+
+@router.get("/blueprints")
+def list_blueprints(db: Session = Depends(get_db),
+                    _=Depends(require_role("admin", "operator", "viewer"))):
+    from .. import agent_builder
+    return agent_builder.list_blueprints(db)
 
 
 def _suggest(runs: int, success_rate: int | None, last_error: str | None) -> str:

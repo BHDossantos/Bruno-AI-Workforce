@@ -618,6 +618,24 @@ class Grant(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class AgentBlueprint(Base):
+    """An AI sales agent generated from a business URL — the offer, ICP, target
+    industries, pain points, outreach angles and message scripts the agent uses.
+    (Instantly/Smartlead 'Create Agent from URL'.)"""
+    __tablename__ = "agent_blueprints"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    url: Mapped[str] = mapped_column(String, nullable=False)
+    business: Mapped[str | None] = mapped_column(String)
+    offer: Mapped[str | None] = mapped_column(Text)
+    icp: Mapped[str | None] = mapped_column(Text)
+    industries: Mapped[str | None] = mapped_column(Text)
+    pain_points: Mapped[str | None] = mapped_column(Text)
+    angles: Mapped[str | None] = mapped_column(Text)
+    scripts: Mapped[dict | None] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String, default="ready")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Setting(Base):
     """Runtime key/value settings that change without a redeploy — e.g. the global
     'agents_paused' kill-switch behind the Emergency Stop button."""
