@@ -244,6 +244,15 @@ function Setup() {
             <input className="input" placeholder="SavoryMind from"
               value={form.sendgrid_from_savorymind || ""} onChange={(e) => set("sendgrid_from_savorymind", e.target.value)} />
           </div>
+          <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Reply-To per business (optional — where replies land)</div>
+          <div className="mt-1 grid gap-2 sm:grid-cols-3">
+            <input className="input" placeholder="Insurance reply-to"
+              value={form.sendgrid_replyto_insurance || ""} onChange={(e) => set("sendgrid_replyto_insurance", e.target.value)} />
+            <input className="input" placeholder="BnB reply-to"
+              value={form.sendgrid_replyto_bnb || ""} onChange={(e) => set("sendgrid_replyto_bnb", e.target.value)} />
+            <input className="input" placeholder="SavoryMind reply-to"
+              value={form.sendgrid_replyto_savorymind || ""} onChange={(e) => set("sendgrid_replyto_savorymind", e.target.value)} />
+          </div>
         </div>
 
         {/* Apollo */}

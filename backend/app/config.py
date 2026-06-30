@@ -326,6 +326,12 @@ class Settings(BaseSettings):
     sendgrid_from_insurance: str = "b@dossantosinsurance.org"
     sendgrid_from_bnb: str = "braxandbrie@gmail.com"
     sendgrid_from_savorymind: str = "taste@savorymindfood.com"
+    # Optional per-business Reply-To (where replies land). Blank → replies go to the
+    # from-address. Lets BnB send AS hello@bnbglobal.net but route replies to a
+    # monitored inbox without a mailbox on the sending domain.
+    sendgrid_replyto_insurance: str = ""
+    sendgrid_replyto_bnb: str = "braxandbrie@gmail.com"
+    sendgrid_replyto_savorymind: str = ""
     # SendGrid handles volume far better than a personal Gmail, so when it's the
     # sender the daily auto-send cap is this much higher (still bounded for sanity).
     sendgrid_daily_cap: int = 1000

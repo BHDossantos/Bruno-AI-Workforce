@@ -43,6 +43,9 @@ class CredIn(BaseModel):
     sendgrid_from_insurance: str | None = None
     sendgrid_from_bnb: str | None = None
     sendgrid_from_savorymind: str | None = None
+    sendgrid_replyto_insurance: str | None = None
+    sendgrid_replyto_bnb: str | None = None
+    sendgrid_replyto_savorymind: str | None = None
 
 
 @router.get("")

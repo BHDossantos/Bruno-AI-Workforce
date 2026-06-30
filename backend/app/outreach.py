@@ -221,8 +221,9 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
         # Send AS the business's verified sender; replies come back to that address.
         if sendgrid.is_configured():
             from_email = sendgrid.from_for(account)
+            reply_to = sendgrid.replyto_for(account, from_email)
             mid = sendgrid.send_email(to_email, subject or "", html or "",
-                                      from_email=from_email, reply_to=from_email)
+                                      from_email=from_email, reply_to=reply_to)
         else:
             mid = gmail.send_message(to_email, subject or "", html or "", account=account)
         if mid:
