@@ -65,6 +65,15 @@ def send_message(message_id: str, db: Session = Depends(get_db), _=Depends(_writ
     return msg
 
 
+@router.get("/messages/inbox")
+def unified_inbox(business: str | None = None, label: str | None = None,
+                  db: Session = Depends(get_db), _=Depends(_read)):
+    """Unified inbox: every prospect reply across all businesses, with an AI label,
+    summary, and the drafted reply ready to send. Filter by business or label."""
+    from .. import unified_inbox as ui
+    return ui.feed(db, business=business, label=label)
+
+
 @router.post("/inbound/sync")
 def sync_inbound(newer_than_days: int = 3, db: Session = Depends(get_db), _=Depends(_write)):
     """Pull recent replies from both mailboxes and mark matching records as Replied."""

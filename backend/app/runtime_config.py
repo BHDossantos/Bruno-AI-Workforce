@@ -26,6 +26,10 @@ FIELDS: dict[str, bool] = {
     "gmail_app_password": True,
     "insurance_gmail_address": False,
     "insurance_gmail_app_password": True,
+    "bnb_gmail_address": False,
+    "bnb_gmail_app_password": True,
+    "savorymind_gmail_address": False,
+    "savorymind_gmail_app_password": True,
     "apollo_api_key": True,
     "google_places_api_key": True,
     # Twilio (two-way SMS) — connect texting in-app instead of env vars.
@@ -40,6 +44,12 @@ FIELDS: dict[str, bool] = {
     "instantly_campaign_id": False,
     "smartlead_api_key": True,
     "smartlead_campaign_id": False,
+    # SendGrid — reliable email delivery (verified sender required).
+    "sendgrid_api_key": True,
+    "sendgrid_from_email": False,
+    "sendgrid_from_insurance": False,
+    "sendgrid_from_bnb": False,
+    "sendgrid_from_savorymind": False,
 }
 
 
@@ -90,7 +100,7 @@ def save(db, field: str, value: str) -> bool:
 
 def status(db) -> dict:
     """Connection status — booleans + non-secret addresses only, never secrets."""
-    from .integrations import apollo, gmail, instantly, jobs_api, places, smartlead, sms
+    from .integrations import apollo, gmail, instantly, jobs_api, places, sendgrid, smartlead, sms
     apply_to_settings(db)  # make sure the live view reflects stored values
     bridge_on = bool(settings.bridge_token)
     return {
@@ -98,6 +108,8 @@ def status(db) -> dict:
                       "has_key": instantly.has_key()},
         "smartlead": {"configured": smartlead.is_configured(),
                       "has_key": smartlead.has_key()},
+        "sendgrid": {"configured": sendgrid.is_configured(),
+                     "has_key": sendgrid.has_key()},
         "gmail_personal": {
             "configured": gmail.is_configured(gmail.PERSONAL),
             "address": settings.gmail_address or "",
@@ -105,6 +117,14 @@ def status(db) -> dict:
         "gmail_insurance": {
             "configured": gmail.is_configured(gmail.INSURANCE),
             "address": settings.insurance_gmail_address or "",
+        },
+        "gmail_bnb": {
+            "configured": gmail.is_configured(gmail.BNB),
+            "address": settings.bnb_gmail_address or "",
+        },
+        "gmail_savorymind": {
+            "configured": gmail.is_configured(gmail.SAVORYMIND),
+            "address": settings.savorymind_gmail_address or "",
         },
         "apollo": {"configured": apollo.is_configured()},
         "google_places": {"configured": places.is_configured()},

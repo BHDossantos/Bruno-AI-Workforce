@@ -192,6 +192,23 @@ class Settings(BaseSettings):
     insurance_google_oauth_refresh_token: str = ""
     insurance_google_token_json: str = ""
     insurance_gmail_app_password: str = ""  # App Password for the Thrust mailbox
+
+    # BnB Global account — dedicated mailbox for consulting outreach (keeps it off
+    # the personal Gmail). Connect via App Password or OAuth, same as the others.
+    bnb_gmail_address: str = "braxandbrie@gmail.com"
+    bnb_google_oauth_client_id: str = ""
+    bnb_google_oauth_client_secret: str = ""
+    bnb_google_oauth_refresh_token: str = ""
+    bnb_google_token_json: str = ""
+    bnb_gmail_app_password: str = ""
+
+    # SavoryMind account — dedicated mailbox for restaurant (SavoryMind) outreach.
+    savorymind_gmail_address: str = "taste@savorymindfood.com"
+    savorymind_google_oauth_client_id: str = ""
+    savorymind_google_oauth_client_secret: str = ""
+    savorymind_google_oauth_refresh_token: str = ""
+    savorymind_google_token_json: str = ""
+    savorymind_gmail_app_password: str = ""
     # No-admin workaround: when True, insurance emails are sent THROUGH the
     # personal mailbox (personal App Password) but with the Thrust address as the
     # From — requires adding bruno@thrustinsurance.com as a verified "Send mail
@@ -300,6 +317,18 @@ class Settings(BaseSettings):
     # Smartlead.ai — same idea as Instantly (the app picks whichever is connected).
     smartlead_api_key: str = ""
     smartlead_campaign_id: str = ""
+    # SendGrid — reliable DELIVERY (we keep our copy + sequences; SendGrid just sends).
+    # Requires a VERIFIED sender. Used for direct sends when Gmail is too fragile.
+    sendgrid_api_key: str = ""
+    sendgrid_from_email: str = ""  # default / personal sender
+    # Per-business verified senders (SendGrid Single Sender) so each business sends
+    # AS its own brand. Defaults match the verified senders already set up.
+    sendgrid_from_insurance: str = "b@dossantosinsurance.org"
+    sendgrid_from_bnb: str = "braxandbrie@gmail.com"
+    sendgrid_from_savorymind: str = "taste@savorymindfood.com"
+    # SendGrid handles volume far better than a personal Gmail, so when it's the
+    # sender the daily auto-send cap is this much higher (still bounded for sanity).
+    sendgrid_daily_cap: int = 1000
 
     # Outbound mode: "send" (auto-send now), "send_on_approve", or "draft".
     gmail_outbound_mode: str = "send"

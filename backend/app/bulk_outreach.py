@@ -30,7 +30,8 @@ def dispatch_leads(db: Session, segment: str | None = None, limit: int = 1000,
             lead.status = "Skipped"
             retired += 1
             continue
-        account = "insurance" if lead.segment in ("commercial", "personal") else "personal"
+        from .integrations import gmail
+        account = gmail.account_for_segment(lead.segment)
         subject = f"A quick idea for {lead.company_name or lead.owner_name}"
         try:
             msg = outreach.dispatch_email(db, entity_type="lead", entity_id=lead.id,
@@ -61,9 +62,10 @@ def dispatch_restaurants(db: Session, limit: int = 1000, autonomous: bool = True
             continue
         subject = f"Growing revenue at {r.name} with SavoryMind"
         try:
+            from .integrations import gmail
             msg = outreach.dispatch_email(db, entity_type="restaurant", entity_id=r.id,
                                           to_email=r.email, subject=subject,
-                                          body=r.pitch_email, account="personal", actor="bulk",
+                                          body=r.pitch_email, account=gmail.restaurant_account(), actor="bulk",
                                           autonomous=autonomous)
             if msg.status in ("Sent", "Drafted"):
                 if msg.status == "Sent" and r.status in (None, "New", "Drafted"):

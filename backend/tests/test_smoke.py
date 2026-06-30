@@ -1419,6 +1419,66 @@ def test_outbound_messages_created_per_account(client, auth_headers):
 
 
 @requires_db
+def test_automation_rules_and_branching(client, auth_headers):
+    """Automation rules list + toggle, and reply branching (interested→task,
+    unsubscribe→suppress) acts on real records."""
+    from app import automation
+    from app.database import SessionLocal
+    from app.models import Lead, Task
+
+    rules = client.get("/automations", headers=auth_headers).json()
+    keys = {r["key"] for r in rules}
+    assert "interested_to_task" in keys and "unsubscribe_suppress" in keys
+    assert all(r["enabled"] for r in rules)  # default ON
+    # Toggle one off and back.
+    assert client.post("/automations/toggle", json={"key": "question_to_task", "on": False},
+                       headers=auth_headers).json()["enabled"] is False
+
+    db = SessionLocal()
+    try:
+        lead = Lead(segment="commercial", company_name="Branch Co", email="boss@branchco.io", status="New")
+        db.add(lead); db.flush()
+        before = db.query(Task).count()
+        automation.on_reply(db, intent="interested", sender="boss@branchco.io",
+                            entity_type="lead", entity_id=lead.id, summary="wants a quote")
+        db.flush()
+        assert db.query(Task).count() == before + 1  # task created
+        # Unsubscribe suppresses the address forever.
+        automation.on_reply(db, intent="unsubscribe", sender="boss@branchco.io",
+                            entity_type="lead", entity_id=lead.id)
+        db.flush()
+        assert lead.status == "do_not_contact"
+        db.rollback()
+    finally:
+        db.close()
+
+
+def test_lead_scoring_explains_score():
+    """The explainable score returns a 0-100 number, a band, and reasons."""
+    from app.lead_scoring import score_lead
+    from app.models import Lead
+    strong = Lead(segment="commercial", company_name="Acme", owner_name="Jane Doe",
+                  email="jane@acme.com", phone="555", status="Interested", score=80)
+    s = score_lead(strong)
+    assert 0 <= s["score"] <= 100 and s["band"] in ("hot", "warm", "cold")
+    assert any("Hot" in r or "email" in r.lower() for r in s["reasons"])
+    weak = Lead(segment="personal", status="New")
+    assert score_lead(weak)["score"] <= s["score"]
+
+
+@requires_db
+def test_lead_finder_search(client, auth_headers):
+    """Lead Finder returns scored, filtered rows."""
+    rows = client.get("/leads/search?has_email=true&min_score=0", headers=auth_headers).json()
+    assert isinstance(rows, list)
+    for r in rows[:5]:
+        assert "score" in r and "reasons" in r and r["email"]
+    # Scores are sorted descending.
+    scores = [r["score"] for r in rows]
+    assert scores == sorted(scores, reverse=True)
+
+
+@requires_db
 def test_agent_builder_blueprints(client, auth_headers, monkeypatch):
     """Agent-from-URL generates + persists a blueprint (model mocked); list works."""
     from app import agent_builder
@@ -1457,6 +1517,113 @@ def test_crm_pipeline_board_and_move(client, auth_headers):
         r = client.post("/crm/pipeline/move",
                         json={"lead_id": card["id"], "stage": "Qualified"}, headers=auth_headers).json()
         assert r["ok"] and r["stage"] == "Qualified"
+
+
+@requires_db
+def test_unified_inbox_feed(client, auth_headers):
+    """The unified inbox aggregates classified replies with label + drafted reply."""
+    from app.database import SessionLocal
+    from app.models import ActionLog, Lead, Message
+
+    db = SessionLocal()
+    try:
+        lead = Lead(segment="consulting", company_name="Inbox Co", email="boss@inboxco.io", status="Replied")
+        db.add(lead)
+        db.add(ActionLog(actor="inbound", action="reply_classified", entity="email",
+                         entity_id="boss@inboxco.io",
+                         detail={"intent": "interested", "summary": "wants a demo", "subject": "your note"}))
+        db.add(Message(channel="email", direction="outbound", entity_type="reply",
+                       to_email="boss@inboxco.io", subject="Re: your note", body="Happy to help!",
+                       status="Drafted"))
+        db.commit()
+    finally:
+        db.close()
+
+    feed = client.get("/messages/inbox", headers=auth_headers).json()
+    item = next((i for i in feed["items"] if i["sender"] == "boss@inboxco.io"), None)
+    assert item is not None
+    assert item["label"] == "Interested" and item["business"] == "BnB Global"
+    assert item["draft_id"] and item["draft_body"]
+    # Label filter works.
+    only = client.get("/messages/inbox?label=Interested", headers=auth_headers).json()
+    assert all(i["label"] == "Interested" for i in only["items"])
+
+
+def test_bnb_mailbox_routing():
+    """Consulting routes to the BnB mailbox only when it's configured; otherwise
+    falls back to personal. Insurance segments use the insurance mailbox."""
+    from app.config import settings
+    from app.integrations import gmail
+    assert gmail.account_for_segment("commercial") == "insurance"
+    assert gmail.account_for_segment("consulting") == "personal"  # BnB not connected
+    settings.bnb_gmail_app_password = "x" * 16
+    try:
+        assert gmail.account_for_segment("consulting") == "bnb"
+    finally:
+        settings.bnb_gmail_app_password = ""
+    # SavoryMind restaurant mailbox routes only when connected.
+    assert gmail.restaurant_account() == "personal"
+    settings.savorymind_gmail_app_password = "y" * 16
+    try:
+        assert gmail.restaurant_account() == "savorymind"
+    finally:
+        settings.savorymind_gmail_app_password = ""
+
+
+@requires_db
+def test_sendgrid_direct_send(monkeypatch):
+    """With SendGrid connected, outreach delivers via SendGrid (not Gmail) even
+    with no Gmail App Password, and the message is marked Sent."""
+    from app import outreach
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.integrations import sendgrid
+    from app.models import Lead
+
+    monkeypatch.setattr(settings, "sendgrid_api_key", "SG.key")
+    monkeypatch.setattr(settings, "sendgrid_from_email", "hello@bnbglobal.net")
+    sent = {}
+    monkeypatch.setattr(sendgrid, "send_email",
+                        lambda to, subject, html, from_email=None, reply_to=None:
+                            sent.update(to=to, from_email=from_email) or "sg-1")
+
+    db = SessionLocal()
+    try:
+        lead = Lead(segment="consulting", company_name="SG Co", email="ceo@sgco.io",
+                    status="New", cold_email="Hi there.")
+        db.add(lead); db.flush()
+        msg = outreach.dispatch_email(db, entity_type="lead", entity_id=lead.id,
+                                      to_email=lead.email, subject="quick idea",
+                                      body=lead.cold_email, account="personal",
+                                      actor="test", autonomous=False)
+        assert msg.status == "Sent" and msg.provider_id == "sg-1"
+        assert sent.get("to") == "ceo@sgco.io"
+        db.rollback()
+    finally:
+        db.close()
+
+
+def test_sendgrid_per_business_sender():
+    """SendGrid sends AS each business's verified sender; default otherwise."""
+    from app.config import settings
+    from app.integrations import sendgrid
+    monkeypatch_vals = {
+        "sendgrid_from_insurance": "b@dossantosinsurance.org",
+        "sendgrid_from_bnb": "braxandbrie@gmail.com",
+        "sendgrid_from_savorymind": "taste@savorymindfood.com",
+        "sendgrid_from_email": "hello@default.com",
+    }
+    saved = {k: getattr(settings, k) for k in monkeypatch_vals}
+    for k, v in monkeypatch_vals.items():
+        setattr(settings, k, v)
+    try:
+        assert sendgrid.from_for("insurance") == "b@dossantosinsurance.org"
+        assert sendgrid.from_for("bnb") == "braxandbrie@gmail.com"
+        assert sendgrid.from_for("savorymind") == "taste@savorymindfood.com"
+        assert sendgrid.from_for("personal") == "hello@default.com"
+    finally:
+        for k, v in saved.items():
+            setattr(settings, k, v)
 
 
 def test_sender_selector_gating():
@@ -2193,8 +2360,8 @@ def test_setup_connect_status_and_save(client, auth_headers):
     """The in-app setup page reports connection status and applies a saved key."""
     from app.config import settings
     s = client.get("/setup", headers=auth_headers).json()
-    assert set(s) == {"gmail_personal", "gmail_insurance", "apollo", "google_places",
-                      "sms", "jobs_api", "instantly", "smartlead"}
+    assert set(s) == {"gmail_personal", "gmail_insurance", "gmail_bnb", "gmail_savorymind",
+                      "apollo", "google_places", "sms", "jobs_api", "instantly", "smartlead", "sendgrid"}
     assert s["apollo"]["configured"] is False
     orig = settings.google_places_api_key
     try:
@@ -2212,7 +2379,7 @@ def test_mailbox_health_diagnostic(client, auth_headers):
     r = client.get("/setup/mailbox-health", headers=auth_headers)
     assert r.status_code == 200
     d = r.json()
-    assert "outbound_mode" in d and len(d["accounts"]) == 2
+    assert "outbound_mode" in d and len(d["accounts"]) == 4  # personal, insurance, bnb, savorymind
     for a in d["accounts"]:
         for k in ("account", "can_send", "configured", "sent_today", "daily_cap", "remaining_today"):
             assert k in a

@@ -25,6 +25,8 @@ SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 
 PERSONAL = "personal"
 INSURANCE = "insurance"
+BNB = "bnb"
+SAVORYMIND = "savorymind"
 
 
 def _account_cfg(account: str) -> dict:
@@ -36,6 +38,24 @@ def _account_cfg(account: str) -> dict:
             "client_secret": settings.insurance_google_oauth_client_secret,
             "refresh_token": settings.insurance_google_oauth_refresh_token,
             "app_password": settings.insurance_gmail_app_password,
+        }
+    if account == BNB:
+        return {
+            "address": settings.bnb_gmail_address,
+            "token_json": settings.bnb_google_token_json,
+            "client_id": settings.bnb_google_oauth_client_id,
+            "client_secret": settings.bnb_google_oauth_client_secret,
+            "refresh_token": settings.bnb_google_oauth_refresh_token,
+            "app_password": settings.bnb_gmail_app_password,
+        }
+    if account == SAVORYMIND:
+        return {
+            "address": settings.savorymind_gmail_address,
+            "token_json": settings.savorymind_google_token_json,
+            "client_id": settings.savorymind_google_oauth_client_id,
+            "client_secret": settings.savorymind_google_oauth_client_secret,
+            "refresh_token": settings.savorymind_google_oauth_refresh_token,
+            "app_password": settings.savorymind_gmail_app_password,
         }
     return {
         "address": settings.gmail_address,
@@ -49,6 +69,22 @@ def _account_cfg(account: str) -> dict:
 
 def address_for(account: str = PERSONAL) -> str:
     return _account_cfg(account)["address"]
+
+
+def account_for_segment(segment: str | None) -> str:
+    """Which mailbox sends for a given lead segment. Consulting uses its own BnB
+    mailbox when connected, else falls back to personal; insurance segments use the
+    insurance mailbox; everything else uses personal."""
+    if segment == "consulting" and is_configured(BNB):
+        return BNB
+    if segment in ("commercial", "personal"):
+        return INSURANCE
+    return PERSONAL
+
+
+def restaurant_account() -> str:
+    """Mailbox for SavoryMind restaurant outreach: its own when connected, else personal."""
+    return SAVORYMIND if is_configured(SAVORYMIND) else PERSONAL
 
 
 def _credentials(account: str):

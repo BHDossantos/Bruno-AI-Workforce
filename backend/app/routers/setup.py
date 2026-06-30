@@ -23,6 +23,10 @@ class CredIn(BaseModel):
     gmail_app_password: str | None = None
     insurance_gmail_address: str | None = None
     insurance_gmail_app_password: str | None = None
+    bnb_gmail_address: str | None = None
+    bnb_gmail_app_password: str | None = None
+    savorymind_gmail_address: str | None = None
+    savorymind_gmail_app_password: str | None = None
     apollo_api_key: str | None = None
     google_places_api_key: str | None = None
     twilio_account_sid: str | None = None
@@ -34,6 +38,11 @@ class CredIn(BaseModel):
     instantly_campaign_id: str | None = None
     smartlead_api_key: str | None = None
     smartlead_campaign_id: str | None = None
+    sendgrid_api_key: str | None = None
+    sendgrid_from_email: str | None = None
+    sendgrid_from_insurance: str | None = None
+    sendgrid_from_bnb: str | None = None
+    sendgrid_from_savorymind: str | None = None
 
 
 @router.get("")
@@ -52,9 +61,24 @@ def mailbox_health(db: Session = Depends(get_db),
     runtime_config.apply_to_settings(db)  # use the latest connected creds
     from .. import outreach
     from ..config import settings
-    from ..integrations import gmail
-    accounts = [("personal", "Personal Gmail"), ("insurance", "Insurance (Thrust) mailbox")]
+    from ..integrations import gmail, sendgrid
+    accounts = [("personal", "Personal Gmail"), ("insurance", "Insurance (Thrust) mailbox"),
+                ("bnb", "BnB Global mailbox"), ("savorymind", "SavoryMind mailbox")]
     out = []
+    # SendGrid (if connected) is the actual sender — show its health first.
+    if sendgrid.has_key():
+        v = sendgrid.verify()
+        out.append({
+            "account": "sendgrid", "label": "SendGrid (delivery)",
+            "configured": sendgrid.is_configured(),
+            "can_send": bool(v.get("ok") and sendgrid.is_configured()),
+            "method": "sendgrid", "address": settings.sendgrid_from_email or None,
+            "reason": (v.get("reason") if not v.get("ok") else
+                       (None if sendgrid.is_configured() else "Add a verified sender email")),
+            "sent_today": int(outreach.sent_today_count(db, "personal")),
+            "daily_cap": int(settings.sendgrid_daily_cap),
+            "remaining_today": max(0, int(settings.sendgrid_daily_cap) - int(outreach.sent_today_count(db, "personal"))),
+        })
     for key, label in accounts:
         v = gmail.verify(key)
         sent_today = outreach.sent_today_count(db, key)

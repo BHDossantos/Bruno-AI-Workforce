@@ -30,6 +30,48 @@ def list_leads(segment: str | None = None, status: str | None = None,
     return rows
 
 
+@router.get("/search")
+def lead_finder(segment: str | None = None, temperature: str | None = None,
+                industry: str | None = None, city: str | None = None,
+                has_email: bool | None = None, min_score: int = 0, q: str | None = None,
+                limit: int = 100, db: Session = Depends(get_db),
+                _=Depends(require_role("admin", "operator", "viewer"))):
+    """Lead Finder: filter leads and return each with an explainable 0-100 score.
+    Filters: segment, temperature, industry, city, has_email, min_score, free-text q."""
+    from ..lead_scoring import score_lead
+    from ..lead_temperature import classify
+    query = db.query(Lead)
+    if segment:
+        query = query.filter(Lead.segment == segment)
+    if industry:
+        query = query.filter(Lead.industry.ilike(f"%{industry}%"))
+    if city:
+        query = query.filter(Lead.city.ilike(f"%{city}%")) if hasattr(Lead, "city") else query
+    if has_email is True:
+        query = query.filter(Lead.email.isnot(None))
+    if q:
+        like = f"%{q}%"
+        query = query.filter(
+            (Lead.company_name.ilike(like)) | (Lead.owner_name.ilike(like))
+            | (Lead.email.ilike(like)) | (Lead.industry.ilike(like)))
+    rows = query.order_by(Lead.score.desc(), Lead.created_at.desc()).limit(max(limit, 400)).all()
+    out = []
+    for lead in rows:
+        if temperature and classify(lead.status) != temperature.lower():
+            continue
+        sc = score_lead(lead)
+        if sc["score"] < min_score:
+            continue
+        out.append({
+            "id": str(lead.id), "company": lead.company_name, "name": lead.owner_name,
+            "email": lead.email, "phone": lead.phone, "industry": lead.industry,
+            "segment": lead.segment, "status": lead.status,
+            "score": sc["score"], "band": sc["band"], "reasons": sc["reasons"],
+        })
+    out.sort(key=lambda r: r["score"], reverse=True)
+    return out[:limit]
+
+
 @router.get("/summary")
 def leads_summary(segment: str | None = None, db: Session = Depends(get_db),
                   _=Depends(require_role("admin", "operator", "viewer"))):

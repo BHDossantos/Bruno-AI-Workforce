@@ -107,9 +107,10 @@ class BnbGlobalAgent(BaseAgent):
                 row.linkedin_msg = art.get("linkedin_msg")
                 row.status = "Drafted"
                 self.schedule_follow_ups("lead", row.id)
+                from ..integrations import gmail
                 msg = self.dispatch_email(entity_type="lead", entity_id=row.id,
                                           to_email=p.get("email"), subject=subject,
-                                          body=body, account="personal")
+                                          body=body, account=gmail.account_for_segment("consulting"))
                 if msg.status == "Sent":
                     row.status = "Sent"
                     sent += 1

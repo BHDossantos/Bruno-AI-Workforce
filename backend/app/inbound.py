@@ -56,8 +56,10 @@ def sync_replies(db: Session, newer_than_days: int = 3) -> dict:
                 continue
             hit = False
             cls = classify.classify_reply(reply.get("snippet", ""))
+            _auto_entity = (None, None)  # (entity_type, entity_id) for automation branching
 
             for lead in db.query(Lead).filter(Lead.email == sender).all():
+                _auto_entity = ("lead", lead.id)
                 if lead.status not in _TERMINAL:
                     lead.status = cls["status"]
                 # Warm → auto-text from the insurance number.
@@ -71,6 +73,7 @@ def sync_replies(db: Session, newer_than_days: int = 3) -> dict:
                     newsletters.subscribe(db, f, sender, lead.company_name or lead.owner_name)
                 hit = True
             for rest in db.query(Restaurant).filter(Restaurant.email == sender).all():
+                _auto_entity = ("restaurant", rest.id)
                 if rest.status not in _TERMINAL:
                     rest.status = cls["status"]
                 sms_engine.maybe_warm_text(
@@ -96,9 +99,21 @@ def sync_replies(db: Session, newer_than_days: int = 3) -> dict:
                 except Exception:  # never let memory break the sync
                     log.debug("memory capture skipped", exc_info=True)
 
-                # AI-draft a reply (kept as a draft for one-click review/send).
+                # Automation rules: branch on the reply intent (task / suppress /
+                # nurture / stop drip) per the user's enabled rules.
                 try:
-                    _draft_reply(db, sender, reply, cls, account)
+                    from . import automation
+                    automation.on_reply(db, intent=cls["intent"], sender=sender,
+                                        entity_type=_auto_entity[0], entity_id=_auto_entity[1],
+                                        summary=cls.get("summary"))
+                except Exception:
+                    log.debug("automation rules skipped", exc_info=True)
+
+                # AI-draft a reply (kept as a draft for one-click review/send).
+                # Skipped for unsubscribes (we're suppressing, not replying).
+                try:
+                    if cls["intent"] != "unsubscribe":
+                        _draft_reply(db, sender, reply, cls, account)
                 except Exception:
                     log.debug("reply draft skipped", exc_info=True)
 
