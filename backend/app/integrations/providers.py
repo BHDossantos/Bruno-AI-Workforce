@@ -154,8 +154,13 @@ def fetch_insurance_leads(segment: str, count: int, scope: str | None = None) ->
 
 # ── Referral partners (mortgage brokers, realtors, lenders, CPAs, attorneys) ──
 REFERRAL_PARTNER_CATEGORIES = [
-    "Mortgage Broker", "Real Estate Agency", "Mortgage Lender", "CPA / Accounting Firm",
-    "Law Firm", "Title Company", "Property Management", "Financial Advisor",
+    # Home (+ bundled auto) feeders
+    "Mortgage Broker", "Real Estate Agency", "Mortgage Lender", "Title Company",
+    "Property Management",
+    # Life feeders
+    "CPA / Accounting Firm", "Law Firm", "Financial Advisor", "Estate Planning Attorney",
+    # Auto feeders
+    "Auto Dealership", "Auto Repair Shop",
 ]
 
 

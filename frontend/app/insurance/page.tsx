@@ -24,17 +24,26 @@ type Lead = {
   last_contacted_at: string | null;
   temperature: string;
   fit_score: number;
+  line: string;
 };
-type Temp = { cold: number; warm: number; hot: number; dead: number };
+type Lines = { home: number; auto: number; life: number; commercial: number };
+type Temp = { cold: number; warm: number; hot: number; dead: number; lines?: Lines };
+
+const LINE_LABEL: Record<string, string> = { home: "Home", auto: "Auto", life: "Life", commercial: "Commercial" };
+const LINE_BADGE: Record<string, string> = {
+  home: "bg-sky-100 text-sky-700", auto: "bg-amber-100 text-amber-700",
+  life: "bg-rose-100 text-rose-700", commercial: "bg-violet-100 text-violet-700",
+};
 
 function Insurance() {
   const [segment, setSegment] = useState("");
   const [temp, setTemp] = useState("");
   const [status, setStatus] = useState("");
+  const [line, setLine] = useState("");
   const [refresh, setRefresh] = useState(0);
   const { data, loading, error, reload } = useFetch<Lead[]>(
-    () => api.get<Lead[]>(`/leads?limit=200&sort=fit${segment ? `&segment=${segment}` : ""}${temp ? `&temperature=${temp}` : ""}${status ? `&status=${status}` : ""}`),
-    [segment, temp, status, refresh]
+    () => api.get<Lead[]>(`/leads?limit=200&sort=fit${segment ? `&segment=${segment}` : ""}${temp ? `&temperature=${temp}` : ""}${status ? `&status=${status}` : ""}${line ? `&line=${line}` : ""}`),
+    [segment, temp, status, line, refresh]
   );
   const { data: counts } = useFetch<Temp>(
     () => api.get<Temp>(`/leads/summary${segment ? `?segment=${segment}` : ""}`), [segment, refresh]);
@@ -88,13 +97,21 @@ function Insurance() {
     <div>
       <PageHeader
         title="Insurance Leads"
-        subtitle="Commercial & personal prospects with outreach scripts"
+        subtitle="Home · Auto · Life · Commercial — direct prospects and the referral partners (realtors, lenders, CPAs) who feed your personal lines in NH/MA/FL"
         action={
           <div className="flex gap-2">
+            <select value={line} onChange={(e) => setLine(e.target.value)} className="rounded-lg border border-gray-300 px-3 py-2 text-sm" title="Filter by line of business">
+              <option value="">All lines</option>
+              <option value="home">🏠 Home</option>
+              <option value="auto">🚗 Auto</option>
+              <option value="life">🛡️ Life</option>
+              <option value="commercial">🏢 Commercial</option>
+            </select>
             <select value={segment} onChange={(e) => setSegment(e.target.value)} className="rounded-lg border border-gray-300 px-3 py-2 text-sm">
               <option value="">All segments</option>
               <option value="commercial">Commercial</option>
               <option value="personal">Personal</option>
+              <option value="referral_partner">Referral partners</option>
             </select>
             <select value={status} onChange={(e) => setStatus(e.target.value)} className="rounded-lg border border-gray-300 px-3 py-2 text-sm" title="Filter by stage">
               <option value="">Any stage</option>
@@ -113,6 +130,18 @@ function Insurance() {
       />
       {msg && <p className="mb-2 text-sm text-gray-600">{msg}</p>}
       <LeadHealth refresh={refresh} />
+      {/* Book of business by line — Home / Auto / Life / Commercial. Click to filter. */}
+      {counts?.lines && (
+        <div className="mb-3 flex flex-wrap gap-2">
+          {(["home", "auto", "life", "commercial"] as const).map((ln) => (
+            <button key={ln} onClick={() => setLine(line === ln ? "" : ln)}
+              className={`rounded-lg border px-3 py-1.5 text-sm ${line === ln ? "border-brand bg-brand/10 font-semibold" : "border-gray-200 bg-white"}`}>
+              <span className={`badge mr-1 ${LINE_BADGE[ln]}`}>{LINE_LABEL[ln]}</span>
+              {counts.lines![ln].toLocaleString()}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="mb-3"><TempFilter counts={counts} value={temp} onChange={setTemp} /></div>
       {(loading || error) && <LoadState loading={loading} error={error} onRetry={reload} />}
       <div className="card overflow-x-auto">
@@ -138,7 +167,11 @@ function Insurance() {
                 <td className="td"><span className="badge bg-brand/10 text-brand-dark">{l.fit_score}</span></td>
                 <td className="td"><span className="badge bg-gray-100 text-gray-600">{l.score}</span></td>
                 <td className="td"><div className="font-medium">{l.company_name}</div><div className="text-xs text-gray-400">{l.owner_name}</div></td>
-                <td className="td capitalize">{l.segment}<div className="text-xs text-gray-400">{l.category}</div></td>
+                <td className="td">
+                  {l.line && <span className={`badge ${LINE_BADGE[l.line] || "bg-gray-100 text-gray-600"}`}>{LINE_LABEL[l.line] || l.line}</span>}
+                  <div className="text-xs capitalize text-gray-500">{l.segment.replace("_", " ")}</div>
+                  <div className="text-xs text-gray-400">{l.category}</div>
+                </td>
                 <td className="td"><TempBadge t={l.temperature} /></td>
                 <td className="td text-xs">{l.email}<br />{l.phone}</td>
                 <td className="td max-w-xs text-xs">{l.reason}</td>

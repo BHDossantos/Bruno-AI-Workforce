@@ -698,6 +698,81 @@ def test_email_template_wraps_body_with_signature_and_footer():
     assert "[Your Name]" not in rendered and "Bruno Dossantos" in rendered
 
 
+def test_sendgrid_stats_safe_without_key():
+    """SendGrid stats degrade cleanly when no key is set (no crash, clear reason)."""
+    from app.config import settings
+    from app.integrations import sendgrid
+    orig = settings.sendgrid_api_key
+    try:
+        settings.sendgrid_api_key = ""
+        out = sendgrid.stats(7)
+        assert out["ok"] is False and "reason" in out
+    finally:
+        settings.sendgrid_api_key = orig
+
+
+@requires_db
+def test_deliverability_sendgrid_stats_endpoint(client, auth_headers):
+    """The dashboard's SendGrid-stats endpoint returns a structured result
+    (ok:false offline) without erroring."""
+    r = client.get("/deliverability/sendgrid-stats?days=7", headers=auth_headers)
+    assert r.status_code == 200
+    assert "ok" in r.json()
+
+
+def test_insurance_line_classifier():
+    """Every lead resolves to a line of business: home/auto/life/commercial.
+    Referral partners route to the personal line they FEED (realtor→home,
+    auto dealer→auto, financial advisor→life)."""
+    from app.insurance_lines import AUTO, COMMERCIAL, HOME, LIFE, line_for
+    # Commercial segment is always commercial, whatever the category.
+    assert line_for("Contractor", "commercial") == COMMERCIAL
+    # Direct personal prospects.
+    assert line_for("Homeowner", "personal") == HOME
+    assert line_for("Auto owner", "personal") == AUTO
+    assert line_for("Life insurance — new parent", "personal") == LIFE
+    # Referral partners feed the right personal line.
+    assert line_for("Mortgage Broker", "referral_partner") == HOME
+    assert line_for("Real Estate Agency", "referral_partner") == HOME
+    assert line_for("Auto Dealership", "referral_partner") == AUTO
+    assert line_for("Financial Advisor", "referral_partner") == LIFE
+    assert line_for("Estate Planning Attorney", "referral_partner") == LIFE
+    # Unknown personal signal defaults to home, never blank.
+    assert line_for(None, "personal") == HOME
+
+
+@requires_db
+def test_leads_line_filter_and_summary(client, auth_headers):
+    """Leads expose a line, /leads?line= filters by it, and /leads/summary returns
+    per-line counts — so Home/Auto/Life/Commercial are visible and filterable."""
+    from app.database import SessionLocal
+    from app.models import Lead
+    db = SessionLocal()
+    try:
+        db.add_all([
+            Lead(segment="referral_partner", category="Mortgage Broker", company_name="Acme Mortgage",
+                 email="acme@realbiz.com", status="New", score=10),
+            Lead(segment="referral_partner", category="Financial Advisor", company_name="Sterling Wealth",
+                 email="sterling@realbiz.com", status="New", score=10),
+            Lead(segment="commercial", category="Contractor", company_name="BuildCo",
+                 email="build@realbiz.com", status="New", score=10),
+        ])
+        db.commit()
+    finally:
+        db.close()
+
+    s = client.get("/leads/summary", headers=auth_headers).json()
+    assert "lines" in s and set(s["lines"]) == {"home", "auto", "life", "commercial"}
+    assert s["lines"]["home"] >= 1 and s["lines"]["life"] >= 1 and s["lines"]["commercial"] >= 1
+
+    rows = client.get("/leads?line=life", headers=auth_headers).json()
+    assert rows and all(r["line"] == "life" for r in rows)
+    assert any(r["company_name"] == "Sterling Wealth" for r in rows)
+    # The computed line is present on every lead row.
+    allrows = client.get("/leads", headers=auth_headers).json()
+    assert all(r.get("line") in {"home", "auto", "life", "commercial"} for r in allrows)
+
+
 def test_per_business_booking_link():
     """Each business gets its own 'Book a time' link; empty falls back to the
     default. So a SavoryMind prospect books a SavoryMind call, not insurance."""

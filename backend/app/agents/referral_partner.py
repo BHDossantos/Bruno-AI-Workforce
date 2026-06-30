@@ -21,15 +21,22 @@ class ReferralPartnerAgent(BaseAgent):
     name = "Referral Partner Agent"
     description = ("Finds mortgage brokers, realtors, lenders, CPAs & attorneys and runs "
                    "two-way referral outreach (their clients need insurance).")
-    schedule_cron = "15 10 * * 1-5"  # weekday mornings
+    schedule_cron = "15 9,15 * * *"  # 2x/day, every day — steady personal-lines inflow
 
     def execute(self) -> dict:
         target = min(settings.referral_partner_daily_target, _PER_RUN_CAP)
         prospects = providers.fetch_referral_partners(target, scope=settings.insurance_lead_scope)
         cal = settings.calendar_link
+        from ..insurance_lines import LABELS, line_for
         for p in prospects:
-            p["reason"] = (f"{p.get('category', 'Your')} clients routinely need insurance "
-                           "(a new mortgage needs home coverage) — a natural two-way referral.")
+            # Which personal line this partner feeds (home / auto / life) — drives a
+            # specific, line-aware pitch instead of a generic "clients need insurance".
+            ln = line_for(p.get("category"), "referral_partner", p.get("industry"))
+            _why = {"home": "a new mortgage/closing always needs home (and bundled auto) coverage",
+                    "auto": "every car sale or repair customer needs the right auto policy",
+                    "life": "clients planning their finances or estate need life coverage"}.get(ln)
+            p["reason"] = (f"{p.get('category', 'Your')} clients routinely need {LABELS.get(ln, 'insurance')} "
+                           f"insurance — {_why} — a natural two-way referral.")
 
         def build_prompt(p):
             base = REFERRAL_PARTNER_OUTREACH.format(

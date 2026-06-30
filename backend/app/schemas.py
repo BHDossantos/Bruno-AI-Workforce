@@ -6,6 +6,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, computed_field
 
+from .insurance_lines import line_for as _line_for
 from .lead_temperature import classify as _temperature
 
 
@@ -89,6 +90,12 @@ class LeadOut(ORMModel):
     def fit_score(self) -> int:
         from .lead_fit import score
         return score(self)
+
+    @computed_field
+    @property
+    def line(self) -> str:
+        """Insurance line of business: home / auto / life / commercial."""
+        return _line_for(self.category, self.segment, self.industry)
 
 
 class RestaurantOut(ORMModel):

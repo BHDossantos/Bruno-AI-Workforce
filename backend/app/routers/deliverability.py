@@ -7,7 +7,7 @@ whole outbox now.
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from .. import deliverability
+from .. import deliverability, runtime_config
 from ..database import get_db
 from ..security import require_role
 
@@ -26,3 +26,12 @@ def get_deliverability(db: Session = Depends(get_db), _=Depends(_read)):
 def send_now(db: Session = Depends(get_db), _=Depends(_write)):
     """Send every queued lead + restaurant prospect right now (respects caps/pause)."""
     return deliverability.send_pending_now(db)
+
+
+@router.get("/sendgrid-stats")
+def sendgrid_stats(days: int = 7, db: Session = Depends(get_db), _=Depends(_read)):
+    """Real delivery stats from SendGrid: delivered / opens / bounces / rates for
+    the last N days. Pulls live from SendGrid's Stats API."""
+    from ..integrations import sendgrid
+    runtime_config.apply_to_settings(db)  # ensure the latest stored key is used
+    return sendgrid.stats(days)
