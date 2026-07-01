@@ -796,6 +796,56 @@ def test_meta_oauth_start_requires_config(client, auth_headers):
 
 
 @requires_db
+def test_client_crm_full_lifecycle(client, auth_headers):
+    """The insurance client CRM: carrier options, create with policy details,
+    log a communication (updates last-contact), filter, and summarize premium."""
+    opts = client.get("/book/carriers", headers=auth_headers).json()
+    assert "Progressive" in opts["carriers"] and "State Farm" in opts["carriers"]
+    assert set(opts["lines"]) == {"auto", "home", "life", "commercial"}
+    assert opts["states"] == ["MA", "NH", "FL"]
+
+    # Create a won client with a full policy.
+    created = client.post("/book/clients", headers=auth_headers, json={
+        "name": "Jane Homeowner", "email": "jane@realfam.com", "state": "NH",
+        "line": "home", "carrier": "Progressive", "premium_monthly": 180.50,
+        "policy_number": "PGR-123", "signed_at": "2026-06-01", "expires_at": "2026-12-15",
+        "address": "1 Main St", "city": "Concord", "zip": "03301"}).json()
+    cid = created["id"]
+    assert created["premium_monthly"] == 180.5 and created["carrier"] == "Progressive"
+    assert created["days_to_expiry"] is not None
+
+    # Log a call — it appears on the timeline and sets last-contacted.
+    client.post(f"/book/clients/{cid}/notes", headers=auth_headers,
+                json={"kind": "call", "body": "Reviewed coverage, happy."})
+    detail = client.get(f"/book/clients/{cid}", headers=auth_headers).json()
+    assert detail["last_contacted_at"] is not None
+    assert len(detail["timeline"]) == 1 and detail["timeline"][0]["kind"] == "call"
+
+    # Filter by line + carrier; the client is found.
+    rows = client.get("/book/clients?line=home&carrier=Progressive", headers=auth_headers).json()
+    assert any(r["id"] == cid for r in rows)
+
+    # Update the premium; summary reflects it.
+    client.patch(f"/book/clients/{cid}", headers=auth_headers, json={"premium_monthly": 200})
+    summary = client.get("/book/summary", headers=auth_headers).json()
+    assert summary["clients"] >= 1 and summary["monthly_premium"] >= 200
+    assert summary["by_line"].get("home", 0) >= 1
+
+    # Convert a won lead into a client, prefilled.
+    from app.database import SessionLocal
+    from app.models import Lead
+    db = SessionLocal()
+    try:
+        lead = Lead(segment="commercial", category="Contractor", company_name="Convert Co",
+                    email="convert@realbiz.com", status="Closed Won", score=10)
+        db.add(lead); db.commit(); lead_id = str(lead.id)
+    finally:
+        db.close()
+    conv = client.post(f"/book/from-lead/{lead_id}", headers=auth_headers).json()
+    assert conv["name"] == "Convert Co" and conv["line"] == "commercial"
+
+
+@requires_db
 def test_outreach_digest_preview_and_send(client, auth_headers):
     """The daily digest builds real numbers, and send() no-ops cleanly when no
     recipient is configured (never crashes the morning cron)."""
