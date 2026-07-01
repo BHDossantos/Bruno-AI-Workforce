@@ -7,6 +7,7 @@ sync across both mailboxes.
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from .. import followups, inbound
@@ -19,6 +20,13 @@ from ..security import require_role
 router = APIRouter(tags=["messages"])
 _read = require_role("admin", "operator", "viewer")
 _write = require_role("admin", "operator")
+
+
+class ReplyIn(BaseModel):
+    to_email: str
+    subject: str | None = None
+    body: str
+    account: str | None = None
 
 
 @router.get("/messages", response_model=list[MessageOut])
@@ -63,6 +71,21 @@ def send_message(message_id: str, db: Session = Depends(get_db), _=Depends(_writ
     db.commit()
     db.refresh(msg)
     return msg
+
+
+@router.post("/messages/reply")
+def send_custom_reply(body: ReplyIn, db: Session = Depends(get_db), _=Depends(_write)):
+    """Send a composed reply now (e.g. a quote-intake email chosen in the inbox).
+    Explicit operator action → sends immediately via the shared dispatcher, which
+    still enforces the daily cap, paused state and real-email guard."""
+    from .. import outreach
+    if not body.to_email or not body.body:
+        raise HTTPException(status_code=400, detail="Recipient and body are required")
+    msg = outreach.dispatch_email(
+        db, entity_type="reply", entity_id=None, to_email=body.to_email,
+        subject=body.subject or "Re: your message", body=body.body,
+        account=body.account or "insurance", actor="inbox", autonomous=False)
+    return {"ok": msg.status == "Sent", "status": msg.status, "to": body.to_email}
 
 
 @router.get("/messages/inbox")

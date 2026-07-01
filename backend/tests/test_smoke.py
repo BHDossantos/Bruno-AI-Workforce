@@ -796,6 +796,22 @@ def test_meta_oauth_start_requires_config(client, auth_headers):
 
 
 @requires_db
+def test_compose_reply_endpoint(client, auth_headers):
+    """The inbox compose-reply endpoint accepts a custom body (e.g. a quote-intake
+    email) and routes it through the dispatcher (offline → stored, not Sent)."""
+    r = client.post("/messages/reply", headers=auth_headers, json={
+        "to_email": "prospect@realbiz.com", "subject": "Your auto quote",
+        "body": "Please send your VIN and driver's license.", "account": "insurance"})
+    assert r.status_code == 200
+    d = r.json()
+    assert "ok" in d and "status" in d and d["to"] == "prospect@realbiz.com"
+    # Missing body is rejected.
+    bad = client.post("/messages/reply", headers=auth_headers,
+                      json={"to_email": "x@y.com", "body": ""})
+    assert bad.status_code == 400
+
+
+@requires_db
 def test_quote_intake_templates(client, auth_headers):
     """Quote-intake templates cover the four lines with an English checklist and
     ready-to-send EN + PT quotation emails."""
