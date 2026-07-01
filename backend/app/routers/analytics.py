@@ -178,6 +178,14 @@ def outreach_performance(days: int = 30, db: Session = Depends(get_db), _=Depend
     return outreach_performance.report(db, days=days)
 
 
+@router.get("/by-line")
+def by_line(db: Session = Depends(get_db), _=Depends(_read)):
+    """Insurance conversion by line of business (Home/Auto/Life/Commercial):
+    leads, contacted, replied, won, reply & win rate — where to focus."""
+    from .. import revenue_analytics
+    return revenue_analytics.by_line(db)
+
+
 @router.get("/subject-ab")
 def subject_ab(db: Session = Depends(get_db), _=Depends(_read)):
     """A/B subject-line testing: reply rate per subject style the engine rotates
