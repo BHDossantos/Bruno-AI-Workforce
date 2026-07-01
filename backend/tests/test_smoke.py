@@ -796,6 +796,38 @@ def test_meta_oauth_start_requires_config(client, auth_headers):
 
 
 @requires_db
+def test_conversion_by_line(client, auth_headers):
+    """Conversion-by-line groups insurance leads (and the partners feeding each
+    line) into Home/Auto/Life/Commercial with reply and win rates."""
+    from app.database import SessionLocal
+    from app.models import Lead
+    db = SessionLocal()
+    try:
+        db.add_all([
+            # A life-feeding partner who replied (Interested → counts as replied for Life).
+            Lead(segment="referral_partner", category="Financial Advisor", company_name="Life Partner",
+                 email="lifep@realbiz.com", status="Interested", score=10),
+            # A commercial prospect that closed (won for Commercial).
+            Lead(segment="commercial", category="Contractor", company_name="Won Co",
+                 email="wonco@realbiz.com", status="Closed Won", score=10),
+        ])
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.get("/analytics/by-line", headers=auth_headers)
+    assert r.status_code == 200
+    d = r.json()
+    assert set(d["lines"]) == {"Home", "Auto", "Life", "Commercial"}
+    for l in d["lines"].values():
+        for k in ("leads", "contacted", "replied", "won", "reply_rate", "win_rate"):
+            assert k in l, k
+    assert d["lines"]["Life"]["replied"] >= 1     # the interested advisor
+    assert d["lines"]["Commercial"]["won"] >= 1   # the closed contractor
+    assert "totals" in d and d["totals"]["won"] >= 1
+
+
+@requires_db
 def test_subject_ab_report(client, auth_headers):
     """The subject A/B report exposes every rotated style with reply rate and a
     trusted-vs-testing status, computed from real sent/replied messages."""

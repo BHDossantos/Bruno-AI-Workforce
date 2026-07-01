@@ -46,6 +46,24 @@ def _line(rows: list, value: int) -> dict:
     }
 
 
+def by_line(db: Session) -> dict:
+    """Insurance conversion broken out by line of business — Home / Auto / Life /
+    Commercial — so you can see which line actually converts and where to focus.
+    Direct prospects and the referral partners that feed each line are both
+    classified into their line (partners rarely reach a 'won' status, so revenue
+    stays clean)."""
+    from .insurance_lines import LABELS, LINES, line_for
+    rows = db.query(Lead.status, Lead.category, Lead.segment, Lead.industry).filter(
+        Lead.segment.in_(["commercial", "personal", "referral_partner"])).all()
+    buckets: dict[str, list] = {ln: [] for ln in LINES}
+    for status, category, segment, industry in rows:
+        buckets[line_for(category, segment, industry)].append(status)
+    lines = {LABELS[ln]: _line(buckets[ln], _VALUE["insurance"]) for ln in LINES}
+    totals = {k: sum(v[k] for v in lines.values())
+              for k in ("leads", "contacted", "replied", "won", "revenue_won", "pipeline_value")}
+    return {"lines": lines, "totals": totals}
+
+
 def report(db: Session, cost: float | None = None) -> dict:
     ins_rows = [s for (s,) in db.query(Lead.status).filter(Lead.segment.in_(["commercial", "personal"])).all()]
     con_rows = [s for (s,) in db.query(Lead.status).filter(Lead.segment == "consulting").all()]
