@@ -893,12 +893,16 @@ def test_outreach_digest_preview_and_send(client, auth_headers):
 def test_money_actions_cockpit(client, auth_headers):
     """The 'today's money actions' cockpit ranks work and surfaces hot leads with
     a deal value, tied to the client goal."""
+    from datetime import date, timedelta
     from app.database import SessionLocal
-    from app.models import Lead
+    from app.models import Client, Lead
     db = SessionLocal()
     try:
         db.add(Lead(segment="commercial", category="Contractor", company_name="Hot Money Co",
                     email="hotmoney@realbiz.com", status="Interested", score=10))
+        # A policy renewing in 10 days → should surface a renewals action.
+        db.add(Client(business="insurance", name="Renew Soon Co", status="Active",
+                      expires_at=date.today() + timedelta(days=10)))
         db.commit()
     finally:
         db.close()
@@ -907,6 +911,7 @@ def test_money_actions_cockpit(client, auth_headers):
     assert r.status_code == 200
     d = r.json()
     assert {"goal", "actions", "hot_leads"} <= set(d)
+    assert any(a["key"] == "renewals" for a in d["actions"])  # renewal reminder surfaced
     assert "target" in d["goal"] and "won_today" in d["goal"]
     # The interested lead shows up as a hot lead with a value and an action to close.
     assert any(h["name"] == "Hot Money Co" and h["value"] > 0 for h in d["hot_leads"])
