@@ -53,6 +53,11 @@ class CredIn(BaseModel):
     calendar_link_insurance: str | None = None
     calendar_link_bnb: str | None = None
     calendar_link_savorymind: str | None = None
+    contacts_outreach_exclude: str | None = None
+    newsletter_banner_insurance: str | None = None
+    newsletter_banner_bnb: str | None = None
+    newsletter_banner_savorymind: str | None = None
+    newsletter_banner_music: str | None = None
     facebook_app_id: str | None = None
     facebook_app_secret: str | None = None
     meta_redirect_uri: str | None = None

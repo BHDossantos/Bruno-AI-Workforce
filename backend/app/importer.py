@@ -202,13 +202,16 @@ def process_leads_csv(db: Session, rows: list[dict]) -> dict:
     sysp = skills.system_prompt("cold-email", "marketing-psychology")
     imported = sent = skipped = 0
     for row in rows:
-        email = _g(row, "email", "email_address")
+        # Match ANY email-column naming (not just a literal "email" header), so a
+        # file exported from Google/Outlook/etc. and imported as "leads" doesn't
+        # silently import 0 rows just because the header isn't exactly "email".
+        email = _g(row, "email", "email_address", *_EMAIL_KEYS)
         if not email:
             skipped += 1
             continue
         segment = (_g(row, "segment") or "commercial").lower()
         category = _g(row, "category", "industry") or "Commercial"
-        company = _g(row, "company_name", "company", "business", "business_name")
+        company = _g(row, "company_name", "company", "business", "business_name", *_COMPANY_KEYS)
         reason = (f"{category} businesses typically need liability, property and professional coverage."
                   if segment == "commercial" else f"{category} prospects often need home/auto/life coverage.")
         art = client.complete_json(INSURANCE_OUTREACH.format(
@@ -219,8 +222,8 @@ def process_leads_csv(db: Session, rows: list[dict]) -> dict:
         body = art.get("cold_email_body") if isinstance(art, dict) else None
 
         lead = Lead(segment=segment, category=category, company_name=company,
-                    owner_name=_g(row, "owner_name", "owner", "name"), email=email,
-                    phone=_g(row, "phone"), website=_g(row, "website"),
+                    owner_name=_g(row, "owner_name", "owner", "name", *_FULLNAME_KEYS, *_FIRST_KEYS), email=email,
+                    phone=_g(row, "phone", *_PHONE_KEYS), website=_g(row, "website"),
                     linkedin=_g(row, "linkedin"), industry=_g(row, "industry"),
                     reason=reason, score=80, status="Drafted", cold_email=body,
                     call_script=_text(art.get("call_script") if isinstance(art, dict) else None),
@@ -248,11 +251,11 @@ def process_restaurants_csv(db: Session, rows: list[dict]) -> dict:
     sysp = skills.system_prompt("copywriting", "cold-email")
     imported = sent = skipped = 0
     for row in rows:
-        email = _g(row, "email", "email_address")
+        email = _g(row, "email", "email_address", *_EMAIL_KEYS)
         if not email:
             skipped += 1
             continue
-        name = _g(row, "name", "restaurant", "restaurant_name", "company_name") or email
+        name = _g(row, "name", "restaurant", "restaurant_name", "company_name", *_FULLNAME_KEYS, *_COMPANY_KEYS) or email
         art = client.complete_json(SAVORYMIND_PITCH.format(
             name=name, cuisine=_g(row, "cuisine") or "restaurant", city=_g(row, "city") or "",
             owner=_g(row, "owner_manager", "owner", "manager") or "", insight="grow revenue with menu intelligence"),

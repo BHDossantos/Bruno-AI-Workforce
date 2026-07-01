@@ -65,6 +65,14 @@ FIELDS: dict[str, bool] = {
     "calendar_link_insurance": False,
     "calendar_link_bnb": False,
     "calendar_link_savorymind": False,
+    # Imported-contacts warm outreach — who to NEVER auto-email (family/personal),
+    # editable in-app instead of a hardcoded code default.
+    "contacts_outreach_exclude": False,
+    # Newsletter banner photos per funnel (optional).
+    "newsletter_banner_insurance": False,
+    "newsletter_banner_bnb": False,
+    "newsletter_banner_savorymind": False,
+    "newsletter_banner_music": False,
 }
 
 
@@ -163,5 +171,14 @@ def status(db) -> dict:
             "insurance": settings.calendar_link_insurance or "",
             "bnb": settings.calendar_link_bnb or "",
             "savorymind": settings.calendar_link_savorymind or "",
+        },
+        # Not secret — the admin's own exclude list. Returned so Setup can
+        # show/edit it (it's a plain comma list of emails, not a credential).
+        "contacts_outreach_exclude": settings.contacts_outreach_exclude or "",
+        "newsletter_banners": {
+            "insurance": settings.newsletter_banner_insurance or "",
+            "bnb": settings.newsletter_banner_bnb or "",
+            "savorymind": settings.newsletter_banner_savorymind or "",
+            "music": settings.newsletter_banner_music or "",
         },
     }

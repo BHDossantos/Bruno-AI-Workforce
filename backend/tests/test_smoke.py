@@ -325,6 +325,45 @@ def test_newsletters_are_written_and_listed(client, auth_headers):
     assert all(d["id"] != again[0]["id"] for d in after)
 
 
+def test_newsletter_template_designed_html():
+    """Every newsletter renders as a designed HTML card — banner (gradient by
+    default, photo if configured), heading, body, and an unsubscribe link —
+    not bare text."""
+    from app.config import settings
+    from app import newsletter_template
+
+    orig = settings.newsletter_banner_insurance
+    try:
+        settings.newsletter_banner_insurance = ""
+        html = newsletter_template.render(
+            funnel="insurance", label="Thrust Insurance", subject="This week's tip",
+            body="Line one.\n\nLine two.", unsubscribe_url="https://x.test/unsub?t=abc")
+        assert "This week's tip" in html and "Thrust Insurance" in html
+        assert "Line one." in html and "Line two." in html
+        assert 'href="https://x.test/unsub?t=abc"' in html
+        assert "linear-gradient" in html  # default banner when no photo configured
+
+        settings.newsletter_banner_insurance = "https://cdn.example.com/banner.jpg"
+        html2 = newsletter_template.render(
+            funnel="insurance", label="Thrust Insurance", subject="S", body="B",
+            unsubscribe_url="https://x.test/unsub")
+        assert 'src="https://cdn.example.com/banner.jpg"' in html2
+    finally:
+        settings.newsletter_banner_insurance = orig
+
+
+@requires_db
+def test_newsletter_preview_and_drafts_include_designed_html(client, auth_headers):
+    """The preview endpoint and the drafts list both expose the designed HTML,
+    not just the raw AI text, so the frontend can show a real preview."""
+    p = client.get("/newsletters/insurance/preview", headers=auth_headers).json()
+    assert p["ok"] is True and "html" in p and "<div" in p["html"]
+
+    client.post("/newsletters/write", headers=auth_headers)
+    drafts = client.get("/newsletters/drafts", headers=auth_headers).json()["drafts"]
+    assert drafts and all(d["html"] for d in drafts)
+
+
 def test_bulk_outreach_helpers_exist():
     """The shared dispatch module powers both the buttons and the auto cron."""
     from app import bulk_outreach
@@ -1770,6 +1809,27 @@ def test_content_factory_api_offline(client, auth_headers):
     r = client.post("/content/factory", headers=auth_headers,
                     json={"topic": "SLOs explained", "business": "executive"}).json()
     assert "ok" in r  # offline -> ok False, but endpoint works
+
+
+@requires_db
+def test_content_video_url_exposed_for_download(client, auth_headers):
+    """A generated video must be downloadable/postable manually while a
+    platform's auto-publish is disconnected — the API has to expose video_url,
+    not just leave it buried in internal meta."""
+    from app import content_factory
+    from app.database import SessionLocal
+    from app.models import ContentItem
+    db = SessionLocal()
+    try:
+        item = ContentItem(topic="Test video post", business="music", channel="instagram",
+                           title="T", body="B", status="ready",
+                           meta={"video_url": "https://cdn.example.com/clip.mp4", "video_status": "ready"})
+        db.add(item); db.commit(); db.refresh(item)
+        d = content_factory.out(item)
+        assert d["video_url"] == "https://cdn.example.com/clip.mp4"
+        assert d["video_status"] == "ready"
+    finally:
+        db.close()
     assert isinstance(client.get("/content", headers=auth_headers).json(), list)
 
 
@@ -2564,6 +2624,20 @@ def test_csv_import_leads(client, auth_headers):
 
 
 @requires_db
+def test_csv_import_leads_recognizes_google_export_headers(client, auth_headers):
+    """Regression: importing a Google/Outlook-style contacts export as 'leads'
+    used to silently import 0 rows because only a literal 'email' header was
+    recognized. Any reasonably-named email column must now be found."""
+    csv_data = ("First Name,Last Name,Organization Name,E-mail 1 - Value,Phone 1 - Value\n"
+               "Homer,Owner,ACME Auto Body,homerowner@realbiz.com,+16035551313\n")
+    r = client.post("/import/leads", headers=auth_headers,
+                    files={"file": ("google_export.csv", csv_data, "text/csv")})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["imported"] == 1 and body["skipped_no_email"] == 0
+
+
+@requires_db
 def test_csv_export(client, auth_headers):
     r = client.get("/export/leads.csv", headers=auth_headers)
     assert r.status_code == 200
@@ -3145,7 +3219,8 @@ def test_setup_connect_status_and_save(client, auth_headers):
     s = client.get("/setup", headers=auth_headers).json()
     assert set(s) == {"gmail_personal", "gmail_insurance", "gmail_bnb", "gmail_savorymind",
                       "apollo", "google_places", "sms", "whatsapp", "jobs_api", "instantly",
-                      "smartlead", "sendgrid", "meta_app", "booking"}
+                      "smartlead", "sendgrid", "meta_app", "booking", "contacts_outreach_exclude",
+                      "newsletter_banners"}
     assert s["apollo"]["configured"] is False
     assert set(s["booking"]) == {"default", "insurance", "bnb", "savorymind"}
     orig = settings.google_places_api_key
@@ -3155,6 +3230,16 @@ def test_setup_connect_status_and_save(client, auth_headers):
         assert client.get("/setup", headers=auth_headers).json()["google_places"]["configured"] is True
     finally:
         settings.google_places_api_key = orig  # don't pollute other tests
+
+    orig_exclude = settings.contacts_outreach_exclude
+    try:
+        r2 = client.post("/setup", headers=auth_headers,
+                         json={"contacts_outreach_exclude": "mom@family.com, dad@family.com"})
+        assert r2.status_code == 200 and "contacts_outreach_exclude" in r2.json()["saved"]
+        s2 = client.get("/setup", headers=auth_headers).json()
+        assert s2["contacts_outreach_exclude"] == "mom@family.com, dad@family.com"
+    finally:
+        settings.contacts_outreach_exclude = orig_exclude
 
 
 @requires_db

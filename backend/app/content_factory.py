@@ -228,6 +228,9 @@ def out(i: ContentItem) -> dict:
     return {"id": str(i.id), "topic": i.topic, "business": i.business, "channel": i.channel,
             "title": i.title, "body": i.body, "hashtags": i.hashtags, "status": i.status,
             "hooks": meta.get("hooks") or [],
+            # Generated media — so you can download/post manually while a
+            # platform's auto-publish is disconnected.
+            "video_url": meta.get("video_url"), "video_status": meta.get("video_status"),
             "scheduled_for": i.scheduled_for.isoformat() if i.scheduled_for else None,
             "created_at": i.created_at.isoformat() if i.created_at else None}
 

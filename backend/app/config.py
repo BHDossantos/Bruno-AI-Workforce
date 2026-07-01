@@ -178,6 +178,13 @@ class Settings(BaseSettings):
     # reuses the same Facebook Developer app already connected for FB/IG.
     whatsapp_cloud_phone_number_id: str = ""
     whatsapp_cloud_token: str = ""
+
+    # Newsletter banner photo per funnel (optional — a tasteful gradient banner
+    # is used automatically when none is set, so newsletters never look bare).
+    newsletter_banner_insurance: str = ""
+    newsletter_banner_bnb: str = ""
+    newsletter_banner_savorymind: str = ""
+    newsletter_banner_music: str = ""
     # Auto-send a warm intro text when a lead replies to our email (becomes warm).
     sms_auto_on_reply: bool = True
 
