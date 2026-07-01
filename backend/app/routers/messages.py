@@ -86,6 +86,13 @@ def run_followups(db: Session = Depends(get_db), _=Depends(_write)):
     return followups.process_due_followups(db)
 
 
+@router.post("/followups/nudge-bookings")
+def nudge_bookings(db: Session = Depends(get_db), _=Depends(_write)):
+    """Nudge interested-but-not-booked prospects toward the calendar (one per lead)."""
+    from .. import booking_nudge
+    return {"ok": True, **booking_nudge.run(db)}
+
+
 @router.get("/followups")
 def list_followups(limit: int = 200, db: Session = Depends(get_db), _=Depends(_read)):
     """Every contacted prospect's pending follow-up — who to follow up with, when,

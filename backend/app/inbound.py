@@ -21,14 +21,27 @@ ACCOUNTS = [gmail.PERSONAL, gmail.INSURANCE]
 
 
 def _draft_reply(db: Session, sender: str, reply: dict, cls: dict, account: str) -> None:
-    """Generate a concise reply with AI and save it as a draft for one-click send."""
-    from . import outreach
+    """Generate a concise reply with AI and save it as a draft for one-click send.
+    When the prospect is interested/asking, the reply drives straight to the
+    calendar (the booking link is added by the email template automatically)."""
+    from . import email_template, outreach
     from .ai import client, skills
+    intent = cls.get("intent")
+    wants_call = intent in ("interested", "question")
+    link = email_template.booking_link(account)
+    # For a hot reply, explicitly push the booking link + propose a call; otherwise
+    # a warm, helpful reply that opens the door to one.
+    goal = ("They're interested — thank them, answer briefly, and drive to a quick call. "
+            + (f"Point them to this booking link to grab a time: {link}. "
+               if link else "Ask for two or three times that work. ")
+            if wants_call else
+            "Write a warm, helpful reply that gently opens the door to a short call. ")
+    seed = cls.get("suggested_reply") or ""
     body = client.complete(
         f"A prospect ({sender}) replied to our outreach. Their message:\n"
-        f"\"{reply.get('snippet', '')}\"\n\nIntent: {cls.get('intent')}.\n"
-        "Write a short, warm, helpful reply (max 120 words) that moves toward a call. "
-        "No subject line, no placeholders.",
+        f"\"{reply.get('snippet', '')}\"\n\nIntent: {intent}.\n"
+        + (f"A suggested angle: {seed}\n" if seed else "")
+        + goal + "Keep it short (max 120 words). No subject line, no placeholders.",
         system=skills.system_prompt("cold-email"))
     if not body or body.startswith("["):
         return  # offline stub — skip

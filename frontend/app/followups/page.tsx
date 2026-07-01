@@ -26,6 +26,16 @@ function Followups() {
     finally { setBusy(false); }
   }
 
+  async function nudgeBookings() {
+    setBusy(true); setMsg("Nudging interested prospects to book a call…");
+    try {
+      const r = await api.post<{ sent: number; eligible: number }>("/followups/nudge-bookings", {});
+      setMsg(`✅ Nudged ${r.sent} of ${r.eligible} interested prospect(s) toward the calendar.`);
+      setRefresh((n) => n + 1);
+    } catch (e) { setMsg(`❌ ${e}`); }
+    finally { setBusy(false); }
+  }
+
   const items = data?.items || [];
   const dueItems = items.filter((i) => i.due && !i.replied);
   const upcoming = items.filter((i) => !i.due && !i.replied);
@@ -47,8 +57,17 @@ function Followups() {
     <div>
       <PageHeader title="Follow-ups"
         subtitle="Everyone you've reached out to and their next touch. Follow-ups auto-send on schedule (and stop the moment they reply) — or send all due now."
-        action={<button className="btn" onClick={runDue} disabled={busy || (data?.due ?? 0) === 0}>
-          {busy ? "Sending…" : `Send ${data?.due ?? 0} due now`}</button>} />
+        action={
+          <div className="flex gap-2">
+            <button className="btn-ghost" onClick={nudgeBookings} disabled={busy}
+              title="Nudge interested prospects who haven't booked a call yet">
+              {busy ? "…" : "📅 Nudge bookings"}
+            </button>
+            <button className="btn" onClick={runDue} disabled={busy || (data?.due ?? 0) === 0}>
+              {busy ? "Sending…" : `Send ${data?.due ?? 0} due now`}
+            </button>
+          </div>
+        } />
       {msg && <p className="mb-2 text-sm text-gray-600">{msg}</p>}
       {(loading || error) && <LoadState loading={loading} error={error} onRetry={reload} />}
 

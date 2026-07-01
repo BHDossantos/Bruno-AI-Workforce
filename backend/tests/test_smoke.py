@@ -698,6 +698,69 @@ def test_email_template_wraps_body_with_signature_and_footer():
     assert "[Your Name]" not in rendered and "Bruno Dossantos" in rendered
 
 
+@requires_db
+def test_booking_nudge_targets_interested_not_booked(client, auth_headers):
+    """Interested leads that went quiet get exactly ONE booking nudge; fresh or
+    non-interested leads are left alone, and a second run doesn't nudge again."""
+    from datetime import datetime, timedelta, timezone
+    from app import booking_nudge
+    from app.database import SessionLocal
+    from app.models import ActionLog, Lead
+
+    old = datetime.now(timezone.utc) - timedelta(days=5)
+    fresh = datetime.now(timezone.utc)
+    db = SessionLocal()
+    try:
+        interested = Lead(segment="commercial", category="Contractor", company_name="Nudge Me Co",
+                          email="nudge@realbiz.com", status="Interested", score=10,
+                          last_contacted_at=old)
+        too_fresh = Lead(segment="commercial", category="Contractor", company_name="Too Fresh Co",
+                         email="fresh@realbiz.com", status="Interested", score=10,
+                         last_contacted_at=fresh)
+        cold = Lead(segment="commercial", category="Contractor", company_name="Still Cold Co",
+                    email="cold@realbiz.com", status="Sent", score=10, last_contacted_at=old)
+        db.add_all([interested, too_fresh, cold])
+        db.commit()
+        target_id = interested.id
+    finally:
+        db.close()
+
+    r1 = booking_nudge.run(SessionLocal())
+    assert r1["eligible"] >= 1
+
+    db = SessionLocal()
+    try:
+        nudged = {a.entity_id for a in db.query(ActionLog).filter(
+            ActionLog.action == "booking_nudge").all()}
+        assert str(target_id) in nudged
+    finally:
+        db.close()
+
+    # Second run must not re-nudge the same lead (one nudge only).
+    before = _count_action(client, auth_headers)
+    booking_nudge.run(SessionLocal())
+    assert _count_action(client, auth_headers) == before
+
+
+def _count_action(client, auth_headers):
+    from app.database import SessionLocal
+    from app.models import ActionLog
+    db = SessionLocal()
+    try:
+        return db.query(ActionLog).filter(ActionLog.action == "booking_nudge").count()
+    finally:
+        db.close()
+
+
+@requires_db
+def test_booking_nudge_endpoint(client, auth_headers):
+    """The manual 'Nudge bookings' button endpoint returns a structured summary."""
+    r = client.post("/followups/nudge-bookings", headers=auth_headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True and "sent" in body and "eligible" in body
+
+
 def test_meta_oauth_url_and_gate():
     """The one-click Facebook/Instagram connect builds a proper consent URL and is
     gated on app credentials being present."""

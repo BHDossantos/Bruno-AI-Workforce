@@ -262,6 +262,17 @@ def cron_followups(x_cron_token: str | None = Header(default=None), db: Session 
     return followups.process_due_followups(db)
 
 
+@router.post("/booking-nudges")
+def cron_booking_nudges(x_cron_token: str | None = Header(default=None),
+                        db: Session = Depends(get_db)):
+    """Nudge interested-but-not-booked prospects toward the calendar (one per lead)."""
+    _auth(x_cron_token)
+    if _paused(db):
+        return {"paused": True, "skipped": "booking-nudges"}
+    from .. import booking_nudge
+    return _safe("booking-nudges", lambda: booking_nudge.run(db))
+
+
 @router.post("/inbound")
 def cron_inbound(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
     _auth(x_cron_token)
