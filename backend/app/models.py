@@ -698,6 +698,23 @@ class ClientNote(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class Webhook(Base):
+    """An outbound webhook subscription — notifies external automation tools
+    (n8n, Make, Zapier, or anything that accepts a POST) when a subscribed event
+    happens in Bruno, so custom automations can be built outside the app without
+    a bespoke integration for every tool."""
+    __tablename__ = "webhooks"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    url: Mapped[str] = mapped_column(String, nullable=False)
+    secret: Mapped[str | None] = mapped_column(String)  # HMAC-signs the payload when set
+    events: Mapped[list] = mapped_column(JSONB, default=list)  # event keys, or ["*"] for all
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_triggered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_status: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Setting(Base):
     """Runtime key/value settings that change without a redeploy — e.g. the global
     'agents_paused' kill-switch behind the Emergency Stop button."""

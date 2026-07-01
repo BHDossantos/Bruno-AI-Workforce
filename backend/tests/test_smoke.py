@@ -1002,6 +1002,87 @@ def test_book_carriers_exposes_whatsapp_status(client, auth_headers):
     assert "whatsapp" in opts["note_kinds"]
 
 
+def test_webhook_hmac_signature_is_deterministic():
+    """The signing helper produces a stable HMAC-SHA256 hex digest, so an
+    n8n/Make receiver can verify it independently."""
+    import hashlib
+    import hmac as hmac_mod
+    from app.webhooks import _sign
+    body = b'{"event":"client.created"}'
+    expected = hmac_mod.new(b"my-secret", body, hashlib.sha256).hexdigest()
+    assert _sign("my-secret", body) == expected
+
+
+@requires_db
+def test_webhook_crud_events_and_validation(client, auth_headers):
+    """Webhook CRUD: events picklist, create/list/patch/delete, secret is
+    write-only, and an unknown event key is rejected."""
+    events = client.get("/webhooks/events", headers=auth_headers).json()
+    keys = {e["key"] for e in events}
+    assert {"client.created", "client.note_added", "lead.replied"} <= keys
+
+    bad = client.post("/webhooks", headers=auth_headers, json={
+        "name": "Bad", "url": "https://example.com/hook", "events": ["not.a.real.event"]})
+    assert bad.status_code == 400
+
+    created = client.post("/webhooks", headers=auth_headers, json={
+        "name": "n8n test", "url": "https://example.com/hook", "secret": "shh",
+        "events": ["client.created"]}).json()
+    assert created["has_secret"] is True and "secret" not in created
+    assert created["events"] == ["client.created"] and created["enabled"] is True
+
+    listed = client.get("/webhooks", headers=auth_headers).json()
+    assert any(w["id"] == created["id"] for w in listed)
+
+    updated = client.patch(f"/webhooks/{created['id']}", headers=auth_headers, json={
+        "name": "n8n test", "url": "https://example.com/hook", "events": ["*"], "enabled": False}).json()
+    assert updated["enabled"] is False and updated["events"] == ["*"]
+
+    assert client.delete(f"/webhooks/{created['id']}", headers=auth_headers).status_code == 200
+    assert not any(w["id"] == created["id"] for w in
+                  client.get("/webhooks", headers=auth_headers).json())
+
+
+@requires_db
+def test_webhook_dispatch_never_blocks_the_caller(client, auth_headers):
+    """A webhook pointed at an unreachable URL must never break the action that
+    triggers it (new client creation), and its failure is recorded, not raised."""
+    hook = client.post("/webhooks", headers=auth_headers, json={
+        "name": "Unreachable", "url": "http://127.0.0.1:1/nowhere",
+        "events": ["client.created"]}).json()
+
+    r = client.post("/book/clients", headers=auth_headers, json={
+        "business": "insurance", "name": "Webhook Trigger Co"})
+    assert r.status_code == 200  # the broken webhook did not break client creation
+
+    rows = client.get("/webhooks", headers=auth_headers).json()
+    fired = next(w for w in rows if w["id"] == hook["id"])
+    assert fired["last_triggered_at"] is not None
+    assert fired["last_status"] and "error" in fired["last_status"].lower()
+
+    # A non-subscribed webhook must NOT fire for an event it isn't subscribed to.
+    other = client.post("/webhooks", headers=auth_headers, json={
+        "name": "Only replies", "url": "http://127.0.0.1:1/nowhere",
+        "events": ["lead.replied"]}).json()
+    client.post("/book/clients", headers=auth_headers, json={
+        "business": "insurance", "name": "Another Co"})
+    unfired = next(w for w in client.get("/webhooks", headers=auth_headers).json()
+                  if w["id"] == other["id"])
+    assert unfired["last_triggered_at"] is None
+
+
+@requires_db
+def test_webhook_test_endpoint(client, auth_headers):
+    """The manual test endpoint fires a synthetic event and reports the result
+    without needing a real subscription match."""
+    hook = client.post("/webhooks", headers=auth_headers, json={
+        "name": "Test target", "url": "http://127.0.0.1:1/nowhere", "events": ["*"]}).json()
+    r = client.post(f"/webhooks/{hook['id']}/test", headers=auth_headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is False and "status" in body  # unreachable URL -> ok False, but no crash
+
+
 @requires_db
 def test_outreach_digest_preview_and_send(client, auth_headers):
     """The daily digest builds real numbers, and send() no-ops cleanly when no
