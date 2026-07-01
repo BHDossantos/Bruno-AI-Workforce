@@ -796,6 +796,36 @@ def test_meta_oauth_start_requires_config(client, auth_headers):
 
 
 @requires_db
+def test_outreach_digest_preview_and_send(client, auth_headers):
+    """The daily digest builds real numbers, and send() no-ops cleanly when no
+    recipient is configured (never crashes the morning cron)."""
+    from app import outreach_digest
+    from app.config import settings
+    from app.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        d = outreach_digest.build(db)
+        for k in ("goal", "sent_7d", "replies_7d", "reply_rate", "warm", "hot", "actions", "hot_leads"):
+            assert k in d, k
+        # No recipient in CI → clean no-op with a reason, not a crash.
+        orig = (settings.report_to_email, settings.admin_email)
+        try:
+            settings.report_to_email = ""
+            settings.admin_email = "admin@example.com"
+            out = outreach_digest.send(db)
+            assert out["ok"] is False and "reason" in out
+        finally:
+            settings.report_to_email, settings.admin_email = orig
+    finally:
+        db.close()
+
+    # The preview endpoint returns the same structured payload.
+    r = client.get("/mission/digest/preview", headers=auth_headers)
+    assert r.status_code == 200 and "goal" in r.json()
+
+
+@requires_db
 def test_money_actions_cockpit(client, auth_headers):
     """The 'today's money actions' cockpit ranks work and surfaces hot leads with
     a deal value, tied to the client goal."""
