@@ -796,6 +796,42 @@ def test_meta_oauth_start_requires_config(client, auth_headers):
 
 
 @requires_db
+def test_outreach_performance_report(client, auth_headers):
+    """The outreach report returns a gap-free daily send/reply series, funnel and
+    reply rate computed from real messages."""
+    from datetime import datetime, timezone
+    from app.database import SessionLocal
+    from app.models import Lead, Message
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        # Use @x.co addresses for injected Sent fixtures — the shared-session
+        # convention other tests use to exclude injected rows from their asserts.
+        db.add_all([
+            Message(channel="email", direction="outbound", to_email="a@x.co",
+                    from_account="insurance", status="Sent", sent_at=now),
+            Message(channel="email", direction="outbound", to_email="b@x.co",
+                    from_account="insurance", status="Sent", sent_at=now),
+            Message(channel="email", direction="inbound", to_email="a@x.co",
+                    from_account="insurance", status="Replied"),
+            Lead(segment="commercial", category="Contractor", company_name="Hot Co",
+                 email="hot@realbiz.com", status="Interested", score=10),
+        ])
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.get("/analytics/outreach?days=30", headers=auth_headers)
+    assert r.status_code == 200
+    d = r.json()
+    assert d["days"] == 30 and len(d["daily"]) == 30  # gap-free window
+    assert d["totals"]["sent"] >= 2 and d["totals"]["replies"] >= 1
+    assert d["totals"]["hot"] >= 1  # the Interested lead shows as hot
+    assert set(d["funnel"]) == {"cold", "warm", "hot", "dead"}
+    assert all({"date", "sent", "replies"} <= set(day) for day in d["daily"])
+
+
+@requires_db
 def test_mailbox_pool_snapshot(client, auth_headers):
     """The mailbox pool lists every Gmail identity with cap/warmup and reports the
     pool's combined daily capacity."""
