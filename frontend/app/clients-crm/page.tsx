@@ -71,7 +71,12 @@ function CRM() {
     <div>
       <PageHeader title="Client Book (CRM)"
         subtitle="Your won insurance clients — carrier, line, premium, renewal dates and full communication history. The post-sale book of business."
-        action={<button className="btn" onClick={() => setEditing({ ...EMPTY })}>+ Add client</button>} />
+        action={
+          <div className="flex gap-2">
+            <button className="btn-ghost" onClick={() => api.download(`/export/clients.csv${f.business ? `?business=${f.business}` : ""}`, "clients.csv")}>Export CSV</button>
+            <button className="btn" onClick={() => setEditing({ ...EMPTY })}>+ Add client</button>
+          </div>
+        } />
       {msg && <p className="mb-3 text-sm text-gray-600">{msg}</p>}
 
       {summary && (
