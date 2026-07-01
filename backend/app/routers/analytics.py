@@ -170,6 +170,14 @@ def revenue(cost: float | None = None, db: Session = Depends(get_db), _=Depends(
     return revenue_analytics.report(db, cost=cost)
 
 
+@router.get("/outreach")
+def outreach_performance(days: int = 30, db: Session = Depends(get_db), _=Depends(_read)):
+    """Outreach performance: the daily send→reply trend, current cold/warm/hot
+    funnel, and reply rate — is the client machine trending toward the goal?"""
+    from .. import outreach_performance
+    return outreach_performance.report(db, days=days)
+
+
 @router.get("/pipeline")
 def pipeline(db: Session = Depends(get_db), _=Depends(_read)):
     """Sales pipeline across all three lead businesses — Insurance (NH/MA/FL),

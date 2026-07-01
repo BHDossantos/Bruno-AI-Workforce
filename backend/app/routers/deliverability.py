@@ -28,6 +28,15 @@ def send_now(db: Session = Depends(get_db), _=Depends(_write)):
     return deliverability.send_pending_now(db)
 
 
+@router.get("/mailboxes")
+def mailbox_pool(db: Session = Depends(get_db), _=Depends(_read)):
+    """The sending pool: every mailbox/sender with health, cap usage and warmup,
+    plus the pool's combined daily capacity."""
+    from .. import mailbox_pool as mp
+    runtime_config.apply_to_settings(db)  # reflect the latest connected senders/keys
+    return mp.snapshot(db)
+
+
 @router.get("/sendgrid-stats")
 def sendgrid_stats(days: int = 7, db: Session = Depends(get_db), _=Depends(_read)):
     """Real delivery stats from SendGrid: delivered / opens / bounces / rates for
