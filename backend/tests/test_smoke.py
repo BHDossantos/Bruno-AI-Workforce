@@ -879,6 +879,20 @@ def test_client_crm_full_lifecycle(client, auth_headers):
     detail = client.get(f"/book/clients/{cid}", headers=auth_headers).json()
     assert detail["last_contacted_at"] is not None
     assert len(detail["timeline"]) == 1 and detail["timeline"][0]["kind"] == "call"
+    assert "emails" in detail  # lead/outreach email history integrated into the CRM
+
+    # An outreach email to this client's address shows up in their email history.
+    from app.database import SessionLocal as _SL
+    from app.models import Message as _Msg
+    _db = _SL()
+    try:
+        _db.add(_Msg(channel="email", direction="outbound", to_email="jane@realfam.com",
+                     from_account="insurance", status="Drafted", subject="Welcome Jane"))
+        _db.commit()
+    finally:
+        _db.close()
+    detail2 = client.get(f"/book/clients/{cid}", headers=auth_headers).json()
+    assert any(e["subject"] == "Welcome Jane" for e in detail2["emails"])
 
     # Filter by line + carrier; the client is found.
     rows = client.get("/book/clients?line=home&carrier=Progressive", headers=auth_headers).json()

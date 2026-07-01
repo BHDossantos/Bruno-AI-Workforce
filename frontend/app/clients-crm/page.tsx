@@ -11,9 +11,10 @@ type Client = {
   premium_monthly: number | null; quote_amount: number | null; services: string | null;
   status: string; signed_at: string | null; expires_at: string | null; notes: string | null;
   last_contacted_at: string | null; days_to_expiry: number | null; expiring_soon: boolean;
-  timeline?: TimelineItem[];
+  timeline?: TimelineItem[]; emails?: EmailItem[];
 };
 type TimelineItem = { id: string; kind: string; body: string; author: string | null; created_at: string };
+type EmailItem = { id: string; direction: string; subject: string | null; status: string; from_account: string; snippet: string; date: string | null };
 type Summary = {
   clients: number; active: number; expiring_soon: number;
   monthly_premium: number; annual_premium: number;
@@ -251,7 +252,7 @@ function DetailModal({ c, opts, onClose, onEdit, onDelete, onNote, onMsg }: {
       </div>
 
       {/* Timeline */}
-      <div className="max-h-64 space-y-2 overflow-y-auto">
+      <div className="max-h-56 space-y-2 overflow-y-auto">
         {(c.timeline || []).map((t) => (
           <div key={t.id} className="rounded-lg bg-gray-50 p-2 text-sm">
             <div className="flex justify-between text-xs text-gray-400">
@@ -262,6 +263,24 @@ function DetailModal({ c, opts, onClose, onEdit, onDelete, onNote, onMsg }: {
           </div>
         ))}
         {(c.timeline || []).length === 0 && <p className="text-sm text-gray-400">No communication logged yet.</p>}
+      </div>
+
+      {/* Email history — outreach + replies tied to this contact's address */}
+      <div className="mt-4">
+        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Email history</div>
+        <div className="max-h-56 space-y-2 overflow-y-auto">
+          {(c.emails || []).map((e) => (
+            <div key={e.id} className="rounded-lg border border-gray-100 p-2 text-sm">
+              <div className="flex justify-between text-xs text-gray-400">
+                <span>{e.direction === "inbound" ? "⬅ received" : "➡ sent"} · {e.status}{e.from_account ? ` · ${e.from_account}` : ""}</span>
+                <span>{e.date ? new Date(e.date).toLocaleString() : ""}</span>
+              </div>
+              {e.subject && <div className="font-medium">{e.subject}</div>}
+              {e.snippet && <div className="text-gray-600">{e.snippet}</div>}
+            </div>
+          ))}
+          {(c.emails || []).length === 0 && <p className="text-sm text-gray-400">No emails linked to this address yet.</p>}
+        </div>
       </div>
 
       <div className="mt-4 flex justify-between">

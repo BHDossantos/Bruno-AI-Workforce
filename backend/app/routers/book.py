@@ -180,7 +180,30 @@ def get_client(client_id: str, db: Session = Depends(get_db), _=Depends(_read)):
         raise HTTPException(status_code=404, detail="Client not found")
     notes = (db.query(ClientNote).filter(ClientNote.client_id == c.id)
              .order_by(ClientNote.created_at.desc()).all())
-    return _client_dict(c, notes=notes)
+    d = _client_dict(c, notes=notes)
+    # Integrate the lead/outreach email history for this contact — every message
+    # to/from their address (sends, drafts, replies) so the CRM shows the full thread.
+    d["emails"] = _client_emails(db, c.email)
+    return d
+
+
+def _client_emails(db: Session, email: str | None, limit: int = 50) -> list[dict]:
+    if not email:
+        return []
+    from ..models import Message
+    msgs = (db.query(Message).filter(Message.to_email == email)
+            .order_by(Message.created_at.desc()).limit(limit).all())
+    out = []
+    for m in msgs:
+        when = m.sent_at or m.created_at
+        body = (m.body or "").strip()
+        out.append({
+            "id": str(m.id), "direction": m.direction, "subject": m.subject,
+            "status": m.status, "from_account": m.from_account,
+            "snippet": (body[:200] + "…") if len(body) > 200 else body,
+            "date": when.isoformat() if when else None,
+        })
+    return out
 
 
 @router.patch("/clients/{client_id}")

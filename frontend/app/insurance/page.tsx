@@ -71,6 +71,15 @@ function Insurance() {
     finally { setBusy(null); }
   }
 
+  async function addToCrm(id: string) {
+    setBusy(id); setMsg("");
+    try {
+      await api.post(`/book/from-lead/${id}`, {});
+      setMsg("✅ Added to the Client Book (CRM).");
+    } catch (e) { setMsg(`❌ ${e}`); }
+    finally { setBusy(null); }
+  }
+
   async function syncReplies() {
     setBusy("sync"); setMsg("Checking your inbox for replies…");
     try {
@@ -192,6 +201,9 @@ function Insurance() {
                     className="rounded-lg bg-brand px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">
                     {busy === l.id ? "Sending…" : "Reach out"}
                   </button>
+                  <button onClick={() => addToCrm(l.id)} disabled={busy === l.id}
+                    className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-1 text-xs text-gray-600 hover:bg-gray-50"
+                    title="Add this lead to the Client Book (CRM)">→ CRM</button>
                 </td>
               </tr>
             ))}
