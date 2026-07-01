@@ -796,6 +796,24 @@ def test_meta_oauth_start_requires_config(client, auth_headers):
 
 
 @requires_db
+def test_quote_intake_templates(client, auth_headers):
+    """Quote-intake templates cover the four lines with an English checklist and
+    ready-to-send EN + PT quotation emails."""
+    r = client.get("/book/quote-templates", headers=auth_headers)
+    assert r.status_code == 200
+    tpls = {t["key"]: t for t in r.json()}
+    assert {"personal_auto", "commercial_auto", "workers_comp", "general_liability"} <= set(tpls)
+    for t in tpls.values():
+        assert t["requirements"] and t["email_subject"]
+        assert t["email_body_en"] and t["email_body_pt"]
+    # Key domain details made it into English.
+    assert any("VIN" in req for req in tpls["personal_auto"]["requirements"])
+    assert any("EIN" in req for req in tpls["workers_comp"]["requirements"])
+    assert "audit" in tpls["workers_comp"]["email_body_en"].lower()
+    assert "payroll" in tpls["general_liability"]["email_body_en"].lower()
+
+
+@requires_db
 def test_client_crm_full_lifecycle(client, auth_headers):
     """The insurance client CRM: carrier options, create with policy details,
     log a communication (updates last-contact), filter, and summarize premium."""
