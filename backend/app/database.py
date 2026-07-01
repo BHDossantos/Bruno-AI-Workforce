@@ -41,6 +41,8 @@ _MIGRATIONS = [
     "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS times_contacted INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS last_contacted_at TIMESTAMPTZ",
     "ALTER TABLE brand_profile ADD COLUMN IF NOT EXISTS music_links TEXT",
+    # Client Book: which business a client belongs to (insurance/bnb/savorymind/…).
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS business VARCHAR NOT NULL DEFAULT 'insurance'",
     # Backfill streaming links onto an already-seeded profile — only when it still
     # holds the original Spotify-only seed, so user edits are never clobbered.
     ("UPDATE brand_profile SET music_links = "

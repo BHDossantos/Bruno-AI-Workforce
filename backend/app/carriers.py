@@ -28,6 +28,17 @@ CARRIERS: list[str] = [
     "Other",
 ]
 
+# The businesses a client can belong to (carrier/line only apply to insurance).
+BUSINESSES: list[dict] = [
+    {"key": "insurance", "label": "Thrust Insurance"},
+    {"key": "bnb", "label": "BnB Global"},
+    {"key": "savorymind", "label": "SavoryMind"},
+    {"key": "music", "label": "Bruno D — Music"},
+    {"key": "foundation", "label": "Foundation"},
+    {"key": "other", "label": "Other"},
+]
+BUSINESS_KEYS: list[str] = [b["key"] for b in BUSINESSES]
+
 # Lines of business (matches the insurance_lines classifier).
 LINES: list[str] = ["auto", "home", "life", "commercial"]
 STATES: list[str] = ["MA", "NH", "FL"]

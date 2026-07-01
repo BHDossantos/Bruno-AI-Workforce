@@ -659,6 +659,8 @@ class Client(Base):
     __tablename__ = "clients"
     id: Mapped[uuid.UUID] = _uuid_pk()
     lead_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))  # origin lead, if any
+    # Which business this client belongs to (insurance | bnb | savorymind | music | …).
+    business: Mapped[str] = mapped_column(String, default="insurance", index=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
     email: Mapped[str | None] = mapped_column(String, index=True)
     phone: Mapped[str | None] = mapped_column(String)

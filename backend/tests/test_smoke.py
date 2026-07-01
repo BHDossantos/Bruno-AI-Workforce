@@ -803,13 +803,16 @@ def test_client_crm_full_lifecycle(client, auth_headers):
     assert "Progressive" in opts["carriers"] and "State Farm" in opts["carriers"]
     assert set(opts["lines"]) == {"auto", "home", "life", "commercial"}
     assert opts["states"] == ["MA", "NH", "FL"]
+    biz_keys = {b["key"] for b in opts["businesses"]}
+    assert {"insurance", "bnb", "savorymind", "music"} <= biz_keys
 
     # Create a won client with a full policy.
     created = client.post("/book/clients", headers=auth_headers, json={
-        "name": "Jane Homeowner", "email": "jane@realfam.com", "state": "NH",
-        "line": "home", "carrier": "Progressive", "premium_monthly": 180.50,
+        "business": "insurance", "name": "Jane Homeowner", "email": "jane@realfam.com",
+        "state": "NH", "line": "home", "carrier": "Progressive", "premium_monthly": 180.50,
         "policy_number": "PGR-123", "signed_at": "2026-06-01", "expires_at": "2026-12-15",
         "address": "1 Main St", "city": "Concord", "zip": "03301"}).json()
+    assert created["business"] == "insurance"
     cid = created["id"]
     assert created["premium_monthly"] == 180.5 and created["carrier"] == "Progressive"
     assert created["days_to_expiry"] is not None
@@ -825,11 +828,21 @@ def test_client_crm_full_lifecycle(client, auth_headers):
     rows = client.get("/book/clients?line=home&carrier=Progressive", headers=auth_headers).json()
     assert any(r["id"] == cid for r in rows)
 
-    # Update the premium; summary reflects it.
+    # A client for a DIFFERENT business — the book separates them.
+    client.post("/book/clients", headers=auth_headers, json={
+        "business": "bnb", "name": "BnB Client Co", "premium_monthly": 500})
+
+    # Update the premium; summary reflects it and breaks down by business.
     client.patch(f"/book/clients/{cid}", headers=auth_headers, json={"premium_monthly": 200})
     summary = client.get("/book/summary", headers=auth_headers).json()
-    assert summary["clients"] >= 1 and summary["monthly_premium"] >= 200
+    assert summary["clients"] >= 2 and summary["monthly_premium"] >= 700
     assert summary["by_line"].get("home", 0) >= 1
+    assert summary["by_business"]["insurance"]["clients"] >= 1
+    assert summary["by_business"]["bnb"]["clients"] >= 1
+
+    # Filter by business returns only that book.
+    bnb = client.get("/book/clients?business=bnb", headers=auth_headers).json()
+    assert bnb and all(r["business"] == "bnb" for r in bnb)
 
     # Convert a won lead into a client, prefilled.
     from app.database import SessionLocal
@@ -843,6 +856,7 @@ def test_client_crm_full_lifecycle(client, auth_headers):
         db.close()
     conv = client.post(f"/book/from-lead/{lead_id}", headers=auth_headers).json()
     assert conv["name"] == "Convert Co" and conv["line"] == "commercial"
+    assert conv["business"] == "insurance"  # commercial segment → insurance book
 
 
 @requires_db

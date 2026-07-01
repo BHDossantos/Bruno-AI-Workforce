@@ -27,6 +27,7 @@ _EXPIRING_DAYS = 30
 
 
 class ClientIn(BaseModel):
+    business: str | None = None
     name: str | None = None
     email: str | None = None
     phone: str | None = None
@@ -61,6 +62,7 @@ def _client_dict(c: Client, notes: list[ClientNote] | None = None) -> dict:
     days = (c.expires_at - today).days if c.expires_at else None
     d = {
         "id": str(c.id), "lead_id": str(c.lead_id) if c.lead_id else None,
+        "business": c.business or "insurance",
         "name": c.name, "email": c.email, "phone": c.phone,
         "address": c.address, "city": c.city, "state": c.state, "zip": c.zip,
         "line": c.line, "carrier": c.carrier, "policy_number": c.policy_number,
@@ -87,17 +89,19 @@ def carrier_options(_=Depends(_read)):
     """Dropdown options for the CRM (MA/NH/FL carriers, lines, states, statuses)."""
     return {"carriers": carriers_ref.CARRIERS, "lines": carriers_ref.LINES,
             "states": carriers_ref.STATES, "statuses": carriers_ref.STATUSES,
-            "note_kinds": carriers_ref.NOTE_KINDS}
+            "note_kinds": carriers_ref.NOTE_KINDS, "businesses": carriers_ref.BUSINESSES}
 
 
 @router.get("/clients")
-def list_clients(line: str | None = None, carrier: str | None = None,
+def list_clients(business: str | None = None, line: str | None = None, carrier: str | None = None,
                  state: str | None = None, status: str | None = None,
                  q: str | None = None, expiring: bool = False, limit: int = 500,
                  db: Session = Depends(get_db), _=Depends(_read)):
-    """The book of business, filterable by line/carrier/state/status/search, or
-    only those expiring within 30 days (renewal radar)."""
+    """The book of business, filterable by business/line/carrier/state/status/
+    search, or only those expiring within 30 days (renewal radar)."""
     query = db.query(Client)
+    if business:
+        query = query.filter(Client.business == business)
     if line:
         query = query.filter(Client.line == line)
     if carrier:
@@ -127,21 +131,26 @@ def book_summary(db: Session = Depends(get_db), _=Depends(_read)):
     monthly = 0.0
     by_line: dict[str, int] = {}
     by_carrier: dict[str, int] = {}
+    by_business: dict[str, dict] = {}
     for c in rows:
+        prem = float(c.premium_monthly) if c.premium_monthly is not None else 0.0
         if (c.status or "").lower() == "active":
             active += 1
-        if c.premium_monthly is not None:
-            monthly += float(c.premium_monthly)
+        monthly += prem
         if c.expires_at and 0 <= (c.expires_at - today).days <= _EXPIRING_DAYS:
             expiring += 1
         if c.line:
             by_line[c.line] = by_line.get(c.line, 0) + 1
         if c.carrier:
             by_carrier[c.carrier] = by_carrier.get(c.carrier, 0) + 1
+        b = c.business or "insurance"
+        bucket = by_business.setdefault(b, {"clients": 0, "monthly_premium": 0.0})
+        bucket["clients"] += 1
+        bucket["monthly_premium"] = round(bucket["monthly_premium"] + prem, 2)
     return {
         "clients": len(rows), "active": active, "expiring_soon": expiring,
         "monthly_premium": round(monthly, 2), "annual_premium": round(monthly * 12, 2),
-        "by_line": by_line, "by_carrier": by_carrier,
+        "by_line": by_line, "by_carrier": by_carrier, "by_business": by_business,
     }
 
 
@@ -216,9 +225,12 @@ def from_lead(lead_id: str, db: Session = Depends(get_db), _=Depends(_write)):
     if existing:
         return _client_dict(existing)
     from ..insurance_lines import line_for
-    ln = line_for(lead.category, lead.segment, lead.industry)
+    # Route the lead's segment to the right business book.
+    business = {"consulting": "bnb", "foundation": "foundation"}.get(lead.segment or "", "insurance")
+    ln = line_for(lead.category, lead.segment, lead.industry) if business == "insurance" else None
     c = Client(
-        lead_id=lead.id, name=lead.company_name or lead.owner_name or (lead.email or "New client"),
+        lead_id=lead.id, business=business,
+        name=lead.company_name or lead.owner_name or (lead.email or "New client"),
         email=lead.email, phone=lead.phone,
         line=ln if ln in carriers_ref.LINES else None,
         status="Active", signed_at=date.today())
