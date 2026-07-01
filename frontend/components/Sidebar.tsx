@@ -28,6 +28,7 @@ const NAV = [
   { href: "/search", label: "Search", icon: "🔍" },
   { href: "/autopilot", label: "Application Autopilot", icon: "🤖" },
   { href: "/clients-crm", label: "Client Book (CRM)", icon: "🗃️" },
+  { href: "/quote-intake", label: "Quote Intake", icon: "📝" },
   { href: "/crm", label: "Universal CRM", icon: "👥" },
   { href: "/factory", label: "Content Factory", icon: "🏭" },
   { href: "/calendar", label: "Content Calendar", icon: "🗓️" },

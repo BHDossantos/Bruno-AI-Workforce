@@ -32,7 +32,8 @@ const LINE_BADGE: Record<string, string> = {
 const EMPTY: Partial<Client> = { business: "insurance", name: "", status: "Active", state: "MA", line: "auto" };
 
 function CRM() {
-  const [f, setF] = useState({ business: "", line: "", carrier: "", state: "", status: "", q: "", expiring: false });
+  const initExpiring = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("expiring") === "1";
+  const [f, setF] = useState({ business: "", line: "", carrier: "", state: "", status: "", q: "", expiring: initExpiring });
   const [refresh, setRefresh] = useState(0);
   const qs = new URLSearchParams(
     Object.entries(f).filter(([, v]) => v !== "" && v !== false).map(([k, v]) => [k, String(v)])

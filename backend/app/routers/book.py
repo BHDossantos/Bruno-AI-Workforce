@@ -92,6 +92,14 @@ def carrier_options(_=Depends(_read)):
             "note_kinds": carriers_ref.NOTE_KINDS, "businesses": carriers_ref.BUSINESSES}
 
 
+@router.get("/quote-templates")
+def quote_templates(_=Depends(_read)):
+    """Per-line quote-intake checklists + ready-to-send draft quotation emails
+    (EN + PT) to reply with when a prospect asks for insurance."""
+    from .. import quote_intake
+    return quote_intake.all_templates()
+
+
 @router.get("/clients")
 def list_clients(business: str | None = None, line: str | None = None, carrier: str | None = None,
                  state: str | None = None, status: str | None = None,

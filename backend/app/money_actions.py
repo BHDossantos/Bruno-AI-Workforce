@@ -79,10 +79,23 @@ def actions(db) -> dict:
                            Restaurant.last_contacted_at.isnot(None),
                            Restaurant.last_contacted_at <= cutoff))
 
+    # Renewals: active policies expiring within 30 days — retention revenue at risk.
+    from .models import Client
+    renewing = _count(
+        Client, Client.expires_at.isnot(None), Client.expires_at >= today,
+        Client.expires_at <= today + timedelta(days=30), Client.status != "Cancelled")
+
     hot = _hot_leads(db)
     hot_count = sum(1 for h in hot if h["temperature"] == HOT)
 
     cards = []
+    if renewing:
+        cards.append({
+            "key": "renewals", "title": f"Review {renewing} policy renewal{'s' if renewing != 1 else ''} (≤30 days)",
+            "why": "Existing clients renewing soon — reach out now to keep the book and re-quote.",
+            "count": renewing, "value": 0,
+            "cta": "Review renewals", "action": "link", "link": "/clients-crm?expiring=1",
+        })
     if hot_count:
         cards.append({
             "key": "close_hot", "title": f"Close {hot_count} hot lead{'s' if hot_count != 1 else ''}",
