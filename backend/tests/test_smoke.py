@@ -894,6 +894,12 @@ def test_client_crm_full_lifecycle(client, auth_headers):
     detail2 = client.get(f"/book/clients/{cid}", headers=auth_headers).json()
     assert any(e["subject"] == "Welcome Jane" for e in detail2["emails"])
 
+    # The list view also shows each client's last email, batch-attached (no N+1).
+    listed = client.get("/book/clients", headers=auth_headers).json()
+    jane_row = next(r for r in listed if r["id"] == cid)
+    assert jane_row["last_email"] is not None
+    assert jane_row["last_email"]["subject"] == "Welcome Jane"
+
     # Filter by line + carrier; the client is found.
     rows = client.get("/book/clients?line=home&carrier=Progressive", headers=auth_headers).json()
     assert any(r["id"] == cid for r in rows)
