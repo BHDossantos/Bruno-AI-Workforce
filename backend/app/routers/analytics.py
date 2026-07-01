@@ -178,6 +178,14 @@ def outreach_performance(days: int = 30, db: Session = Depends(get_db), _=Depend
     return outreach_performance.report(db, days=days)
 
 
+@router.get("/subject-ab")
+def subject_ab(db: Session = Depends(get_db), _=Depends(_read)):
+    """A/B subject-line testing: reply rate per subject style the engine rotates
+    through, which have enough data to trust, and the current winner it's favoring."""
+    from .. import outreach_analytics
+    return outreach_analytics.styles_report(db)
+
+
 @router.get("/pipeline")
 def pipeline(db: Session = Depends(get_db), _=Depends(_read)):
     """Sales pipeline across all three lead businesses — Insurance (NH/MA/FL),

@@ -796,6 +796,41 @@ def test_meta_oauth_start_requires_config(client, auth_headers):
 
 
 @requires_db
+def test_subject_ab_report(client, auth_headers):
+    """The subject A/B report exposes every rotated style with reply rate and a
+    trusted-vs-testing status, computed from real sent/replied messages."""
+    from app.database import SessionLocal
+    from app.models import Message
+    db = SessionLocal()
+    try:
+        # A question-style subject sent to an entity that replied → 1 reply for
+        # the 'question' style.
+        eid = __import__("uuid").uuid4()
+        db.add_all([
+            Message(channel="email", direction="outbound", to_email="q@x.co",
+                    from_account="insurance", status="Sent",
+                    subject="Quick question about your coverage?", entity_type="lead", entity_id=eid),
+            Message(channel="email", direction="inbound", to_email="q@x.co",
+                    from_account="insurance", status="Replied", entity_type="lead", entity_id=eid),
+        ])
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.get("/analytics/subject-ab", headers=auth_headers)
+    assert r.status_code == 200
+    d = r.json()
+    styles = {s["style"] for s in d["styles"]}
+    assert {"question", "number/result", "short/punchy", "curiosity", "statement"} <= styles
+    for s in d["styles"]:
+        for k in ("style", "description", "sent", "replied", "rate", "enough_data"):
+            assert k in s, k
+    assert "min_sample" in d and "best" in d
+    q = next(s for s in d["styles"] if s["style"] == "question")
+    assert q["sent"] >= 1 and q["replied"] >= 1  # the question send + its reply counted
+
+
+@requires_db
 def test_outreach_performance_report(client, auth_headers):
     """The outreach report returns a gap-free daily send/reply series, funnel and
     reply rate computed from real messages."""

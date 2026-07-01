@@ -18,6 +18,7 @@ const NAV = [
   { href: "/deliverability", label: "Email Deliverability", icon: "📬" },
   { href: "/mailboxes", label: "Mailbox Pool", icon: "📮" },
   { href: "/outreach-report", label: "Outreach Performance", icon: "📈" },
+  { href: "/subject-ab", label: "Subject A/B Testing", icon: "🧪" },
   { href: "/approvals", label: "Approval Queue", icon: "☑️" },
   { href: "/followups", label: "Follow-ups", icon: "🔁" },
   { href: "/activation", label: "Go-Live Setup", icon: "🚀" },
