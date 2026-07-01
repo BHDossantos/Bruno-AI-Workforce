@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { AuthGate, PageHeader, useFetch, KpiCard, LoadState } from "@/components/ui";
 
 type Client = {
-  id: string; name: string; email: string | null; phone: string | null;
+  id: string; business: string; name: string; email: string | null; phone: string | null;
   address: string | null; city: string | null; state: string | null; zip: string | null;
   line: string | null; carrier: string | null; policy_number: string | null;
   premium_monthly: number | null; quote_amount: number | null; services: string | null;
@@ -18,8 +18,10 @@ type Summary = {
   clients: number; active: number; expiring_soon: number;
   monthly_premium: number; annual_premium: number;
   by_line: Record<string, number>; by_carrier: Record<string, number>;
+  by_business: Record<string, { clients: number; monthly_premium: number }>;
 };
-type Options = { carriers: string[]; lines: string[]; states: string[]; statuses: string[]; note_kinds: string[] };
+type Business = { key: string; label: string };
+type Options = { carriers: string[]; lines: string[]; states: string[]; statuses: string[]; note_kinds: string[]; businesses: Business[] };
 
 const money = (n: number | null) => (n == null ? "—" : n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${n}`);
 const LINE_BADGE: Record<string, string> = {
@@ -27,10 +29,10 @@ const LINE_BADGE: Record<string, string> = {
   life: "bg-rose-100 text-rose-700", commercial: "bg-violet-100 text-violet-700",
 };
 
-const EMPTY: Partial<Client> = { name: "", status: "Active", state: "MA", line: "auto" };
+const EMPTY: Partial<Client> = { business: "insurance", name: "", status: "Active", state: "MA", line: "auto" };
 
 function CRM() {
-  const [f, setF] = useState({ line: "", carrier: "", state: "", status: "", q: "", expiring: false });
+  const [f, setF] = useState({ business: "", line: "", carrier: "", state: "", status: "", q: "", expiring: false });
   const [refresh, setRefresh] = useState(0);
   const qs = new URLSearchParams(
     Object.entries(f).filter(([, v]) => v !== "" && v !== false).map(([k, v]) => [k, String(v)])
@@ -43,6 +45,7 @@ function CRM() {
   const [editing, setEditing] = useState<Partial<Client> | null>(null); // add/edit form
   const [detail, setDetail] = useState<Client | null>(null);            // detail + timeline
   const [msg, setMsg] = useState("");
+  const bizLabel = (k: string) => opts?.businesses.find((b) => b.key === k)?.label || k;
 
   async function openDetail(id: string) {
     try { setDetail(await api.get<Client>(`/book/clients/${id}`)); }
@@ -80,10 +83,26 @@ function CRM() {
         </div>
       )}
 
+      {/* Per-business breakdown — click to filter */}
+      {summary?.by_business && Object.keys(summary.by_business).length > 0 && (
+        <div className="mb-4 flex flex-wrap gap-2">
+          {Object.entries(summary.by_business).map(([k, v]) => (
+            <button key={k} onClick={() => setF({ ...f, business: f.business === k ? "" : k })}
+              className={`rounded-lg border px-3 py-1.5 text-sm ${f.business === k ? "border-brand bg-brand/10 font-semibold" : "border-gray-200 bg-white"}`}>
+              {bizLabel(k)} · <b>{v.clients}</b>
+              {v.monthly_premium > 0 && <span className="text-gray-400"> · {money(v.monthly_premium)}/mo</span>}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Filters */}
       <div className="mb-4 flex flex-wrap gap-2">
         <input className="input" placeholder="Search name/email/policy…" value={f.q}
           onChange={(e) => setF({ ...f, q: e.target.value })} />
+        <select className="input" value={f.business} onChange={(e) => setF({ ...f, business: e.target.value })}>
+          <option value="">All businesses</option>{opts?.businesses.map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}
+        </select>
         <select className="input" value={f.line} onChange={(e) => setF({ ...f, line: e.target.value })}>
           <option value="">All lines</option>{opts?.lines.map((l) => <option key={l} value={l}>{l}</option>)}
         </select>
@@ -103,7 +122,7 @@ function CRM() {
       <div className="card overflow-x-auto p-0">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-left text-xs text-gray-500">
-            <tr><th className="p-3">Client</th><th className="p-3">Carrier</th><th className="p-3">Line</th>
+            <tr><th className="p-3">Client</th><th className="p-3">Business</th><th className="p-3">Carrier</th><th className="p-3">Line</th>
               <th className="p-3">State</th><th className="p-3">Premium/mo</th><th className="p-3">Status</th>
               <th className="p-3">Renews</th><th className="p-3">Last contact</th></tr>
           </thead>
@@ -111,6 +130,7 @@ function CRM() {
             {(data || []).map((c) => (
               <tr key={c.id} className="cursor-pointer border-t hover:bg-gray-50" onClick={() => openDetail(c.id)}>
                 <td className="p-3"><div className="font-medium">{c.name}</div><div className="text-xs text-gray-400">{c.email}</div></td>
+                <td className="p-3"><span className="badge bg-gray-100 text-gray-600">{bizLabel(c.business)}</span></td>
                 <td className="p-3">{c.carrier || "—"}</td>
                 <td className="p-3">{c.line ? <span className={`badge ${LINE_BADGE[c.line] || "bg-gray-100"}`}>{c.line}</span> : "—"}</td>
                 <td className="p-3">{c.state || "—"}</td>
@@ -124,7 +144,7 @@ function CRM() {
               </tr>
             ))}
             {!loading && (data || []).length === 0 && (
-              <tr><td colSpan={8} className="p-6 text-center text-gray-400">No clients yet — add your first won client, or convert a won lead.</td></tr>
+              <tr><td colSpan={9} className="p-6 text-center text-gray-400">No clients yet — add your first won client, or convert a won lead.</td></tr>
             )}
           </tbody>
         </table>
@@ -151,6 +171,8 @@ function EditModal({ c, opts, onClose, onSave }: {
   return (
     <Modal onClose={onClose} title={c.id ? "Edit client" : "Add client"}>
       <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Business"><select className="input w-full" value={form.business || "insurance"} onChange={(e) => set("business", e.target.value)}>
+          {(opts?.businesses || []).map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}</select></Field>
         <Field label="Name *"><input className="input w-full" value={form.name || ""} onChange={(e) => set("name", e.target.value)} /></Field>
         <Field label="Email"><input className="input w-full" value={form.email || ""} onChange={(e) => set("email", e.target.value)} /></Field>
         <Field label="Phone"><input className="input w-full" value={form.phone || ""} onChange={(e) => set("phone", e.target.value)} /></Field>
