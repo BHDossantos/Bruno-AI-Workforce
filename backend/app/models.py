@@ -650,6 +650,52 @@ class CampaignPlan(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class Client(Base):
+    """A WON insurance client — the book of business (post-sale CRM record).
+
+    Tracks who they are, what they bought (carrier + line + premium), when it
+    started and renews, and their communication history (via ClientNote). This is
+    the true-CRM layer that lives after a lead converts."""
+    __tablename__ = "clients"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    lead_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))  # origin lead, if any
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    email: Mapped[str | None] = mapped_column(String, index=True)
+    phone: Mapped[str | None] = mapped_column(String)
+    # Address
+    address: Mapped[str | None] = mapped_column(String)
+    city: Mapped[str | None] = mapped_column(String)
+    state: Mapped[str | None] = mapped_column(String)   # MA | NH | FL
+    zip: Mapped[str | None] = mapped_column(String)
+    # Policy
+    line: Mapped[str | None] = mapped_column(String)     # auto | home | life | commercial
+    carrier: Mapped[str | None] = mapped_column(String)  # Progressive, GEICO, State Farm, …
+    policy_number: Mapped[str | None] = mapped_column(String)
+    premium_monthly: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    quote_amount: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    services: Mapped[str | None] = mapped_column(Text)   # coverage / services on the policy
+    status: Mapped[str] = mapped_column(String, default="Active")  # Active|Lapsed|Renewed|Cancelled
+    signed_at: Mapped[date | None] = mapped_column(Date)      # when they signed up
+    expires_at: Mapped[date | None] = mapped_column(Date)     # policy expiration / renewal
+    notes: Mapped[str | None] = mapped_column(Text)
+    last_contacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ClientNote(Base):
+    """A timeline entry on a client — a call, email, SMS, meeting or note. The
+    communication history + last-contact for the CRM record."""
+    __tablename__ = "client_notes"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    client_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
+    kind: Mapped[str] = mapped_column(String, default="note")  # note|call|email|sms|meeting
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    author: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Setting(Base):
     """Runtime key/value settings that change without a redeploy — e.g. the global
     'agents_paused' kill-switch behind the Emergency Stop button."""

@@ -109,6 +109,21 @@ def mission_control(db: Session = Depends(get_db), _=Depends(_read)):
     }
 
 
+@router.get("/digest/preview")
+def digest_preview(db: Session = Depends(get_db), _=Depends(_read)):
+    """Preview the daily outreach digest content (what gets emailed)."""
+    from .. import outreach_digest
+    return outreach_digest.build(db)
+
+
+@router.post("/digest/send")
+def digest_send(db: Session = Depends(get_db),
+                _=Depends(require_role("admin", "operator"))):
+    """Email the daily outreach digest to the operator now."""
+    from .. import outreach_digest
+    return outreach_digest.send(db)
+
+
 @router.get("/money-actions")
 def money_actions(db: Session = Depends(get_db), _=Depends(_read)):
     """Today's highest-value actions to hit the client goal — hot leads to close,

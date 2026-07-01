@@ -12,6 +12,7 @@ from .routers import (
     bridge,
     analytics,
     auth,
+    book,
     connections,
     control,
     cron,
@@ -135,6 +136,7 @@ app.include_router(clients.router)
 app.include_router(automations.router)
 app.include_router(campaigns.router)
 app.include_router(deliverability.router)
+app.include_router(book.router)
 
 
 @app.get("/health", tags=["system"])

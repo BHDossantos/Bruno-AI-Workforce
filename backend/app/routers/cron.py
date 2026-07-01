@@ -262,6 +262,15 @@ def cron_followups(x_cron_token: str | None = Header(default=None), db: Session 
     return followups.process_due_followups(db)
 
 
+@router.post("/outreach-digest")
+def cron_outreach_digest(x_cron_token: str | None = Header(default=None),
+                         db: Session = Depends(get_db)):
+    """Email the operator today's outreach numbers + top actions (daily status)."""
+    _auth(x_cron_token)
+    from .. import outreach_digest
+    return _safe("outreach-digest", lambda: outreach_digest.send(db))
+
+
 @router.post("/booking-nudges")
 def cron_booking_nudges(x_cron_token: str | None = Header(default=None),
                         db: Session = Depends(get_db)):
