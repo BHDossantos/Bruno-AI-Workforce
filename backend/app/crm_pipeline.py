@@ -61,8 +61,14 @@ def stage_of(lead: Lead) -> str:
     return "New"
 
 
+def expected_value(lead: Lead) -> int:
+    """This lead's expected pipeline value (deal size x stage win probability) —
+    shared with Accounts so a company's pipeline total matches the Kanban board."""
+    return int(_SEGMENT_VALUE.get(lead.segment or "", 800) * _STAGE_PROB.get(stage_of(lead), 0.05))
+
+
 def _card(lead: Lead, stage: str) -> dict:
-    value = int(_SEGMENT_VALUE.get(lead.segment or "", 800) * _STAGE_PROB.get(stage, 0.05))
+    value = expected_value(lead)
     return {
         "id": str(lead.id),
         "name": lead.owner_name or lead.company_name or lead.email or "—",

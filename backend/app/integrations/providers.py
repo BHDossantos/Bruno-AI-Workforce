@@ -104,7 +104,11 @@ def fetch_jobs(limit: int = 60) -> list[dict]:
 
 # ── Agent 2: insurance prospects ─────────────────────────────────────────────
 COMMERCIAL_CATEGORIES = ["Contractor", "Restaurant", "Medical office", "Real estate agency",
-                         "Property manager", "Landscaper", "Retail store", "Construction company"]
+                         "Property manager", "Landscaper", "Retail store", "Construction company",
+                         # Vehicle-centric — these need Commercial Auto (CAP) first;
+                         # insurance_lines.line_for() surfaces them under Auto, not Commercial.
+                         "Auto Dealership", "Auto Repair Shop", "Trucking Company",
+                         "Moving Company", "Delivery Service"]
 PERSONAL_CATEGORIES = ["Homeowner", "New mover", "Auto owner", "Mortgage lead"]
 
 

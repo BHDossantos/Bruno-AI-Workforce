@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .routers import (
+    accounts,
     activation,
     agents,
     approvals,
@@ -116,6 +117,7 @@ app.include_router(analytics.router)
 app.include_router(executive.router)
 app.include_router(memory.router)
 app.include_router(crm.router)
+app.include_router(accounts.router)
 app.include_router(graph.router)
 app.include_router(opportunities.router)
 app.include_router(planning.router)

@@ -27,6 +27,7 @@ const NAV = [
   { href: "/setup", label: "Connect Email & Data", icon: "🔑" },
   { href: "/search", label: "Search", icon: "🔍" },
   { href: "/autopilot", label: "Application Autopilot", icon: "🤖" },
+  { href: "/accounts", label: "Accounts", icon: "🏢" },
   { href: "/clients-crm", label: "Client Book (CRM)", icon: "🗃️" },
   { href: "/quote-intake", label: "Quote Intake", icon: "📝" },
   { href: "/webhooks", label: "Webhooks", icon: "🔗" },
