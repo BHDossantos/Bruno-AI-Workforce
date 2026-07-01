@@ -8,7 +8,7 @@ type Area = { configured: boolean; address?: string };
 type Status = {
   gmail_personal: Area; gmail_insurance: Area; gmail_bnb?: Area; gmail_savorymind?: Area;
   apollo: Area; google_places: Area;
-  sms?: Area; jobs_api?: Area;
+  sms?: Area; whatsapp?: Area & { via?: string | null }; jobs_api?: Area;
   instantly?: Area; smartlead?: Area; sendgrid?: Area;
   meta_app?: { configured: boolean; app_id: string; redirect_uri: string };
   booking?: { default: string; insurance: string; bnb: string; savorymind: string };
@@ -347,6 +347,50 @@ function Setup() {
               value={form.twilio_from_number || ""} onChange={(e) => set("twilio_from_number", e.target.value)} />
             <input className="input" placeholder="Insurance number (optional)"
               value={form.twilio_insurance_number || ""} onChange={(e) => set("twilio_insurance_number", e.target.value)} />
+          </div>
+        </div>
+
+        {/* WhatsApp — Meta Cloud API (preferred, no Twilio) or Twilio WhatsApp */}
+        <div className="card">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">📲 WhatsApp</h2>
+            <Badge ok={!!data.whatsapp?.configured} />
+          </div>
+          {data.whatsapp?.configured && (
+            <p className="mb-2 text-xs text-emerald-700">
+              Active via {data.whatsapp.via === "meta_cloud" ? "Meta's Cloud API (no Twilio)" : "Twilio"}.
+            </p>
+          )}
+          <p className="mb-3 text-xs text-gray-500">
+            A legitimate, official channel for messaging clients — unlike consumer-WhatsApp
+            automation, which risks account bans. If both are filled in, Meta&apos;s Cloud API is
+            used (no reseller markup).
+          </p>
+          <div className="mb-3 rounded-lg border border-gray-100 p-3">
+            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">
+              Meta Cloud API (recommended — no Twilio)
+            </div>
+            <p className="mb-2 text-xs text-gray-500">
+              Reuses your Facebook Developer app: add the <b>WhatsApp</b> product, verify a phone
+              number, then copy its Phone Number ID and a permanent access token from Business Settings.
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <input className="input" placeholder="Phone Number ID"
+                value={form.whatsapp_cloud_phone_number_id || ""} onChange={(e) => set("whatsapp_cloud_phone_number_id", e.target.value)} />
+              <input className="input" type="password" placeholder="Access token"
+                value={form.whatsapp_cloud_token || ""} onChange={(e) => set("whatsapp_cloud_token", e.target.value)} />
+            </div>
+          </div>
+          <div className="rounded-lg border border-gray-100 p-3">
+            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">
+              Twilio WhatsApp (fallback)
+            </div>
+            <p className="mb-2 text-xs text-gray-500">
+              Uses the Twilio account above. From twilio.com → Messaging → Try WhatsApp: sandbox
+              number to test, or an approved WhatsApp Sender for production.
+            </p>
+            <input className="input w-full" placeholder="WhatsApp number, e.g. +14155238886"
+              value={form.twilio_whatsapp_number || ""} onChange={(e) => set("twilio_whatsapp_number", e.target.value)} />
           </div>
         </div>
 

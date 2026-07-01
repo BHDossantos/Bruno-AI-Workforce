@@ -37,6 +37,9 @@ FIELDS: dict[str, bool] = {
     "twilio_auth_token": True,
     "twilio_from_number": False,
     "twilio_insurance_number": False,  # optional separate number for insurance texts
+    "twilio_whatsapp_number": False,   # WhatsApp Business number (Twilio)
+    "whatsapp_cloud_phone_number_id": False,  # Meta WhatsApp Cloud API (no Twilio)
+    "whatsapp_cloud_token": True,
     # JSearch / RapidAPI key → live LinkedIn/Indeed/Glassdoor/ZipRecruiter jobs.
     "jobs_api_key": True,
     # Instantly.ai / Smartlead.ai — dedicated cold-email sending engines.
@@ -112,7 +115,8 @@ def save(db, field: str, value: str) -> bool:
 
 def status(db) -> dict:
     """Connection status — booleans + non-secret addresses only, never secrets."""
-    from .integrations import apollo, gmail, instantly, jobs_api, places, sendgrid, smartlead, sms
+    from .integrations import (apollo, gmail, instantly, jobs_api, places, sendgrid,
+                               smartlead, sms, whatsapp_cloud)
     apply_to_settings(db)  # make sure the live view reflects stored values
     bridge_on = bool(settings.bridge_token)
     return {
@@ -142,6 +146,9 @@ def status(db) -> dict:
         "google_places": {"configured": places.is_configured()},
         "sms": {"configured": sms.is_configured() or bridge_on,
                 "via": "twilio" if sms.is_configured() else ("bridge" if bridge_on else None)},
+        "whatsapp": {"configured": sms.whatsapp_configured(),
+                    "via": "meta_cloud" if whatsapp_cloud.is_configured()
+                    else ("twilio" if sms.whatsapp_configured() else None)},
         "jobs_api": {"configured": jobs_api.is_configured()},
         # Meta app for the one-click Facebook/Instagram connect button.
         "meta_app": {

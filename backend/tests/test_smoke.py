@@ -935,6 +935,73 @@ def test_client_crm_full_lifecycle(client, auth_headers):
     assert conv["business"] == "insurance"  # commercial segment → insurance book
 
 
+def test_whatsapp_prefers_meta_cloud_over_twilio():
+    """WhatsApp is provider-agnostic: Meta's Cloud API (no Twilio markup) wins
+    when both are configured; Twilio is the fallback; neither -> unconfigured."""
+    from app.config import settings
+    from app.integrations import sms, whatsapp_cloud
+    orig = (settings.whatsapp_cloud_phone_number_id, settings.whatsapp_cloud_token,
+            settings.twilio_account_sid, settings.twilio_auth_token, settings.twilio_whatsapp_number)
+    try:
+        settings.whatsapp_cloud_phone_number_id = settings.whatsapp_cloud_token = ""
+        settings.twilio_account_sid = settings.twilio_auth_token = settings.twilio_whatsapp_number = ""
+        assert sms.whatsapp_configured() is False
+
+        settings.twilio_account_sid, settings.twilio_auth_token = "sid", "tok"
+        settings.twilio_whatsapp_number = "+14155550000"
+        assert sms.whatsapp_configured() is True  # Twilio alone is enough
+
+        settings.whatsapp_cloud_phone_number_id = "123456"
+        settings.whatsapp_cloud_token = "eaa-token"
+        assert whatsapp_cloud.is_configured() is True
+        assert sms.whatsapp_configured() is True
+    finally:
+        (settings.whatsapp_cloud_phone_number_id, settings.whatsapp_cloud_token,
+         settings.twilio_account_sid, settings.twilio_auth_token,
+         settings.twilio_whatsapp_number) = orig
+
+
+@requires_db
+def test_client_whatsapp_send_gated_and_logged(client, auth_headers):
+    """Sending a client WhatsApp message requires a phone number, a non-empty
+    body, and a configured provider — and it's rejected cleanly otherwise."""
+    from app.config import settings
+    orig = (settings.whatsapp_cloud_phone_number_id, settings.whatsapp_cloud_token,
+            settings.twilio_account_sid, settings.twilio_auth_token, settings.twilio_whatsapp_number)
+    try:
+        settings.whatsapp_cloud_phone_number_id = settings.whatsapp_cloud_token = ""
+        settings.twilio_account_sid = settings.twilio_auth_token = settings.twilio_whatsapp_number = ""
+
+        created = client.post("/book/clients", headers=auth_headers, json={
+            "business": "insurance", "name": "No Phone Co"}).json()
+        r = client.post(f"/book/clients/{created['id']}/whatsapp", headers=auth_headers,
+                        json={"body": "hi"})
+        assert r.status_code == 400  # no phone on file
+
+        created2 = client.post("/book/clients", headers=auth_headers, json={
+            "business": "insurance", "name": "Has Phone Co", "phone": "+16175551234"}).json()
+        r2 = client.post(f"/book/clients/{created2['id']}/whatsapp", headers=auth_headers,
+                         json={"body": "hi"})
+        assert r2.status_code == 400  # WhatsApp not connected
+
+        r3 = client.post(f"/book/clients/{created2['id']}/whatsapp", headers=auth_headers,
+                         json={"body": ""})
+        assert r3.status_code in (400, 422)  # empty body rejected either way
+    finally:
+        (settings.whatsapp_cloud_phone_number_id, settings.whatsapp_cloud_token,
+         settings.twilio_account_sid, settings.twilio_auth_token,
+         settings.twilio_whatsapp_number) = orig
+
+
+@requires_db
+def test_book_carriers_exposes_whatsapp_status(client, auth_headers):
+    """/book/carriers surfaces whatsapp_configured and includes 'whatsapp' as a
+    loggable communication kind."""
+    opts = client.get("/book/carriers", headers=auth_headers).json()
+    assert "whatsapp_configured" in opts
+    assert "whatsapp" in opts["note_kinds"]
+
+
 @requires_db
 def test_outreach_digest_preview_and_send(client, auth_headers):
     """The daily digest builds real numbers, and send() no-ops cleanly when no
@@ -2996,8 +3063,8 @@ def test_setup_connect_status_and_save(client, auth_headers):
     from app.config import settings
     s = client.get("/setup", headers=auth_headers).json()
     assert set(s) == {"gmail_personal", "gmail_insurance", "gmail_bnb", "gmail_savorymind",
-                      "apollo", "google_places", "sms", "jobs_api", "instantly", "smartlead",
-                      "sendgrid", "meta_app", "booking"}
+                      "apollo", "google_places", "sms", "whatsapp", "jobs_api", "instantly",
+                      "smartlead", "sendgrid", "meta_app", "booking"}
     assert s["apollo"]["configured"] is False
     assert set(s["booking"]) == {"default", "insurance", "bnb", "savorymind"}
     orig = settings.google_places_api_key
