@@ -795,6 +795,26 @@ def test_meta_oauth_start_requires_config(client, auth_headers):
         (settings.facebook_app_id, settings.facebook_app_secret, settings.meta_redirect_uri) = orig
 
 
+@requires_db
+def test_mailbox_pool_snapshot(client, auth_headers):
+    """The mailbox pool lists every Gmail identity with cap/warmup and reports the
+    pool's combined daily capacity."""
+    r = client.get("/deliverability/mailboxes", headers=auth_headers)
+    assert r.status_code == 200
+    d = r.json()
+    for key in ("mailboxes", "totals", "connected_count", "active_channel"):
+        assert key in d, key
+    # The four Gmail mailboxes are always present (connected or not).
+    gmail_ids = {m["id"] for m in d["mailboxes"] if m["type"] == "gmail"}
+    assert gmail_ids == {"gmail:personal", "gmail:insurance", "gmail:bnb", "gmail:savorymind"}
+    for m in d["mailboxes"]:
+        for k in ("label", "connected", "sent_today", "daily_cap", "warmup"):
+            assert k in m, k
+    assert {"daily_capacity", "sent_today", "remaining"} <= set(d["totals"])
+    # Offline: nothing connected, so zero capacity and no active channel.
+    assert d["connected_count"] == 0 and d["active_channel"] is None
+
+
 def test_sendgrid_stats_safe_without_key():
     """SendGrid stats degrade cleanly when no key is set (no crash, clear reason)."""
     from app.config import settings
