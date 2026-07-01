@@ -2099,6 +2099,31 @@ def test_revenue_analytics(client, auth_headers):
 
 
 @requires_db
+def test_revenue_rolls_in_actual_crm_premium(client, auth_headers):
+    """The Client Book's REAL premium (monthly x 12) rolls into Revenue/ROI as
+    actual_annual_revenue per business, alongside the lead-based estimate —
+    cancelled clients are excluded."""
+    from app.database import SessionLocal
+    from app.models import Client
+    db = SessionLocal()
+    try:
+        db.add_all([
+            Client(business="insurance", name="Real Rev Co", premium_monthly=100, status="Active"),
+            Client(business="bnb", name="BnB Rev Co", premium_monthly=50, status="Active"),
+            Client(business="insurance", name="Cancelled Co", premium_monthly=999, status="Cancelled"),
+        ])
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.get("/analytics/revenue", headers=auth_headers).json()
+    # >= not == : other tests in this shared session also create Client rows.
+    assert r["businesses"]["Insurance"]["actual_annual_revenue"] >= 1200.0  # 100 * 12, cancelled excluded
+    assert r["businesses"]["BnB Global"]["actual_annual_revenue"] >= 600.0   # 50 * 12
+    assert r["totals"]["actual_annual_revenue"] >= 1800.0
+
+
+@requires_db
 def test_campaign_builder_plan(client, auth_headers, monkeypatch):
     """NL brief → structured campaign plan (model mocked), persisted + listable."""
     from app import campaign_builder
