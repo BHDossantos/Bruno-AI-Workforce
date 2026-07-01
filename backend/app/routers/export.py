@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import Job, Lead, Restaurant
+from ..models import Client, Job, Lead, Restaurant
 from ..security import require_role
 
 router = APIRouter(prefix="/export", tags=["export"])
@@ -41,6 +41,19 @@ def export_jobs(db: Session = Depends(get_db), _=Depends(_read)):
             "source", "url", "score", "found_at"]
     rows = [{c: getattr(j, c) for c in cols} for j in db.query(Job).order_by(Job.score.desc()).all()]
     return _csv(rows, cols, "jobs.csv")
+
+
+@router.get("/clients.csv")
+def export_clients(business: str | None = None, db: Session = Depends(get_db), _=Depends(_read)):
+    """The client book (won insurance/other clients) as CSV, optionally by business."""
+    cols = ["business", "name", "email", "phone", "address", "city", "state", "zip",
+            "line", "carrier", "policy_number", "premium_monthly", "quote_amount",
+            "status", "signed_at", "expires_at", "services", "last_contacted_at", "created_at"]
+    q = db.query(Client)
+    if business:
+        q = q.filter(Client.business == business)
+    rows = [{c: getattr(cl, c) for c in cols} for cl in q.order_by(Client.created_at.desc()).all()]
+    return _csv(rows, cols, "clients.csv")
 
 
 @router.get("/restaurants.csv")

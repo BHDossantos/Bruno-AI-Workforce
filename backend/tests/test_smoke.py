@@ -796,6 +796,28 @@ def test_meta_oauth_start_requires_config(client, auth_headers):
 
 
 @requires_db
+def test_client_book_csv_export(client, auth_headers):
+    """The client book exports to CSV, filterable by business."""
+    from app.database import SessionLocal
+    from app.models import Client
+    db = SessionLocal()
+    try:
+        db.add(Client(business="insurance", name="CSV Client", carrier="Progressive",
+                      line="auto", premium_monthly=99, status="Active"))
+        db.commit()
+    finally:
+        db.close()
+    r = client.get("/export/clients.csv", headers=auth_headers)
+    assert r.status_code == 200 and "text/csv" in r.headers["content-type"]
+    text = r.text
+    assert "business,name,email" in text.splitlines()[0]  # header
+    assert "CSV Client" in text and "Progressive" in text
+    # Business filter works.
+    r2 = client.get("/export/clients.csv?business=bnb", headers=auth_headers)
+    assert r2.status_code == 200 and "CSV Client" not in r2.text
+
+
+@requires_db
 def test_compose_reply_endpoint(client, auth_headers):
     """The inbox compose-reply endpoint accepts a custom body (e.g. a quote-intake
     email) and routes it through the dispatcher (offline → stored, not Sent)."""
