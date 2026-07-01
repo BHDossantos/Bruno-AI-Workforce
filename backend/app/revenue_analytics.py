@@ -10,13 +10,34 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from .lead_temperature import HOT, WARM, classify
-from .models import Lead, Restaurant
+from .models import Client, Lead, Restaurant
 
-# Expected deal value per business line (commission / contract).
+# Expected deal value per business line (commission / contract) — used to
+# ESTIMATE revenue from lead status before a real client record exists.
 _VALUE = {"insurance": 1800, "consulting": 6000, "savorymind": 1200}
 _WON = {"won", "closed won", "client", "customer", "signed"}
 # Probability of a still-open lead closing, by temperature (for pipeline value).
 _PROB = {HOT: 0.5, WARM: 0.2, "cold": 0.03, "dead": 0.0}
+
+# Report business label -> Client Book business key, so the CRM's real premium
+# rolls into the money view under the same business bucket.
+_BOOK_KEY = {"Insurance": "insurance", "BnB Global": "bnb", "SavoryMind": "savorymind"}
+
+
+def actual_annual_revenue(db: Session) -> dict[str, float]:
+    """REAL annualized revenue per Client Book business — monthly premium × 12
+    for every non-cancelled client. This is actual booked revenue, not an
+    estimate, so it's reported alongside (never blended into) the lead-based
+    estimate below."""
+    rows = db.query(Client.business, Client.premium_monthly).filter(
+        Client.status != "Cancelled").all()
+    out: dict[str, float] = {}
+    for business, premium in rows:
+        if premium is None:
+            continue
+        key = business or "insurance"
+        out[key] = out.get(key, 0.0) + float(premium) * 12
+    return {k: round(v, 2) for k, v in out.items()}
 
 
 def _won(status: str | None) -> bool:
@@ -74,8 +95,15 @@ def report(db: Session, cost: float | None = None) -> dict:
         "BnB Global": _line(con_rows, _VALUE["consulting"]),
         "SavoryMind": _line(sav_rows, _VALUE["savorymind"]),
     }
+    # Roll the Client Book's REAL premium in as actual_annual_revenue, alongside
+    # (not replacing) the lead-based revenue_won estimate — so the money view
+    # shows both what's estimated from the pipeline and what's actually booked.
+    real = actual_annual_revenue(db)
+    for label, book_key in _BOOK_KEY.items():
+        businesses[label]["actual_annual_revenue"] = real.get(book_key, 0.0)
     totals = {k: sum(b[k] for b in businesses.values())
               for k in ("leads", "contacted", "replied", "won", "revenue_won", "pipeline_value")}
+    totals["actual_annual_revenue"] = round(sum(real.values()), 2)
 
     # Cost/ROI only when a spend figure is supplied (we don't fabricate costs).
     cost_metrics = None

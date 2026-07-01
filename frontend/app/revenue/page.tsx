@@ -7,10 +7,12 @@ import { AuthGate, PageHeader, useFetch, KpiCard } from "@/components/ui";
 type Line = {
   leads: number; contacted: number; replied: number; won: number;
   revenue_won: number; pipeline_value: number; reply_rate: number; win_rate: number;
+  actual_annual_revenue?: number;
 };
 type Report = {
   businesses: Record<string, Line>;
-  totals: { leads: number; contacted: number; replied: number; won: number; revenue_won: number; pipeline_value: number };
+  totals: { leads: number; contacted: number; replied: number; won: number;
+    revenue_won: number; pipeline_value: number; actual_annual_revenue?: number };
   cost_metrics: { spend: number; cost_per_lead: number | null; cost_per_won: number | null; roi: number | null } | null;
 };
 
@@ -31,11 +33,18 @@ function Revenue() {
 
       {data && (
         <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
-          <KpiCard label="Revenue won" value={money(data.totals.revenue_won)} />
+          <KpiCard label="Actual annual revenue" value={money(data.totals.actual_annual_revenue || 0)} />
+          <KpiCard label="Estimated revenue won" value={money(data.totals.revenue_won)} />
           <KpiCard label="Weighted pipeline" value={money(data.totals.pipeline_value)} />
           <KpiCard label="Clients won" value={String(data.totals.won)} />
-          <KpiCard label="Leads" value={data.totals.leads.toLocaleString()} />
         </div>
+      )}
+      {data && (data.totals.actual_annual_revenue || 0) > 0 && (
+        <p className="mb-4 text-xs text-gray-400">
+          &ldquo;Actual annual revenue&rdquo; is real, from the Client Book (each client&apos;s monthly
+          premium × 12) — not an estimate. &ldquo;Estimated revenue won&rdquo; is projected from lead
+          status before a client record exists.
+        </p>
       )}
 
       <div className="card mb-6 flex flex-wrap items-end gap-2">
@@ -60,7 +69,8 @@ function Revenue() {
           <thead className="bg-gray-50 text-left text-xs text-gray-500">
             <tr><th className="p-3">Business</th><th className="p-3">Leads</th><th className="p-3">Contacted</th>
               <th className="p-3">Replied</th><th className="p-3">Won</th><th className="p-3">Reply rate</th>
-              <th className="p-3">Win rate</th><th className="p-3">Revenue</th><th className="p-3">Pipeline</th></tr>
+              <th className="p-3">Win rate</th><th className="p-3">Est. revenue</th><th className="p-3">Actual annual (CRM)</th>
+              <th className="p-3">Pipeline</th></tr>
           </thead>
           <tbody>
             {data && Object.entries(data.businesses).map(([name, b]) => (
@@ -69,7 +79,8 @@ function Revenue() {
                 <td className="p-3">{b.leads}</td><td className="p-3">{b.contacted}</td>
                 <td className="p-3">{b.replied}</td><td className="p-3">{b.won}</td>
                 <td className="p-3">{pct(b.reply_rate)}</td><td className="p-3">{pct(b.win_rate)}</td>
-                <td className="p-3 font-medium text-green-600">{money(b.revenue_won)}</td>
+                <td className="p-3 text-gray-500">{money(b.revenue_won)}</td>
+                <td className="p-3 font-medium text-green-600">{money(b.actual_annual_revenue || 0)}</td>
                 <td className="p-3 text-gray-500">{money(b.pipeline_value)}</td>
               </tr>
             ))}
