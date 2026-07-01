@@ -6,6 +6,7 @@ import { AuthGate, PageHeader, useFetch } from "@/components/ui";
 
 type Plan = {
   id: string; brief: string; business: string | null; status: string;
+  leads_sourced: number; restaurants_sourced: number;
   plan: {
     audience?: string; summary?: string; schedule?: string; success_metric?: string;
     channels?: string[]; filters?: Record<string, string>;
@@ -42,6 +43,11 @@ function PlanCard({ p, onLaunch, busy }: { p: Plan; onLaunch: (id: string) => vo
       )}
       {pl.schedule && <div className="mt-1 text-xs text-gray-500"><b>Schedule:</b> {pl.schedule}</div>}
       {pl.success_metric && <div className="mt-1 text-xs text-gray-500"><b>Success:</b> {pl.success_metric}</div>}
+      {p.status === "launched" && (
+        <div className="mt-2 text-xs font-medium text-green-700">
+          ✅ Sourced {p.leads_sourced + p.restaurants_sourced} matching {p.leads_sourced ? "leads" : "restaurants"} for this campaign
+        </div>
+      )}
     </div>
   );
 }

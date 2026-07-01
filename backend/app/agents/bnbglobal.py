@@ -38,7 +38,11 @@ class BnbGlobalAgent(BaseAgent):
             score += 10
         return min(score, 100)
 
-    def execute(self) -> dict:
+    def execute(self, *, scope: str | None = None, keywords: list[str] | None = None,
+               industry: str | None = None, campaign_id: str | None = None) -> dict:
+        """`scope`/`keywords`/`industry`/`campaign_id` let Campaign Builder launch a
+        one-off targeted run; the daily scheduler calls this with no args and gets
+        the normal worldwide sweep."""
         # Source a capped batch toward the daily target (worldwide), timeout-safe;
         # the agent runs several times a day to build outbound volume.
         batch = max(1, min(settings.consulting_lead_daily_target, 50))
@@ -46,7 +50,11 @@ class BnbGlobalAgent(BaseAgent):
         # insurance) — valid prospects for managed IT / cloud / security consulting.
         # Consulting sells worldwide → sweep the global scope (rotating by day).
         prospects = providers.fetch_insurance_leads(
-            "commercial", batch, scope=settings.consulting_lead_scope)
+            "commercial", batch, scope=scope or settings.consulting_lead_scope)
+        if industry or keywords:
+            from . import leadgen
+            prospects = [p for p in prospects
+                        if leadgen.matches_filters(p, industry=industry, keywords=keywords)]
 
         existing = {e for (e,) in self.db.query(Lead.email).filter(Lead.email.isnot(None)).all()}
 
@@ -71,7 +79,7 @@ class BnbGlobalAgent(BaseAgent):
                 email=p.get("email"), phone=p.get("phone"), website=p.get("website"),
                 linkedin=p.get("linkedin"), industry=p.get("industry"),
                 reason="Tech consulting: cloud/SRE/security/AI/managed-IT opportunity.",
-                score=self.score_lead(p), status="New")
+                score=self.score_lead(p), status="New", campaign_id=campaign_id)
             self.db.add(row)
             pairs.append((row, p))
         self.db.commit()

@@ -25,10 +25,17 @@ class CommercialLeadFinderAgent(BaseAgent):
                    "owner, email, phone, website & LinkedIn, then drafts + sends outreach.")
     schedule_cron = "30 7,11,15,19 * * *"  # 4x/day — the priority engine
 
-    def execute(self) -> dict:
+    def execute(self, *, scope: str | None = None, keywords: list[str] | None = None,
+               industry: str | None = None, campaign_id: str | None = None) -> dict:
+        """`scope`/`keywords`/`industry`/`campaign_id` let Campaign Builder launch a
+        one-off targeted run (e.g. "Boston contractors"); the daily scheduler calls
+        this with no args and gets the normal NH/MA/FL sweep."""
         target = min(settings.commercial_lead_daily_target, _PER_RUN_CAP)
         prospects = providers.fetch_insurance_leads(
-            "commercial", target, scope=settings.insurance_lead_scope)
+            "commercial", target, scope=scope or settings.insurance_lead_scope)
+        if industry or keywords:
+            prospects = [p for p in prospects
+                        if leadgen.matches_filters(p, industry=industry, keywords=keywords)]
         from .. import insurance_needs
         for p in prospects:
             p["segment"] = "commercial"
@@ -43,7 +50,7 @@ class CommercialLeadFinderAgent(BaseAgent):
 
         res = leadgen.run_batch(
             self, prospects, account="insurance", build_prompt=build_prompt,
-            default_segment="commercial",
+            default_segment="commercial", campaign_id=campaign_id,
             subject_for=lambda p, a: a.get("cold_email_subject") or f"Insurance options for {p['company_name']}")
         self.log_action("commercial_leads", entity="leads", detail=res)
         return {"summary": f"Commercial Lead Finder: {res['saved']} found, "

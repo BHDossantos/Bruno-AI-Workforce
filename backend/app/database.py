@@ -43,6 +43,11 @@ _MIGRATIONS = [
     "ALTER TABLE brand_profile ADD COLUMN IF NOT EXISTS music_links TEXT",
     # Client Book: which business a client belongs to (insurance/bnb/savorymind/…).
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS business VARCHAR NOT NULL DEFAULT 'insurance'",
+    # Campaign Builder: tag sourced leads/restaurants with the launch that found them.
+    "ALTER TABLE leads ADD COLUMN IF NOT EXISTS campaign_id VARCHAR",
+    "CREATE INDEX IF NOT EXISTS ix_leads_campaign_id ON leads (campaign_id)",
+    "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS campaign_id VARCHAR",
+    "CREATE INDEX IF NOT EXISTS ix_restaurants_campaign_id ON restaurants (campaign_id)",
     # Backfill streaming links onto an already-seeded profile — only when it still
     # holds the original Spotify-only seed, so user edits are never clobbered.
     ("UPDATE brand_profile SET music_links = "

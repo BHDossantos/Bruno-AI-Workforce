@@ -2360,6 +2360,60 @@ def test_campaign_builder_bad_brief(client, auth_headers):
 
 
 @requires_db
+def test_campaign_launch_applies_plan_filters_and_tags_leads(client, auth_headers, monkeypatch):
+    """Launching a plan must actually steer sourcing by the brief's filters (not
+    just run the agent's generic daily behavior) and tag every sourced lead with
+    the campaign so results are trackable."""
+    from app import campaign_builder
+    from app.agents import commercial_finder as cf_mod
+    from app.database import SessionLocal
+    from app.models import CampaignPlan, Lead
+
+    prospects = [
+        {"segment": "commercial", "category": "Restaurant", "company_name": "Match Bistro",
+         "owner_name": "A", "email": "match-campaign@x.co", "phone": "1",
+         "website": "https://x.co", "industry": "Restaurant", "city": "Boston"},
+        {"segment": "commercial", "category": "Law Firm", "company_name": "Nomatch Legal",
+         "owner_name": "B", "email": "nomatch-campaign@x.co", "phone": "2",
+         "website": "https://x.co", "industry": "Legal", "city": "Boston"},
+    ]
+    monkeypatch.setattr(cf_mod.providers, "fetch_insurance_leads",
+                        lambda segment, count, **kw: prospects if segment == "commercial" else [])
+
+    db = SessionLocal()
+    try:
+        # Idempotent against a rerun in the same DB (dedupe-by-email would
+        # otherwise silently skip the prospect on a second pass).
+        db.query(Lead).filter(Lead.email.in_(
+            ["match-campaign@x.co", "nomatch-campaign@x.co"])).delete(synchronize_session=False)
+        db.commit()
+
+        plan_row = CampaignPlan(
+            brief="Boston restaurants for commercial insurance", business="Insurance",
+            agent_key="commercial_finder",
+            plan={"filters": {"location": "Boston", "industry": "Restaurant"}})
+        db.add(plan_row)
+        db.commit()
+        db.refresh(plan_row)
+        plan_id = str(plan_row.id)
+
+        result = campaign_builder.launch(db, plan_id)
+        assert result["ok"] is True
+        assert result["leads_sourced"] == 1  # only the matching-industry prospect
+
+        matched = db.query(Lead).filter(Lead.email == "match-campaign@x.co").first()
+        skipped = db.query(Lead).filter(Lead.email == "nomatch-campaign@x.co").first()
+        assert matched is not None and matched.campaign_id == plan_id
+        assert skipped is None  # filtered out — never sourced
+
+        listed = client.get("/campaigns", headers=auth_headers).json()
+        row = next(p for p in listed if p["id"] == plan_id)
+        assert row["status"] == "launched" and row["leads_sourced"] == 1
+    finally:
+        db.close()
+
+
+@requires_db
 def test_unified_inbox_feed(client, auth_headers):
     """The unified inbox aggregates classified replies with label + drafted reply."""
     from app.database import SessionLocal
