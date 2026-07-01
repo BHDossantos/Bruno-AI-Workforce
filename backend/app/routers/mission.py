@@ -109,6 +109,14 @@ def mission_control(db: Session = Depends(get_db), _=Depends(_read)):
     }
 
 
+@router.get("/money-actions")
+def money_actions(db: Session = Depends(get_db), _=Depends(_read)):
+    """Today's highest-value actions to hit the client goal — hot leads to close,
+    backlog to send, follow-ups + booking nudges due — each with a one-click CTA."""
+    from .. import money_actions as ma
+    return ma.actions(db)
+
+
 @router.post("/work-pipeline")
 def work_pipeline(db: Session = Depends(get_db), _=Depends(_rr("admin", "operator"))):
     """Source + draft across every revenue line and queue it all for approval."""
