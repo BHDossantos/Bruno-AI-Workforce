@@ -53,6 +53,10 @@ FIELDS: dict[str, bool] = {
     "sendgrid_replyto_insurance": False,
     "sendgrid_replyto_bnb": False,
     "sendgrid_replyto_savorymind": False,
+    # Meta (Facebook/Instagram) app — powers the one-click Connect button.
+    "facebook_app_id": False,
+    "facebook_app_secret": True,
+    "meta_redirect_uri": False,
     # Booking links (Calendly/Cal.com) — turn an interested reply into a booked call.
     "calendar_link": False,
     "calendar_link_insurance": False,
@@ -139,6 +143,13 @@ def status(db) -> dict:
         "sms": {"configured": sms.is_configured() or bridge_on,
                 "via": "twilio" if sms.is_configured() else ("bridge" if bridge_on else None)},
         "jobs_api": {"configured": jobs_api.is_configured()},
+        # Meta app for the one-click Facebook/Instagram connect button.
+        "meta_app": {
+            "configured": bool(settings.facebook_app_id and settings.facebook_app_secret
+                               and settings.meta_redirect_uri),
+            "app_id": settings.facebook_app_id or "",
+            "redirect_uri": settings.meta_redirect_uri or "",
+        },
         # Booking links are not secret — return them so Setup can show/edit them.
         "booking": {
             "default": settings.calendar_link or "",

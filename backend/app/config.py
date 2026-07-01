@@ -249,6 +249,10 @@ class Settings(BaseSettings):
     # short-lived token can never silently expire after a couple of hours.
     facebook_app_id: str = ""
     facebook_app_secret: str = ""
+    # Enables the in-app "Connect with Facebook/Instagram" one-click button. Must
+    # be registered as a Valid OAuth Redirect URI in the Meta app and point at this
+    # backend's callback, e.g. https://<backend>/connections/meta/oauth/callback
+    meta_redirect_uri: str = ""
     # iMessage bridge: when set, a Mac helper polls /bridge/* with this token and
     # sends SMS from the user's real number via Messages.app (free, no Twilio).
     bridge_token: str = ""

@@ -50,6 +50,9 @@ class CredIn(BaseModel):
     calendar_link_insurance: str | None = None
     calendar_link_bnb: str | None = None
     calendar_link_savorymind: str | None = None
+    facebook_app_id: str | None = None
+    facebook_app_secret: str | None = None
+    meta_redirect_uri: str | None = None
 
 
 @router.get("")
