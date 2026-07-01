@@ -137,6 +137,11 @@ def _run_followups(db):
     return process_due_followups(db)
 
 
+def _run_booking_nudges(db):
+    from . import booking_nudge
+    return booking_nudge.run(db)
+
+
 def _run_selfcheck(db):
     from . import selfcheck
     return selfcheck.run(db)
@@ -184,6 +189,8 @@ _JOBS: dict[str, tuple] = {
     "content_metrics":  (_sync_content_metrics, "0 21 * * *"),
     # Send any due follow-ups, daily.
     "followups":        (_run_followups, "0 11 * * *"),
+    # Nudge interested-but-not-booked prospects toward the calendar, daily.
+    "booking_nudges":   (_run_booking_nudges, "30 12 * * *"),
     # Self-check + auto-correct core features daily (re-seed, refresh creds, flag).
     "selfcheck":        (_run_selfcheck, "0 4 * * *"),
     # Auto-apply to qualified jobs (self-gates: only acts when its mode != off),
