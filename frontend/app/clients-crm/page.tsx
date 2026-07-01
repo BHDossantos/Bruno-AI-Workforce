@@ -12,6 +12,7 @@ type Client = {
   status: string; signed_at: string | null; expires_at: string | null; notes: string | null;
   last_contacted_at: string | null; days_to_expiry: number | null; expiring_soon: boolean;
   timeline?: TimelineItem[]; emails?: EmailItem[];
+  last_email: { subject: string | null; direction: string; date: string | null } | null;
 };
 type TimelineItem = { id: string; kind: string; body: string; author: string | null; created_at: string };
 type EmailItem = { id: string; direction: string; subject: string | null; status: string; from_account: string; snippet: string; date: string | null };
@@ -131,7 +132,7 @@ function CRM() {
           <thead className="bg-gray-50 text-left text-xs text-gray-500">
             <tr><th className="p-3">Client</th><th className="p-3">Business</th><th className="p-3">Carrier</th><th className="p-3">Line</th>
               <th className="p-3">State</th><th className="p-3">Premium/mo</th><th className="p-3">Status</th>
-              <th className="p-3">Renews</th><th className="p-3">Last contact</th></tr>
+              <th className="p-3">Renews</th><th className="p-3">Last contact</th><th className="p-3">Last email</th></tr>
           </thead>
           <tbody>
             {(data || []).map((c) => (
@@ -148,10 +149,21 @@ function CRM() {
                   {c.expiring_soon && <span className="ml-1 badge bg-amber-100 text-amber-700">{c.days_to_expiry}d</span>}
                 </td>
                 <td className="p-3 text-xs text-gray-400">{c.last_contacted_at ? new Date(c.last_contacted_at).toLocaleDateString() : "—"}</td>
+                <td className="p-3 text-xs">
+                  {c.last_email ? (
+                    <>
+                      <span className={c.last_email.direction === "inbound" ? "text-emerald-600" : "text-gray-500"}>
+                        {c.last_email.direction === "inbound" ? "⬅" : "➡"}
+                      </span>{" "}
+                      <span className="text-gray-600">{c.last_email.subject || "(no subject)"}</span>
+                      <div className="text-gray-400">{c.last_email.date ? new Date(c.last_email.date).toLocaleDateString() : ""}</div>
+                    </>
+                  ) : <span className="text-gray-300">—</span>}
+                </td>
               </tr>
             ))}
             {!loading && (data || []).length === 0 && (
-              <tr><td colSpan={9} className="p-6 text-center text-gray-400">No clients yet — add your first won client, or convert a won lead.</td></tr>
+              <tr><td colSpan={10} className="p-6 text-center text-gray-400">No clients yet — add your first won client, or convert a won lead.</td></tr>
             )}
           </tbody>
         </table>

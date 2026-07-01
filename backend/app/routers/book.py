@@ -126,7 +126,33 @@ def list_clients(business: str | None = None, line: str | None = None, carrier: 
     out = [_client_dict(c) for c in rows]
     if expiring:
         out = [c for c in out if c["expiring_soon"]]
+    _attach_last_email(db, out)
     return out
+
+
+def _attach_last_email(db: Session, rows: list[dict]) -> None:
+    """Batch-attach each client's most recent email (subject/date/direction) so
+    the list view shows the lead-email integration at a glance, without an
+    N+1 query per client."""
+    from ..models import Message
+    emails = {r["email"] for r in rows if r.get("email")}
+    if not emails:
+        for r in rows:
+            r["last_email"] = None
+        return
+    msgs = (db.query(Message.to_email, Message.subject, Message.direction,
+                     Message.sent_at, Message.created_at)
+            .filter(Message.to_email.in_(emails))
+            .order_by(Message.created_at.desc()).all())
+    latest: dict[str, dict] = {}
+    for to_email, subject, direction, sent_at, created_at in msgs:
+        if to_email in latest:
+            continue  # already have the most recent (rows are ordered desc)
+        when = sent_at or created_at
+        latest[to_email] = {"subject": subject, "direction": direction,
+                            "date": when.isoformat() if when else None}
+    for r in rows:
+        r["last_email"] = latest.get(r.get("email") or "")
 
 
 @router.get("/summary")
