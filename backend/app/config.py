@@ -167,6 +167,24 @@ class Settings(BaseSettings):
     twilio_auth_token: str = ""
     twilio_from_number: str = ""          # default sending number (E.164, e.g. +1617...)
     twilio_insurance_number: str = ""     # optional separate number for insurance
+    # Twilio WhatsApp Business API — a legitimate, official channel (unlike
+    # LinkedIn/consumer WhatsApp automation). Number must be WhatsApp-enabled in
+    # the Twilio console (sandbox for testing, or an approved Twilio Sender for
+    # production). E.164 format, e.g. +14155238886 — the "whatsapp:" prefix is
+    # added automatically when sending.
+    twilio_whatsapp_number: str = ""
+    # WhatsApp via Meta's own Cloud API (no Twilio) — preferred over Twilio
+    # WhatsApp when both are configured, since it has no reseller markup and
+    # reuses the same Facebook Developer app already connected for FB/IG.
+    whatsapp_cloud_phone_number_id: str = ""
+    whatsapp_cloud_token: str = ""
+
+    # Newsletter banner photo per funnel (optional — a tasteful gradient banner
+    # is used automatically when none is set, so newsletters never look bare).
+    newsletter_banner_insurance: str = ""
+    newsletter_banner_bnb: str = ""
+    newsletter_banner_savorymind: str = ""
+    newsletter_banner_music: str = ""
     # Auto-send a warm intro text when a lead replies to our email (becomes warm).
     sms_auto_on_reply: bool = True
 

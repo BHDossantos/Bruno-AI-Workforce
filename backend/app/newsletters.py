@@ -13,7 +13,7 @@ import secrets
 
 from sqlalchemy.orm import Session
 
-from . import outreach
+from . import newsletter_template, outreach
 from .ai import client
 from .config import settings
 from .models import NewsletterSend, NewsletterSubscriber
@@ -128,8 +128,20 @@ def preview(db: Session, funnel: str) -> dict:
     active = (db.query(NewsletterSubscriber)
               .filter(NewsletterSubscriber.funnel == funnel,
                       NewsletterSubscriber.unsubscribed.is_(False)).count())
+    html = _designed_issue(funnel, subject, body, _unsub_url("preview"))
     return {"funnel": funnel, "ok": True, "label": _FUNNEL[funnel]["label"],
-            "subject": subject, "body": body, "subscribers": int(active)}
+            "subject": subject, "body": body, "html": html, "subscribers": int(active)}
+
+
+def _designed_issue(funnel: str, subject: str, body: str, unsub_url: str) -> str:
+    """Wrap an issue's subject/body in the designed HTML layout (banner, card,
+    CTA) instead of sending bare text."""
+    from . import email_template
+    cfg = _FUNNEL[funnel]
+    return newsletter_template.render(
+        funnel=funnel, label=cfg["label"], subject=subject,
+        body=email_template.clean_body(body) or body, unsubscribe_url=unsub_url,
+        cta_url=email_template.booking_link(cfg["account"]) or None)
 
 
 def send_funnel(db: Session, funnel: str) -> dict:
@@ -144,10 +156,10 @@ def send_funnel(db: Session, funnel: str) -> dict:
     account = _FUNNEL[funnel]["account"]
     sent = 0
     for s in subs:
-        full = f"{body}\n\n—\nUnsubscribe: {_unsub_url(s.token)}"
+        designed = _designed_issue(funnel, subject, body, _unsub_url(s.token))
         try:
             msg = outreach.dispatch_email(db, entity_type="newsletter", entity_id=s.id,
-                                          to_email=s.email, subject=subject, body=full,
+                                          to_email=s.email, subject=subject, body=designed,
                                           account=account, actor="newsletter")
             if msg.status in ("Sent", "Drafted"):
                 sent += 1
@@ -188,6 +200,8 @@ def list_drafts(db: Session, limit: int = 50) -> list[dict]:
             .order_by(NewsletterDraft.created_at.desc()).limit(limit).all())
     return [{"id": str(d.id), "funnel": d.funnel, "label": _FUNNEL.get(d.funnel, {}).get("label", d.funnel),
              "subject": d.subject, "body": d.body,
+             "html": _designed_issue(d.funnel, d.subject or "", d.body or "", _unsub_url("preview"))
+             if d.funnel in _FUNNEL else None,
              "created_at": d.created_at.isoformat() if d.created_at else None} for d in rows]
 
 
@@ -207,10 +221,10 @@ def send_draft(db: Session, draft_id: str) -> dict:
     account = _FUNNEL[d.funnel]["account"]
     sent = 0
     for s in subs:
-        full = f"{d.body}\n\n—\nUnsubscribe: {_unsub_url(s.token)}"
+        designed = _designed_issue(d.funnel, d.subject or "", d.body or "", _unsub_url(s.token))
         try:
             msg = outreach.dispatch_email(db, entity_type="newsletter", entity_id=s.id,
-                                          to_email=s.email, subject=d.subject or "", body=full,
+                                          to_email=s.email, subject=d.subject or "", body=designed,
                                           account=account, actor="newsletter")
             if msg.status in ("Sent", "Drafted"):
                 sent += 1

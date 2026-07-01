@@ -48,6 +48,7 @@ from .routers import (
     restaurants,
     setup,
     sms,
+    webhooks,
 )
 from .scheduler import shutdown_scheduler, start_scheduler
 from .seed import seed
@@ -137,6 +138,7 @@ app.include_router(automations.router)
 app.include_router(campaigns.router)
 app.include_router(deliverability.router)
 app.include_router(book.router)
+app.include_router(webhooks.router)
 
 
 @app.get("/health", tags=["system"])

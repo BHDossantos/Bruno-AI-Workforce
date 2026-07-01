@@ -325,6 +325,45 @@ def test_newsletters_are_written_and_listed(client, auth_headers):
     assert all(d["id"] != again[0]["id"] for d in after)
 
 
+def test_newsletter_template_designed_html():
+    """Every newsletter renders as a designed HTML card — banner (gradient by
+    default, photo if configured), heading, body, and an unsubscribe link —
+    not bare text."""
+    from app.config import settings
+    from app import newsletter_template
+
+    orig = settings.newsletter_banner_insurance
+    try:
+        settings.newsletter_banner_insurance = ""
+        html = newsletter_template.render(
+            funnel="insurance", label="Thrust Insurance", subject="This week's tip",
+            body="Line one.\n\nLine two.", unsubscribe_url="https://x.test/unsub?t=abc")
+        assert "This week's tip" in html and "Thrust Insurance" in html
+        assert "Line one." in html and "Line two." in html
+        assert 'href="https://x.test/unsub?t=abc"' in html
+        assert "linear-gradient" in html  # default banner when no photo configured
+
+        settings.newsletter_banner_insurance = "https://cdn.example.com/banner.jpg"
+        html2 = newsletter_template.render(
+            funnel="insurance", label="Thrust Insurance", subject="S", body="B",
+            unsubscribe_url="https://x.test/unsub")
+        assert 'src="https://cdn.example.com/banner.jpg"' in html2
+    finally:
+        settings.newsletter_banner_insurance = orig
+
+
+@requires_db
+def test_newsletter_preview_and_drafts_include_designed_html(client, auth_headers):
+    """The preview endpoint and the drafts list both expose the designed HTML,
+    not just the raw AI text, so the frontend can show a real preview."""
+    p = client.get("/newsletters/insurance/preview", headers=auth_headers).json()
+    assert p["ok"] is True and "html" in p and "<div" in p["html"]
+
+    client.post("/newsletters/write", headers=auth_headers)
+    drafts = client.get("/newsletters/drafts", headers=auth_headers).json()["drafts"]
+    assert drafts and all(d["html"] for d in drafts)
+
+
 def test_bulk_outreach_helpers_exist():
     """The shared dispatch module powers both the buttons and the auto cron."""
     from app import bulk_outreach
@@ -933,6 +972,154 @@ def test_client_crm_full_lifecycle(client, auth_headers):
     conv = client.post(f"/book/from-lead/{lead_id}", headers=auth_headers).json()
     assert conv["name"] == "Convert Co" and conv["line"] == "commercial"
     assert conv["business"] == "insurance"  # commercial segment → insurance book
+
+
+def test_whatsapp_prefers_meta_cloud_over_twilio():
+    """WhatsApp is provider-agnostic: Meta's Cloud API (no Twilio markup) wins
+    when both are configured; Twilio is the fallback; neither -> unconfigured."""
+    from app.config import settings
+    from app.integrations import sms, whatsapp_cloud
+    orig = (settings.whatsapp_cloud_phone_number_id, settings.whatsapp_cloud_token,
+            settings.twilio_account_sid, settings.twilio_auth_token, settings.twilio_whatsapp_number)
+    try:
+        settings.whatsapp_cloud_phone_number_id = settings.whatsapp_cloud_token = ""
+        settings.twilio_account_sid = settings.twilio_auth_token = settings.twilio_whatsapp_number = ""
+        assert sms.whatsapp_configured() is False
+
+        settings.twilio_account_sid, settings.twilio_auth_token = "sid", "tok"
+        settings.twilio_whatsapp_number = "+14155550000"
+        assert sms.whatsapp_configured() is True  # Twilio alone is enough
+
+        settings.whatsapp_cloud_phone_number_id = "123456"
+        settings.whatsapp_cloud_token = "eaa-token"
+        assert whatsapp_cloud.is_configured() is True
+        assert sms.whatsapp_configured() is True
+    finally:
+        (settings.whatsapp_cloud_phone_number_id, settings.whatsapp_cloud_token,
+         settings.twilio_account_sid, settings.twilio_auth_token,
+         settings.twilio_whatsapp_number) = orig
+
+
+@requires_db
+def test_client_whatsapp_send_gated_and_logged(client, auth_headers):
+    """Sending a client WhatsApp message requires a phone number, a non-empty
+    body, and a configured provider — and it's rejected cleanly otherwise."""
+    from app.config import settings
+    orig = (settings.whatsapp_cloud_phone_number_id, settings.whatsapp_cloud_token,
+            settings.twilio_account_sid, settings.twilio_auth_token, settings.twilio_whatsapp_number)
+    try:
+        settings.whatsapp_cloud_phone_number_id = settings.whatsapp_cloud_token = ""
+        settings.twilio_account_sid = settings.twilio_auth_token = settings.twilio_whatsapp_number = ""
+
+        created = client.post("/book/clients", headers=auth_headers, json={
+            "business": "insurance", "name": "No Phone Co"}).json()
+        r = client.post(f"/book/clients/{created['id']}/whatsapp", headers=auth_headers,
+                        json={"body": "hi"})
+        assert r.status_code == 400  # no phone on file
+
+        created2 = client.post("/book/clients", headers=auth_headers, json={
+            "business": "insurance", "name": "Has Phone Co", "phone": "+16175551234"}).json()
+        r2 = client.post(f"/book/clients/{created2['id']}/whatsapp", headers=auth_headers,
+                         json={"body": "hi"})
+        assert r2.status_code == 400  # WhatsApp not connected
+
+        r3 = client.post(f"/book/clients/{created2['id']}/whatsapp", headers=auth_headers,
+                         json={"body": ""})
+        assert r3.status_code in (400, 422)  # empty body rejected either way
+    finally:
+        (settings.whatsapp_cloud_phone_number_id, settings.whatsapp_cloud_token,
+         settings.twilio_account_sid, settings.twilio_auth_token,
+         settings.twilio_whatsapp_number) = orig
+
+
+@requires_db
+def test_book_carriers_exposes_whatsapp_status(client, auth_headers):
+    """/book/carriers surfaces whatsapp_configured and includes 'whatsapp' as a
+    loggable communication kind."""
+    opts = client.get("/book/carriers", headers=auth_headers).json()
+    assert "whatsapp_configured" in opts
+    assert "whatsapp" in opts["note_kinds"]
+
+
+def test_webhook_hmac_signature_is_deterministic():
+    """The signing helper produces a stable HMAC-SHA256 hex digest, so an
+    n8n/Make receiver can verify it independently."""
+    import hashlib
+    import hmac as hmac_mod
+    from app.webhooks import _sign
+    body = b'{"event":"client.created"}'
+    expected = hmac_mod.new(b"my-secret", body, hashlib.sha256).hexdigest()
+    assert _sign("my-secret", body) == expected
+
+
+@requires_db
+def test_webhook_crud_events_and_validation(client, auth_headers):
+    """Webhook CRUD: events picklist, create/list/patch/delete, secret is
+    write-only, and an unknown event key is rejected."""
+    events = client.get("/webhooks/events", headers=auth_headers).json()
+    keys = {e["key"] for e in events}
+    assert {"client.created", "client.note_added", "lead.replied"} <= keys
+
+    bad = client.post("/webhooks", headers=auth_headers, json={
+        "name": "Bad", "url": "https://example.com/hook", "events": ["not.a.real.event"]})
+    assert bad.status_code == 400
+
+    created = client.post("/webhooks", headers=auth_headers, json={
+        "name": "n8n test", "url": "https://example.com/hook", "secret": "shh",
+        "events": ["client.created"]}).json()
+    assert created["has_secret"] is True and "secret" not in created
+    assert created["events"] == ["client.created"] and created["enabled"] is True
+
+    listed = client.get("/webhooks", headers=auth_headers).json()
+    assert any(w["id"] == created["id"] for w in listed)
+
+    updated = client.patch(f"/webhooks/{created['id']}", headers=auth_headers, json={
+        "name": "n8n test", "url": "https://example.com/hook", "events": ["*"], "enabled": False}).json()
+    assert updated["enabled"] is False and updated["events"] == ["*"]
+
+    assert client.delete(f"/webhooks/{created['id']}", headers=auth_headers).status_code == 200
+    assert not any(w["id"] == created["id"] for w in
+                  client.get("/webhooks", headers=auth_headers).json())
+
+
+@requires_db
+def test_webhook_dispatch_never_blocks_the_caller(client, auth_headers):
+    """A webhook pointed at an unreachable URL must never break the action that
+    triggers it (new client creation), and its failure is recorded, not raised."""
+    hook = client.post("/webhooks", headers=auth_headers, json={
+        "name": "Unreachable", "url": "http://127.0.0.1:1/nowhere",
+        "events": ["client.created"]}).json()
+
+    r = client.post("/book/clients", headers=auth_headers, json={
+        "business": "insurance", "name": "Webhook Trigger Co"})
+    assert r.status_code == 200  # the broken webhook did not break client creation
+
+    rows = client.get("/webhooks", headers=auth_headers).json()
+    fired = next(w for w in rows if w["id"] == hook["id"])
+    assert fired["last_triggered_at"] is not None
+    assert fired["last_status"] and "error" in fired["last_status"].lower()
+
+    # A non-subscribed webhook must NOT fire for an event it isn't subscribed to.
+    other = client.post("/webhooks", headers=auth_headers, json={
+        "name": "Only replies", "url": "http://127.0.0.1:1/nowhere",
+        "events": ["lead.replied"]}).json()
+    client.post("/book/clients", headers=auth_headers, json={
+        "business": "insurance", "name": "Another Co"})
+    unfired = next(w for w in client.get("/webhooks", headers=auth_headers).json()
+                  if w["id"] == other["id"])
+    assert unfired["last_triggered_at"] is None
+
+
+@requires_db
+def test_webhook_test_endpoint(client, auth_headers):
+    """The manual test endpoint fires a synthetic event and reports the result
+    without needing a real subscription match."""
+    hook = client.post("/webhooks", headers=auth_headers, json={
+        "name": "Test target", "url": "http://127.0.0.1:1/nowhere", "events": ["*"]}).json()
+    r = client.post(f"/webhooks/{hook['id']}/test", headers=auth_headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is False and "status" in body  # unreachable URL -> ok False, but no crash
 
 
 @requires_db
@@ -1622,6 +1809,27 @@ def test_content_factory_api_offline(client, auth_headers):
     r = client.post("/content/factory", headers=auth_headers,
                     json={"topic": "SLOs explained", "business": "executive"}).json()
     assert "ok" in r  # offline -> ok False, but endpoint works
+
+
+@requires_db
+def test_content_video_url_exposed_for_download(client, auth_headers):
+    """A generated video must be downloadable/postable manually while a
+    platform's auto-publish is disconnected — the API has to expose video_url,
+    not just leave it buried in internal meta."""
+    from app import content_factory
+    from app.database import SessionLocal
+    from app.models import ContentItem
+    db = SessionLocal()
+    try:
+        item = ContentItem(topic="Test video post", business="music", channel="instagram",
+                           title="T", body="B", status="ready",
+                           meta={"video_url": "https://cdn.example.com/clip.mp4", "video_status": "ready"})
+        db.add(item); db.commit(); db.refresh(item)
+        d = content_factory.out(item)
+        assert d["video_url"] == "https://cdn.example.com/clip.mp4"
+        assert d["video_status"] == "ready"
+    finally:
+        db.close()
     assert isinstance(client.get("/content", headers=auth_headers).json(), list)
 
 
@@ -2416,6 +2624,20 @@ def test_csv_import_leads(client, auth_headers):
 
 
 @requires_db
+def test_csv_import_leads_recognizes_google_export_headers(client, auth_headers):
+    """Regression: importing a Google/Outlook-style contacts export as 'leads'
+    used to silently import 0 rows because only a literal 'email' header was
+    recognized. Any reasonably-named email column must now be found."""
+    csv_data = ("First Name,Last Name,Organization Name,E-mail 1 - Value,Phone 1 - Value\n"
+               "Homer,Owner,ACME Auto Body,homerowner@realbiz.com,+16035551313\n")
+    r = client.post("/import/leads", headers=auth_headers,
+                    files={"file": ("google_export.csv", csv_data, "text/csv")})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["imported"] == 1 and body["skipped_no_email"] == 0
+
+
+@requires_db
 def test_csv_export(client, auth_headers):
     r = client.get("/export/leads.csv", headers=auth_headers)
     assert r.status_code == 200
@@ -2996,8 +3218,9 @@ def test_setup_connect_status_and_save(client, auth_headers):
     from app.config import settings
     s = client.get("/setup", headers=auth_headers).json()
     assert set(s) == {"gmail_personal", "gmail_insurance", "gmail_bnb", "gmail_savorymind",
-                      "apollo", "google_places", "sms", "jobs_api", "instantly", "smartlead",
-                      "sendgrid", "meta_app", "booking"}
+                      "apollo", "google_places", "sms", "whatsapp", "jobs_api", "instantly",
+                      "smartlead", "sendgrid", "meta_app", "booking", "contacts_outreach_exclude",
+                      "newsletter_banners"}
     assert s["apollo"]["configured"] is False
     assert set(s["booking"]) == {"default", "insurance", "bnb", "savorymind"}
     orig = settings.google_places_api_key
@@ -3007,6 +3230,16 @@ def test_setup_connect_status_and_save(client, auth_headers):
         assert client.get("/setup", headers=auth_headers).json()["google_places"]["configured"] is True
     finally:
         settings.google_places_api_key = orig  # don't pollute other tests
+
+    orig_exclude = settings.contacts_outreach_exclude
+    try:
+        r2 = client.post("/setup", headers=auth_headers,
+                         json={"contacts_outreach_exclude": "mom@family.com, dad@family.com"})
+        assert r2.status_code == 200 and "contacts_outreach_exclude" in r2.json()["saved"]
+        s2 = client.get("/setup", headers=auth_headers).json()
+        assert s2["contacts_outreach_exclude"] == "mom@family.com, dad@family.com"
+    finally:
+        settings.contacts_outreach_exclude = orig_exclude
 
 
 @requires_db

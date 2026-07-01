@@ -57,6 +57,16 @@ def _f(v) -> float | None:
     return float(v) if v is not None else None
 
 
+def _fire(db: Session, event: str, data: dict) -> None:
+    """Best-effort webhook notification — never let a broken webhook affect the
+    CRM action that triggered it."""
+    try:
+        from .. import webhooks
+        webhooks.dispatch(db, event, data)
+    except Exception:  # pragma: no cover - defensive
+        pass
+
+
 def _client_dict(c: Client, notes: list[ClientNote] | None = None) -> dict:
     today = date.today()
     days = (c.expires_at - today).days if c.expires_at else None
@@ -87,9 +97,11 @@ def _client_dict(c: Client, notes: list[ClientNote] | None = None) -> dict:
 @router.get("/carriers")
 def carrier_options(_=Depends(_read)):
     """Dropdown options for the CRM (MA/NH/FL carriers, lines, states, statuses)."""
+    from ..integrations import sms
     return {"carriers": carriers_ref.CARRIERS, "lines": carriers_ref.LINES,
             "states": carriers_ref.STATES, "statuses": carriers_ref.STATUSES,
-            "note_kinds": carriers_ref.NOTE_KINDS, "businesses": carriers_ref.BUSINESSES}
+            "note_kinds": carriers_ref.NOTE_KINDS, "businesses": carriers_ref.BUSINESSES,
+            "whatsapp_configured": sms.whatsapp_configured()}
 
 
 @router.get("/quote-templates")
@@ -196,7 +208,9 @@ def create_client(body: ClientIn, db: Session = Depends(get_db), _=Depends(_writ
     db.add(c)
     db.commit()
     db.refresh(c)
-    return _client_dict(c, notes=[])
+    d = _client_dict(c, notes=[])
+    _fire(db, "client.created", d)
+    return d
 
 
 @router.get("/clients/{client_id}")
@@ -268,8 +282,44 @@ def add_note(client_id: str, body: NoteIn, db: Session = Depends(get_db), _=Depe
     c.last_contacted_at = datetime.now(timezone.utc)  # a logged touch updates last-contact
     db.commit()
     db.refresh(note)
+    _fire(db, "client.note_added", {"client_id": str(c.id), "client_name": c.name,
+                                    "kind": note.kind, "body": note.body})
     return {"id": str(note.id), "kind": note.kind, "body": note.body,
             "author": note.author, "created_at": note.created_at.isoformat()}
+
+
+class WhatsAppIn(BaseModel):
+    body: str
+
+
+@router.post("/clients/{client_id}/whatsapp")
+def send_client_whatsapp(client_id: str, body: WhatsAppIn, db: Session = Depends(get_db),
+                         _=Depends(_write)):
+    """Send a real WhatsApp message to this client via a legitimate official
+    channel (Meta's Cloud API, or Twilio WhatsApp as a fallback — never
+    unofficial WhatsApp automation). Logs the send on the client's timeline."""
+    from ..integrations import sms
+    c = db.query(Client).filter(Client.id == client_id).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Client not found")
+    if not c.phone:
+        raise HTTPException(status_code=400, detail="This client has no phone number on file")
+    if not (body.body and body.body.strip()):
+        raise HTTPException(status_code=400, detail="Message body is required")
+    if not sms.whatsapp_configured():
+        raise HTTPException(status_code=400, detail="WhatsApp isn't connected — add Meta Cloud "
+                            "API or Twilio WhatsApp credentials on Setup first")
+    sid = sms.send_whatsapp(c.phone, body.body.strip())
+    note = ClientNote(client_id=c.id, kind="whatsapp",
+                      body=body.body.strip(), author="operator")
+    db.add(note)
+    if sid:
+        c.last_contacted_at = datetime.now(timezone.utc)
+    db.commit()
+    if sid:
+        _fire(db, "client.note_added", {"client_id": str(c.id), "client_name": c.name,
+                                        "kind": "whatsapp", "body": note.body})
+    return {"ok": bool(sid), "sid": sid}
 
 
 @router.post("/from-lead/{lead_id}")
@@ -294,4 +344,6 @@ def from_lead(lead_id: str, db: Session = Depends(get_db), _=Depends(_write)):
     db.add(c)
     db.commit()
     db.refresh(c)
-    return _client_dict(c, notes=[])
+    d = _client_dict(c, notes=[])
+    _fire(db, "client.created", d)
+    return d

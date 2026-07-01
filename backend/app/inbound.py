@@ -122,6 +122,15 @@ def sync_replies(db: Session, newer_than_days: int = 3) -> dict:
                 except Exception:
                     log.debug("automation rules skipped", exc_info=True)
 
+                # Notify any subscribed external automation (n8n/Make/etc.).
+                try:
+                    from . import webhooks
+                    webhooks.dispatch(db, "lead.replied", {
+                        "sender": sender, "account": account, "intent": cls["intent"],
+                        "summary": cls.get("summary"), "subject": reply.get("subject")})
+                except Exception:
+                    log.debug("webhook dispatch skipped", exc_info=True)
+
                 # AI-draft a reply (kept as a draft for one-click review/send).
                 # Skipped for unsubscribes (we're suppressing, not replying).
                 try:

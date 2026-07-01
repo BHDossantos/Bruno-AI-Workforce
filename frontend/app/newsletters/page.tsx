@@ -13,8 +13,8 @@ type Overview = { funnels: Funnel[]; history: Send[] };
 
 const ICON: Record<string, string> = { insurance: "🛡️", bnbglobal: "💻", savorymind: "🍽️", music: "🎵" };
 
-type Preview = { funnel: string; label: string; subject: string; body: string; subscribers: number };
-type Draft = { id: string; funnel: string; label: string; subject: string; body: string; created_at: string | null };
+type Preview = { funnel: string; label: string; subject: string; body: string; html: string; subscribers: number };
+type Draft = { id: string; funnel: string; label: string; subject: string; body: string; html: string | null; created_at: string | null };
 
 function Newsletters() {
   const [tick, setTick] = useState(0);
@@ -101,8 +101,13 @@ function Newsletters() {
                 </div>
                 <div className="mt-2 text-xs text-gray-400">Subject</div>
                 <div className="font-medium">{d.subject}</div>
-                <div className="mt-2 text-xs text-gray-400">Body</div>
-                <pre className="mt-1 whitespace-pre-wrap rounded bg-gray-50 p-3 text-sm text-gray-700">{d.body}</pre>
+                <div className="mt-2 text-xs text-gray-400">Designed preview</div>
+                {d.html ? (
+                  <iframe srcDoc={d.html} title={`${d.label} preview`} sandbox=""
+                    className="mt-1 h-72 w-full rounded border border-gray-200 bg-gray-50" />
+                ) : (
+                  <pre className="mt-1 whitespace-pre-wrap rounded bg-gray-50 p-3 text-sm text-gray-700">{d.body}</pre>
+                )}
                 <div className="mt-3 flex gap-2">
                   <button onClick={() => sendDraft(d.id)} disabled={busy === d.id}
                     className="btn disabled:opacity-40">{busy === d.id ? "Sending…" : "Approve & send"}</button>
@@ -149,8 +154,9 @@ function Newsletters() {
             </div>
             <div className="text-xs text-gray-400">Subject</div>
             <div className="mb-3 font-medium">{preview.subject}</div>
-            <div className="text-xs text-gray-400">Body</div>
-            <pre className="mt-1 whitespace-pre-wrap rounded bg-gray-50 p-3 text-sm text-gray-700">{preview.body}</pre>
+            <div className="text-xs text-gray-400">Designed preview</div>
+            <iframe srcDoc={preview.html} title={`${preview.label} preview`} sandbox=""
+              className="mt-1 h-96 w-full rounded border border-gray-200 bg-gray-50" />
             <p className="mt-3 text-xs text-gray-400">
               {preview.subscribers} subscriber(s). This is a draft — “Send now” delivers it to everyone on this funnel’s list (each issue has an unsubscribe link).
             </p>

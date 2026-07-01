@@ -8,6 +8,7 @@ type Item = {
   id: string; topic: string; business: string | null; channel: string;
   title: string | null; body: string | null; hashtags: string | null;
   status: string; scheduled_for: string | null;
+  video_url: string | null; video_status: string | null;
 };
 
 const BUSINESSES = ["executive", "bnbglobal", "savorymind", "music", "insurance", "personal"];
@@ -40,6 +41,11 @@ function Factory() {
 
   async function act(id: string, path: string) {
     await api.post(`/content/${id}/${path}`, {}); await load();
+  }
+  async function copyCaption(i: Item) {
+    const text = [i.title, i.body, i.hashtags].filter(Boolean).join("\n\n");
+    try { await navigator.clipboard.writeText(text); setMsg("✅ Caption copied — paste it when you post manually."); }
+    catch { setMsg("❌ Clipboard unavailable — copy from the expanded content instead."); }
   }
   async function makeVideo(id: string) {
     setMsg("Producing media…");
@@ -100,8 +106,14 @@ function Factory() {
                 <td className="p-3 text-right">
                   {(i.status === "needs_approval" || i.status === "ready") &&
                     <button onClick={() => act(i.id, "approve")} className="rounded border border-gray-300 px-2 py-1 text-xs">Approve</button>}
-                  {["instagram", "tiktok", "youtube"].includes(i.channel) &&
+                  {["instagram", "tiktok", "youtube"].includes(i.channel) && !i.video_url &&
                     <button onClick={() => makeVideo(i.id)} className="ml-1 rounded border border-gray-300 px-2 py-1 text-xs">🎬 Video</button>}
+                  {i.video_url && (
+                    <a href={i.video_url} target="_blank" rel="noreferrer"
+                       className="ml-1 rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs text-emerald-700"
+                       title="Download the video to post manually">⬇ Video</a>
+                  )}
+                  <button onClick={() => copyCaption(i)} className="ml-1 rounded border border-gray-300 px-2 py-1 text-xs" title="Copy caption + hashtags">📋 Copy</button>
                   {i.status !== "dismissed" && i.status !== "published" &&
                     <button onClick={() => act(i.id, "dismiss")} className="ml-1 rounded border border-gray-300 px-2 py-1 text-xs text-gray-500">✕</button>}
                 </td>

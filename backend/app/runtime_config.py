@@ -37,6 +37,9 @@ FIELDS: dict[str, bool] = {
     "twilio_auth_token": True,
     "twilio_from_number": False,
     "twilio_insurance_number": False,  # optional separate number for insurance texts
+    "twilio_whatsapp_number": False,   # WhatsApp Business number (Twilio)
+    "whatsapp_cloud_phone_number_id": False,  # Meta WhatsApp Cloud API (no Twilio)
+    "whatsapp_cloud_token": True,
     # JSearch / RapidAPI key → live LinkedIn/Indeed/Glassdoor/ZipRecruiter jobs.
     "jobs_api_key": True,
     # Instantly.ai / Smartlead.ai — dedicated cold-email sending engines.
@@ -62,6 +65,14 @@ FIELDS: dict[str, bool] = {
     "calendar_link_insurance": False,
     "calendar_link_bnb": False,
     "calendar_link_savorymind": False,
+    # Imported-contacts warm outreach — who to NEVER auto-email (family/personal),
+    # editable in-app instead of a hardcoded code default.
+    "contacts_outreach_exclude": False,
+    # Newsletter banner photos per funnel (optional).
+    "newsletter_banner_insurance": False,
+    "newsletter_banner_bnb": False,
+    "newsletter_banner_savorymind": False,
+    "newsletter_banner_music": False,
 }
 
 
@@ -112,7 +123,8 @@ def save(db, field: str, value: str) -> bool:
 
 def status(db) -> dict:
     """Connection status — booleans + non-secret addresses only, never secrets."""
-    from .integrations import apollo, gmail, instantly, jobs_api, places, sendgrid, smartlead, sms
+    from .integrations import (apollo, gmail, instantly, jobs_api, places, sendgrid,
+                               smartlead, sms, whatsapp_cloud)
     apply_to_settings(db)  # make sure the live view reflects stored values
     bridge_on = bool(settings.bridge_token)
     return {
@@ -142,6 +154,9 @@ def status(db) -> dict:
         "google_places": {"configured": places.is_configured()},
         "sms": {"configured": sms.is_configured() or bridge_on,
                 "via": "twilio" if sms.is_configured() else ("bridge" if bridge_on else None)},
+        "whatsapp": {"configured": sms.whatsapp_configured(),
+                    "via": "meta_cloud" if whatsapp_cloud.is_configured()
+                    else ("twilio" if sms.whatsapp_configured() else None)},
         "jobs_api": {"configured": jobs_api.is_configured()},
         # Meta app for the one-click Facebook/Instagram connect button.
         "meta_app": {
@@ -156,5 +171,14 @@ def status(db) -> dict:
             "insurance": settings.calendar_link_insurance or "",
             "bnb": settings.calendar_link_bnb or "",
             "savorymind": settings.calendar_link_savorymind or "",
+        },
+        # Not secret — the admin's own exclude list. Returned so Setup can
+        # show/edit it (it's a plain comma list of emails, not a credential).
+        "contacts_outreach_exclude": settings.contacts_outreach_exclude or "",
+        "newsletter_banners": {
+            "insurance": settings.newsletter_banner_insurance or "",
+            "bnb": settings.newsletter_banner_bnb or "",
+            "savorymind": settings.newsletter_banner_savorymind or "",
+            "music": settings.newsletter_banner_music or "",
         },
     }

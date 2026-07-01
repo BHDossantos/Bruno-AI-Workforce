@@ -23,7 +23,7 @@ type Summary = {
   by_business: Record<string, { clients: number; monthly_premium: number }>;
 };
 type Business = { key: string; label: string };
-type Options = { carriers: string[]; lines: string[]; states: string[]; statuses: string[]; note_kinds: string[]; businesses: Business[] };
+type Options = { carriers: string[]; lines: string[]; states: string[]; statuses: string[]; note_kinds: string[]; businesses: Business[]; whatsapp_configured: boolean };
 
 const money = (n: number | null) => (n == null ? "—" : n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${n}`);
 const LINE_BADGE: Record<string, string> = {
@@ -49,6 +49,19 @@ function CRM() {
   const [detail, setDetail] = useState<Client | null>(null);            // detail + timeline
   const [msg, setMsg] = useState("");
   const bizLabel = (k: string) => opts?.businesses.find((b) => b.key === k)?.label || k;
+  const [quickLog, setQuickLog] = useState<{ id: string; kind: "call" | "sms" } | null>(null);
+  const [quickBody, setQuickBody] = useState("");
+  const [quickBusy, setQuickBusy] = useState(false);
+
+  async function submitQuickLog() {
+    if (!quickLog || !quickBody.trim()) return;
+    setQuickBusy(true);
+    try {
+      await api.post(`/book/clients/${quickLog.id}/notes`, { kind: quickLog.kind, body: quickBody.trim() });
+      setQuickLog(null); setQuickBody(""); setRefresh((n) => n + 1); setMsg("✅ Logged.");
+    } catch (e) { setMsg(`❌ ${e}`); }
+    finally { setQuickBusy(false); }
+  }
 
   async function openDetail(id: string) {
     try { setDetail(await api.get<Client>(`/book/clients/${id}`)); }
@@ -132,7 +145,7 @@ function CRM() {
           <thead className="bg-gray-50 text-left text-xs text-gray-500">
             <tr><th className="p-3">Client</th><th className="p-3">Business</th><th className="p-3">Carrier</th><th className="p-3">Line</th>
               <th className="p-3">State</th><th className="p-3">Premium/mo</th><th className="p-3">Status</th>
-              <th className="p-3">Renews</th><th className="p-3">Last contact</th><th className="p-3">Last email</th></tr>
+              <th className="p-3">Renews</th><th className="p-3">Last contact</th><th className="p-3">Last email</th><th className="p-3">Quick log</th></tr>
           </thead>
           <tbody>
             {(data || []).map((c) => (
@@ -160,10 +173,30 @@ function CRM() {
                     </>
                   ) : <span className="text-gray-300">—</span>}
                 </td>
+                <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                  {quickLog?.id === c.id ? (
+                    <div className="flex items-center gap-1">
+                      <input autoFocus className="input w-40 text-xs" placeholder={`What happened (${quickLog.kind})?`}
+                        value={quickBody} onChange={(e) => setQuickBody(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && submitQuickLog()} />
+                      <button className="rounded bg-brand px-2 py-1 text-xs text-white disabled:opacity-50"
+                        onClick={submitQuickLog} disabled={quickBusy || !quickBody.trim()}>✓</button>
+                      <button className="rounded border border-gray-200 px-2 py-1 text-xs text-gray-500"
+                        onClick={() => { setQuickLog(null); setQuickBody(""); }}>✕</button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-1">
+                      <button className="rounded-lg border border-gray-200 px-2 py-1 text-xs hover:bg-gray-50"
+                        onClick={() => { setQuickLog({ id: c.id, kind: "call" }); setQuickBody(""); }} title="Log a call">📞</button>
+                      <button className="rounded-lg border border-gray-200 px-2 py-1 text-xs hover:bg-gray-50"
+                        onClick={() => { setQuickLog({ id: c.id, kind: "sms" }); setQuickBody(""); }} title="Log an SMS">💬</button>
+                    </div>
+                  )}
+                </td>
               </tr>
             ))}
             {!loading && (data || []).length === 0 && (
-              <tr><td colSpan={10} className="p-6 text-center text-gray-400">No clients yet — add your first won client, or convert a won lead.</td></tr>
+              <tr><td colSpan={11} className="p-6 text-center text-gray-400">No clients yet — add your first won client, or convert a won lead.</td></tr>
             )}
           </tbody>
         </table>
@@ -229,12 +262,24 @@ function DetailModal({ c, opts, onClose, onEdit, onDelete, onNote, onMsg }: {
   const [kind, setKind] = useState("note");
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
+  const [waBody, setWaBody] = useState("");
+  const [waBusy, setWaBusy] = useState(false);
   async function addNote() {
     if (!body.trim()) return;
     setBusy(true);
     try { await api.post(`/book/clients/${c.id}/notes`, { kind, body }); setBody(""); onNote(); onMsg("✅ Logged."); }
     catch (e) { onMsg(`❌ ${e}`); }
     finally { setBusy(false); }
+  }
+  async function sendWhatsApp() {
+    if (!waBody.trim()) return;
+    setWaBusy(true);
+    try {
+      const r = await api.post<{ ok: boolean; sid: string | null }>(`/book/clients/${c.id}/whatsapp`, { body: waBody });
+      setWaBody(""); onNote();
+      onMsg(r.ok ? "✅ WhatsApp sent." : "❌ WhatsApp send failed.");
+    } catch (e) { onMsg(`❌ ${e}`); }
+    finally { setWaBusy(false); }
   }
   const row = (label: string, val: React.ReactNode) => (
     <div><div className="text-xs text-gray-400">{label}</div><div>{val || "—"}</div></div>
@@ -262,6 +307,23 @@ function DetailModal({ c, opts, onClose, onEdit, onDelete, onNote, onMsg }: {
           <button className="btn" onClick={addNote} disabled={busy || !body.trim()}>Add</button>
         </div>
       </div>
+
+      {/* Send WhatsApp — a real send via Twilio's official WhatsApp Business API */}
+      {c.phone && (
+        <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50/40 p-3">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-emerald-700">
+            📲 Send WhatsApp {!opts?.whatsapp_configured && <span className="font-normal text-gray-400">(connect Twilio WhatsApp on Setup)</span>}
+          </div>
+          <div className="flex gap-2">
+            <input className="input flex-1" placeholder={`Message to ${c.phone}`} value={waBody}
+              onChange={(e) => setWaBody(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendWhatsApp()}
+              disabled={!opts?.whatsapp_configured} />
+            <button className="btn" onClick={sendWhatsApp} disabled={waBusy || !waBody.trim() || !opts?.whatsapp_configured}>
+              {waBusy ? "Sending…" : "Send"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Timeline */}
       <div className="max-h-56 space-y-2 overflow-y-auto">

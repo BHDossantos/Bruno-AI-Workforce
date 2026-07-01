@@ -33,6 +33,9 @@ class CredIn(BaseModel):
     twilio_auth_token: str | None = None
     twilio_from_number: str | None = None
     twilio_insurance_number: str | None = None
+    twilio_whatsapp_number: str | None = None
+    whatsapp_cloud_phone_number_id: str | None = None
+    whatsapp_cloud_token: str | None = None
     jobs_api_key: str | None = None
     instantly_api_key: str | None = None
     instantly_campaign_id: str | None = None
@@ -50,6 +53,11 @@ class CredIn(BaseModel):
     calendar_link_insurance: str | None = None
     calendar_link_bnb: str | None = None
     calendar_link_savorymind: str | None = None
+    contacts_outreach_exclude: str | None = None
+    newsletter_banner_insurance: str | None = None
+    newsletter_banner_bnb: str | None = None
+    newsletter_banner_savorymind: str | None = None
+    newsletter_banner_music: str | None = None
     facebook_app_id: str | None = None
     facebook_app_secret: str | None = None
     meta_redirect_uri: str | None = None
