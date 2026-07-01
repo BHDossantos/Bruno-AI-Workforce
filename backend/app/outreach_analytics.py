@@ -80,6 +80,33 @@ def reply_rates(db: Session) -> dict[str, dict]:
     return agg
 
 
+def styles_report(db: Session) -> dict:
+    """Full A/B view for the dashboard: every rotated subject style with its
+    sent/replied/reply-rate, which styles have enough data to trust, and the
+    current winner — so the self-optimizing outreach loop is visible, not a
+    black box. Pure read; safe to call anywhere."""
+    try:
+        rates = reply_rates(db)
+    except Exception:  # pragma: no cover - best-effort
+        rates = {}
+    styles = []
+    for st in _STYLE_ORDER:
+        a = rates.get(st) or {"sent": 0, "replied": 0, "rate": 0.0}
+        styles.append({
+            "style": st, "description": _STYLE_DESC[st],
+            "sent": a["sent"], "replied": a["replied"], "rate": a["rate"],
+            "enough_data": a["sent"] >= _MIN_SAMPLE,
+        })
+    ranked = sorted([s for s in styles if s["enough_data"] and s["rate"] > 0],
+                    key=lambda s: s["rate"], reverse=True)
+    return {
+        "styles": styles, "min_sample": _MIN_SAMPLE,
+        "best": ranked[0]["style"] if ranked else None,
+        "total_sent": sum(s["sent"] for s in styles),
+        "total_replied": sum(s["replied"] for s in styles),
+    }
+
+
 def whats_working(db: Session, top_n: int = 2) -> str:
     """Prompt hint naming the best-replying subject styles (with enough data)."""
     try:
