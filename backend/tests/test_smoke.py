@@ -796,6 +796,33 @@ def test_meta_oauth_start_requires_config(client, auth_headers):
 
 
 @requires_db
+def test_money_actions_cockpit(client, auth_headers):
+    """The 'today's money actions' cockpit ranks work and surfaces hot leads with
+    a deal value, tied to the client goal."""
+    from app.database import SessionLocal
+    from app.models import Lead
+    db = SessionLocal()
+    try:
+        db.add(Lead(segment="commercial", category="Contractor", company_name="Hot Money Co",
+                    email="hotmoney@realbiz.com", status="Interested", score=10))
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.get("/mission/money-actions", headers=auth_headers)
+    assert r.status_code == 200
+    d = r.json()
+    assert {"goal", "actions", "hot_leads"} <= set(d)
+    assert "target" in d["goal"] and "won_today" in d["goal"]
+    # The interested lead shows up as a hot lead with a value and an action to close.
+    assert any(h["name"] == "Hot Money Co" and h["value"] > 0 for h in d["hot_leads"])
+    assert any(a["key"] == "close_hot" for a in d["actions"])
+    for a in d["actions"]:
+        for k in ("key", "title", "why", "cta", "action"):
+            assert k in a, k
+
+
+@requires_db
 def test_conversion_by_line(client, auth_headers):
     """Conversion-by-line groups insurance leads (and the partners feeding each
     line) into Home/Auto/Life/Commercial with reply and win rates."""

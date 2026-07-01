@@ -8,6 +8,7 @@ import LiveClock from "@/components/LiveClock";
 
 const NAV = [
   { href: "/", label: "Mission Control", icon: "🛰️" },
+  { href: "/today", label: "Today's Money Actions", icon: "💸" },
   { href: "/clients", label: "Client Engine", icon: "🎯" },
   { href: "/agent-builder", label: "Create AI Agent", icon: "✨" },
   { href: "/campaign-builder", label: "Campaign Builder", icon: "🧭" },
