@@ -3132,6 +3132,37 @@ def test_restaurant_and_music_reachout(client, auth_headers):
 
 
 @requires_db
+def test_restaurants_temperature_survives_cold_flood(client, auth_headers):
+    """Regression: /restaurants?temperature=warm must still surface a warm
+    prospect even when hundreds of cold ones (sourced daily, the majority)
+    exist — the same row-LIMIT-before-filter starvation bug already fixed on
+    /leads. Temperature is pushed into SQL so it can't be starved."""
+    from app import models
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        db.query(models.Restaurant).filter(
+            models.Restaurant.email.like("coldflood%@x.co")).delete(synchronize_session=False)
+        db.query(models.Restaurant).filter(
+            models.Restaurant.email == "warmrestaurant@x.co").delete(synchronize_session=False)
+        db.commit()
+        db.add_all([
+            models.Restaurant(kind="prospect", name=f"Cold Flood {i}", email=f"coldflood{i}@x.co",
+                              status="New")
+            for i in range(250)
+        ])
+        db.add(models.Restaurant(kind="prospect", name="Warm Restaurant",
+                                 email="warmrestaurant@x.co", status="replied"))
+        db.commit()
+    finally:
+        db.close()
+
+    rows = client.get("/restaurants?temperature=warm", headers=auth_headers).json()
+    assert any(r["name"] == "Warm Restaurant" for r in rows)
+    assert all(r["temperature"] == "warm" for r in rows)
+
+
+@requires_db
 def test_universal_crm_aggregates_and_adds(client, auth_headers):
     # Sources from the daily run (leads/restaurants/jobs) surface in one list.
     all_c = client.get("/crm", headers=auth_headers).json()
@@ -3147,6 +3178,50 @@ def test_universal_crm_aggregates_and_adds(client, auth_headers):
     cid = next(c["id"] for c in manual if c["name"] == "Dana Recruiter")
     detail = client.get(f"/crm/{cid}", headers=auth_headers).json()
     assert "memories" in detail and len(detail["memories"]) >= 1  # auto-seeded
+
+
+@requires_db
+def test_crm_get_contact_survives_a_flood_of_other_contacts(client, auth_headers):
+    """Regression: GET /crm/{id} must find a specific contact by its exact id
+    even when hundreds of other contacts exist across every source — it must
+    never depend on the aggregated, alphabetically-sorted, page-capped list
+    that /crm (list) returns (that's what made a freshly-added manual contact
+    report 'not found' once enough other leads/restaurants/jobs existed)."""
+    from app import models
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        db.query(models.Lead).filter(models.Lead.email.like("crmflood%@x.co")).delete(
+            synchronize_session=False)
+        db.commit()
+        # Names starting with 'A' so they sort ahead of a 'Z'-named contact,
+        # simulating the daily-cycle's leads crowding a manual contact off a
+        # capped, alphabetically-sorted aggregate page.
+        db.add_all([
+            models.Lead(segment="commercial", category="Contractor",
+                       company_name=f"Aaa Flood Co {i}", email=f"crmflood{i}@x.co", status="New")
+            for i in range(250)
+        ])
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.post("/crm", headers=auth_headers, json={"name": "Zzz Late Contact", "kind": "recruiter"})
+    assert r.status_code == 200
+    cid = r.json()["id"]
+
+    detail = client.get(f"/crm/{cid}", headers=auth_headers).json()
+    assert detail.get("name") == "Zzz Late Contact"
+    assert "memories" in detail
+
+    # Adding a note and linking must resolve the same way — not "not found".
+    note = client.post(f"/crm/{cid}/note", headers=auth_headers, json={"content": "met at a conference"})
+    assert note.status_code == 200
+
+    # An unknown/malformed id is a clean 404, not a 500.
+    assert client.get("/crm/not-a-real-id", headers=auth_headers).status_code == 404
+    assert client.get("/crm/lead:00000000-0000-0000-0000-000000000000",
+                      headers=auth_headers).status_code == 404
 
 
 @requires_db

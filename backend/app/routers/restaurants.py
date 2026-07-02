@@ -1,5 +1,6 @@
 """SavoryMind restaurants + consumer growth routes."""
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from .. import outreach
@@ -14,12 +15,20 @@ router = APIRouter(prefix="/restaurants", tags=["savorymind"])
 @router.get("", response_model=list[RestaurantOut])
 def list_restaurants(kind: str = "prospect", temperature: str | None = None, limit: int = 200,
                      db: Session = Depends(get_db), _=Depends(require_role("admin", "operator", "viewer"))):
-    from ..lead_temperature import classify
-    rows = (db.query(Restaurant).filter(Restaurant.kind == kind)
-            .order_by(Restaurant.created_at.desc()).limit(limit).all())
+    from .. import lead_temperature
+    q = db.query(Restaurant).filter(Restaurant.kind == kind)
+    # Temperature maps to a fixed, known set of statuses — push it into SQL so
+    # it can't be starved by an unrelated row LIMIT once cold prospects (the
+    # majority, sourced daily) fill the page before a warm/hot filter runs
+    # (the same bug already fixed on /leads).
     if temperature:
-        rows = [r for r in rows if classify(r.status) == temperature.lower()]
-    return rows
+        wanted = lead_temperature.statuses_for(temperature)
+        if wanted is not None:
+            q = q.filter(func.lower(Restaurant.status).in_(wanted))
+        else:  # cold = everything NOT hot/warm/dead, including blank/unknown
+            q = q.filter(or_(Restaurant.status.is_(None),
+                             ~func.lower(Restaurant.status).in_(lead_temperature.all_classified_statuses())))
+    return q.order_by(Restaurant.created_at.desc()).limit(limit).all()
 
 
 @router.get("/summary")
