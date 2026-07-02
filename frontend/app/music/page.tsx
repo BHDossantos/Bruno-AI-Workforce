@@ -19,6 +19,10 @@ type Release = {
   language: string | null; status: string;
 };
 type Piece = { id: string; topic: string; channel: string; title: string | null; body: string | null; hashtags: string | null; status: string };
+type CatalogTrack = { title: string; single: boolean };
+type Album = { number: number; title: string; theme: string; style: string | null; tracks: CatalogTrack[]; singles: string[]; track_count: number };
+type PopularTrack = { rank: number; title: string; album: string | null };
+type Catalog = { stats: { albums: number; tracks: number; singles: number; popular: number }; popular: PopularTrack[]; albums: Album[] };
 
 function Music() {
   const [refresh, setRefresh] = useState(0);
@@ -28,10 +32,32 @@ function Music() {
   const { data: content } = useFetch<Campaign[]>(() => api.get<Campaign[]>("/music/content?limit=5"));
   const { data: spotify } = useFetch<Spotify>(() => api.get<Spotify>("/music/spotify"));
   const { data: releases } = useFetch<Release[]>(() => api.get<Release[]>("/music/releases"), [refresh]);
+  const { data: catalog } = useFetch<Catalog>(() => api.get<Catalog>("/music/catalog"), [refresh]);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
   const [form, setForm] = useState({ title: "", era: "", city: "", story: "" });
   const [pieces, setPieces] = useState<Record<string, Piece[]>>({});
+  const [openAlbum, setOpenAlbum] = useState<number | null>(1);
+
+  async function promoteTrack(title: string) {
+    setBusy(`promote-${title}`); setMsg("");
+    try {
+      await api.post("/music/catalog/promote", { title });
+      setMsg(`✅ "${title}" added as a release — build its content kit below.`);
+      setRefresh((n) => n + 1);
+    } catch (e) { setMsg(String(e)); }
+    finally { setBusy(null); }
+  }
+
+  async function promoteTop10() {
+    setBusy("top10"); setMsg("");
+    try {
+      const r = await api.post<{ promoted: number }>("/music/catalog/promote-top10", {});
+      setMsg(`✅ Queued the top ${r.promoted} songs as releases — build their kits below.`);
+      setRefresh((n) => n + 1);
+    } catch (e) { setMsg(String(e)); }
+    finally { setBusy(null); }
+  }
 
   async function createRelease() {
     if (!form.title.trim()) { setMsg("Add a song title first."); return; }
@@ -136,6 +162,71 @@ function Music() {
       ) : (
         <div className="card bg-gray-50 text-sm text-gray-500">🎧 Connect Spotify in Connections to see your live follower count and top tracks.</div>
       )}
+
+      {/* Most Popular — the real Spotify top-streamed songs to focus on first */}
+      {catalog?.popular && catalog.popular.length > 0 && (
+        <div className="card mb-4 bg-gradient-to-br from-brand/5 to-transparent">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-semibold">🔥 Most Popular — focus here first</h2>
+            <button onClick={promoteTop10} disabled={busy === "top10"} className="btn">
+              {busy === "top10" ? "Queuing…" : "Promote all top 10"}
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-gray-500">Your most-streamed songs. Promote them to queue releases, then build each content kit below.</p>
+          <ol className="mt-3 space-y-1">
+            {catalog.popular.map((t) => (
+              <li key={t.rank} className="flex items-center justify-between rounded-lg px-2 py-1.5 text-sm hover:bg-white/50">
+                <span><span className="mr-2 inline-block w-5 text-right font-semibold text-gray-400">{t.rank}</span>{t.title}{t.album && <span className="ml-2 text-xs text-gray-400">· {t.album}</span>}</span>
+                <button onClick={() => promoteTrack(t.title)} disabled={busy === `promote-${t.title}`}
+                  className="rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+                  {busy === `promote-${t.title}` ? "…" : "Promote"}
+                </button>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {/* Discography — the real released catalog; promote any song into a kit */}
+      <div className="card mb-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="font-semibold">🎙️ Discography</h2>
+          {catalog && (
+            <span className="text-xs text-gray-400">
+              {catalog.stats.albums} albums · {catalog.stats.tracks} songs · {catalog.stats.singles} singles
+            </span>
+          )}
+        </div>
+        <p className="mt-1 text-xs text-gray-500">Your released catalog. Click a song&apos;s <b>Promote</b> to turn it into a release and spin up its full content kit.</p>
+        <div className="mt-3 space-y-2">
+          {(catalog?.albums || []).map((a) => (
+            <div key={a.number} className="rounded-lg border border-gray-200">
+              <button onClick={() => setOpenAlbum(openAlbum === a.number ? null : a.number)}
+                className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-gray-50">
+                <span className="font-medium">{a.number}. {a.title}</span>
+                <span className="text-xs text-gray-400">{a.style ? `${a.style} · ` : ""}{a.track_count} songs {openAlbum === a.number ? "▲" : "▼"}</span>
+              </button>
+              {openAlbum === a.number && (
+                <div className="border-t border-gray-100 px-3 py-2">
+                  <p className="mb-2 text-xs italic text-gray-500">{a.theme}</p>
+                  <ul className="divide-y divide-gray-50">
+                    {a.tracks.map((t) => (
+                      <li key={t.title} className="flex items-center justify-between py-1.5 text-sm">
+                        <span>{t.title}{t.single && <span className="badge ml-2 bg-brand/10 text-brand-dark">single</span>}</span>
+                        <button onClick={() => promoteTrack(t.title)} disabled={busy === `promote-${t.title}`}
+                          className="rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:opacity-40">
+                          {busy === `promote-${t.title}` ? "…" : "Promote"}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          ))}
+          {!catalog && <p className="text-sm text-gray-400">Loading catalog…</p>}
+        </div>
+      </div>
 
       <div className="card">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
