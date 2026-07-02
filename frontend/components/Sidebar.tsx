@@ -32,7 +32,7 @@ const GROUPS: NavGroup[] = [
       { href: "/bnbglobal", label: "BnB Global Consulting", icon: "💻" },
       { href: "/savorymind", label: "SavoryMind Leads", icon: "🍽️" },
       { href: "/music", label: "Music Campaigns", icon: "🎵" },
-      { href: "/foundation", label: "Foundation — Grants", icon: "🎓" },
+      { href: "/foundation", label: "Foundation", icon: "🎓" },
       { href: "/campaign-builder", label: "Campaign Builder", icon: "🧭" },
       { href: "/clients", label: "Client Engine", icon: "🎯" },
       { href: "/deals", label: "Deal Pipeline", icon: "🗂️" },
@@ -242,8 +242,28 @@ export default function Sidebar() {
         >
           Sign out
         </button>
+        <BuildStamp />
       </aside>
     </>
+  );
+}
+
+/** Which build is actually live — so a merged change can be confirmed to have
+ * reached the site at a glance. Shows the frontend build (baked at image build)
+ * and the backend build (from /version). "dev" means an un-stamped local build. */
+function BuildStamp() {
+  const front = process.env.NEXT_PUBLIC_BUILD_SHA || "dev";
+  const [back, setBack] = useState<string>("…");
+  useEffect(() => {
+    if (!getToken()) { setBack("—"); return; }
+    api.get<{ sha?: string }>("/version")
+      .then((r) => setBack(r.sha || "?"))
+      .catch(() => setBack("unreachable"));
+  }, []);
+  return (
+    <div className="mx-3 mb-3 text-[10px] leading-tight text-brand-light/60" title="Live build versions — front (this page) and back (API)">
+      build · front {front} · api {back}
+    </div>
   );
 }
 

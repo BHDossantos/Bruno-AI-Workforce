@@ -148,6 +148,19 @@ def health():
     return {"status": "ok", "service": "bruno-ai-workforce"}
 
 
+@app.get("/version", tags=["system"])
+def version():
+    """Which build is actually live. BUILD_SHA is set to the deploying commit's
+    short SHA by cloudbuild.backend.yaml, so you can confirm at a glance whether a
+    merge has really reached production (answers 'why don't I see my changes?')."""
+    import os
+    return {
+        "service": "bruno-ai-workforce",
+        "app_version": app.version,
+        "sha": os.environ.get("BUILD_SHA", "dev"),
+    }
+
+
 @app.get("/health/db", tags=["system"])
 def health_db():
     """Reports whether the database is reachable, with the error if not."""

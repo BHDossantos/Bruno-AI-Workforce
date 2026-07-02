@@ -2373,6 +2373,19 @@ def test_health_and_auth(client, auth_headers):
     assert client.get("/auth/me", headers=auth_headers).status_code == 200
 
 
+def test_version_reports_build_sha(client, monkeypatch):
+    """/version reports the live build's commit SHA (set by the deploy) so you can
+    confirm a merge actually reached production. Public (no auth) for easy checks."""
+    r = client.get("/version")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["service"] == "bruno-ai-workforce" and "app_version" in body
+    assert body["sha"] == "dev"  # unset in tests → the safe default
+
+    monkeypatch.setenv("BUILD_SHA", "abc1234")
+    assert client.get("/version").json()["sha"] == "abc1234"
+
+
 @requires_db
 def test_full_daily_cycle_hits_targets(client, auth_headers):
     """Run every agent and assert the daily success-criteria targets are met."""
