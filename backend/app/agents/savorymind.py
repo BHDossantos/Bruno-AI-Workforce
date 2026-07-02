@@ -20,11 +20,21 @@ class SavoryMindAgent(BaseAgent):
     description = "Sources restaurant prospects, analyzes menus with AI, and builds a consumer growth list."
     schedule_cron = "0 7 * * *"  # 7 AM
 
-    def execute(self) -> dict:
+    def execute(self, *, scope: str | None = None, keywords: list[str] | None = None,
+               industry: str | None = None, campaign_id: str | None = None) -> dict:
+        """`scope`/`keywords`/`campaign_id` let Campaign Builder launch a one-off
+        targeted run (e.g. "Boston restaurants"); the daily scheduler calls this
+        with no args and gets the normal worldwide sweep. `industry` is accepted
+        for a consistent Campaign Builder interface but has no restaurant analogue
+        (use `keywords` — matched against name/cuisine — instead)."""
         batch = max(1, settings.lead_batch_size)
         # SavoryMind sells anywhere → sweep restaurants across the US + Europe.
-        restaurants = providers.fetch_restaurants(batch, scope=settings.restaurant_lead_scope)
+        restaurants = providers.fetch_restaurants(batch, scope=scope or settings.restaurant_lead_scope)
         consumers = providers.fetch_food_consumers(batch)
+        if keywords:
+            from . import leadgen
+            restaurants = [r for r in restaurants
+                          if leadgen.matches_filters(r, keywords=keywords)]
 
         # Don't duplicate restaurants we already have (keep contact history).
         existing = {e for (e,) in self.db.query(Restaurant.email)
@@ -43,7 +53,7 @@ class SavoryMindAgent(BaseAgent):
                 kind="prospect", name=r["name"], owner_manager=r.get("owner_manager"),
                 website=r.get("website"), menu_url=r.get("menu_url"), instagram=r.get("instagram"),
                 email=r.get("email"), phone=r.get("phone"), cuisine=r.get("cuisine"), city=r.get("city"),
-                pain_points=r.get("pain_points"), status="New",
+                pain_points=r.get("pain_points"), status="New", campaign_id=campaign_id,
             )
             self.db.add(row)
             pairs.append((row, r))

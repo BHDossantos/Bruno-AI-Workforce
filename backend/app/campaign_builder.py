@@ -40,11 +40,14 @@ def build(db: Session, brief: str) -> dict:
     db.add(row)
     db.commit()
     db.refresh(row)
-    return {"ok": True, **_serialize(row)}
+    return {"ok": True, **_serialize(db, row)}
 
 
 def launch(db: Session, plan_id: str) -> dict:
-    """Run the mapped business agent to start sourcing + drafting for this plan."""
+    """Run the mapped business agent with THIS plan's filters, so the brief you
+    typed actually steers sourcing instead of just triggering a generic run.
+    Location becomes the sourcing scope, industry/keywords narrow the sourced
+    batch, and every lead/restaurant found is tagged with this plan's id."""
     row = db.query(CampaignPlan).filter(CampaignPlan.id == plan_id).first()
     if not row:
         return {"ok": False, "error": "Plan not found"}
@@ -52,23 +55,48 @@ def launch(db: Session, plan_id: str) -> dict:
     cls = AGENTS.get(row.agent_key or "")
     if not cls:
         return {"ok": False, "error": "No agent mapped for this business"}
+    plan = row.plan or {}
+    filters = plan.get("filters") or {}
+    kwargs: dict = {"campaign_id": str(row.id)}
+    if filters.get("location"):
+        kwargs["scope"] = str(filters["location"])
+    if filters.get("industry"):
+        kwargs["industry"] = str(filters["industry"])
+    kw = filters.get("keywords")
+    if kw:
+        kwargs["keywords"] = kw if isinstance(kw, list) else [str(kw)]
     try:
-        result = cls(db).run()
+        result = cls(db).run(**kwargs)
     except Exception as exc:  # surface, don't crash
         return {"ok": False, "error": f"Launch failed: {str(exc)[:150]}"}
     row.status = "launched"
     db.commit()
-    return {"ok": True, "launched": row.business, "result": result}
+    return {"ok": True, "launched": row.business, "result": result,
+            **_campaign_counts(db, str(row.id))}
 
 
 def list_plans(db: Session, limit: int = 50) -> list[dict]:
     rows = db.query(CampaignPlan).order_by(CampaignPlan.created_at.desc()).limit(limit).all()
-    return [_serialize(r) for r in rows]
+    return [_serialize(db, r) for r in rows]
 
 
-def _serialize(row: CampaignPlan) -> dict:
+def _campaign_counts(db: Session, campaign_id: str) -> dict:
+    from sqlalchemy import func
+
+    from .models import Lead, Restaurant
+    leads = (db.query(func.count()).select_from(Lead)
+             .filter(Lead.campaign_id == campaign_id).scalar() or 0)
+    restaurants = (db.query(func.count()).select_from(Restaurant)
+                   .filter(Restaurant.campaign_id == campaign_id).scalar() or 0)
+    return {"leads_sourced": int(leads), "restaurants_sourced": int(restaurants)}
+
+
+def _serialize(db: Session, row: CampaignPlan) -> dict:
+    counts = (_campaign_counts(db, str(row.id)) if row.status == "launched"
+              else {"leads_sourced": 0, "restaurants_sourced": 0})
     return {
         "id": str(row.id), "brief": row.brief, "business": row.business,
         "agent_key": row.agent_key, "plan": row.plan or {}, "status": row.status,
         "created_at": row.created_at.isoformat() if row.created_at else None,
+        **counts,
     }

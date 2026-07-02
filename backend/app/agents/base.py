@@ -59,8 +59,11 @@ class BaseAgent:
         row.last_run_at = datetime.now(timezone.utc)
 
     # ── lifecycle ────────────────────────────────────────────────────────────
-    def run(self) -> dict:
-        """Wrap ``execute`` with a Task record and audit logging."""
+    def run(self, **kwargs) -> dict:
+        """Wrap ``execute`` with a Task record and audit logging. ``kwargs`` (e.g.
+        scope/keywords/campaign_id) are passed straight through to ``execute`` —
+        used by Campaign Builder to steer a one-off targeted launch; the daily
+        scheduler calls this with no args and gets each agent's normal behavior."""
         self._touch_agent_row()
         agent_row = self.db.query(Agent).filter(Agent.key == self.key).first()
         task = Task(agent_id=agent_row.id if agent_row else None, status="running",
@@ -68,7 +71,7 @@ class BaseAgent:
         self.db.add(task)
         self.db.flush()
         try:
-            result = self.execute()
+            result = self.execute(**kwargs)
             task.status = "success"
             task.summary = result.get("summary") if isinstance(result, dict) else None
             task.payload = result if isinstance(result, dict) else {"result": result}

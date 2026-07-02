@@ -31,3 +31,17 @@ def classify(status: str | None) -> str:
     if s in _DEAD:
         return DEAD
     return COLD  # New, Drafted, Sent, contact, insurance_emailed, unknown → cold
+
+
+def statuses_for(temperature: str) -> set[str] | None:
+    """The lowercase statuses belonging to hot/warm/dead, so a temperature filter
+    can be pushed into SQL instead of applied after an unrelated row LIMIT
+    (which would silently starve it once other statuses dominate the sort order).
+    Returns None for 'cold' — it's everything NOT in the other three buckets,
+    including unknown/blank statuses, so callers need a NOT-IN instead."""
+    return {HOT: _HOT, WARM: _WARM, DEAD: _DEAD}.get((temperature or "").strip().lower())
+
+
+def all_classified_statuses() -> set[str]:
+    """Every status that is NOT cold — the complement defines 'cold'."""
+    return _HOT | _WARM | _DEAD

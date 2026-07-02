@@ -1334,8 +1334,15 @@ def test_insurance_line_classifier():
     Referral partners route to the personal line they FEED (realtor→home,
     auto dealer→auto, financial advisor→life)."""
     from app.insurance_lines import AUTO, COMMERCIAL, HOME, LIFE, line_for
-    # Commercial segment is always commercial, whatever the category.
+    # Commercial segment is commercial by default...
     assert line_for("Contractor", "commercial") == COMMERCIAL
+    # ...EXCEPT vehicle-centric commercial prospects, who need Commercial Auto
+    # (CAP) first — they surface under Auto, not the generic Commercial bucket,
+    # so "commercial auto leads" are actually findable.
+    assert line_for("Auto services", "commercial") == AUTO
+    assert line_for("Trucking Company", "commercial") == AUTO
+    assert line_for("Auto Dealership", "commercial") == AUTO
+    assert line_for("Moving Company", "commercial") == AUTO
     # Direct personal prospects.
     assert line_for("Homeowner", "personal") == HOME
     assert line_for("Auto owner", "personal") == AUTO
@@ -2360,6 +2367,60 @@ def test_campaign_builder_bad_brief(client, auth_headers):
 
 
 @requires_db
+def test_campaign_launch_applies_plan_filters_and_tags_leads(client, auth_headers, monkeypatch):
+    """Launching a plan must actually steer sourcing by the brief's filters (not
+    just run the agent's generic daily behavior) and tag every sourced lead with
+    the campaign so results are trackable."""
+    from app import campaign_builder
+    from app.agents import commercial_finder as cf_mod
+    from app.database import SessionLocal
+    from app.models import CampaignPlan, Lead
+
+    prospects = [
+        {"segment": "commercial", "category": "Restaurant", "company_name": "Match Bistro",
+         "owner_name": "A", "email": "match-campaign@x.co", "phone": "1",
+         "website": "https://x.co", "industry": "Restaurant", "city": "Boston"},
+        {"segment": "commercial", "category": "Law Firm", "company_name": "Nomatch Legal",
+         "owner_name": "B", "email": "nomatch-campaign@x.co", "phone": "2",
+         "website": "https://x.co", "industry": "Legal", "city": "Boston"},
+    ]
+    monkeypatch.setattr(cf_mod.providers, "fetch_insurance_leads",
+                        lambda segment, count, **kw: prospects if segment == "commercial" else [])
+
+    db = SessionLocal()
+    try:
+        # Idempotent against a rerun in the same DB (dedupe-by-email would
+        # otherwise silently skip the prospect on a second pass).
+        db.query(Lead).filter(Lead.email.in_(
+            ["match-campaign@x.co", "nomatch-campaign@x.co"])).delete(synchronize_session=False)
+        db.commit()
+
+        plan_row = CampaignPlan(
+            brief="Boston restaurants for commercial insurance", business="Insurance",
+            agent_key="commercial_finder",
+            plan={"filters": {"location": "Boston", "industry": "Restaurant"}})
+        db.add(plan_row)
+        db.commit()
+        db.refresh(plan_row)
+        plan_id = str(plan_row.id)
+
+        result = campaign_builder.launch(db, plan_id)
+        assert result["ok"] is True
+        assert result["leads_sourced"] == 1  # only the matching-industry prospect
+
+        matched = db.query(Lead).filter(Lead.email == "match-campaign@x.co").first()
+        skipped = db.query(Lead).filter(Lead.email == "nomatch-campaign@x.co").first()
+        assert matched is not None and matched.campaign_id == plan_id
+        assert skipped is None  # filtered out — never sourced
+
+        listed = client.get("/campaigns", headers=auth_headers).json()
+        row = next(p for p in listed if p["id"] == plan_id)
+        assert row["status"] == "launched" and row["leads_sourced"] == 1
+    finally:
+        db.close()
+
+
+@requires_db
 def test_unified_inbox_feed(client, auth_headers):
     """The unified inbox aggregates classified replies with label + drafted reply."""
     from app.database import SessionLocal
@@ -2734,6 +2795,84 @@ def test_apply_queue_is_strict_quality_with_stretch_separate(client, auth_header
 
 
 @requires_db
+def test_leads_line_and_temperature_survive_commercial_flood(client, auth_headers):
+    """Regression: /leads?line=home&temperature=warm must still surface a warm
+    home lead even when hundreds of higher/equal-scoring commercial leads exist —
+    filtering by segment/status in SQL (not just Python after an unrelated LIMIT)
+    is what keeps a flood of one segment from starving another out of the page."""
+    from app import models
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        # Idempotent against a rerun in the same DB.
+        db.query(models.Lead).filter(models.Lead.email.like("flood%@x.co")).delete(synchronize_session=False)
+        db.query(models.Lead).filter(models.Lead.email == "warmhome@x.co").delete(synchronize_session=False)
+        db.commit()
+        # A flood of top-scoring commercial leads — more than the default page size.
+        db.add_all([
+            models.Lead(segment="commercial", category="Contractor",
+                       company_name=f"Flood Co {i}", email=f"flood{i}@x.co",
+                       status="New", score=99)
+            for i in range(250)
+        ])
+        # A warm home lead — scored at parity with the flood so its survival
+        # depends purely on the segment/status SQL filters, not on out-ranking
+        # unrelated pollution that may already exist in a shared test DB.
+        db.add(models.Lead(segment="personal", category="New homeowner",
+                           company_name="Warm Homeowner", email="warmhome@x.co",
+                           status="replied", score=100))
+        db.commit()
+    finally:
+        db.close()
+
+    home_rows = client.get("/leads?line=home", headers=auth_headers).json()
+    assert any(r["company_name"] == "Warm Homeowner" for r in home_rows)
+
+    warm_rows = client.get("/leads?temperature=warm", headers=auth_headers).json()
+    assert any(r["company_name"] == "Warm Homeowner" for r in warm_rows)
+
+    both = client.get("/leads?line=home&temperature=warm", headers=auth_headers).json()
+    assert any(r["company_name"] == "Warm Homeowner" for r in both)
+    assert all(r["line"] == "home" and r["temperature"] == "warm" for r in both)
+
+
+@requires_db
+def test_leads_line_auto_spans_personal_and_commercial_vehicle_leads(client, auth_headers):
+    """/leads?line=auto must surface BOTH a personal auto prospect and a
+    vehicle-centric commercial one (auto shop/dealer/trucker) — commercial-auto
+    (CAP) leads were previously invisible because segment='commercial' always
+    forced the generic 'commercial' line bucket, regardless of category."""
+    from app import models
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        db.query(models.Lead).filter(models.Lead.email.in_(
+            ["personalauto@x.co", "commercialauto@x.co"])).delete(synchronize_session=False)
+        db.commit()
+        # Scored at parity with the router's SQL sort key's ceiling so these two
+        # rows land on page 1 regardless of unrelated pollution in a shared DB —
+        # a high `limit` alone isn't enough once a table has thousands of leads.
+        db.add_all([
+            models.Lead(segment="personal", category="Auto owner", company_name="Jane Driver",
+                       email="personalauto@x.co", status="New", score=100),
+            models.Lead(segment="commercial", category="Auto Dealership", company_name="Acme Motors",
+                       email="commercialauto@x.co", status="New", score=100),
+        ])
+        db.commit()
+    finally:
+        db.close()
+
+    rows = client.get("/leads?line=auto&limit=5000", headers=auth_headers).json()
+    names = {r["company_name"] for r in rows}
+    assert "Jane Driver" in names
+    assert "Acme Motors" in names
+    assert all(r["line"] == "auto" for r in rows)
+    # The dealership stays a commercial-segment lead, just reclassified to Auto.
+    dealer = next(r for r in rows if r["company_name"] == "Acme Motors")
+    assert dealer["segment"] == "commercial"
+
+
+@requires_db
 def test_leads_are_not_duplicated_across_runs(client, auth_headers, monkeypatch):
     """Re-running the agent over the same prospect must not duplicate the lead."""
     from app import models
@@ -2848,6 +2987,50 @@ def test_universal_crm_aggregates_and_adds(client, auth_headers):
     cid = next(c["id"] for c in manual if c["name"] == "Dana Recruiter")
     detail = client.get(f"/crm/{cid}", headers=auth_headers).json()
     assert "memories" in detail and len(detail["memories"]) >= 1  # auto-seeded
+
+
+@requires_db
+def test_accounts_roll_up_leads_clients_and_contacts_by_company(client, auth_headers):
+    """Accounts (Salesforce-style) groups everything about ONE company — a lead,
+    a won client, a manual contact — into a single 360 view, folding name variants
+    (LLC / Inc. / casing) together via normalization, with a unified timeline."""
+    from app import models
+    from app.accounts import _normalize
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        db.query(models.Lead).filter(models.Lead.email == "acctlead@rollup.co").delete(synchronize_session=False)
+        db.query(models.Client).filter(models.Client.email == "acctclient@rollup.co").delete(synchronize_session=False)
+        db.query(models.ManualContact).filter(
+            models.ManualContact.email == "acctcontact@rollup.co").delete(synchronize_session=False)
+        db.commit()
+        db.add(models.Lead(segment="commercial", category="Contractor", company_name="Rollup Test LLC",
+                           email="acctlead@rollup.co", status="New", score=50))
+        c = models.Client(business="insurance", name="Rollup Test, Inc.",
+                          email="acctclient@rollup.co", premium_monthly=100, status="Active")
+        db.add(c)
+        db.add(models.ManualContact(name="Pat Rollup", company="ROLLUP TEST",
+                                    email="acctcontact@rollup.co", kind="contact"))
+        db.commit()
+        db.add(models.ClientNote(client_id=c.id, kind="call", body="Great call today"))
+        db.commit()
+    finally:
+        db.close()
+
+    account_id = f"account:{_normalize('Rollup Test LLC')}"
+    accts = client.get("/accounts?q=Rollup", headers=auth_headers).json()
+    acct = next((a for a in accts if a["id"] == account_id), None)
+    assert acct is not None, "LLC/Inc./casing variants of the same company should fold into one account"
+    assert acct["leads"] == 1 and acct["clients"] == 1 and acct["contacts"] == 1
+    assert acct["revenue_monthly"] == 100.0
+    assert acct["businesses"] == ["Insurance"]
+
+    detail = client.get(f"/accounts/{account_id}", headers=auth_headers).json()
+    assert len(detail["leads"]) == 1 and len(detail["clients"]) == 1 and len(detail["contacts"]) == 1
+    assert any(t["kind"] == "call" and "Great call" in t["body"] for t in detail["timeline"])
+
+    missing = client.get("/accounts/account:definitely-not-a-real-company-xyz", headers=auth_headers)
+    assert missing.status_code == 404
 
 
 @requires_db

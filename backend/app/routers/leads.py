@@ -1,5 +1,6 @@
 """Leads routes (insurance + BnB Global consulting)."""
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from .. import outreach
@@ -16,22 +17,49 @@ def list_leads(segment: str | None = None, status: str | None = None,
                temperature: str | None = None, line: str | None = None,
                sort: str | None = None, limit: int = 200,
                db: Session = Depends(get_db), _=Depends(require_role("admin", "operator", "viewer"))):
-    from ..insurance_lines import line_for
-    from ..lead_temperature import classify
+    from .. import lead_temperature
+    from ..insurance_lines import COMMERCIAL, HOME, LIFE, line_for
     q = db.query(Lead)
     if segment:
         q = q.filter(Lead.segment == segment)
     if status:
         q = q.filter(Lead.status == status)
-    rows = q.order_by(Lead.score.desc(), Lead.created_at.desc()).limit(limit).all()
+    # Temperature maps to a fixed, known set of statuses — push it into SQL so
+    # it never gets starved by an unrelated row LIMIT (whichever bucket
+    # dominates the sort order would otherwise silently crowd out the rest).
     if temperature:
-        rows = [l for l in rows if classify(l.status) == temperature.lower()]
-    if line:  # Home / Auto / Life / Commercial line of business
-        rows = [l for l in rows if line_for(l.category, l.segment, l.industry) == line.lower()]
+        wanted = lead_temperature.statuses_for(temperature)
+        if wanted is not None:
+            q = q.filter(func.lower(Lead.status).in_(wanted))
+        else:  # cold = everything NOT hot/warm/dead, including blank/unknown
+            q = q.filter(or_(Lead.status.is_(None),
+                             ~func.lower(Lead.status).in_(lead_temperature.all_classified_statuses())))
+    # Commercial-line leads only ever come from segment="commercial", and
+    # home/life leads only ever come from everything else — narrow by segment
+    # first so the (much larger) commercial volume can't bloat the scan below.
+    # Auto is the one line that spans both (a personal driver OR a vehicle-
+    # centric commercial prospect like an auto shop/trucker), so it can't take
+    # that shortcut.
+    ln = (line or "").lower()
+    if ln == COMMERCIAL:
+        q = q.filter(Lead.segment == "commercial")
+    elif ln in (HOME, LIFE):
+        q = q.filter(Lead.segment != "commercial")
+    q = q.order_by(Lead.score.desc(), Lead.created_at.desc())
+    if line:
+        # `line` needs category/industry keyword matching, which isn't a real
+        # column — so it can't be a SQL WHERE clause. Applying it AFTER a row
+        # LIMIT would silently starve it once other rows fill the page first
+        # (exactly what happened once the table passed a few thousand leads),
+        # so fetch every candidate row (already narrowed by segment above) and
+        # only limit AFTER the line filter has actually run.
+        rows = [l for l in q.all() if line_for(l.category, l.segment, l.industry) == ln]
+    else:
+        rows = q.limit(limit).all()
     if sort == "fit":  # surface the strongest prospects first
         from ..lead_fit import score as _fit
         rows = sorted(rows, key=_fit, reverse=True)
-    return rows
+    return rows[:limit]
 
 
 @router.get("/search")

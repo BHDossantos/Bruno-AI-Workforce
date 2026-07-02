@@ -37,10 +37,32 @@ def _score(p: dict) -> int:
     return min(score, 100)
 
 
+def matches_filters(p: dict, *, industry: str | None = None,
+                    keywords: list[str] | None = None) -> bool:
+    """Used by Campaign Builder launches to narrow a sourced batch to the plan's
+    filters. Looks across every text-ish field a prospect dict might carry
+    (industry/category/cuisine/company or restaurant name/reason) since providers
+    for different businesses use different field names."""
+    haystack = None
+    if industry:
+        haystack = " ".join(str(p.get(k, "")) for k in
+                            ("industry", "category", "cuisine")).lower()
+        if industry.strip().lower() not in haystack:
+            return False
+    if keywords:
+        haystack = haystack if haystack is not None else " ".join(
+            str(p.get(k, "")) for k in
+            ("company_name", "name", "category", "industry", "cuisine", "reason")).lower()
+        if not any(kw.strip().lower() in haystack for kw in keywords if kw.strip()):
+            return False
+    return True
+
+
 def run_batch(agent, prospects: list[dict], *, account: str, build_prompt,
-              default_segment: str, subject_for) -> dict:
+              default_segment: str, subject_for, campaign_id: str | None = None) -> dict:
     """Save + enrich + dispatch a batch. `build_prompt(p)` returns the OpenAI prompt;
-    `subject_for(p, artifacts)` returns the email subject."""
+    `subject_for(p, artifacts)` returns the email subject. `campaign_id` tags each
+    saved Lead so a Campaign Builder launch's results can be tracked."""
     db = agent.db
     existing = {e for (e,) in db.query(Lead.email).filter(Lead.email.isnot(None)).all()}
 
@@ -66,7 +88,7 @@ def run_batch(agent, prospects: list[dict], *, account: str, build_prompt,
             company_name=p.get("company_name") or p.get("owner_name"),
             owner_name=p.get("owner_name"), email=p.get("email"), phone=p.get("phone"),
             website=p.get("website"), linkedin=p.get("linkedin"), industry=p.get("industry"),
-            reason=p.get("reason"), score=_score(p), status="New")
+            reason=p.get("reason"), score=_score(p), status="New", campaign_id=campaign_id)
         db.add(row)
         pairs.append((row, p))
     db.commit()

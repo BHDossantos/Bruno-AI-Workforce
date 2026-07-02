@@ -30,14 +30,26 @@ _PERSONAL_LINES: list[tuple[tuple[str, ...], str]] = [
     (("home", "homeowner", "mover", "purchase", "mortgage", "renter", "condo", "property", "house"), HOME),
 ]
 
+# Commercial prospects whose business revolves around vehicles need a Commercial
+# Auto (CAP) policy first and foremost — surface them under the Auto line instead
+# of the generic Commercial bucket, so "leads for commercial auto/cars" actually
+# shows the auto shops, dealers, truckers and movers we've already sourced.
+_COMMERCIAL_VEHICLE_KEYS = (
+    "auto", "car repair", "car dealer", "dealership", "tyre", "tire", "garage",
+    "mechanic", "trucking", "truck", "delivery", "moving", "logistics", "courier",
+    "towing", "fleet", "motorcycle",
+)
+
 
 def line_for(category: str | None, segment: str | None, industry: str | None = None) -> str:
-    """The insurance line a lead represents or feeds. Commercial stays commercial;
-    everything else resolves to home / auto / life (default home)."""
+    """The insurance line a lead represents or feeds. Vehicle-centric commercial
+    prospects (auto shops, dealers, truckers, movers) feed Commercial Auto (CAP)
+    and surface under Auto; other commercial prospects stay Commercial; everything
+    else resolves to home / auto / life (default home)."""
     seg = (segment or "").strip().lower()
-    if seg == "commercial":
-        return COMMERCIAL
     text = f"{category or ''} {industry or ''}".lower()
+    if seg == "commercial":
+        return AUTO if any(k in text for k in _COMMERCIAL_VEHICLE_KEYS) else COMMERCIAL
     table = _PARTNER_LINES if seg == "referral_partner" else _PERSONAL_LINES
     for keys, line in table:
         if any(k in text for k in keys):
