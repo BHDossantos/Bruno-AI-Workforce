@@ -3132,6 +3132,37 @@ def test_restaurant_and_music_reachout(client, auth_headers):
 
 
 @requires_db
+def test_restaurants_temperature_survives_cold_flood(client, auth_headers):
+    """Regression: /restaurants?temperature=warm must still surface a warm
+    prospect even when hundreds of cold ones (sourced daily, the majority)
+    exist — the same row-LIMIT-before-filter starvation bug already fixed on
+    /leads. Temperature is pushed into SQL so it can't be starved."""
+    from app import models
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        db.query(models.Restaurant).filter(
+            models.Restaurant.email.like("coldflood%@x.co")).delete(synchronize_session=False)
+        db.query(models.Restaurant).filter(
+            models.Restaurant.email == "warmrestaurant@x.co").delete(synchronize_session=False)
+        db.commit()
+        db.add_all([
+            models.Restaurant(kind="prospect", name=f"Cold Flood {i}", email=f"coldflood{i}@x.co",
+                              status="New")
+            for i in range(250)
+        ])
+        db.add(models.Restaurant(kind="prospect", name="Warm Restaurant",
+                                 email="warmrestaurant@x.co", status="replied"))
+        db.commit()
+    finally:
+        db.close()
+
+    rows = client.get("/restaurants?temperature=warm", headers=auth_headers).json()
+    assert any(r["name"] == "Warm Restaurant" for r in rows)
+    assert all(r["temperature"] == "warm" for r in rows)
+
+
+@requires_db
 def test_universal_crm_aggregates_and_adds(client, auth_headers):
     # Sources from the daily run (leads/restaurants/jobs) surface in one list.
     all_c = client.get("/crm", headers=auth_headers).json()
