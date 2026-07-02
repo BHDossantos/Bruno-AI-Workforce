@@ -8,7 +8,7 @@ type Item = {
   id: string; topic: string; business: string | null; channel: string;
   title: string | null; body: string | null; hashtags: string | null;
   status: string; scheduled_for: string | null;
-  video_url: string | null; video_status: string | null;
+  video_url: string | null; video_status: string | null; image_url: string | null;
 };
 
 const BUSINESSES = ["executive", "bnbglobal", "savorymind", "music", "insurance", "personal"];
@@ -57,6 +57,14 @@ function Factory() {
         : "❌ failed");
     } catch (e) { setMsg(String(e)); }
   }
+  async function makeImage(id: string) {
+    setMsg("Generating photo…");
+    try {
+      const r = await api.post<{ ok: boolean; reason?: string }>(`/content/${id}/generate-image`, {});
+      setMsg(r.ok ? "🖼️ Photo added to the post." : `❌ ${r.reason || "failed"}`);
+      await load();
+    } catch (e) { setMsg(String(e)); }
+  }
 
   return (
     <div>
@@ -101,11 +109,21 @@ function Factory() {
                 <td className="p-3">{i.topic}</td>
                 <td className="p-3"><span className="rounded bg-gray-100 px-2 py-0.5 text-xs">{i.channel}</span></td>
                 <td className="p-3 text-gray-500">{i.business}</td>
-                <td className="p-3"><Expandable label={i.title || "view"} text={[i.body, i.hashtags].filter(Boolean).join("\n\n")} /></td>
+                <td className="p-3">
+                  <Expandable label={i.title || "view"} text={[i.body, i.hashtags].filter(Boolean).join("\n\n")} />
+                  {i.image_url && (
+                    <a href={i.image_url} target="_blank" rel="noreferrer" title="Post image">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={i.image_url} alt="" className="mt-1 h-14 w-14 rounded object-cover" />
+                    </a>
+                  )}
+                </td>
                 <td className="p-3"><StatusBadge status={i.status} /></td>
                 <td className="p-3 text-right">
                   {(i.status === "needs_approval" || i.status === "ready") &&
                     <button onClick={() => act(i.id, "approve")} className="rounded border border-gray-300 px-2 py-1 text-xs">Approve</button>}
+                  {!["tiktok", "youtube"].includes(i.channel) && !i.image_url &&
+                    <button onClick={() => makeImage(i.id)} className="ml-1 rounded border border-gray-300 px-2 py-1 text-xs" title="Generate an on-brand photo for this post">🖼️ Photo</button>}
                   {["instagram", "tiktok", "youtube"].includes(i.channel) && !i.video_url &&
                     <button onClick={() => makeVideo(i.id)} className="ml-1 rounded border border-gray-300 px-2 py-1 text-xs">🎬 Video</button>}
                   {i.video_url && (

@@ -1,5 +1,6 @@
 """Music campaign routes: playlists, influencers, content."""
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from .. import music_release, outreach
@@ -58,6 +59,60 @@ def send_influencer_pitch(influencer_id: str, db: Session = Depends(get_db), _=D
         inf.status = "Sent"
     db.commit()
     return {"ok": True, "status": msg.status, "to": inf.email}
+
+
+@router.get("/catalog")
+def catalog(_=Depends(_read)):
+    """The artist's real released discography (albums, tracks, singles) plus the
+    top-streamed 'popular' set to focus on — so the promotion engine works from
+    actual songs, not placeholders."""
+    from .. import music_catalog
+    return {"stats": music_catalog.stats(), "popular": music_catalog.popular(),
+            "albums": music_catalog.all_albums()}
+
+
+class PromoteIn(BaseModel):
+    title: str
+
+
+def _promote_one(db: Session, title: str) -> MusicRelease | None:
+    """Create a MusicRelease from a catalog song, idempotently. None if unknown."""
+    from .. import music_catalog
+    track = music_catalog.find_track(title)
+    if not track:
+        return None
+    existing = db.query(MusicRelease).filter(MusicRelease.title == track["title"]).first()
+    if existing:
+        return existing
+    r = MusicRelease(title=track["title"], era=track["album"], story=track["theme"],
+                     language=track["language"], status="Planned")
+    db.add(r)
+    db.commit()
+    db.refresh(r)
+    return r
+
+
+@router.post("/catalog/promote", response_model=MusicReleaseOut)
+def promote_catalog_track(payload: PromoteIn, db: Session = Depends(get_db), _=Depends(_write)):
+    """Turn a real catalog song into a MusicRelease (its era) so its full content
+    kit can be built. Idempotent — returns the existing release if already made."""
+    r = _promote_one(db, payload.title)
+    if not r:
+        raise HTTPException(status_code=404, detail="Song not found in the catalog")
+    return r
+
+
+@router.post("/catalog/promote-top10")
+def promote_top10(db: Session = Depends(get_db), _=Depends(_write)):
+    """Promote all of the top-streamed 'Popular' songs in one click, so the
+    priority set is queued as releases ready for content kits. Idempotent."""
+    from .. import music_catalog
+    promoted = []
+    for row in music_catalog.popular():
+        r = _promote_one(db, row["title"])
+        if r:
+            promoted.append({"id": str(r.id), "title": r.title, "rank": row["rank"]})
+    return {"ok": True, "promoted": len(promoted), "releases": promoted}
 
 
 @router.get("/releases", response_model=list[MusicReleaseOut])

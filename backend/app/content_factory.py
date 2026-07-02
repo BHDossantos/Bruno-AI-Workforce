@@ -223,6 +223,45 @@ def regenerate_stale(db: Session, business: str | None = None,
             "regenerated": result.get("made_total", 0), "detail": result}
 
 
+def _image_prompt(item: ContentItem) -> str:
+    """A concrete, on-brand image prompt for a post — built from its actual
+    subject so the visual matches the copy instead of being generic stock."""
+    bits = [item.title or item.topic]
+    if item.body:
+        bits.append(item.body[:280])
+    biz = {"insurance": "trustworthy insurance/financial theme",
+           "savorymind": "restaurant / food-business theme",
+           "music": "cinematic romantic music-artist aesthetic (Rome/Italy, warm golden light)",
+           "bnbglobal": "modern tech-consulting theme",
+           "foundation": "uplifting community / education theme",
+           "personal": "authentic founder / lifestyle theme"}.get(item.business or "", "")
+    if biz:
+        bits.append(biz)
+    return " — ".join(b for b in bits if b)
+
+
+def generate_image_for(db: Session, content_id: str) -> dict:
+    """Generate + host an on-brand image for one content item and cache it on the
+    item, so a post isn't bare text (LinkedIn/FB/X were going out with 0 photos).
+    Idempotent-ish: returns the existing image if one is already attached."""
+    from . import media
+    item = db.query(ContentItem).filter(ContentItem.id == content_id).first()
+    if not item:
+        return {"ok": False, "reason": "content not found"}
+    existing = (item.meta or {}).get("image_url")
+    if existing:
+        return {"ok": True, "image_url": existing, "cached": True}
+    if not media.can_generate():
+        return {"ok": False, "reason": "image generation needs OpenAI + a public image "
+                "bucket (set OPENAI_API_KEY and gcs_bucket in Setup)"}
+    url = media.generate_and_host(_image_prompt(item), f"{item.channel}-{content_id}")
+    if not url:
+        return {"ok": False, "reason": "image generation/hosting failed"}
+    item.meta = {**(item.meta or {}), "image_url": url}
+    db.commit()
+    return {"ok": True, "image_url": url}
+
+
 def out(i: ContentItem) -> dict:
     meta = i.meta or {}
     return {"id": str(i.id), "topic": i.topic, "business": i.business, "channel": i.channel,
@@ -231,6 +270,7 @@ def out(i: ContentItem) -> dict:
             # Generated media — so you can download/post manually while a
             # platform's auto-publish is disconnected.
             "video_url": meta.get("video_url"), "video_status": meta.get("video_status"),
+            "image_url": meta.get("image_url"),
             "scheduled_for": i.scheduled_for.isoformat() if i.scheduled_for else None,
             "created_at": i.created_at.isoformat() if i.created_at else None}
 
@@ -257,7 +297,7 @@ def apply_hook(db: Session, content_id: str, hook: str) -> dict:
 
 def publish_due(db: Session) -> dict:
     """Publish scheduled social content that's due, via the unified social publisher."""
-    from . import control, social
+    from . import control, media, social
     if control.is_paused_safe(db):
         return {"due": 0, "published": 0, "paused": True}
     now = datetime.now(timezone.utc)
@@ -268,7 +308,7 @@ def publish_due(db: Session) -> dict:
     for item in due:
         caption = compose_caption(item.body, item.hashtags)
         # Only post to the ONE platform this piece targets.
-        is_conn, fn, _ = social.PLATFORMS.get(item.channel, (None, None, None))
+        is_conn, fn, needs_image = social.PLATFORMS.get(item.channel, (None, None, False))
         if not is_conn or not is_conn(db):
             item.status = "needs_connection"
             continue
@@ -280,7 +320,19 @@ def publish_due(db: Session) -> dict:
                 continue
             res = fn(db, caption, video_url)
         else:
-            res = fn(db, caption, None)
+            # Attach a real on-brand image so posts aren't bare text — this is why
+            # LinkedIn/FB/X were going out with 0 photos. Generate+host once and
+            # cache it on the item; reuse it on retry.
+            image_url = (item.meta or {}).get("image_url")
+            if not image_url and media.can_generate():
+                image_url = media.generate_and_host(_image_prompt(item), f"{item.channel}-{item.id}")
+                if image_url:
+                    item.meta = {**(item.meta or {}), "image_url": image_url}
+            # Instagram REQUIRES an image; skip cleanly if we couldn't make one.
+            if needs_image and not image_url:
+                item.status = "needs_image"
+                continue
+            res = fn(db, caption, image_url)
         item.status = "published" if res.get("ok") else "failed"
         item.meta = {**(item.meta or {}), "result": res}
         if res.get("ok"):
