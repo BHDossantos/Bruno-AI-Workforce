@@ -57,16 +57,17 @@ function Insurance() {
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
   const [sourcing, setSourcing] = useState(false);
-  const [profileLead, setProfileLead] = useState<{ id: string; name: string } | null>(null);
+  const [profileLead, setProfileLead] = useState<{ id: string; name: string; phone: string } | null>(null);
   const [profile, setProfile] = useState<IntakeProfile | null>(null);
   const [selectedType, setSelectedType] = useState("");
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [profileBusy, setProfileBusy] = useState(false);
+  const [profileMsg, setProfileMsg] = useState("");
   const { data: templates } = useFetch<QuoteTemplate[]>(() => api.get<QuoteTemplate[]>("/book/quote-templates"));
 
-  async function openProfile(id: string, name: string) {
-    setProfileLead({ id, name });
-    setProfile(null); setDraft({}); setSelectedType("");
+  async function openProfile(id: string, name: string, phone: string) {
+    setProfileLead({ id, name, phone });
+    setProfile(null); setDraft({}); setSelectedType(""); setProfileMsg("");
     const p = await api.get<IntakeProfile>(`/leads/${id}/intake`);
     setProfile(p);
     setDraft(p.answers || {});
@@ -82,6 +83,17 @@ function Insurance() {
       setProfile(p);
       setDraft(p.answers || {});
     } catch (e) { setMsg(`❌ ${e}`); }
+    finally { setProfileBusy(false); }
+  }
+
+  async function sendIntakeRequest(channel: "sms" | "whatsapp") {
+    if (!profileLead || !selectedType) return;
+    setProfileBusy(true); setProfileMsg("");
+    try {
+      const r = await api.post<{ ok: boolean; channel: string }>(
+        `/leads/${profileLead.id}/quote-intake/send`, { quote_type: selectedType, channel });
+      setProfileMsg(`✅ Sent via ${r.channel === "sms" ? "text" : "WhatsApp"}.`);
+    } catch (e) { setProfileMsg(`❌ ${e}`); }
     finally { setProfileBusy(false); }
   }
 
@@ -238,7 +250,7 @@ function Insurance() {
                   <button onClick={() => addToCrm(l.id)} disabled={busy === l.id}
                     className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-1 text-xs text-gray-600 hover:bg-gray-50"
                     title="Add this lead to the Client Book (CRM)">→ CRM</button>
-                  <button onClick={() => openProfile(l.id, l.company_name || l.owner_name || l.email)}
+                  <button onClick={() => openProfile(l.id, l.company_name || l.owner_name || l.email, l.phone)}
                     className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-1 text-xs text-gray-600 hover:bg-gray-50"
                     title="Quote-intake profile — track what's been collected">📋 Profile</button>
                 </td>
@@ -297,6 +309,27 @@ function Insurance() {
                       className="btn mt-4 w-full disabled:opacity-40">
                       {profileBusy ? "Saving…" : "Save profile"}
                     </button>
+
+                    <div className="mt-4 border-t border-gray-100 pt-4">
+                      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                        Ask for this by text or WhatsApp
+                      </div>
+                      {profileLead.phone ? (
+                        <div className="flex gap-2">
+                          <button onClick={() => sendIntakeRequest("sms")} disabled={profileBusy}
+                            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-40">
+                            💬 Send text
+                          </button>
+                          <button onClick={() => sendIntakeRequest("whatsapp")} disabled={profileBusy}
+                            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-40">
+                            🟢 Send WhatsApp
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-400">No phone number on file for this lead.</p>
+                      )}
+                      {profileMsg && <p className="mt-2 text-xs text-gray-600">{profileMsg}</p>}
+                    </div>
                   </>
                 )}
               </>

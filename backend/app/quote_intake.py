@@ -4,10 +4,11 @@ When a prospect replies asking for insurance, we reply with the exact info neede
 to quote that line. This holds, per quote type (Personal Auto, Commercial Auto,
 Workers' Comp, General Liability): the English requirements checklist, a
 ready-to-send draft quotation email (English + Portuguese, since much of the book
-is Brazilian-Portuguese), and `fields` — the same requirements as short,
-stable-keyed items so a specific lead's actual answers can be tracked (see
-lead_profile.py) instead of just emailed as a checklist. Pure data — safe to
-read anywhere.
+is Brazilian-Portuguese), a short `text_body_en`/`text_body_pt` for SMS/WhatsApp
+(same ask, no greeting/signoff — those channels read as a conversation, not a
+letter), and `fields` — the same requirements as short, stable-keyed items so a
+specific lead's actual answers can be tracked (see lead_profile.py) instead of
+just emailed/texted as a checklist. Pure data — safe to read anywhere.
 """
 from __future__ import annotations
 
@@ -51,6 +52,16 @@ QUOTE_TYPES: list[dict] = [
             "3. VIN do veículo\n"
             "4. Financiadora, caso o veículo já seja financiado\n\n"
             "Assim que eu tiver essas informações, retorno com sua cotação rapidamente."
+        ),
+        "text_body_en": (
+            "Hi! To get your auto quote I just need: 1) driver's license for everyone who'll "
+            "drive (incl. out-of-state/foreign), 2) the address where the car is kept, "
+            "3) the VIN, 4) lienholder if financed. Send whenever's easy!"
+        ),
+        "text_body_pt": (
+            "Oi! Para sua cotação de auto preciso de: 1) carteira de todos os motoristas "
+            "(inclusive de fora/estrangeira), 2) endereço onde o carro fica, 3) o VIN, "
+            "4) financiadora, se houver. Pode mandar quando puder!"
         ),
     },
     {
@@ -104,6 +115,16 @@ QUOTE_TYPES: list[dict] = [
             "7. Em caso de motor truck insurance: valores de cargo e limites exigidos pela contratante\n\n"
             "Assim que eu tiver isso, retorno com sua cotação rapidamente."
         ),
+        "text_body_en": (
+            "Hi! For your commercial auto (CAP) quote I need: company EIN, type of service, "
+            "driver's licenses for everyone who drives, current company address, the VIN, "
+            "lienholder if financed, and (if motor truck) cargo values/limits. Whenever's easy!"
+        ),
+        "text_body_pt": (
+            "Oi! Para a cotação de auto comercial (CAP) preciso de: EIN da empresa, tipo de "
+            "serviço, carteira de todos os motoristas, endereço atual da empresa, o VIN, "
+            "financiadora (se houver) e, se motor truck, valores de cargo/limites. Quando puder!"
+        ),
     },
     {
         "key": "workers_comp",
@@ -147,6 +168,16 @@ QUOTE_TYPES: list[dict] = [
             "Uma observação: o prêmio do Workers' Comp é auditado no fim do período com base no "
             "payroll real, então a cotação inicial é uma estimativa — posso explicar como funciona a auditoria."
         ),
+        "text_body_en": (
+            "Hi! For your workers' comp quote I need: company EIN, number of employees (does "
+            "the owner work too?), a detailed description of the work performed, and your "
+            "desired payroll. Whenever's convenient!"
+        ),
+        "text_body_pt": (
+            "Oi! Para a cotação de Workers' Comp preciso de: EIN da empresa, número de "
+            "funcionários (o dono também trabalha?), descrição detalhada do serviço, e o "
+            "payroll desejado. Quando puder!"
+        ),
     },
     {
         "key": "general_liability",
@@ -185,6 +216,16 @@ QUOTE_TYPES: list[dict] = [
             "\"construction\" não basta; detalhes ajudam\n"
             "4. Payroll desejado\n\n"
             "Assim que eu tiver isso, retorno com sua cotação."
+        ),
+        "text_body_en": (
+            "Hi! For your general liability quote I need: company EIN, number of employees "
+            "(does the owner work too?), a detailed description of the work performed, and "
+            "your desired payroll. Whenever's convenient!"
+        ),
+        "text_body_pt": (
+            "Oi! Para a cotação de General Liability preciso de: EIN da empresa, número de "
+            "funcionários (o dono também trabalha?), descrição detalhada do serviço, e o "
+            "payroll desejado. Quando puder!"
         ),
     },
 ]
