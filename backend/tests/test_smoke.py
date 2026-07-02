@@ -1389,6 +1389,55 @@ def test_leads_line_filter_and_summary(client, auth_headers):
     assert all(r.get("line") in {"home", "auto", "life", "commercial"} for r in allrows)
 
 
+@requires_db
+def test_lead_quote_intake_profile_tracks_answers_and_completion(client, auth_headers):
+    """A lead's quote-intake profile starts empty, fills in as answers are saved,
+    reports accurate collected/total completion, and drops stale answers when the
+    quote type changes (a workers' comp answer must not leak into personal auto)."""
+    from app.database import SessionLocal
+    from app.models import Lead
+    db = SessionLocal()
+    try:
+        lead = Lead(segment="personal", category="Auto owner", company_name="Intake Test Co",
+                   email="intake-test@x.co", status="New", score=10)
+        db.add(lead)
+        db.commit()
+        db.refresh(lead)
+        lead_id = str(lead.id)
+    finally:
+        db.close()
+
+    empty = client.get(f"/leads/{lead_id}/intake", headers=auth_headers).json()
+    assert empty["quote_type"] is None and empty["total"] == 0 and empty["complete"] is False
+
+    r = client.post(f"/leads/{lead_id}/intake", headers=auth_headers, json={
+        "quote_type": "personal_auto", "answers": {"vin": "1HGCM82633A004352", "garaging_address": "123 Main St"}})
+    body = r.json()
+    assert body["quote_type"] == "personal_auto" and body["total"] == 4
+    assert body["collected"] == 2 and body["complete"] is False
+    assert body["answers"]["vin"] == "1HGCM82633A004352"
+
+    # Fill in the rest -> complete.
+    full = client.post(f"/leads/{lead_id}/intake", headers=auth_headers, json={
+        "quote_type": "personal_auto",
+        "answers": {"vin": "1HGCM82633A004352", "garaging_address": "123 Main St",
+                    "drivers_licenses": "Jane Doe #123", "lienholder": "None"}}).json()
+    assert full["collected"] == 4 and full["total"] == 4 and full["complete"] is True
+
+    # Switching quote type drops answers that don't belong to the new type.
+    switched = client.post(f"/leads/{lead_id}/intake", headers=auth_headers, json={
+        "quote_type": "workers_comp", "answers": {"vin": "should not carry over", "ein": "12-3456789"}}).json()
+    assert switched["quote_type"] == "workers_comp"
+    assert "vin" not in switched["answers"]
+    assert switched["answers"]["ein"] == "12-3456789"
+    assert switched["total"] == 4 and switched["collected"] == 1
+
+    # Unknown lead / unknown quote type are clean errors, not 500s.
+    assert client.get("/leads/00000000-0000-0000-0000-000000000000/intake", headers=auth_headers).status_code == 404
+    assert client.post(f"/leads/{lead_id}/intake", headers=auth_headers,
+                       json={"quote_type": "not_a_real_type", "answers": {}}).status_code == 400
+
+
 def test_per_business_booking_link():
     """Each business gets its own 'Book a time' link; empty falls back to the
     default. So a SavoryMind prospect books a SavoryMind call, not insurance."""

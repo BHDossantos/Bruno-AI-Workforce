@@ -1,5 +1,6 @@
 """Leads routes (insurance + BnB Global consulting)."""
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
@@ -10,6 +11,36 @@ from ..schemas import LeadOut, StatusUpdate
 from ..security import require_role
 
 router = APIRouter(prefix="/leads", tags=["insurance"])
+
+
+class IntakeIn(BaseModel):
+    quote_type: str
+    answers: dict[str, str] = {}
+
+
+@router.get("/{lead_id}/intake")
+def get_intake(lead_id: str, db: Session = Depends(get_db),
+               _=Depends(require_role("admin", "operator", "viewer"))):
+    """This lead's quote-intake profile — chosen quote type, its fields, saved
+    answers, and how many of the requirements have actually been collected."""
+    from .. import lead_profile
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    return lead_profile.profile_for(lead)
+
+
+@router.post("/{lead_id}/intake")
+def set_intake(lead_id: str, body: IntakeIn, db: Session = Depends(get_db),
+               _=Depends(require_role("admin", "operator"))):
+    """Pick this lead's quote type and save what's been collected so far."""
+    from .. import lead_profile
+    result = lead_profile.save_intake(db, lead_id, body.quote_type, body.answers)
+    if result is None:
+        if not db.query(Lead).filter(Lead.id == lead_id).first():
+            raise HTTPException(404, "Lead not found")
+        raise HTTPException(400, "Unknown quote type")
+    return result
 
 
 @router.get("", response_model=list[LeadOut])
