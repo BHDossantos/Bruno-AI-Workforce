@@ -64,8 +64,14 @@ def list_approvals(limit: int = 100, db: Session = Depends(get_db), _=Depends(_r
         })
 
     if not auto:  # cold outreach only needs approval when autopilot is OFF
+        # is_real_email() isn't a real column, so it can't be a SQL WHERE
+        # clause — fetch every Drafted candidate (already scoped to a status
+        # that's cleared out as soon as it's approved/sent, so it stays small)
+        # rather than capping the row count first, which could otherwise let a
+        # run of synthetic/placeholder addresses silently starve real ones out
+        # of the queue (the same bug already fixed on /leads and /restaurants).
         for l in (db.query(Lead).filter(Lead.status == "Drafted", Lead.email.isnot(None))
-                  .order_by(Lead.created_at.desc()).limit(limit * 3).all()):
+                  .order_by(Lead.created_at.desc()).all()):
             if not outreach.is_real_email(l.email):
                 continue
             seg = "BnB Global" if l.segment == "consulting" else "Insurance"
@@ -79,7 +85,7 @@ def list_approvals(limit: int = 100, db: Session = Depends(get_db), _=Depends(_r
 
         for r in (db.query(Restaurant).filter(Restaurant.kind == "prospect",
                   Restaurant.status == "Drafted", Restaurant.email.isnot(None))
-                  .order_by(Restaurant.created_at.desc()).limit(limit * 3).all()):
+                  .order_by(Restaurant.created_at.desc()).all()):
             if not outreach.is_real_email(r.email):
                 continue
             items.append({

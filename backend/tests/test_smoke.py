@@ -222,6 +222,47 @@ def test_autopilot_excludes_cold_outreach_from_approval_queue(client, auth_heade
     client.post("/control/outreach-autopilot", json={"on": True}, headers=auth_headers)  # restore default
 
 
+@requires_db
+def test_approval_queue_real_lead_survives_flood_of_synthetic_ones(client, auth_headers):
+    """Regression: a real, approvable drafted lead must still surface even when
+    hundreds of synthetic-domain drafted leads (filtered out, but only in
+    Python — is_real_email() isn't a real column) sort ahead of it by
+    created_at — the same starvation bug class already fixed on /leads etc."""
+    from app.database import SessionLocal
+    from app.models import Lead
+    db = SessionLocal()
+    try:
+        db.query(Lead).filter(Lead.email.like("approvalflood%@example.com")).delete(
+            synchronize_session=False)
+        db.query(Lead).filter(Lead.email == "real-approval@realbiz.co").delete(
+            synchronize_session=False)
+        db.commit()
+        # Maximal fit signals + a shared DB with 1000+ other Drafted leads means
+        # the final priority-sorted page needs both a high rank AND a generous
+        # limit to reliably surface this fixture regardless of pollution.
+        db.add(Lead(segment="commercial", company_name="Real Approvable Co",
+                    email="real-approval@realbiz.co", phone="+16175550000",
+                    website="https://realbiz.co", owner_name="Pat Owner",
+                    linkedin="https://linkedin.com/in/patowner", status="Drafted", cold_email="hi"))
+        db.add_all([
+            Lead(segment="commercial", company_name=f"Synthetic Co {i}",
+                email=f"approvalflood{i}@example.com", status="Drafted", cold_email="hi")
+            for i in range(350)
+        ])
+        db.commit()
+    finally:
+        db.close()
+
+    client.post("/control/outreach-autopilot", json={"on": False}, headers=auth_headers)
+    try:
+        listed = client.get("/approvals?limit=5000", headers=auth_headers).json()
+        tos = [it.get("to") for it in listed["items"] if it["type"] == "lead"]
+        assert "real-approval@realbiz.co" in tos
+        assert all("@example.com" not in (t or "") for t in tos)
+    finally:
+        client.post("/control/outreach-autopilot", json={"on": True}, headers=auth_headers)
+
+
 def test_memory_slot_prompts_format_cleanly():
     """Every prompt with a {memory} slot must format with the exact keys call sites
     pass — guards against the KeyError class of bug when a slot is added."""
@@ -2883,6 +2924,39 @@ def test_social_queue_endpoint(client, auth_headers):
     r = client.get("/outreach/social", headers=auth_headers)
     assert r.status_code == 200
     assert isinstance(r.json(), list)
+
+
+@requires_db
+def test_social_queue_pending_survives_flood_of_done_leads(client, auth_headers):
+    """Regression: a pending LinkedIn-ready lead must still surface even when
+    hundreds of already-Sent leads (also LinkedIn-ready) sort ahead of it — DONE
+    status is filtered in SQL before the row LIMIT, not after (the same bug
+    class already fixed on /leads etc.)."""
+    from app import models
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        db.query(models.Lead).filter(models.Lead.email.like("socialdone%@x.co")).delete(
+            synchronize_session=False)
+        db.query(models.Lead).filter(models.Lead.email == "socialpending@x.co").delete(
+            synchronize_session=False)
+        db.commit()
+        db.add_all([
+            models.Lead(segment="commercial", category="Contractor", company_name=f"Done Lead {i}",
+                       email=f"socialdone{i}@x.co", status="Sent",
+                       linkedin="https://linkedin.com/in/done", linkedin_msg="hi")
+            for i in range(160)
+        ])
+        db.add(models.Lead(segment="commercial", category="Contractor", company_name="Pending Social Lead",
+                           email="socialpending@x.co", status="New",
+                           linkedin="https://linkedin.com/in/pending", linkedin_msg="hi"))
+        db.commit()
+    finally:
+        db.close()
+
+    items = client.get("/outreach/social?channel=linkedin&limit=1000", headers=auth_headers).json()
+    assert any(i["name"] == "Pending Social Lead" for i in items)
+    assert all(i["status"] != "Sent" for i in items)
 
 
 @requires_db
