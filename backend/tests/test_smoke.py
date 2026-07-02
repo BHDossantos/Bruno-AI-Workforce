@@ -2049,6 +2049,68 @@ def test_media_hosting_disabled_offline():
     assert media.generate_and_host("a sunset", "test") is None
 
 
+@requires_db
+def test_social_posts_attach_a_generated_image(client, auth_headers, monkeypatch):
+    """Scheduled social posts must carry a real photo, not go out as bare text
+    (the LinkedIn "0 photos" complaint). publish_due generates+hosts an image,
+    caches it on the item, and passes it to the platform publisher."""
+    from datetime import datetime, timedelta, timezone
+
+    from app import content_factory, media, social
+    from app.database import SessionLocal
+    from app.models import ContentItem
+
+    # Pretend image generation + hosting are available, returning a fixed URL.
+    # (media is imported inside the functions, so patch the module itself.)
+    monkeypatch.setattr(media, "can_generate", lambda: True)
+    monkeypatch.setattr(media, "generate_and_host",
+                        lambda prompt, name: "https://img.example/generated.png")
+    # Capture what the LinkedIn publisher receives (connected → returns ok).
+    captured = {}
+    monkeypatch.setitem(
+        social.PLATFORMS, "linkedin",
+        (lambda db: True,
+         lambda db, cap, img: captured.update(caption=cap, image=img) or {"ok": True},
+         False))
+
+    db = SessionLocal()
+    try:
+        item = ContentItem(topic="Why bundling home + auto saves money", business="insurance",
+                           channel="linkedin", title="Bundle & save", body="Real, specific copy.",
+                           hashtags="#insurance", status="scheduled",
+                           scheduled_for=datetime.now(timezone.utc) - timedelta(minutes=1))
+        db.add(item)
+        db.commit()
+        cid = str(item.id)
+    finally:
+        db.close()
+
+    res = content_factory.publish_due(SessionLocal())
+    assert res["published"] >= 1
+    assert captured.get("image") == "https://img.example/generated.png"  # photo attached
+
+    db = SessionLocal()
+    try:
+        refreshed = db.query(ContentItem).filter(ContentItem.id == cid).first()
+        assert refreshed.status == "published"
+        assert (refreshed.meta or {}).get("image_url") == "https://img.example/generated.png"
+    finally:
+        db.close()
+
+    # The on-demand endpoint reports a clean, actionable reason when media isn't
+    # configured (default in tests), rather than silently doing nothing.
+    monkeypatch.setattr(media, "can_generate", lambda: False)
+    db = SessionLocal()
+    try:
+        item2 = ContentItem(topic="t", business="insurance", channel="linkedin",
+                           title="x", body="y", status="ready")
+        db.add(item2); db.commit(); cid2 = str(item2.id)
+    finally:
+        db.close()
+    r = client.post(f"/content/{cid2}/generate-image", headers=auth_headers).json()
+    assert r["ok"] is False and "bucket" in r["reason"].lower()
+
+
 def test_applicant_profile_and_field_matching():
     from app import applicant_profile, browser
     flat = applicant_profile.flat_fields()

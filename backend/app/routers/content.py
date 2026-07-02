@@ -137,3 +137,10 @@ def make_video(content_id: str, db: Session = Depends(get_db), _=Depends(_write)
     """Produce media assets (voiceover, cover, AI video clip) for a content piece."""
     from .. import video_pipeline
     return video_pipeline.start_for_content(db, content_id)
+
+
+@router.post("/{content_id}/generate-image")
+def generate_image(content_id: str, db: Session = Depends(get_db), _=Depends(_write)):
+    """Generate + attach an on-brand photo for a post so it isn't bare text."""
+    from .. import content_factory
+    return content_factory.generate_image_for(db, content_id)
