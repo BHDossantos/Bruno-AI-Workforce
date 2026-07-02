@@ -38,32 +38,32 @@ def _ig_dm(handle: str | None) -> str | None:
 def social_queue(channel: str | None = None, limit: int = 400,
                  db: Session = Depends(get_db), _=Depends(_read)):
     items: list[dict] = []
+    # status is a real column, so DONE is filtered in SQL before the row LIMIT
+    # (not after) — otherwise a run of already-Sent/Replied rows sitting ahead
+    # in the default ordering could push pending outreach out of the window
+    # and off the queue (the same bug class already fixed on /leads etc.).
 
-    for l in db.query(Lead).filter(Lead.linkedin_msg.isnot(None), Lead.linkedin.isnot(None)).limit(150):
-        if l.status in DONE:
-            continue
+    for l in db.query(Lead).filter(Lead.linkedin_msg.isnot(None), Lead.linkedin.isnot(None),
+                                   Lead.status.notin_(DONE)).limit(150):
         items.append({"entity_type": "lead", "entity_id": str(l.id), "name": l.company_name or l.owner_name,
                       "channel": "linkedin", "profile_url": l.linkedin, "handle": None,
                       "message": l.linkedin_msg, "status": l.status})
 
-    for inf in db.query(Influencer).filter(Influencer.dm_pitch.isnot(None)).limit(100):
-        if inf.status in DONE:
-            continue
+    for inf in db.query(Influencer).filter(Influencer.dm_pitch.isnot(None),
+                                           Influencer.status.notin_(DONE)).limit(100):
         items.append({"entity_type": "influencer", "entity_id": str(inf.id), "name": inf.name,
                       "channel": "instagram", "profile_url": _ig(inf.handle), "handle": inf.handle,
                       "dm_url": _ig_dm(inf.handle), "message": inf.dm_pitch, "status": inf.status})
 
-    for t in db.query(InstagramTarget).filter(InstagramTarget.dm_opener.isnot(None)).limit(150):
-        if t.status in DONE:
-            continue
+    for t in db.query(InstagramTarget).filter(InstagramTarget.dm_opener.isnot(None),
+                                              InstagramTarget.status.notin_(DONE)).limit(150):
         items.append({"entity_type": "instagram_target", "entity_id": str(t.id), "name": f"@{t.handle}",
                       "channel": "instagram", "profile_url": _ig(t.handle), "handle": t.handle,
                       "dm_url": _ig_dm(t.handle), "message": t.dm_opener, "status": t.status})
 
     for r in db.query(Restaurant).filter(Restaurant.kind == "prospect",
-                                         Restaurant.linkedin_msg.isnot(None)).limit(100):
-        if r.status in DONE:
-            continue
+                                         Restaurant.linkedin_msg.isnot(None),
+                                         Restaurant.status.notin_(DONE)).limit(100):
         items.append({"entity_type": "restaurant", "entity_id": str(r.id), "name": r.name,
                       "channel": "instagram", "profile_url": _ig(r.instagram), "handle": r.instagram,
                       "dm_url": _ig_dm(r.instagram), "message": r.linkedin_msg, "status": r.status})
