@@ -62,6 +62,27 @@ def maybe_warm_text(db: Session, *, entity_type: str, entity_id, name: str | Non
     return "queued" if use_bridge else sid
 
 
+def send_text(db: Session, *, entity_type: str, entity_id, phone: str, body: str,
+             account: str = "insurance") -> str | None:
+    """Send an explicit (non-AI-drafted) text now — e.g. a quote-intake request —
+    via Twilio if configured, else queue it for the free Mac iMessage bridge.
+    Returns 'queued' (bridge), the provider SID (Twilio), or None if neither
+    channel is available."""
+    use_bridge = not sms.is_configured() and bool(settings.bridge_token)
+    if not phone or not body or not (sms.is_configured() or use_bridge):
+        return None
+    sid = None if use_bridge else sms.send_sms(phone, body, account=account)
+    status = "Queued" if use_bridge else ("Sent" if sid else "Drafted")
+    db.add(Message(
+        channel="sms", direction="outbound", entity_type=entity_type, entity_id=entity_id,
+        to_email=phone, from_account=account, body=body,
+        status=status, provider_id=sid,
+        sent_at=datetime.now(timezone.utc) if sid else None,
+    ))
+    db.commit()
+    return "queued" if use_bridge else sid
+
+
 def _norm_phone(phone: str | None) -> str:
     import re
     return re.sub(r"\D", "", phone or "")[-10:]

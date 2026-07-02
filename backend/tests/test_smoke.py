@@ -1365,13 +1365,19 @@ def test_leads_line_filter_and_summary(client, auth_headers):
     from app.models import Lead
     db = SessionLocal()
     try:
+        # Idempotent against a rerun in the same DB, and scored at parity with
+        # the router's sort ceiling so these rows land on page 1 of a `line=`
+        # query regardless of unrelated pollution in a shared DB.
+        db.query(Lead).filter(Lead.email.in_(
+            ["acme@realbiz.com", "sterling@realbiz.com", "build@realbiz.com"])).delete(synchronize_session=False)
+        db.commit()
         db.add_all([
             Lead(segment="referral_partner", category="Mortgage Broker", company_name="Acme Mortgage",
-                 email="acme@realbiz.com", status="New", score=10),
+                 email="acme@realbiz.com", status="New", score=100),
             Lead(segment="referral_partner", category="Financial Advisor", company_name="Sterling Wealth",
-                 email="sterling@realbiz.com", status="New", score=10),
+                 email="sterling@realbiz.com", status="New", score=100),
             Lead(segment="commercial", category="Contractor", company_name="BuildCo",
-                 email="build@realbiz.com", status="New", score=10),
+                 email="build@realbiz.com", status="New", score=100),
         ])
         db.commit()
     finally:
@@ -1381,12 +1387,166 @@ def test_leads_line_filter_and_summary(client, auth_headers):
     assert "lines" in s and set(s["lines"]) == {"home", "auto", "life", "commercial"}
     assert s["lines"]["home"] >= 1 and s["lines"]["life"] >= 1 and s["lines"]["commercial"] >= 1
 
-    rows = client.get("/leads?line=life", headers=auth_headers).json()
+    rows = client.get("/leads?line=life&limit=5000", headers=auth_headers).json()
     assert rows and all(r["line"] == "life" for r in rows)
     assert any(r["company_name"] == "Sterling Wealth" for r in rows)
     # The computed line is present on every lead row.
-    allrows = client.get("/leads", headers=auth_headers).json()
+    allrows = client.get("/leads?limit=5000", headers=auth_headers).json()
     assert all(r.get("line") in {"home", "auto", "life", "commercial"} for r in allrows)
+
+
+@requires_db
+def test_lead_quote_intake_profile_tracks_answers_and_completion(client, auth_headers):
+    """A lead's quote-intake profile starts empty, fills in as answers are saved,
+    reports accurate collected/total completion, and drops stale answers when the
+    quote type changes (a workers' comp answer must not leak into personal auto)."""
+    from app.database import SessionLocal
+    from app.models import Lead
+    db = SessionLocal()
+    try:
+        lead = Lead(segment="personal", category="Auto owner", company_name="Intake Test Co",
+                   email="intake-test@x.co", status="New", score=10)
+        db.add(lead)
+        db.commit()
+        db.refresh(lead)
+        lead_id = str(lead.id)
+    finally:
+        db.close()
+
+    empty = client.get(f"/leads/{lead_id}/intake", headers=auth_headers).json()
+    assert empty["quote_type"] is None and empty["total"] == 0 and empty["complete"] is False
+
+    r = client.post(f"/leads/{lead_id}/intake", headers=auth_headers, json={
+        "quote_type": "personal_auto", "answers": {"vin": "1HGCM82633A004352", "garaging_address": "123 Main St"}})
+    body = r.json()
+    assert body["quote_type"] == "personal_auto" and body["total"] == 4
+    assert body["collected"] == 2 and body["complete"] is False
+    assert body["answers"]["vin"] == "1HGCM82633A004352"
+
+    # Fill in the rest -> complete.
+    full = client.post(f"/leads/{lead_id}/intake", headers=auth_headers, json={
+        "quote_type": "personal_auto",
+        "answers": {"vin": "1HGCM82633A004352", "garaging_address": "123 Main St",
+                    "drivers_licenses": "Jane Doe #123", "lienholder": "None"}}).json()
+    assert full["collected"] == 4 and full["total"] == 4 and full["complete"] is True
+
+    # Switching quote type drops answers that don't belong to the new type.
+    switched = client.post(f"/leads/{lead_id}/intake", headers=auth_headers, json={
+        "quote_type": "workers_comp", "answers": {"vin": "should not carry over", "ein": "12-3456789"}}).json()
+    assert switched["quote_type"] == "workers_comp"
+    assert "vin" not in switched["answers"]
+    assert switched["answers"]["ein"] == "12-3456789"
+    assert switched["total"] == 4 and switched["collected"] == 1
+
+    # Unknown lead / unknown quote type are clean errors, not 500s.
+    assert client.get("/leads/00000000-0000-0000-0000-000000000000/intake", headers=auth_headers).status_code == 404
+    assert client.post(f"/leads/{lead_id}/intake", headers=auth_headers,
+                       json={"quote_type": "not_a_real_type", "answers": {}}).status_code == 400
+
+
+@requires_db
+def test_lead_quote_intake_send_via_text_and_whatsapp(client, auth_headers, monkeypatch):
+    """The same quote-intake ask can go out as a text (via the iMessage bridge
+    when Twilio isn't configured) or WhatsApp — gated on a phone number, a real
+    channel being configured, and a known quote type; each send is logged."""
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.models import Lead
+    db = SessionLocal()
+    try:
+        no_phone = Lead(segment="personal", category="Auto owner", company_name="No Phone Lead",
+                        email="nophone-intake@x.co", status="New", score=10)
+        has_phone = Lead(segment="personal", category="Auto owner", company_name="Has Phone Lead",
+                         email="hasphone-intake@x.co", phone="+16175551234", status="New", score=10)
+        db.add_all([no_phone, has_phone])
+        db.commit()
+        db.refresh(no_phone); db.refresh(has_phone)
+        no_phone_id, has_phone_id = str(no_phone.id), str(has_phone.id)
+    finally:
+        db.close()
+
+    r = client.post(f"/leads/{no_phone_id}/quote-intake/send", headers=auth_headers,
+                    json={"quote_type": "personal_auto", "channel": "sms"})
+    assert r.status_code == 400  # no phone on file
+
+    r = client.post(f"/leads/{has_phone_id}/quote-intake/send", headers=auth_headers,
+                    json={"quote_type": "not_a_real_type", "channel": "sms"})
+    assert r.status_code == 400  # unknown quote type
+
+    orig_bridge = settings.bridge_token
+    orig_twilio = (settings.twilio_account_sid, settings.twilio_auth_token, settings.twilio_from_number)
+    orig_wa = (settings.whatsapp_cloud_phone_number_id, settings.whatsapp_cloud_token,
+              settings.twilio_whatsapp_number)
+    try:
+        # No texting channel at all -> clean 400, not a crash.
+        settings.bridge_token = ""
+        settings.twilio_account_sid = settings.twilio_auth_token = settings.twilio_from_number = ""
+        r = client.post(f"/leads/{has_phone_id}/quote-intake/send", headers=auth_headers,
+                        json={"quote_type": "personal_auto", "channel": "sms"})
+        assert r.status_code == 400
+
+        # Bridge configured (free iMessage path) -> queues successfully.
+        settings.bridge_token = "test-bridge-secret"
+        r = client.post(f"/leads/{has_phone_id}/quote-intake/send", headers=auth_headers,
+                        json={"quote_type": "personal_auto", "channel": "sms", "lang": "en"})
+        body = r.json()
+        assert r.status_code == 200 and body["ok"] is True and "VIN" in body["text"]
+
+        db = SessionLocal()
+        try:
+            from app.models import Message
+            msg = (db.query(Message).filter(Message.entity_id == has_phone.id,
+                                            Message.channel == "sms").first())
+            assert msg is not None and msg.status == "Queued" and msg.to_email == "+16175551234"
+        finally:
+            db.close()
+
+        # WhatsApp not connected -> clean 400.
+        settings.whatsapp_cloud_phone_number_id = settings.whatsapp_cloud_token = ""
+        settings.twilio_whatsapp_number = ""
+        r = client.post(f"/leads/{has_phone_id}/quote-intake/send", headers=auth_headers,
+                        json={"quote_type": "personal_auto", "channel": "whatsapp"})
+        assert r.status_code == 400
+
+        # WhatsApp connected (mocked send) -> logged as a whatsapp Message.
+        from app.integrations import whatsapp_cloud
+        settings.whatsapp_cloud_phone_number_id, settings.whatsapp_cloud_token = "123456", "eaa-token"
+        monkeypatch.setattr(whatsapp_cloud, "send", lambda to, body: "wamid.test123")
+        r = client.post(f"/leads/{has_phone_id}/quote-intake/send", headers=auth_headers,
+                        json={"quote_type": "personal_auto", "channel": "whatsapp", "lang": "pt"})
+        body = r.json()
+        assert r.status_code == 200 and body["ok"] is True and "VIN" in body["text"]
+
+        db = SessionLocal()
+        try:
+            from app.models import Message
+            msg = (db.query(Message).filter(Message.entity_id == has_phone.id,
+                                            Message.channel == "whatsapp").first())
+            assert msg is not None and msg.status == "Sent" and msg.provider_id == "wamid.test123"
+        finally:
+            db.close()
+
+        # Bad channel value -> clean 400.
+        r = client.post(f"/leads/{has_phone_id}/quote-intake/send", headers=auth_headers,
+                        json={"quote_type": "personal_auto", "channel": "carrier_pigeon"})
+        assert r.status_code == 400
+    finally:
+        settings.bridge_token = orig_bridge
+        (settings.twilio_account_sid, settings.twilio_auth_token, settings.twilio_from_number) = orig_twilio
+        (settings.whatsapp_cloud_phone_number_id, settings.whatsapp_cloud_token,
+         settings.twilio_whatsapp_number) = orig_wa
+        # These SMS/WhatsApp Message rows (to_email is a phone number, not an
+        # email) would otherwise leak into other tests that scan /messages —
+        # e.g. test_outbound_messages_created_per_account's cold-email-only
+        # "never Sent" assertion has no way to know these aren't cold email.
+        db = SessionLocal()
+        try:
+            from app.models import Message
+            db.query(Message).filter(Message.entity_id.in_([no_phone.id, has_phone.id])).delete(
+                synchronize_session=False)
+            db.commit()
+        finally:
+            db.close()
 
 
 def test_per_business_booking_link():
@@ -3137,12 +3297,15 @@ def test_followup_engine_processes_due_steps(client, auth_headers):
     from app.database import SessionLocal
 
     db = SessionLocal()
-    lead = models.Lead(segment="commercial", email="fu-test@example.com",
+    # @x.co (not @example.com) so this fixture is excluded by the same
+    # "*@x.co is test fixture noise" convention other tests rely on when
+    # scanning /messages across the shared session DB.
+    lead = models.Lead(segment="commercial", email="fu-test@x.co",
                        company_name="FU Co", status="Drafted")
     db.add(lead)
     db.flush()
     db.add(models.Message(channel="email", entity_type="lead", entity_id=lead.id,
-                          to_email="fu-test@example.com", from_account="insurance",
+                          to_email="fu-test@x.co", from_account="insurance",
                           subject="hi", body="first touch", status="Sent"))
     db.add(models.FollowUp(entity_type="lead", entity_id=lead.id, step=1,
                            due_date=date.today() - timedelta(days=1), completed=False))

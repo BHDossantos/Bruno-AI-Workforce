@@ -28,6 +28,13 @@ type Lead = {
 };
 type Lines = { home: number; auto: number; life: number; commercial: number };
 type Temp = { cold: number; warm: number; hot: number; dead: number; lines?: Lines };
+type QuoteField = { key: string; label: string };
+type QuoteTemplate = { key: string; label: string; line: string; fields: QuoteField[] };
+type IntakeProfile = {
+  lead_id: string; quote_type: string | null; quote_type_label: string | null;
+  fields: QuoteField[]; answers: Record<string, string>;
+  collected: number; total: number; complete: boolean;
+};
 
 const LINE_LABEL: Record<string, string> = { home: "Home", auto: "Auto", life: "Life", commercial: "Commercial" };
 const LINE_BADGE: Record<string, string> = {
@@ -50,6 +57,45 @@ function Insurance() {
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
   const [sourcing, setSourcing] = useState(false);
+  const [profileLead, setProfileLead] = useState<{ id: string; name: string; phone: string } | null>(null);
+  const [profile, setProfile] = useState<IntakeProfile | null>(null);
+  const [selectedType, setSelectedType] = useState("");
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [profileMsg, setProfileMsg] = useState("");
+  const { data: templates } = useFetch<QuoteTemplate[]>(() => api.get<QuoteTemplate[]>("/book/quote-templates"));
+
+  async function openProfile(id: string, name: string, phone: string) {
+    setProfileLead({ id, name, phone });
+    setProfile(null); setDraft({}); setSelectedType(""); setProfileMsg("");
+    const p = await api.get<IntakeProfile>(`/leads/${id}/intake`);
+    setProfile(p);
+    setDraft(p.answers || {});
+    setSelectedType(p.quote_type || "");
+  }
+
+  async function saveProfile() {
+    if (!profileLead || !selectedType) return;
+    setProfileBusy(true);
+    try {
+      const p = await api.post<IntakeProfile>(`/leads/${profileLead.id}/intake`,
+        { quote_type: selectedType, answers: draft });
+      setProfile(p);
+      setDraft(p.answers || {});
+    } catch (e) { setMsg(`❌ ${e}`); }
+    finally { setProfileBusy(false); }
+  }
+
+  async function sendIntakeRequest(channel: "sms" | "whatsapp") {
+    if (!profileLead || !selectedType) return;
+    setProfileBusy(true); setProfileMsg("");
+    try {
+      const r = await api.post<{ ok: boolean; channel: string }>(
+        `/leads/${profileLead.id}/quote-intake/send`, { quote_type: selectedType, channel });
+      setProfileMsg(`✅ Sent via ${r.channel === "sms" ? "text" : "WhatsApp"}.`);
+    } catch (e) { setProfileMsg(`❌ ${e}`); }
+    finally { setProfileBusy(false); }
+  }
 
   async function sourceNow() {
     setSourcing(true); setMsg("Sourcing insurance leads… this can take a minute.");
@@ -204,6 +250,9 @@ function Insurance() {
                   <button onClick={() => addToCrm(l.id)} disabled={busy === l.id}
                     className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-1 text-xs text-gray-600 hover:bg-gray-50"
                     title="Add this lead to the Client Book (CRM)">→ CRM</button>
+                  <button onClick={() => openProfile(l.id, l.company_name || l.owner_name || l.email, l.phone)}
+                    className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-1 text-xs text-gray-600 hover:bg-gray-50"
+                    title="Quote-intake profile — track what's been collected">📋 Profile</button>
                 </td>
               </tr>
             ))}
@@ -213,6 +262,81 @@ function Insurance() {
           </tbody>
         </table>
       </div>
+
+      {profileLead && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setProfileLead(null)}>
+          <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6"
+            onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="font-semibold">📋 Profile — {profileLead.name}</h3>
+              <button onClick={() => setProfileLead(null)} className="text-gray-400 hover:text-gray-700">✕</button>
+            </div>
+            {!profile ? (
+              <p className="text-sm text-gray-500">Loading…</p>
+            ) : (
+              <>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-400">
+                  Quote type
+                </label>
+                <select value={selectedType} onChange={(e) => setSelectedType(e.target.value)}
+                  className="mb-4 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
+                  <option value="">Choose a quote type…</option>
+                  {(templates || []).map((t) => (
+                    <option key={t.key} value={t.key}>{t.label}</option>
+                  ))}
+                </select>
+
+                {selectedType && (
+                  <>
+                    {profile.quote_type === selectedType && (
+                      <div className="mb-3 text-xs text-gray-500">
+                        {profile.collected}/{profile.total} collected
+                        {profile.complete && <span className="ml-1 font-medium text-green-600">✓ Complete</span>}
+                      </div>
+                    )}
+                    <div className="space-y-3">
+                      {(templates || []).find((t) => t.key === selectedType)?.fields.map((f) => (
+                        <div key={f.key}>
+                          <label className="mb-1 block text-xs text-gray-500">{f.label}</label>
+                          <input value={draft[f.key] || ""}
+                            onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))}
+                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+                        </div>
+                      ))}
+                    </div>
+                    <button onClick={saveProfile} disabled={profileBusy}
+                      className="btn mt-4 w-full disabled:opacity-40">
+                      {profileBusy ? "Saving…" : "Save profile"}
+                    </button>
+
+                    <div className="mt-4 border-t border-gray-100 pt-4">
+                      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                        Ask for this by text or WhatsApp
+                      </div>
+                      {profileLead.phone ? (
+                        <div className="flex gap-2">
+                          <button onClick={() => sendIntakeRequest("sms")} disabled={profileBusy}
+                            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-40">
+                            💬 Send text
+                          </button>
+                          <button onClick={() => sendIntakeRequest("whatsapp")} disabled={profileBusy}
+                            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-40">
+                            🟢 Send WhatsApp
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-400">No phone number on file for this lead.</p>
+                      )}
+                      {profileMsg && <p className="mt-2 text-xs text-gray-600">{profileMsg}</p>}
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

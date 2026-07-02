@@ -1,5 +1,6 @@
 """Leads routes (insurance + BnB Global consulting)."""
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
@@ -10,6 +11,89 @@ from ..schemas import LeadOut, StatusUpdate
 from ..security import require_role
 
 router = APIRouter(prefix="/leads", tags=["insurance"])
+
+
+class IntakeIn(BaseModel):
+    quote_type: str
+    answers: dict[str, str] = {}
+
+
+@router.get("/{lead_id}/intake")
+def get_intake(lead_id: str, db: Session = Depends(get_db),
+               _=Depends(require_role("admin", "operator", "viewer"))):
+    """This lead's quote-intake profile — chosen quote type, its fields, saved
+    answers, and how many of the requirements have actually been collected."""
+    from .. import lead_profile
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    return lead_profile.profile_for(lead)
+
+
+@router.post("/{lead_id}/intake")
+def set_intake(lead_id: str, body: IntakeIn, db: Session = Depends(get_db),
+               _=Depends(require_role("admin", "operator"))):
+    """Pick this lead's quote type and save what's been collected so far."""
+    from .. import lead_profile
+    result = lead_profile.save_intake(db, lead_id, body.quote_type, body.answers)
+    if result is None:
+        if not db.query(Lead).filter(Lead.id == lead_id).first():
+            raise HTTPException(404, "Lead not found")
+        raise HTTPException(400, "Unknown quote type")
+    return result
+
+
+class IntakeSendIn(BaseModel):
+    quote_type: str
+    channel: str  # "sms" | "whatsapp"
+    lang: str = "en"
+
+
+@router.post("/{lead_id}/quote-intake/send")
+def send_quote_intake(lead_id: str, body: IntakeSendIn, db: Session = Depends(get_db),
+                      _=Depends(require_role("admin", "operator"))):
+    """Text or WhatsApp this lead the short version of the quote-intake ask
+    (the same info the email template collects, phrased for a text thread)."""
+    from datetime import datetime, timezone
+
+    from .. import quote_intake, sms_engine
+    from ..integrations import sms
+    from ..models import Message
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    if not lead.phone:
+        raise HTTPException(400, "This lead has no phone number on file")
+    template = quote_intake.get(body.quote_type)
+    if not template:
+        raise HTTPException(400, "Unknown quote type")
+    text = template.get(f"text_body_{body.lang}") or template.get("text_body_en")
+    if not text:
+        raise HTTPException(400, "No text template for this quote type")
+
+    if body.channel == "sms":
+        result = sms_engine.send_text(db, entity_type="lead", entity_id=lead.id,
+                                      phone=lead.phone, body=text, account="insurance")
+        if not result:
+            raise HTTPException(400, "No texting channel configured — connect Twilio or the "
+                                "iMessage bridge on Setup first")
+    elif body.channel == "whatsapp":
+        if not sms.whatsapp_configured():
+            raise HTTPException(400, "WhatsApp isn't connected — add Meta Cloud API or Twilio "
+                                "WhatsApp credentials on Setup first")
+        sid = sms.send_whatsapp(lead.phone, text)
+        if not sid:
+            raise HTTPException(400, "WhatsApp send failed")
+        db.add(Message(channel="whatsapp", direction="outbound", entity_type="lead",
+                       entity_id=lead.id, to_email=lead.phone, from_account="insurance",
+                       body=text, status="Sent", provider_id=sid,
+                       sent_at=datetime.now(timezone.utc)))
+        lead.times_contacted = (lead.times_contacted or 0) + 1
+        lead.last_contacted_at = datetime.now(timezone.utc)
+        db.commit()
+    else:
+        raise HTTPException(400, "channel must be 'sms' or 'whatsapp'")
+    return {"ok": True, "channel": body.channel, "text": text}
 
 
 @router.get("", response_model=list[LeadOut])

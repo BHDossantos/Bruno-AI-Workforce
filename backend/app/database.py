@@ -48,6 +48,8 @@ _MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS ix_leads_campaign_id ON leads (campaign_id)",
     "ALTER TABLE restaurants ADD COLUMN IF NOT EXISTS campaign_id VARCHAR",
     "CREATE INDEX IF NOT EXISTS ix_restaurants_campaign_id ON restaurants (campaign_id)",
+    # Lead profile: quote-intake answers tracked per lead (see lead_profile.py).
+    "ALTER TABLE leads ADD COLUMN IF NOT EXISTS intake JSONB",
     # Backfill streaming links onto an already-seeded profile — only when it still
     # holds the original Spotify-only seed, so user edits are never clobbered.
     ("UPDATE brand_profile SET music_links = "
