@@ -7,7 +7,7 @@ text. Renewal radar surfaces policies expiring soon.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -134,10 +134,16 @@ def list_clients(business: str | None = None, line: str | None = None, carrier: 
         like = f"%{q}%"
         query = query.filter(or_(Client.name.ilike(like), Client.email.ilike(like),
                                  Client.policy_number.ilike(like), Client.city.ilike(like)))
+    if expiring:
+        # expires_at is a real column — filter in SQL (not after the row LIMIT
+        # below) so a renewal due soon can't get paged out by newer clients
+        # that sort ahead of it by created_at (the same bug already fixed on
+        # /leads and /restaurants).
+        today = date.today()
+        query = query.filter(Client.expires_at.isnot(None), Client.expires_at >= today,
+                             Client.expires_at <= today + timedelta(days=_EXPIRING_DAYS))
     rows = query.order_by(Client.created_at.desc()).limit(limit).all()
     out = [_client_dict(c) for c in rows]
-    if expiring:
-        out = [c for c in out if c["expiring_soon"]]
     _attach_last_email(db, out)
     return out
 

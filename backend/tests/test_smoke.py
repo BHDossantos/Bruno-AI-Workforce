@@ -1185,6 +1185,42 @@ def test_money_actions_cockpit(client, auth_headers):
 
 
 @requires_db
+def test_client_renewal_radar_survives_flood_of_newer_clients(client, auth_headers):
+    """Regression: /book/clients?expiring=1 (the renewal radar the Money Actions
+    'Review renewals' card links to) must still surface an older client whose
+    policy is renewing soon, even when hundreds of newer (non-expiring) clients
+    exist — expires_at is a real column, so it must be filtered in SQL, not
+    after the row LIMIT (the same bug already fixed on /leads//restaurants)."""
+    from datetime import date, timedelta
+
+    from app.database import SessionLocal
+    from app.models import Client
+    db = SessionLocal()
+    try:
+        db.query(Client).filter(Client.name.like("Newer Client%")).delete(synchronize_session=False)
+        db.query(Client).filter(Client.name == "Old Renewal Co").delete(synchronize_session=False)
+        db.commit()
+        # An older client (sorts LAST by created_at desc) renewing soon.
+        db.add(Client(business="insurance", name="Old Renewal Co", status="Active",
+                      expires_at=date.today() + timedelta(days=15)))
+        db.commit()
+        # A flood of freshly-created clients (sort ahead by created_at) that
+        # are NOT expiring soon.
+        db.add_all([
+            Client(business="insurance", name=f"Newer Client {i}", status="Active",
+                  expires_at=date.today() + timedelta(days=365))
+            for i in range(600)
+        ])
+        db.commit()
+    finally:
+        db.close()
+
+    rows = client.get("/book/clients?expiring=1", headers=auth_headers).json()
+    assert any(r["name"] == "Old Renewal Co" for r in rows)
+    assert all(r["expiring_soon"] for r in rows)
+
+
+@requires_db
 def test_conversion_by_line(client, auth_headers):
     """Conversion-by-line groups insurance leads (and the partners feeding each
     line) into Home/Auto/Life/Commercial with reply and win rates."""
@@ -2406,6 +2442,37 @@ def test_lead_finder_search(client, auth_headers):
     # Scores are sorted descending.
     scores = [r["score"] for r in rows]
     assert scores == sorted(scores, reverse=True)
+
+
+@requires_db
+def test_lead_finder_temperature_survives_cold_flood(client, auth_headers):
+    """Regression: /leads/search?temperature=warm must still surface a warm
+    lead even when hundreds of top-scoring cold leads exist — the same row-
+    LIMIT-before-filter starvation bug already fixed on /leads and
+    /restaurants, on this sibling endpoint."""
+    from app import models
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        db.query(models.Lead).filter(models.Lead.email.like("finderflood%@x.co")).delete(
+            synchronize_session=False)
+        db.query(models.Lead).filter(models.Lead.email == "finderwarm@x.co").delete(
+            synchronize_session=False)
+        db.commit()
+        db.add_all([
+            models.Lead(segment="commercial", category="Contractor",
+                       company_name=f"Finder Flood {i}", email=f"finderflood{i}@x.co",
+                       status="New", score=99)
+            for i in range(450)
+        ])
+        db.add(models.Lead(segment="commercial", category="Contractor", company_name="Finder Warm Lead",
+                           email="finderwarm@x.co", status="replied", score=10))
+        db.commit()
+    finally:
+        db.close()
+
+    rows = client.get("/leads/search?temperature=warm&limit=500", headers=auth_headers).json()
+    assert any(r["company"] == "Finder Warm Lead" for r in rows)
 
 
 @requires_db
