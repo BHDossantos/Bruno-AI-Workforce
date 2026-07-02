@@ -6,72 +6,153 @@ import { usePathname, useRouter } from "next/navigation";
 import { api, clearToken, getToken } from "@/lib/api";
 import LiveClock from "@/components/LiveClock";
 
-const NAV = [
-  { href: "/", label: "Mission Control", icon: "🛰️" },
-  { href: "/today", label: "Today's Money Actions", icon: "💸" },
-  { href: "/clients", label: "Client Engine", icon: "🎯" },
-  { href: "/agent-builder", label: "Create AI Agent", icon: "✨" },
-  { href: "/campaign-builder", label: "Campaign Builder", icon: "🧭" },
-  { href: "/inbox", label: "Unified Inbox", icon: "📨" },
-  { href: "/lead-finder", label: "Lead Finder", icon: "🔎" },
-  { href: "/deals", label: "Deal Pipeline", icon: "🗂️" },
-  { href: "/automations", label: "Automations", icon: "⚡" },
-  { href: "/deliverability", label: "Email Deliverability", icon: "📬" },
-  { href: "/mailboxes", label: "Mailbox Pool", icon: "📮" },
-  { href: "/outreach-report", label: "Outreach Performance", icon: "📈" },
-  { href: "/subject-ab", label: "Subject A/B Testing", icon: "🧪" },
-  { href: "/by-line", label: "Conversion by Line", icon: "🎯" },
-  { href: "/approvals", label: "Approval Queue", icon: "☑️" },
-  { href: "/followups", label: "Follow-ups", icon: "🔁" },
-  { href: "/activation", label: "Go-Live Setup", icon: "🚀" },
-  { href: "/setup", label: "Connect Email & Data", icon: "🔑" },
-  { href: "/search", label: "Search", icon: "🔍" },
-  { href: "/autopilot", label: "Application Autopilot", icon: "🤖" },
-  { href: "/accounts", label: "Accounts", icon: "🏢" },
-  { href: "/clients-crm", label: "Client Book (CRM)", icon: "🗃️" },
-  { href: "/quote-intake", label: "Quote Intake", icon: "📝" },
-  { href: "/webhooks", label: "Webhooks", icon: "🔗" },
-  { href: "/crm", label: "Universal CRM", icon: "👥" },
-  { href: "/factory", label: "Content Factory", icon: "🏭" },
-  { href: "/calendar", label: "Content Calendar", icon: "🗓️" },
-  { href: "/centers", label: "Command Centers", icon: "🎖️" },
-  { href: "/money", label: "Money / Net Worth", icon: "💵" },
-  { href: "/objectives", label: "Objectives", icon: "🎯" },
-  { href: "/opportunities", label: "Opportunities", icon: "✨" },
-  { href: "/board", label: "Board Report", icon: "🧑‍⚖️" },
-  { href: "/planning", label: "Predictive Planning", icon: "🔮" },
-  { href: "/decisions", label: "Decision Journal", icon: "📓" },
-  { href: "/agents", label: "Agent Performance", icon: "🤖" },
-  { href: "/analytics", label: "Funnel Analytics", icon: "📊" },
-  { href: "/growth", label: "Growth Analytics", icon: "📈" },
-  { href: "/pipeline", label: "Sales Pipeline", icon: "💰" },
-  { href: "/revenue", label: "Revenue & ROI", icon: "💵" },
-  { href: "/learnings", label: "AI Learnings", icon: "🎓" },
-  { href: "/jobs", label: "Jobs", icon: "💼" },
-  { href: "/apply", label: "Apply Queue", icon: "✅" },
-  { href: "/insurance", label: "Insurance Leads", icon: "🛡️" },
-  { href: "/bnbglobal", label: "BnB Global Consulting", icon: "💻" },
-  { href: "/savorymind", label: "SavoryMind Leads", icon: "🍽️" },
-  { href: "/music", label: "Music Campaigns", icon: "🎵" },
-  { href: "/foundation", label: "Foundation — Grants", icon: "🎓" },
-  { href: "/instagram", label: "Instagram Planner", icon: "📸" },
-  { href: "/connections", label: "Connections", icon: "🔌" },
-  { href: "/status", label: "System Status", icon: "🩺" },
-  { href: "/import", label: "Import Contacts", icon: "📥" },
-  { href: "/outbox", label: "Outbox", icon: "📧" },
-  { href: "/newsletters", label: "Newsletters", icon: "📰" },
-  { href: "/texts", label: "Texts", icon: "💬" },
-  { href: "/queue", label: "Outreach Queue", icon: "✋" },
-  { href: "/brief", label: "Daily Brief", icon: "📋" },
-  { href: "/memory", label: "Memory / Knowledge", icon: "🧠" },
-  { href: "/settings", label: "Brand Profile", icon: "⚙️" },
+// Navigation is grouped into collapsible sections so the ~60 pages are easy to
+// scan and navigate instead of one long flat list. Every page still lives here —
+// nothing is hidden, just organized. The group containing the current page is
+// always shown, and each section's open/closed state is remembered per-browser.
+type NavItem = { href: string; label: string; icon: string };
+type NavGroup = { title: string; icon: string; items: NavItem[] };
+
+const GROUPS: NavGroup[] = [
+  {
+    title: "Daily Driver", icon: "⭐",
+    items: [
+      { href: "/", label: "Mission Control", icon: "🛰️" },
+      { href: "/today", label: "Today's Money Actions", icon: "💸" },
+      { href: "/brief", label: "Daily Brief", icon: "📋" },
+      { href: "/inbox", label: "Unified Inbox", icon: "📨" },
+      { href: "/approvals", label: "Approval Queue", icon: "☑️" },
+    ],
+  },
+  {
+    title: "Leads & Outreach", icon: "🎯",
+    items: [
+      { href: "/lead-finder", label: "Lead Finder", icon: "🔎" },
+      { href: "/insurance", label: "Insurance Leads", icon: "🛡️" },
+      { href: "/bnbglobal", label: "BnB Global Consulting", icon: "💻" },
+      { href: "/savorymind", label: "SavoryMind Leads", icon: "🍽️" },
+      { href: "/music", label: "Music Campaigns", icon: "🎵" },
+      { href: "/foundation", label: "Foundation — Grants", icon: "🎓" },
+      { href: "/campaign-builder", label: "Campaign Builder", icon: "🧭" },
+      { href: "/clients", label: "Client Engine", icon: "🎯" },
+      { href: "/deals", label: "Deal Pipeline", icon: "🗂️" },
+      { href: "/pipeline", label: "Sales Pipeline", icon: "💰" },
+      { href: "/followups", label: "Follow-ups", icon: "🔁" },
+      { href: "/queue", label: "Outreach Queue", icon: "✋" },
+    ],
+  },
+  {
+    title: "CRM & Clients", icon: "🗃️",
+    items: [
+      { href: "/clients-crm", label: "Client Book (CRM)", icon: "🗃️" },
+      { href: "/accounts", label: "Accounts", icon: "🏢" },
+      { href: "/crm", label: "Universal CRM", icon: "👥" },
+      { href: "/quote-intake", label: "Quote Intake", icon: "📝" },
+      { href: "/import", label: "Import Contacts", icon: "📥" },
+    ],
+  },
+  {
+    title: "Content & Social", icon: "✍️",
+    items: [
+      { href: "/factory", label: "Content Factory", icon: "🏭" },
+      { href: "/calendar", label: "Content Calendar", icon: "🗓️" },
+      { href: "/newsletters", label: "Newsletters", icon: "📰" },
+      { href: "/instagram", label: "Instagram Planner", icon: "📸" },
+    ],
+  },
+  {
+    title: "Messaging & Deliverability", icon: "✉️",
+    items: [
+      { href: "/outbox", label: "Outbox", icon: "📧" },
+      { href: "/texts", label: "Texts", icon: "💬" },
+      { href: "/deliverability", label: "Email Deliverability", icon: "📬" },
+      { href: "/mailboxes", label: "Mailbox Pool", icon: "📮" },
+      { href: "/outreach-report", label: "Outreach Performance", icon: "📈" },
+      { href: "/subject-ab", label: "Subject A/B Testing", icon: "🧪" },
+      { href: "/by-line", label: "Conversion by Line", icon: "📶" },
+    ],
+  },
+  {
+    title: "Analytics & Reports", icon: "📊",
+    items: [
+      { href: "/analytics", label: "Funnel Analytics", icon: "📊" },
+      { href: "/growth", label: "Growth Analytics", icon: "📈" },
+      { href: "/revenue", label: "Revenue & ROI", icon: "💵" },
+      { href: "/money", label: "Money / Net Worth", icon: "🏦" },
+      { href: "/objectives", label: "Objectives", icon: "🎯" },
+      { href: "/opportunities", label: "Opportunities", icon: "✨" },
+      { href: "/centers", label: "Command Centers", icon: "🎖️" },
+      { href: "/board", label: "Board Report", icon: "🧑‍⚖️" },
+      { href: "/planning", label: "Predictive Planning", icon: "🔮" },
+      { href: "/decisions", label: "Decision Journal", icon: "📓" },
+      { href: "/agents", label: "Agent Performance", icon: "🤖" },
+      { href: "/learnings", label: "AI Learnings", icon: "🎓" },
+    ],
+  },
+  {
+    title: "Jobs", icon: "💼",
+    items: [
+      { href: "/jobs", label: "Jobs", icon: "💼" },
+      { href: "/apply", label: "Apply Queue", icon: "✅" },
+      { href: "/autopilot", label: "Application Autopilot", icon: "🤖" },
+    ],
+  },
+  {
+    title: "Automation & AI", icon: "⚡",
+    items: [
+      { href: "/automations", label: "Automations", icon: "⚡" },
+      { href: "/agent-builder", label: "Create AI Agent", icon: "✨" },
+      { href: "/memory", label: "Memory / Knowledge", icon: "🧠" },
+    ],
+  },
+  {
+    title: "Setup & System", icon: "⚙️",
+    items: [
+      { href: "/setup", label: "Connect Email & Data", icon: "🔑" },
+      { href: "/connections", label: "Connections", icon: "🔌" },
+      { href: "/activation", label: "Go-Live Setup", icon: "🚀" },
+      { href: "/webhooks", label: "Webhooks", icon: "🔗" },
+      { href: "/settings", label: "Brand Profile", icon: "⚙️" },
+      { href: "/status", label: "System Status", icon: "🩺" },
+      { href: "/search", label: "Search", icon: "🔍" },
+    ],
+  },
 ];
+
+function groupForPath(pathname: string): string | null {
+  for (const g of GROUPS) {
+    if (g.items.some((i) => i.href === pathname)) return g.title;
+  }
+  return null;
+}
 
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
+  // Per-browser memory of which sections are expanded. Starts with just the
+  // Daily Driver group open; the section containing the current page is always
+  // shown regardless (see `sectionOpen`).
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ "Daily Driver": true });
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("nav_groups");
+      if (raw) setOpenGroups(JSON.parse(raw));
+    } catch { /* ignore malformed storage */ }
+  }, []);
+
+  function toggleGroup(title: string) {
+    setOpenGroups((prev) => {
+      const next = { ...prev, [title]: !(prev[title] ?? false) };
+      try { localStorage.setItem("nav_groups", JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }
+
+  const activeGroup = groupForPath(pathname);
+  const sectionOpen = (title: string) => (openGroups[title] ?? false) || title === activeGroup;
 
   // Public pages (login + legal) render without the app chrome so they're
   // cleanly crawlable by TikTok/Meta app review without a login.
@@ -112,21 +193,42 @@ export default function Sidebar() {
           />
         </div>
 
-        <nav className="flex-1 space-y-1 overflow-y-auto px-3">
-          {NAV.map((item) => {
-            const active = pathname === item.href;
+        <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-2">
+          {GROUPS.map((group) => {
+            const expanded = sectionOpen(group.title);
             return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() => setOpen(false)}
-                className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition ${
-                  active ? "bg-white/15 font-semibold" : "text-brand-light hover:bg-white/10"
-                }`}
-              >
-                <span>{item.icon}</span>
-                {item.label}
-              </Link>
+              <div key={group.title} className="mb-1">
+                <button
+                  onClick={() => toggleGroup(group.title)}
+                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-brand-light/80 hover:bg-white/5"
+                >
+                  <span className="flex items-center gap-2">
+                    <span>{group.icon}</span>
+                    {group.title}
+                  </span>
+                  <span className="text-brand-light/60">{expanded ? "▾" : "▸"}</span>
+                </button>
+                {expanded && (
+                  <div className="mt-0.5 space-y-0.5">
+                    {group.items.map((item) => {
+                      const active = pathname === item.href;
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          onClick={() => setOpen(false)}
+                          className={`flex items-center gap-3 rounded-lg py-2 pl-6 pr-3 text-sm transition ${
+                            active ? "bg-white/15 font-semibold" : "text-brand-light hover:bg-white/10"
+                          }`}
+                        >
+                          <span>{item.icon}</span>
+                          {item.label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             );
           })}
         </nav>

@@ -3779,12 +3779,14 @@ def test_setup_connect_status_and_save(client, auth_headers):
     """The in-app setup page reports connection status and applies a saved key."""
     from app.config import settings
     s = client.get("/setup", headers=auth_headers).json()
-    assert set(s) == {"gmail_personal", "gmail_insurance", "gmail_bnb", "gmail_savorymind",
+    assert set(s) == {"ai", "gmail_personal", "gmail_insurance", "gmail_bnb", "gmail_savorymind",
                       "apollo", "google_places", "sms", "whatsapp", "jobs_api", "instantly",
-                      "smartlead", "sendgrid", "meta_app", "booking", "contacts_outreach_exclude",
-                      "newsletter_banners"}
+                      "smartlead", "sendgrid", "meta_app", "tiktok_app", "booking",
+                      "contacts_outreach_exclude", "newsletter_banners"}
     assert s["apollo"]["configured"] is False
     assert set(s["booking"]) == {"default", "insurance", "bnb", "savorymind"}
+    # The AI-brain status block is present so the UI can warn when drafts are stubs.
+    assert "configured" in s["ai"] and "model" in s["ai"]
     orig = settings.google_places_api_key
     try:
         r = client.post("/setup", headers=auth_headers, json={"google_places_api_key": "test-key-123"})
@@ -3802,6 +3804,39 @@ def test_setup_connect_status_and_save(client, auth_headers):
         assert s2["contacts_outreach_exclude"] == "mom@family.com, dad@family.com"
     finally:
         settings.contacts_outreach_exclude = orig_exclude
+
+
+@requires_db
+def test_openai_key_connectable_at_runtime(client, auth_headers):
+    """The AI brain can be connected from Setup (not just env vars) and takes
+    effect immediately — the client rebuilds from the CURRENT key rather than
+    being frozen at import, so it activates without a redeploy. The rebuild
+    mechanism is asserted directly (works with or without the openai package
+    installed); the live-status flip is checked only when openai is importable."""
+    from app.ai import client as ai_client
+    from app.config import settings
+
+    orig = settings.openai_api_key
+    try:
+        settings.openai_api_key = ""
+        ai_client._get_client()  # cache now reflects the empty key
+        assert ai_client.is_live() is False
+        assert client.get("/setup", headers=auth_headers).json()["ai"]["configured"] is False
+
+        # Saving a key via Setup applies it to the live settings object...
+        r = client.post("/setup", headers=auth_headers, json={"openai_api_key": "sk-test-fake-key"})
+        assert r.status_code == 200 and "openai_api_key" in r.json()["saved"]
+        assert settings.openai_api_key == "sk-test-fake-key"
+        # ...and the client accessor rebuilds against it instead of the import-time
+        # value (the core of the fix), so its cached key tracks the new one.
+        ai_client._get_client()
+        assert ai_client._client_key == "sk-test-fake-key"
+        if ai_client._OpenAI is not None:  # openai installed (as in CI) → really live
+            assert ai_client.is_live() is True
+            assert client.get("/setup", headers=auth_headers).json()["ai"]["configured"] is True
+    finally:
+        settings.openai_api_key = orig
+        ai_client._get_client()  # rebuild against the restored key so other tests are unaffected
 
 
 @requires_db

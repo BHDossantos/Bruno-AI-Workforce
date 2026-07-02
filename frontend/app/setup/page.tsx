@@ -6,11 +6,13 @@ import { AuthGate, PageHeader, useFetch, LoadState } from "@/components/ui";
 
 type Area = { configured: boolean; address?: string };
 type Status = {
+  ai?: { configured: boolean; model: string };
   gmail_personal: Area; gmail_insurance: Area; gmail_bnb?: Area; gmail_savorymind?: Area;
   apollo: Area; google_places: Area;
   sms?: Area; whatsapp?: Area & { via?: string | null }; jobs_api?: Area;
   instantly?: Area; smartlead?: Area; sendgrid?: Area;
   meta_app?: { configured: boolean; app_id: string; redirect_uri: string };
+  tiktok_app?: { configured: boolean; client_key: string; redirect_uri: string };
   booking?: { default: string; insurance: string; bnb: string; savorymind: string };
   contacts_outreach_exclude?: string;
   newsletter_banners?: { insurance: string; bnb: string; savorymind: string; music: string };
@@ -104,6 +106,30 @@ function Setup() {
       </div>
 
       <div className="space-y-4">
+        {/* AI brain (OpenAI) — without this, every AI draft is stub text */}
+        <div className="card">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">🧠 AI brain (OpenAI)</h2>
+            <Badge ok={!!data.ai?.configured} />
+          </div>
+          <p className="mb-2 text-xs text-gray-500">
+            Powers <b>every</b> AI draft — cold emails, quote-intake replies, content, newsletters,
+            lead scoring. Without it the system still runs but writes clearly-marked placeholder text
+            instead of real copy. Paste an <a className="underline" href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">OpenAI API key</a> — it takes effect immediately.
+          </p>
+          {!data.ai?.configured && (
+            <div className="mb-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-900">
+              ⚠️ Not connected — AI drafts are currently placeholder text. Connect a key to turn on real generation.
+            </div>
+          )}
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input className="input" type="password" placeholder="OpenAI API key (sk-…)"
+              value={form.openai_api_key || ""} onChange={(e) => set("openai_api_key", e.target.value)} />
+            <input className="input" placeholder={data.ai?.model || "Model (default gpt-4o)"}
+              value={form.openai_model || ""} onChange={(e) => set("openai_model", e.target.value)} />
+          </div>
+        </div>
+
         {/* Gmail personal */}
         <div className="card">
           <div className="mb-2 flex items-center justify-between">
@@ -278,6 +304,28 @@ function Setup() {
               value={form.facebook_app_secret || ""} onChange={(e) => set("facebook_app_secret", e.target.value)} />
             <input className="input sm:col-span-2" placeholder={data.meta_app?.redirect_uri || "Redirect URI — https://<backend>/connections/meta/oauth/callback"}
               value={form.meta_redirect_uri || ""} onChange={(e) => set("meta_redirect_uri", e.target.value)} />
+          </div>
+        </div>
+
+        {/* TikTok app — powers the one-click Connect with TikTok button */}
+        <div className="card">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">🎵 TikTok app (one-click connect)</h2>
+            <Badge ok={!!data.tiktok_app?.configured} />
+          </div>
+          <p className="mb-2 text-xs text-gray-500">
+            Enables the <b>&ldquo;Connect with TikTok&rdquo;</b> button on the Connections page. From your
+            TikTok app (developers.tiktok.com): Client Key, Client Secret, and add the redirect URI below
+            as a registered redirect URI. Note: until TikTok audits your app, posts publish as private
+            (SELF_ONLY) — that&apos;s a TikTok review step, not a setting.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input className="input" placeholder={data.tiktok_app?.client_key || "TikTok Client Key"}
+              value={form.tiktok_client_key || ""} onChange={(e) => set("tiktok_client_key", e.target.value)} />
+            <input className="input" type="password" placeholder="TikTok Client Secret"
+              value={form.tiktok_client_secret || ""} onChange={(e) => set("tiktok_client_secret", e.target.value)} />
+            <input className="input sm:col-span-2" placeholder={data.tiktok_app?.redirect_uri || "Redirect URI — https://<backend>/connections/tiktok/oauth/callback"}
+              value={form.tiktok_redirect_uri || ""} onChange={(e) => set("tiktok_redirect_uri", e.target.value)} />
           </div>
         </div>
 

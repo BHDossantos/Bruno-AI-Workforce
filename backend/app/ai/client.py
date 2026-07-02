@@ -1,8 +1,14 @@
 """Thin OpenAI wrapper with a deterministic offline fallback.
 
-When ``OPENAI_API_KEY`` is unset the helpers return clearly-marked stub content
+When no OpenAI key is configured the helpers return clearly-marked stub content
 so the whole pipeline (agents, scheduler, dashboard) runs end-to-end without
-external credentials. Wire a real key to get production output.
+external credentials. Connect a real key — via env var OR the in-app Setup page
+(runtime_config) — to get production output.
+
+The client is built lazily from the CURRENT ``settings.openai_api_key`` and
+rebuilt whenever that key changes, so a key connected at runtime through Setup
+takes effect immediately without a redeploy (the module used to build the client
+once at import, which meant a Setup-saved key silently never activated).
 """
 from __future__ import annotations
 
@@ -14,23 +20,42 @@ from ..config import settings
 log = logging.getLogger("bruno.ai")
 
 try:  # OpenAI is optional at import time so the app boots without it.
-    from openai import OpenAI
-
-    _client: OpenAI | None = OpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else None
+    from openai import OpenAI as _OpenAI
 except Exception:  # pragma: no cover - import guard
-    _client = None
+    _OpenAI = None
+
+_client = None
+_client_key: str | None = None  # the api key the cached client was built with
+
+
+def _get_client():
+    """Return the OpenAI client for the current key, (re)building it on change.
+
+    Cheap: only reconstructs when ``settings.openai_api_key`` actually differs
+    from the key the cached client was built with (e.g. first connect via Setup,
+    or a key rotation), so hot-path callers pay nothing on the common case."""
+    global _client, _client_key
+    key = (settings.openai_api_key or "").strip()
+    if key != _client_key:
+        _client_key = key
+        try:
+            _client = _OpenAI(api_key=key) if (key and _OpenAI is not None) else None
+        except Exception:  # pragma: no cover - construction guard
+            _client = None
+    return _client
 
 
 def is_live() -> bool:
-    return _client is not None
+    return _get_client() is not None
 
 
 def complete(prompt: str, *, system: str = "You are a helpful assistant.", temperature: float = 0.7) -> str:
     """Return a free-text completion, or a stub when no API key is configured."""
-    if _client is None:
+    client = _get_client()
+    if client is None:
         return f"[stub output — set OPENAI_API_KEY to generate]\n{prompt[:200]}"
     try:
-        resp = _client.chat.completions.create(
+        resp = client.chat.completions.create(
             model=settings.openai_model,
             temperature=temperature,
             messages=[
@@ -46,10 +71,11 @@ def complete(prompt: str, *, system: str = "You are a helpful assistant.", tempe
 
 def complete_json(prompt: str, *, system: str = "You output only valid JSON.") -> dict | list:
     """Return parsed JSON from the model, or an empty structure on failure."""
-    if _client is None:
+    client = _get_client()
+    if client is None:
         return {}
     try:
-        resp = _client.chat.completions.create(
+        resp = client.chat.completions.create(
             model=settings.openai_model,
             temperature=0.4,
             response_format={"type": "json_object"},
@@ -70,10 +96,11 @@ def embed(text: str) -> list[float] | None:
     Used by the memory/knowledge layer for semantic recall. Callers must handle
     None and fall back to keyword search.
     """
-    if _client is None or not text:
+    client = _get_client()
+    if client is None or not text:
         return None
     try:
-        resp = _client.embeddings.create(
+        resp = client.embeddings.create(
             model=settings.embedding_model, input=text[:8000])
         return resp.data[0].embedding
     except Exception as exc:  # pragma: no cover - network guard
@@ -85,7 +112,8 @@ def speech(text: str, *, voice: str | None = None, instructions: str | None = No
     """Synthesize speech with a real neural voice and return MP3 bytes, or None
     when offline. Used to give the Jennifer assistant a warm, natural voice instead
     of the robotic built-in browser TTS."""
-    if _client is None or not text:
+    client = _get_client()
+    if client is None or not text:
         return None
     try:
         kwargs = {
@@ -98,7 +126,7 @@ def speech(text: str, *, voice: str | None = None, instructions: str | None = No
         instr = instructions or settings.voice_tts_instructions
         if instr and "gpt-4o" in settings.voice_tts_model:
             kwargs["instructions"] = instr
-        resp = _client.audio.speech.create(**kwargs)
+        resp = client.audio.speech.create(**kwargs)
         return resp.read() if hasattr(resp, "read") else getattr(resp, "content", None)
     except Exception as exc:  # pragma: no cover - network guard
         log.warning("OpenAI TTS failed: %s", exc)
@@ -109,12 +137,13 @@ def generate_image(prompt: str, *, size: str = "1024x1024") -> bytes | None:
     """Generate a social image and return raw PNG bytes, or None when offline.
 
     Used by the Instagram auto-publisher (Instagram requires real media)."""
-    if _client is None or not prompt:
+    client = _get_client()
+    if client is None or not prompt:
         return None
     try:
         import base64
 
-        resp = _client.images.generate(model=settings.image_model, prompt=prompt[:4000], size=size)
+        resp = client.images.generate(model=settings.image_model, prompt=prompt[:4000], size=size)
         item = resp.data[0]
         b64 = getattr(item, "b64_json", None)
         if b64:
