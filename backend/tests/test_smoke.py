@@ -1742,6 +1742,61 @@ def test_music_real_playlist_discovery_offline_safe():
     assert spotify_api.discover_playlists(None, []) == []
 
 
+def test_music_catalog_data_is_complete():
+    """The real discography is loaded and self-consistent — every single is an
+    actual track on its album, and lookups resolve case-insensitively."""
+    from app import music_catalog
+    s = music_catalog.stats()
+    assert s["albums"] == 10 and s["tracks"] == 120 and s["singles"] >= 14
+    for a in music_catalog.all_albums():
+        titles = {t["title"] for t in a["tracks"]}
+        assert set(a["singles"]) <= titles  # a single must be a track on the album
+        assert sum(1 for t in a["tracks"] if t["single"]) == len(a["singles"])
+    hit = music_catalog.find_track("ROME REMINDS ME OF YOU")  # case-insensitive
+    assert hit and hit["album"] == "Golden Hour" and hit["single"] is True
+    assert music_catalog.find_track("not a real song") is None
+    # The top-streamed "Popular" set is present, ranked, and promotable even for
+    # songs that aren't on a listed themed album.
+    pop = music_catalog.popular()
+    assert len(pop) == 10 and pop[0] == {"rank": 1, "title": "I Stayed in Rome", "album": None}
+    assert music_catalog.find_track("i stayed in rome") is not None  # resolves despite no album
+
+
+@requires_db
+def test_music_catalog_endpoints_and_promote(client, auth_headers):
+    """/music/catalog serves the discography; promoting a catalog track creates a
+    MusicRelease (idempotently) so its content kit can be built."""
+    cat = client.get("/music/catalog", headers=auth_headers).json()
+    assert cat["stats"]["albums"] == 10
+    assert any(al["title"] == "Postcards From Rome" for al in cat["albums"])
+
+    r = client.post("/music/catalog/promote", headers=auth_headers,
+                    json={"title": "Marry Me In This Lifetime"})
+    assert r.status_code == 200
+    rel = r.json()
+    assert rel["title"] == "Marry Me In This Lifetime" and rel["era"] == "Forever Starts Here"
+    rid = rel["id"]
+    # Idempotent — promoting the same song again returns the same release.
+    r2 = client.post("/music/catalog/promote", headers=auth_headers,
+                     json={"title": "Marry Me In This Lifetime"})
+    assert r2.json()["id"] == rid
+    # It shows up in the releases list, ready for a kit.
+    assert any(x["id"] == rid for x in client.get("/music/releases", headers=auth_headers).json())
+    # A song not in the catalog is a clean 404.
+    assert client.post("/music/catalog/promote", headers=auth_headers,
+                       json={"title": "Totally Made Up Song"}).status_code == 404
+
+    # The catalog exposes the top-streamed set, and promote-top10 queues them all.
+    assert len(cat["popular"]) == 10 and cat["popular"][0]["rank"] == 1
+    top = client.post("/music/catalog/promote-top10", headers=auth_headers).json()
+    assert top["ok"] and top["promoted"] == 10
+    rel_titles = {x["title"] for x in client.get("/music/releases", headers=auth_headers).json()}
+    assert "I Stayed in Rome" in rel_titles  # a popular-only song promoted despite no album
+    # Idempotent — running it again doesn't duplicate.
+    again = client.post("/music/catalog/promote-top10", headers=auth_headers).json()
+    assert again["promoted"] == 10
+
+
 def test_places_source_disabled_without_key():
     from app.integrations import email_finder, places
 
