@@ -32,7 +32,7 @@ const GROUPS: NavGroup[] = [
       { href: "/bnbglobal", label: "BnB Global Consulting", icon: "💻" },
       { href: "/savorymind", label: "SavoryMind Leads", icon: "🍽️" },
       { href: "/music", label: "Music Campaigns", icon: "🎵" },
-      { href: "/foundation", label: "Foundation — Grants", icon: "🎓" },
+      { href: "/foundation", label: "Foundation", icon: "🎓" },
       { href: "/campaign-builder", label: "Campaign Builder", icon: "🧭" },
       { href: "/clients", label: "Client Engine", icon: "🎯" },
       { href: "/deals", label: "Deal Pipeline", icon: "🗂️" },
