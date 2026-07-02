@@ -85,10 +85,36 @@ def list_contacts(db: Session, *, q: str | None = None, source: str | None = Non
     return out[:limit]
 
 
+# cid prefix -> (model, row->contact mapper), for an O(1) exact lookup that
+# never depends on the aggregated list's sort order or page size.
+_PREFIX_MAP = {
+    "lead": (Lead, _from_lead), "restaurant": (Restaurant, _from_restaurant),
+    "job": (Job, _from_job), "playlist": (MusicPlaylist, _from_playlist),
+    "ig": (InstagramTarget, _from_ig), "contact": (ManualContact, _from_contact),
+}
+
+
+def _find_by_cid(db: Session, cid: str) -> dict | None:
+    """Resolve a single contact by its exact id. `list_contacts` sorts and caps
+    at `limit` across every source combined — scanning it for one id meant a
+    contact could silently vanish ("not found") once enough OTHER contacts
+    existed anywhere in the system, regardless of how recently it was added."""
+    prefix, sep, raw_id = (cid or "").partition(":")
+    entry = _PREFIX_MAP.get(prefix) if sep else None
+    if not entry:
+        return None
+    model, mapper = entry
+    try:
+        row = db.query(model).filter(model.id == raw_id).first()
+    except Exception:  # malformed/non-UUID id -> not found, not a 500
+        return None
+    return mapper(row) if row else None
+
+
 def get_contact(db: Session, cid: str) -> dict | None:
     """Resolve one aggregated contact and attach its memory-graph entries (merged
     across the contact's name AND email, so auto-captured replies show too)."""
-    src = next((c for c in list_contacts(db) if c["id"] == cid), None)
+    src = _find_by_cid(db, cid)
     if not src:
         return None
     subject = src.get("subject") or src.get("name")
@@ -101,7 +127,7 @@ def get_contact(db: Session, cid: str) -> dict | None:
 def add_note(db: Session, cid: str, content: str) -> dict | None:
     """Teach the workforce something about a contact — saved to the memory graph
     under the contact's name so every agent recalls it from now on."""
-    src = next((c for c in list_contacts(db) if c["id"] == cid), None)
+    src = _find_by_cid(db, cid)
     if not src:
         return None
     subject = src.get("subject") or src.get("name")
@@ -112,7 +138,7 @@ def add_note(db: Session, cid: str, content: str) -> dict | None:
 def link_contact(db: Session, cid: str, to_subject: str, relation: str) -> dict | None:
     """Connect a contact to another entity in the relationship graph, then return
     the refreshed contact (with its connections)."""
-    src = next((c for c in list_contacts(db) if c["id"] == cid), None)
+    src = _find_by_cid(db, cid)
     if not src:
         return None
     from . import graph

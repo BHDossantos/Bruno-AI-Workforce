@@ -3181,6 +3181,50 @@ def test_universal_crm_aggregates_and_adds(client, auth_headers):
 
 
 @requires_db
+def test_crm_get_contact_survives_a_flood_of_other_contacts(client, auth_headers):
+    """Regression: GET /crm/{id} must find a specific contact by its exact id
+    even when hundreds of other contacts exist across every source — it must
+    never depend on the aggregated, alphabetically-sorted, page-capped list
+    that /crm (list) returns (that's what made a freshly-added manual contact
+    report 'not found' once enough other leads/restaurants/jobs existed)."""
+    from app import models
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        db.query(models.Lead).filter(models.Lead.email.like("crmflood%@x.co")).delete(
+            synchronize_session=False)
+        db.commit()
+        # Names starting with 'A' so they sort ahead of a 'Z'-named contact,
+        # simulating the daily-cycle's leads crowding a manual contact off a
+        # capped, alphabetically-sorted aggregate page.
+        db.add_all([
+            models.Lead(segment="commercial", category="Contractor",
+                       company_name=f"Aaa Flood Co {i}", email=f"crmflood{i}@x.co", status="New")
+            for i in range(250)
+        ])
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.post("/crm", headers=auth_headers, json={"name": "Zzz Late Contact", "kind": "recruiter"})
+    assert r.status_code == 200
+    cid = r.json()["id"]
+
+    detail = client.get(f"/crm/{cid}", headers=auth_headers).json()
+    assert detail.get("name") == "Zzz Late Contact"
+    assert "memories" in detail
+
+    # Adding a note and linking must resolve the same way — not "not found".
+    note = client.post(f"/crm/{cid}/note", headers=auth_headers, json={"content": "met at a conference"})
+    assert note.status_code == 200
+
+    # An unknown/malformed id is a clean 404, not a 500.
+    assert client.get("/crm/not-a-real-id", headers=auth_headers).status_code == 404
+    assert client.get("/crm/lead:00000000-0000-0000-0000-000000000000",
+                      headers=auth_headers).status_code == 404
+
+
+@requires_db
 def test_accounts_roll_up_leads_clients_and_contacts_by_company(client, auth_headers):
     """Accounts (Salesforce-style) groups everything about ONE company — a lead,
     a won client, a manual contact — into a single 360 view, folding name variants
