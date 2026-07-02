@@ -154,8 +154,8 @@ def lead_finder(segment: str | None = None, temperature: str | None = None,
                 _=Depends(require_role("admin", "operator", "viewer"))):
     """Lead Finder: filter leads and return each with an explainable 0-100 score.
     Filters: segment, temperature, industry, city, has_email, min_score, free-text q."""
+    from .. import lead_temperature
     from ..lead_scoring import score_lead
-    from ..lead_temperature import classify
     query = db.query(Lead)
     if segment:
         query = query.filter(Lead.segment == segment)
@@ -170,11 +170,19 @@ def lead_finder(segment: str | None = None, temperature: str | None = None,
         query = query.filter(
             (Lead.company_name.ilike(like)) | (Lead.owner_name.ilike(like))
             | (Lead.email.ilike(like)) | (Lead.industry.ilike(like)))
+    # Temperature maps to a fixed, known status set — push it into SQL (same
+    # fix as /leads) so it can't be starved by the row LIMIT below once one
+    # temperature bucket dominates the sort order.
+    if temperature:
+        wanted = lead_temperature.statuses_for(temperature)
+        if wanted is not None:
+            query = query.filter(func.lower(Lead.status).in_(wanted))
+        else:
+            query = query.filter(or_(Lead.status.is_(None),
+                                     ~func.lower(Lead.status).in_(lead_temperature.all_classified_statuses())))
     rows = query.order_by(Lead.score.desc(), Lead.created_at.desc()).limit(max(limit, 400)).all()
     out = []
     for lead in rows:
-        if temperature and classify(lead.status) != temperature.lower():
-            continue
         sc = score_lead(lead)
         if sc["score"] < min_score:
             continue
