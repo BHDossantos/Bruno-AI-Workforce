@@ -19,6 +19,8 @@ router = APIRouter(prefix="/setup", tags=["setup"])
 
 
 class CredIn(BaseModel):
+    openai_api_key: str | None = None
+    openai_model: str | None = None
     gmail_address: str | None = None
     gmail_app_password: str | None = None
     insurance_gmail_address: str | None = None
@@ -61,6 +63,15 @@ class CredIn(BaseModel):
     facebook_app_id: str | None = None
     facebook_app_secret: str | None = None
     meta_redirect_uri: str | None = None
+    tiktok_client_key: str | None = None
+    tiktok_client_secret: str | None = None
+    tiktok_redirect_uri: str | None = None
+    elevenlabs_api_key: str | None = None
+    video_api_key: str | None = None
+    gcs_bucket: str | None = None
+    hubspot_api_key: str | None = None
+    plaid_client_id: str | None = None
+    plaid_secret: str | None = None
 
 
 @router.get("")

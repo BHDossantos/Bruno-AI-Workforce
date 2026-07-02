@@ -22,6 +22,11 @@ _PREFIX = "cfg:"
 
 # settings attribute -> is_secret. The keys map 1:1 to Settings fields.
 FIELDS: dict[str, bool] = {
+    # The AI brain. Without this every draft (leads, quote intake, content,
+    # newsletters) silently degrades to stub output — so it's connectable in-app,
+    # not env-only, and its status is surfaced below.
+    "openai_api_key": True,
+    "openai_model": False,
     "gmail_address": False,
     "gmail_app_password": True,
     "insurance_gmail_address": False,
@@ -60,6 +65,18 @@ FIELDS: dict[str, bool] = {
     "facebook_app_id": False,
     "facebook_app_secret": True,
     "meta_redirect_uri": False,
+    # TikTok app — powers the one-click "Connect with TikTok" button (mirrors
+    # Meta). Without these the button 400s even though the OAuth flow is built.
+    "tiktok_client_key": False,
+    "tiktok_client_secret": True,
+    "tiktok_redirect_uri": False,
+    # Optional advanced integrations, previously env-var-only:
+    "elevenlabs_api_key": True,   # AI voiceover for the video pipeline
+    "video_api_key": True,        # video-generation provider key
+    "gcs_bucket": False,          # public bucket for hosting IG/social images
+    "hubspot_api_key": True,      # HubSpot CRM sync (via Windsor/MCP)
+    "plaid_client_id": False,     # Money page: auto-populate balances
+    "plaid_secret": True,
     # Booking links (Calendly/Cal.com) — turn an interested reply into a booked call.
     "calendar_link": False,
     "calendar_link_insurance": False,
@@ -127,7 +144,11 @@ def status(db) -> dict:
                                smartlead, sms, whatsapp_cloud)
     apply_to_settings(db)  # make sure the live view reflects stored values
     bridge_on = bool(settings.bridge_token)
+    from .ai import client as ai_client
     return {
+        # The AI brain: whether drafts are really AI-generated vs. stub output.
+        "ai": {"configured": ai_client.is_live(),
+               "model": settings.openai_model or ""},
         "instantly": {"configured": instantly.is_configured(),
                       "has_key": instantly.has_key()},
         "smartlead": {"configured": smartlead.is_configured(),
@@ -164,6 +185,13 @@ def status(db) -> dict:
                                and settings.meta_redirect_uri),
             "app_id": settings.facebook_app_id or "",
             "redirect_uri": settings.meta_redirect_uri or "",
+        },
+        # TikTok app for the one-click Connect with TikTok button.
+        "tiktok_app": {
+            "configured": bool(settings.tiktok_client_key and settings.tiktok_client_secret
+                               and settings.tiktok_redirect_uri),
+            "client_key": settings.tiktok_client_key or "",
+            "redirect_uri": settings.tiktok_redirect_uri or "",
         },
         # Booking links are not secret — return them so Setup can show/edit them.
         "booking": {
