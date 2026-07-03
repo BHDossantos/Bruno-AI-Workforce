@@ -165,6 +165,7 @@ def generate_pack(db: Session, topic: str, business: str = "executive",
         return {"ok": False, "reason": "generation unavailable (set OPENAI_API_KEY)", "topic": topic}
 
     created = []
+    made_items = []
     for ch in channels:
         data = pack.get(ch)
         if not isinstance(data, dict):
@@ -182,9 +183,42 @@ def generate_pack(db: Session, topic: str, business: str = "executive",
             scheduled_for=sched)
         db.add(item)
         created.append(ch)
+        made_items.append(item)
+    # Every social post should ship with a visual, not just words — generate ONE
+    # on-brand photo for this idea and attach it to each social item (so it shows
+    # in the factory/calendar immediately, not only at publish time). One image
+    # per idea keeps cost sane; video channels get a clip via the video pipeline.
+    _attach_pack_image(db, made_items, topic, pack.get("angle"), business)
     db.commit()
     return {"ok": True, "topic": topic, "business": business, "angle": pack.get("angle"),
             "channels": created, "fresh_angle": bool(prior)}
+
+
+def _pack_image_prompt(topic: str, angle: str | None, business: str | None) -> str:
+    biz = {"insurance": "trustworthy insurance/financial theme",
+           "savorymind": "restaurant / food-business theme",
+           "music": "cinematic romantic music-artist aesthetic (Rome/Italy, warm golden light)",
+           "bnbglobal": "modern tech-consulting theme",
+           "foundation": "uplifting community / education theme",
+           "personal": "authentic founder / lifestyle theme"}.get(business or "", "")
+    return " — ".join(b for b in [topic, angle, biz] if b)
+
+
+def _attach_pack_image(db: Session, items: list, topic: str, angle: str | None,
+                       business: str | None) -> str | None:
+    """Generate one on-brand image and attach it to every social item in a pack so
+    no post goes out as bare text. No-op (returns None) when image generation isn't
+    configured (needs OpenAI + a public bucket) — publish_due retries then too."""
+    from . import media
+    targets = [it for it in items if it.channel in _PUBLISHABLE]
+    if not targets or not media.can_generate():
+        return None
+    url = media.generate_and_host(_pack_image_prompt(topic, angle, business), f"pack-{topic}")
+    if not url:
+        return None
+    for it in targets:
+        it.meta = {**(it.meta or {}), "image_url": url}
+    return url
 
 
 # Planned-but-not-published statuses — the drafts a "regenerate" should replace.
@@ -260,6 +294,29 @@ def generate_image_for(db: Session, content_id: str) -> dict:
     item.meta = {**(item.meta or {}), "image_url": url}
     db.commit()
     return {"ok": True, "image_url": url}
+
+
+def attach_missing_images(db: Session, limit: int = 60) -> dict:
+    """Backfill photos onto every not-yet-published social post that has none, so
+    the whole backlog gets a visual (not just new content). Bounded per call to
+    stay under the request timeout; re-run to continue."""
+    from . import media
+    if not media.can_generate():
+        return {"ok": False, "reason": "image generation needs OpenAI + a public image "
+                "bucket (set OPENAI_API_KEY and gcs_bucket in Setup)", "attached": 0}
+    rows = (db.query(ContentItem)
+            .filter(ContentItem.channel.in_(list(_PUBLISHABLE)),
+                    ContentItem.status.notin_(["published", "dismissed"]))
+            .order_by(ContentItem.created_at.desc()).limit(500).all())
+    todo = [r for r in rows if not (r.meta or {}).get("image_url")][:limit]
+    attached = 0
+    for it in todo:
+        url = media.generate_and_host(_image_prompt(it), f"{it.channel}-{it.id}")
+        if url:
+            it.meta = {**(it.meta or {}), "image_url": url}
+            attached += 1
+    db.commit()
+    return {"ok": True, "attached": attached, "checked": len(todo)}
 
 
 def out(i: ContentItem) -> dict:

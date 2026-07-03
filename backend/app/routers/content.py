@@ -144,3 +144,10 @@ def generate_image(content_id: str, db: Session = Depends(get_db), _=Depends(_wr
     """Generate + attach an on-brand photo for a post so it isn't bare text."""
     from .. import content_factory
     return content_factory.generate_image_for(db, content_id)
+
+
+@router.post("/attach-images")
+def attach_images(db: Session = Depends(get_db), _=Depends(_write)):
+    """Backfill on-brand photos onto every pending social post that has none."""
+    from .. import content_factory
+    return content_factory.attach_missing_images(db)

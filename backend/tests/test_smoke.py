@@ -2111,6 +2111,64 @@ def test_social_posts_attach_a_generated_image(client, auth_headers, monkeypatch
     assert r["ok"] is False and "bucket" in r["reason"].lower()
 
 
+@requires_db
+def test_generated_posts_get_a_photo_and_bulk_backfill(client, auth_headers, monkeypatch):
+    """Every social post should ship with a visual: generate_pack attaches one
+    on-brand photo to each social item, and attach-images backfills the text-only
+    backlog. Both no-op cleanly (clear reason) when media isn't configured."""
+    from app import content_factory, media
+    from app.ai import client as ai_client
+    from app.database import SessionLocal
+    from app.models import ContentItem
+
+    monkeypatch.setattr(media, "can_generate", lambda: True)
+    monkeypatch.setattr(media, "generate_and_host", lambda prompt, name: "https://img.example/pack.png")
+    # generate_pack needs a live model + a content pack; mock both.
+    monkeypatch.setattr(ai_client, "is_live", lambda: True)
+    monkeypatch.setattr(ai_client, "embed", lambda t: None)
+    monkeypatch.setattr(ai_client, "complete_json", lambda *a, **k: {
+        "angle": "a sharp angle",
+        "linkedin": {"body": "specific post", "hashtags": "#a #b #c"},
+        "x": {"body": "punchy"},
+        "email": {"subject": "s", "body": "b"}})  # email is non-social → no photo
+
+    res = content_factory.generate_pack(SessionLocal(), "bundling home and auto",
+                                        business="insurance", channels=["linkedin", "x", "email"])
+    assert res["ok"] and set(res["channels"]) >= {"linkedin", "x"}
+
+    db = SessionLocal()
+    try:
+        social = db.query(ContentItem).filter(
+            ContentItem.topic == "bundling home and auto",
+            ContentItem.channel.in_(["linkedin", "x"])).all()
+        assert social and all((s.meta or {}).get("image_url") == "https://img.example/pack.png" for s in social)
+        # The non-social email piece is left without a forced image.
+        email = db.query(ContentItem).filter(
+            ContentItem.topic == "bundling home and auto", ContentItem.channel == "email").first()
+        assert email is not None and not (email.meta or {}).get("image_url")
+        # A pre-existing text-only social post with no image, for the backfill.
+        db.add(ContentItem(topic="old text-only", business="insurance", channel="facebook",
+                           title="t", body="b", status="ready"))
+        db.commit()
+    finally:
+        db.close()
+
+    back = client.post("/content/attach-images", headers=auth_headers).json()
+    assert back["ok"] and back["attached"] >= 1
+
+    db = SessionLocal()
+    try:
+        fb = db.query(ContentItem).filter(ContentItem.topic == "old text-only").first()
+        assert (fb.meta or {}).get("image_url") == "https://img.example/pack.png"
+    finally:
+        db.close()
+
+    # Without media configured, backfill reports a clean actionable reason.
+    monkeypatch.setattr(media, "can_generate", lambda: False)
+    off = client.post("/content/attach-images", headers=auth_headers).json()
+    assert off["ok"] is False and "bucket" in off["reason"].lower()
+
+
 def test_applicant_profile_and_field_matching():
     from app import applicant_profile, browser
     flat = applicant_profile.flat_fields()
