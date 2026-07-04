@@ -1358,6 +1358,53 @@ def test_lifecycle_engine_advances_stages_and_flags(client, auth_headers):
 
 
 @requires_db
+def test_quote_builder_assembles_packet_and_marks_sent(client, auth_headers):
+    """The Automatic Quote Builder turns a lead's intake into a packet — line,
+    coverages, a carrier shortlist, a labeled estimate range and what's missing —
+    and marking it sent advances the lead to Quoted (Quote Sent stage) and logs
+    it to the AI timeline."""
+    from app.database import SessionLocal
+    from app.models import Lead
+
+    db = SessionLocal()
+    try:
+        db.query(Lead).filter(Lead.email == "quotebuild@x.co").delete(synchronize_session=False)
+        db.commit()
+        lead = Lead(segment="personal", category="Homeowner", owner_name="Quote Buyer",
+                    email="quotebuild@x.co", status="Interested", score=60,
+                    intake={"quote_type": "personal_auto",
+                            "answers": {"garaging_address": "12 Main St, Boston MA", "vin": "1XYZ"},
+                            "updated_at": "2026-07-04T00:00:00Z"})
+        db.add(lead); db.flush()
+        lid = str(lead.id)
+        db.commit()
+    finally:
+        db.close()
+
+    q = client.get(f"/leads/{lid}/quote", headers=auth_headers).json()
+    assert q["ok"] is True
+    assert q["line"] == "auto"  # personal_auto intake pins the line
+    assert q["state"] == "MA"   # detected from the garaging address
+    assert q["carriers"] and isinstance(q["carriers"], list)
+    assert q["estimate"]["monthly_low"] < q["estimate"]["monthly_high"]
+    # Intake is partial (2 of 4 fields) → not ready, and it names what's missing.
+    assert q["ready_to_send"] is False
+    assert q["intake"]["missing"]
+
+    sent = client.post(f"/leads/{lid}/quote/sent", headers=auth_headers).json()
+    assert sent["ok"] is True and sent["lead"]["status"] == "Quoted"
+
+    # Quoted → Quote Sent stage in the funnel/timeline, with a quote_built event.
+    tl = client.get(f"/mission/lead-timeline/{lid}", headers=auth_headers).json()
+    assert tl["lead"]["stage"] == "Quote Sent"
+    assert any(e["kind"] == "quote_built" for e in tl["timeline"])
+
+    # Unknown lead → clean 404, not a 500.
+    assert client.get("/leads/00000000-0000-0000-0000-000000000000/quote",
+                      headers=auth_headers).status_code == 404
+
+
+@requires_db
 def test_client_renewal_radar_survives_flood_of_newer_clients(client, auth_headers):
     """Regression: /book/clients?expiring=1 (the renewal radar the Money Actions
     'Review renewals' card links to) must still surface an older client whose
