@@ -7,6 +7,7 @@ answer "what's happening and what needs me right now?".
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -146,6 +147,28 @@ def lead_timeline(lead_id: str, db: Session = Depends(get_db), _=Depends(_read))
     plus its live score, stage and temperature."""
     from .. import insurance_commander as ic
     return ic.lead_timeline(db, lead_id)
+
+
+@router.get("/objections")
+def objection_catalog(_=Depends(_read)):
+    """The objection-handling playbook — every common objection with its proven
+    rebuttal and next move."""
+    from .. import objection_ai
+    return objection_ai.catalog()
+
+
+class ObjectionIn(BaseModel):
+    text: str
+    lead_id: str | None = None
+
+
+@router.post("/objection")
+def objection_help(body: ObjectionIn, db: Session = Depends(get_db),
+                   _=Depends(_rr("admin", "operator"))):
+    """Read a prospect's objection and return the best rebuttal + next move
+    (AI-tailored when the key is connected). Logs to the lead's timeline if given."""
+    from .. import objection_ai
+    return objection_ai.handle(db, body.text, body.lead_id)
 
 
 @router.post("/lifecycle/run")

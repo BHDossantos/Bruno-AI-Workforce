@@ -1358,6 +1358,48 @@ def test_lifecycle_engine_advances_stages_and_flags(client, auth_headers):
 
 
 @requires_db
+def test_objection_ai_matches_rebuttal_and_logs_to_timeline(client, auth_headers):
+    """Objection AI matches a prospect's words to the right objection, returns a
+    proven rebuttal + next move, exposes the full playbook, and logs an
+    objection_coached event to the lead's AI timeline when scoped to a lead."""
+    from app import objection_ai
+    from app.database import SessionLocal
+    from app.models import Lead
+
+    # Pure matcher: keyword → the right objection bucket.
+    assert objection_ai.match("this is way too expensive right now")["objection"]["key"] == "price"
+    assert objection_ai.match("I need to think about it")["objection"]["key"] == "think_about_it"
+    # Unknown text falls back to the general handler, never crashes.
+    assert objection_ai.match("xyzzy")["objection"]["key"] == "general"
+
+    # The playbook endpoint lists every objection with a rebuttal + move.
+    cat = client.get("/mission/objections", headers=auth_headers).json()
+    assert len(cat) >= 8 and all(o["rebuttal"] and o["move"] for o in cat)
+
+    # Lead-agnostic help.
+    r = client.post("/mission/objection", json={"text": "I already have insurance"},
+                    headers=auth_headers).json()
+    assert r["ok"] is True and r["objection_key"] == "have_insurance"
+    assert r["rebuttal"] and r["move"]
+
+    # Lead-scoped help logs it to that lead's timeline.
+    db = SessionLocal()
+    try:
+        db.query(Lead).filter(Lead.email == "objection@x.co").delete(synchronize_session=False)
+        db.commit()
+        lead = Lead(segment="personal", category="Homeowner", owner_name="Obj Buyer",
+                    email="objection@x.co", status="Interested", score=50)
+        db.add(lead); db.flush(); lid = str(lead.id); db.commit()
+    finally:
+        db.close()
+
+    client.post("/mission/objection", json={"text": "it's too pricey", "lead_id": lid},
+                headers=auth_headers)
+    tl = client.get(f"/mission/lead-timeline/{lid}", headers=auth_headers).json()
+    assert any(e["kind"] == "objection_coached" for e in tl["timeline"])
+
+
+@requires_db
 def test_quote_builder_assembles_packet_and_marks_sent(client, auth_headers):
     """The Automatic Quote Builder turns a lead's intake into a packet — line,
     coverages, a carrier shortlist, a labeled estimate range and what's missing —
