@@ -24,6 +24,8 @@ type Timeline = {
     times_contacted: number; received_at: string | null };
   timeline?: TimelineEvent[];
 };
+type Objection = { ok: boolean; objection: string; confidence: string; rebuttal: string;
+  tailored: string | null; move: string; ai_used: boolean };
 type Estimate = { monthly_low: number; monthly_high: number; annual_low: number; annual_high: number; note: string };
 type Quote = {
   ok: boolean; line: string; state: string | null; coverages: string; carriers: string[];
@@ -54,6 +56,20 @@ function InsuranceCommander() {
   const [runMsg, setRunMsg] = useState("");
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoteBusy, setQuoteBusy] = useState(false);
+  const [objText, setObjText] = useState("");
+  const [objection, setObjection] = useState<Objection | null>(null);
+  const [objBusy, setObjBusy] = useState(false);
+
+  async function handleObjection() {
+    if (!objText.trim()) return;
+    setObjBusy(true); setObjection(null);
+    try {
+      setObjection(await api.post<Objection>("/mission/objection",
+        { text: objText.trim(), lead_id: timeline?.lead?.id || null }));
+      if (timeline?.lead?.id) loadTimeline(timeline.lead.id);
+    } catch { /* surfaced by empty result */ }
+    finally { setObjBusy(false); }
+  }
 
   async function buildQuote(id: string) {
     setQuote(null); setQuoteBusy(true);
@@ -161,6 +177,37 @@ function InsuranceCommander() {
           <div><div className="text-xs text-gray-400">Ready to re-engage</div><div className="text-2xl font-bold text-emerald-600">{data.lifecycle?.return_eligible ?? 0}</div></div>
         </div>
         {runMsg && <p className="mt-2 text-sm text-gray-600">{runMsg}</p>}
+      </div>
+
+      {/* Objection handler */}
+      <div className="card">
+        <h2 className="font-semibold">🛡️ Objection AI — what do I say back?</h2>
+        <p className="mb-2 text-xs text-gray-500">Paste what the prospect said (&quot;it&apos;s too expensive&quot;, &quot;I&apos;ll think about it&quot;, &quot;already have insurance&quot;) and get the proven rebuttal + next move. Tailors to the loaded lead when the OpenAI key is connected.</p>
+        <div className="flex gap-2">
+          <input value={objText} onChange={(e) => setObjText(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleObjection()}
+            placeholder="e.g. It's too expensive right now"
+            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+          <button className="btn" onClick={handleObjection} disabled={objBusy}>
+            {objBusy ? "…" : "Get rebuttal"}
+          </button>
+        </div>
+        {objection?.ok && (
+          <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-brand/10 px-2.5 py-1 text-xs font-medium text-brand-dark">{objection.objection}</span>
+              <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-500">{objection.confidence} confidence</span>
+              {objection.ai_used && <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs text-emerald-700">AI-tailored</span>}
+            </div>
+            {objection.tailored && (
+              <p className="mt-2 text-sm font-medium text-gray-800">&ldquo;{objection.tailored}&rdquo;</p>
+            )}
+            <p className={`${objection.tailored ? "mt-2 text-xs text-gray-500" : "mt-2 text-sm text-gray-800"}`}>
+              {objection.tailored ? "Proven script: " : ""}&ldquo;{objection.rebuttal}&rdquo;
+            </p>
+            <p className="mt-2 text-xs text-brand-dark"><span className="font-medium">Next move:</span> {objection.move}</p>
+          </div>
+        )}
       </div>
 
       {/* Per-lead AI timeline */}
