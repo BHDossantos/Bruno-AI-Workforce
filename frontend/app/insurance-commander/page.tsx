@@ -26,6 +26,14 @@ type Timeline = {
 };
 type Objection = { ok: boolean; objection: string; confidence: string; rebuttal: string;
   tailored: string | null; move: string; ai_used: boolean };
+type Coach = {
+  ok: boolean; line: string; coverages: string; score: number; band: string;
+  score_reasons: string[]; temperature: string; stage: string;
+  history: { outbound_touches: number; last_touch: string | null; replied: boolean };
+  goal: string; ask_next: string; opener: string; opener_tailored: string | null;
+  likely_objections: { objection: string; rebuttal: string; move: string }[];
+  lead: { phone: string | null };
+};
 type Estimate = { monthly_low: number; monthly_high: number; annual_low: number; annual_high: number; note: string };
 type Quote = {
   ok: boolean; line: string; state: string | null; coverages: string; carriers: string[];
@@ -56,6 +64,15 @@ function InsuranceCommander() {
   const [runMsg, setRunMsg] = useState("");
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quoteBusy, setQuoteBusy] = useState(false);
+  const [coach, setCoach] = useState<Coach | null>(null);
+  const [coachBusy, setCoachBusy] = useState(false);
+
+  async function loadCoach(id: string) {
+    setCoach(null); setCoachBusy(true);
+    try { setCoach(await api.get<Coach>(`/leads/${id}/call-coach`)); }
+    catch (e) { setTlErr(String(e)); }
+    finally { setCoachBusy(false); }
+  }
   const [objText, setObjText] = useState("");
   const [objection, setObjection] = useState<Objection | null>(null);
   const [objBusy, setObjBusy] = useState(false);
@@ -100,7 +117,7 @@ function InsuranceCommander() {
 
   async function loadTimeline(id: string) {
     if (!id.trim()) return;
-    setTlErr(""); setTimeline(null); setQuote(null);
+    setTlErr(""); setTimeline(null); setQuote(null); setCoach(null);
     try {
       const t = await api.get<Timeline>(`/mission/lead-timeline/${id.trim()}`);
       if (!t.ok) setTlErr("Lead not found — paste a valid lead id."); else setTimeline(t);
@@ -229,7 +246,10 @@ function InsuranceCommander() {
               <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-600">{timeline.lead.stage}</span>
               <span className="text-xs text-gray-400">{timeline.lead.source}</span>
             </div>
-            <div className="mt-3 flex gap-2">
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button className="btn" onClick={() => loadCoach(timeline.lead!.id)} disabled={coachBusy}>
+                📞 Call Coach
+              </button>
               <button className="btn" onClick={() => buildQuote(timeline.lead!.id)} disabled={quoteBusy}>
                 🧮 Build quote
               </button>
@@ -239,6 +259,36 @@ function InsuranceCommander() {
                 </button>
               )}
             </div>
+
+            {coach?.ok && (
+              <div className="mt-3 rounded-lg border border-brand/30 bg-brand/5 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-brand/10 px-2.5 py-1 text-xs font-medium text-brand-dark">{coach.line.toUpperCase()}</span>
+                  <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-600">{coach.stage}</span>
+                  <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-600">Score {coach.score}/100 · {coach.band}</span>
+                  <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-600">{coach.history.outbound_touches} touches · {coach.history.replied ? "replied" : "no reply yet"}</span>
+                  {coach.lead.phone && <span className="text-xs text-gray-500">☎ {coach.lead.phone}</span>}
+                </div>
+                <p className="mt-2 text-sm"><span className="font-medium">🎯 Goal:</span> {coach.goal}</p>
+                <p className="mt-1 text-sm"><span className="font-medium">➡️ Ask for:</span> {coach.ask_next}</p>
+                <p className="mt-2 text-sm font-medium text-gray-800">Opener:</p>
+                <p className="text-sm text-gray-700">&ldquo;{coach.opener_tailored || coach.opener}&rdquo;</p>
+                {coach.opener_tailored && <p className="text-[11px] text-gray-400">Template: &ldquo;{coach.opener}&rdquo;</p>}
+                <p className="mt-2 text-sm"><span className="font-medium">Coverages:</span> {coach.coverages}</p>
+                {coach.likely_objections.length > 0 && (
+                  <div className="mt-2">
+                    <p className="text-sm font-medium">Likely objections + what to say:</p>
+                    <ul className="mt-1 space-y-1.5">
+                      {coach.likely_objections.map((o, i) => (
+                        <li key={i} className="text-xs text-gray-600">
+                          <span className="font-medium text-gray-800">{o.objection}:</span> &ldquo;{o.rebuttal}&rdquo;
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
 
             {quote?.ok && (
               <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
