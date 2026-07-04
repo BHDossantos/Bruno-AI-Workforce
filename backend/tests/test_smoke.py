@@ -1277,6 +1277,87 @@ def test_insurance_commander_dashboard_and_lead_timeline(client, auth_headers):
 
 
 @requires_db
+def test_lifecycle_engine_advances_stages_and_flags(client, auth_headers):
+    """The lead lifecycle engine repairs a genuinely-contacted 'New' lead forward
+    to 'Contacted', logs the stage transition into the AI timeline, flags a
+    first-response speed breach, and flags a no-reply sequence-exhausted lead as
+    return-eligible — all rule-based, idempotent, and never regressing."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.database import SessionLocal
+    from app.models import ActionLog, FollowUp, Lead, Message
+
+    db = SessionLocal()
+    try:
+        # Clean any prior run of this fixture so the test is idempotent.
+        old = db.query(Lead).filter(Lead.email == "lifecycle@x.co").all()
+        for l in old:
+            db.query(ActionLog).filter(ActionLog.entity == "lead",
+                                       ActionLog.entity_id == str(l.id)).delete(synchronize_session=False)
+            db.query(Message).filter(Message.entity_id == l.id).delete(synchronize_session=False)
+            db.query(FollowUp).filter(FollowUp.entity_id == l.id).delete(synchronize_session=False)
+        db.query(Lead).filter(Lead.email == "lifecycle@x.co").delete(synchronize_session=False)
+        db.commit()
+
+        now = datetime.now(timezone.utc)
+        # Emailed (so it was really contacted) but still stuck at "New"; first
+        # response landed 30 min after receipt (well over the 60s target); its
+        # whole follow-up sequence is done with no reply.
+        lead = Lead(segment="commercial", category="Contractor", company_name="Lifecycle Co",
+                    email="lifecycle@x.co", status="New", times_contacted=1, score=50,
+                    created_at=now - timedelta(hours=1))
+        db.add(lead); db.flush()
+        db.add(Message(channel="email", direction="outbound", entity_type="lead",
+                       entity_id=lead.id, to_email="lifecycle@x.co", subject="Hi",
+                       status="Sent", sent_at=now - timedelta(minutes=30),
+                       created_at=now - timedelta(minutes=30)))
+        db.add(FollowUp(entity_type="lead", entity_id=lead.id, step=1,
+                        due_date=(now - timedelta(days=2)).date(), completed=True))
+        db.commit()
+        lid = str(lead.id)
+    finally:
+        db.close()
+
+    r = client.post("/mission/lifecycle/run", headers=auth_headers).json()
+    assert r["status_advanced"] >= 1
+    assert r["stage_transitions"] >= 1
+    assert r["speed_breaches"] >= 1
+    assert r["return_eligible"] >= 1
+
+    # Status was repaired forward-only.
+    db = SessionLocal()
+    try:
+        from app.models import Lead as L
+        fresh = db.query(L).filter(L.email == "lifecycle@x.co").first()
+        assert fresh.status == "Contacted"
+    finally:
+        db.close()
+
+    # The stage move shows in the lead's AI timeline.
+    tl = client.get(f"/mission/lead-timeline/{lid}", headers=auth_headers).json()
+    assert any(e["kind"] == "stage_change" for e in tl["timeline"])
+
+    # The cockpit surfaces the lifecycle counts.
+    ov = client.get("/mission/insurance-commander", headers=auth_headers).json()
+    assert set(ov["lifecycle"]) == {"stage_moves_today", "speed_breaches", "return_eligible"}
+    assert ov["lifecycle"]["return_eligible"] >= 1
+
+    # Idempotent: a second pass makes no new flags for this lead.
+    client.post("/mission/lifecycle/run", headers=auth_headers)
+    db = SessionLocal()
+    try:
+        n_breach = db.query(ActionLog).filter(
+            ActionLog.entity_id == lid, ActionLog.action == "speed_breach").count()
+        n_return = db.query(ActionLog).filter(
+            ActionLog.entity_id == lid, ActionLog.action == "return_eligible").count()
+        n_stage = db.query(ActionLog).filter(
+            ActionLog.entity_id == lid, ActionLog.action == "stage_change").count()
+        assert n_breach == 1 and n_return == 1 and n_stage == 1
+    finally:
+        db.close()
+
+
+@requires_db
 def test_client_renewal_radar_survives_flood_of_newer_clients(client, auth_headers):
     """Regression: /book/clients?expiring=1 (the renewal radar the Money Actions
     'Review renewals' card links to) must still surface an older client whose

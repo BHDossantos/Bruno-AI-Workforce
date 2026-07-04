@@ -148,6 +148,14 @@ def lead_timeline(lead_id: str, db: Session = Depends(get_db), _=Depends(_read))
     return ic.lead_timeline(db, lead_id)
 
 
+@router.post("/lifecycle/run")
+def lifecycle_run(db: Session = Depends(get_db), _=Depends(_rr("admin", "operator"))):
+    """Advance every lead one pass — repair contacted status, log stage moves,
+    flag speed breaches and return-eligible dead-ends. Rule-based, no AI needed."""
+    from .. import lead_lifecycle
+    return lead_lifecycle.run(db)
+
+
 @router.post("/work-pipeline")
 def work_pipeline(db: Session = Depends(get_db), _=Depends(_rr("admin", "operator"))):
     """Source + draft across every revenue line and queue it all for approval."""
