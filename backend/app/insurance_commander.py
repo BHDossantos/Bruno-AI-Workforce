@@ -188,7 +188,7 @@ def lead_timeline(db: Session, lead_id: str) -> dict:
                        "detail": fu.body or ""})
     _ACTION_LABELS = {"stage_change": "📈 Stage moved", "speed_breach": "🐌 Slow first response",
                       "return_eligible": "♻️ Ready to re-engage", "quote_built": "🧮 Quote sent",
-                      "objection_coached": "🛡️ Objection coached"}
+                      "objection_coached": "🛡️ Objection coached", "lead_returned": "♻️ Returned to pipeline"}
     for a in (db.query(ActionLog).filter(ActionLog.entity.in_(["lead", "leads"]),
               ActionLog.entity_id == str(lead.id)).order_by(ActionLog.created_at.asc()).all()):
         label = _ACTION_LABELS.get(a.action, f"AI: {a.action}")

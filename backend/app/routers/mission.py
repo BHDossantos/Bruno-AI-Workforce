@@ -171,6 +171,27 @@ def objection_help(body: ObjectionIn, db: Session = Depends(get_db),
     return objection_ai.handle(db, body.text, body.lead_id)
 
 
+@router.get("/return-queue")
+def return_queue(db: Session = Depends(get_db), _=Depends(_read)):
+    """Leads the lifecycle engine flagged return-eligible — contacted, never
+    replied, sequence exhausted — each with a fresh re-engagement angle."""
+    from .. import lead_return
+    return lead_return.queue(db)
+
+
+@router.post("/return/{lead_id}")
+def return_lead(lead_id: str, db: Session = Depends(get_db),
+                _=Depends(_rr("admin", "operator"))):
+    """Return one dead-end lead to the active pipeline with a fresh follow-up
+    cadence, logged to its AI timeline."""
+    from .. import lead_return
+    result = lead_return.mark_returned(db, lead_id)
+    if not result.get("ok"):
+        from fastapi import HTTPException
+        raise HTTPException(404, "Lead not found")
+    return result
+
+
 @router.post("/lifecycle/run")
 def lifecycle_run(db: Session = Depends(get_db), _=Depends(_rr("admin", "operator"))):
     """Advance every lead one pass — repair contacted status, log stage moves,

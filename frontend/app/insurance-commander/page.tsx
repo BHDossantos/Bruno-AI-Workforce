@@ -13,6 +13,8 @@ type Speed = {
   worst_seconds: number | null; target_seconds: number; over_target: boolean;
 };
 type Lifecycle = { stage_moves_today: number; speed_breaches: number; return_eligible: number };
+type ReturnLead = { lead_id: string; name: string; email: string | null; phone: string | null;
+  line: string; days_since_touch: number | null; angle: string };
 type Overview = { tiles: Tiles; speed: Speed; pipeline: { stage: string; count: number }[];
   commission_rate: number; lifecycle?: Lifecycle };
 
@@ -57,6 +59,7 @@ function Tile({ label, value, tone }: { label: string; value: React.ReactNode; t
 
 function InsuranceCommander() {
   const { data, loading, error, reload } = useFetch<Overview>(() => api.get<Overview>("/mission/insurance-commander"));
+  const { data: returns, reload: reloadReturns } = useFetch<ReturnLead[]>(() => api.get<ReturnLead[]>("/mission/return-queue"));
   const [leadId, setLeadId] = useState("");
   const [timeline, setTimeline] = useState<Timeline | null>(null);
   const [tlErr, setTlErr] = useState("");
@@ -72,6 +75,14 @@ function InsuranceCommander() {
     try { setCoach(await api.get<Coach>(`/leads/${id}/call-coach`)); }
     catch (e) { setTlErr(String(e)); }
     finally { setCoachBusy(false); }
+  }
+
+  const [returning, setReturning] = useState("");
+  async function returnLead(id: string) {
+    setReturning(id);
+    try { await api.post(`/mission/return/${id}`, {}); reloadReturns(); reload(); }
+    catch { /* row stays; user can retry */ }
+    finally { setReturning(""); }
   }
   const [objText, setObjText] = useState("");
   const [objection, setObjection] = useState<Objection | null>(null);
@@ -195,6 +206,27 @@ function InsuranceCommander() {
         </div>
         {runMsg && <p className="mt-2 text-sm text-gray-600">{runMsg}</p>}
       </div>
+
+      {/* Lead Return Assistant */}
+      {returns && returns.length > 0 && (
+        <div className="card">
+          <h2 className="font-semibold">♻️ Lead Return Assistant — {returns.length} dead-end{returns.length === 1 ? "" : "s"} worth reviving</h2>
+          <p className="mb-2 text-xs text-gray-500">Contacted, never replied, whole sequence burned. Return one to re-arm a fresh short cadence with a new angle — nobody gets nagged twice.</p>
+          <ul className="divide-y divide-gray-100">
+            {returns.slice(0, 12).map((r) => (
+              <li key={r.lead_id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+                <span className="font-medium">{r.name}</span>
+                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">{r.line}</span>
+                {r.days_since_touch != null && <span className="text-xs text-gray-400">{r.days_since_touch}d cold</span>}
+                <span className="flex-1 basis-full text-xs text-gray-600 sm:basis-0">💡 {r.angle}</span>
+                <button className="btn-ghost text-sm" onClick={() => returnLead(r.lead_id)} disabled={returning === r.lead_id}>
+                  {returning === r.lead_id ? "…" : "Return →"}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Objection handler */}
       <div className="card">
