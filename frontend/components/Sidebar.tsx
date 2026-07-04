@@ -18,6 +18,7 @@ const GROUPS: NavGroup[] = [
     title: "Daily Driver", icon: "⭐",
     items: [
       { href: "/", label: "Mission Control", icon: "🛰️" },
+      { href: "/insurance-commander", label: "Insurance Commander", icon: "🎖️" },
       { href: "/today", label: "Today's Money Actions", icon: "💸" },
       { href: "/brief", label: "Daily Brief", icon: "📋" },
       { href: "/inbox", label: "Unified Inbox", icon: "📨" },

@@ -1226,6 +1226,57 @@ def test_money_actions_cockpit(client, auth_headers):
 
 
 @requires_db
+def test_insurance_commander_dashboard_and_lead_timeline(client, auth_headers):
+    """The Insurance Commander cockpit reports the day's tiles, the speed
+    scoreboard, and a pipeline funnel; and a lead's AI timeline lists every
+    action taken on it in order with a live stage + score."""
+    from datetime import datetime, timedelta, timezone
+
+    from app import insurance_commander as ic
+    from app.database import SessionLocal
+    from app.models import FollowUp, Lead, Message
+
+    # A fresh insurance lead received now, first-touched 30s later, plus a due
+    # follow-up — enough to exercise tiles, speed and the timeline.
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        lead = Lead(segment="commercial", category="Contractor", company_name="Commander Co",
+                    email="commander@x.co", phone="+16035550000", status="New",
+                    times_contacted=0, score=90)
+        db.add(lead); db.flush()
+        db.add(Message(channel="email", direction="outbound", entity_type="lead",
+                       entity_id=lead.id, to_email="commander@x.co", subject="Your quote",
+                       status="Sent", sent_at=now, created_at=now))
+        db.add(FollowUp(entity_type="lead", entity_id=lead.id, step=1,
+                        due_date=(now - timedelta(days=1)).date(), completed=False))
+        db.commit()
+        lid = str(lead.id)
+    finally:
+        db.close()
+
+    r = client.get("/mission/insurance-commander", headers=auth_headers).json()
+    assert set(r["tiles"]) == {"todays_leads", "need_immediate_response",
+                               "engaged_waiting_on_quote", "need_follow_up_today",
+                               "policies_bound_today", "commission_today"}
+    assert r["tiles"]["need_follow_up_today"] >= 1  # our due follow-up counts
+    assert [p["stage"] for p in r["pipeline"]] == ic.PIPELINE  # ordered funnel
+    assert "avg_seconds" in r["speed"] and "target_seconds" in r["speed"]
+
+    tl = client.get(f"/mission/lead-timeline/{lid}", headers=auth_headers).json()
+    assert tl["ok"] is True
+    # score is the explainable AI/lead score (0-100), computed live, not the raw field.
+    assert tl["lead"]["name"] == "Commander Co" and 0 <= tl["lead"]["score"] <= 100
+    kinds = [e["kind"] for e in tl["timeline"]]
+    assert "received" in kinds  # lead received event
+    assert any(k.startswith("outbound") for k in kinds)  # the outbound email
+    assert any(k == "followup" for k in kinds)  # the scheduled follow-up
+    # Unknown lead → clean not-found, not a 500.
+    assert client.get("/mission/lead-timeline/00000000-0000-0000-0000-000000000000",
+                      headers=auth_headers).json()["ok"] is False
+
+
+@requires_db
 def test_client_renewal_radar_survives_flood_of_newer_clients(client, auth_headers):
     """Regression: /book/clients?expiring=1 (the renewal radar the Money Actions
     'Review renewals' card links to) must still surface an older client whose
@@ -3711,8 +3762,12 @@ def test_followup_engine_processes_due_steps(client, auth_headers):
     db.add(models.Message(channel="email", entity_type="lead", entity_id=lead.id,
                           to_email="fu-test@x.co", from_account="insurance",
                           subject="hi", body="first touch", status="Sent"))
+    # An extreme past due_date so this follow-up sorts FIRST (the engine processes
+    # oldest-due first, capped at 400/pass) — otherwise, in a shared DB that has
+    # accumulated thousands of due follow-ups, this fixture's step never gets
+    # reached and the test flakes.
     db.add(models.FollowUp(entity_type="lead", entity_id=lead.id, step=1,
-                           due_date=date.today() - timedelta(days=1), completed=False))
+                           due_date=date(2000, 1, 1), completed=False))
     db.commit()
 
     res = followups.process_due_followups(db)

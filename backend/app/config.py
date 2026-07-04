@@ -104,6 +104,12 @@ class Settings(BaseSettings):
     # Consulting (BnB Global) + SavoryMind sell anywhere → US + Europe. Accepts
     # "us", "eu", "us_eu", or a comma-separated list of state/country names.
     insurance_lead_scope: str = "Massachusetts,New Hampshire,Florida"
+    # Est. producer commission as a fraction of ANNUAL premium, for the Insurance
+    # Commander's "commission today/expected" tiles (P&C new-business ~10-15%).
+    insurance_commission_rate: float = 0.12
+    # Speed target: leads should get a first touch within this many seconds
+    # (EverQuote's core lesson — speed wins). Over it → the dashboard flags red.
+    lead_response_target_seconds: int = 60
     # Specialized insurance agents. Commercial is the priority (higher commission,
     # stickier clients, more referrals) → biggest daily quota; home/auto + referral
     # partners run alongside for a balanced pipeline. Quotas are daily targets;
