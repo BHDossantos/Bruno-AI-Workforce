@@ -1358,6 +1358,58 @@ def test_lifecycle_engine_advances_stages_and_flags(client, auth_headers):
 
 
 @requires_db
+def test_lead_return_assistant_queues_and_revives_dead_ends(client, auth_headers):
+    """A return-eligible lead (flagged by the lifecycle engine) shows up in the
+    return queue with a fresh angle; returning it re-arms a short follow-up
+    cadence, flips it back to active, logs it to the timeline, and drops it from
+    the queue so it's never nagged twice."""
+    from app.database import SessionLocal
+    from app.models import ActionLog, FollowUp, Lead
+
+    db = SessionLocal()
+    try:
+        old = db.query(Lead).filter(Lead.email == "return@x.co").all()
+        for l in old:
+            db.query(ActionLog).filter(ActionLog.entity_id == str(l.id)).delete(synchronize_session=False)
+            db.query(FollowUp).filter(FollowUp.entity_id == l.id).delete(synchronize_session=False)
+        db.query(Lead).filter(Lead.email == "return@x.co").delete(synchronize_session=False)
+        db.commit()
+        lead = Lead(segment="personal", category="Homeowner", owner_name="Return Buyer",
+                    email="return@x.co", status="Contacted", score=40)
+        db.add(lead); db.flush(); lid = str(lead.id)
+        # The lifecycle engine's flag that makes it return-eligible.
+        db.add(ActionLog(actor="lifecycle", action="return_eligible", entity="lead",
+                         entity_id=lid, detail={"summary": "no reply after full sequence"}))
+        db.commit()
+    finally:
+        db.close()
+
+    q = client.get("/mission/return-queue", headers=auth_headers).json()
+    row = next((r for r in q if r["lead_id"] == lid), None)
+    assert row is not None and row["angle"] and row["line"] == "home"
+
+    res = client.post(f"/mission/return/{lid}", headers=auth_headers).json()
+    assert res["ok"] is True and res["follow_ups_scheduled"] >= 1
+
+    # It's gone from the queue (marked returned) and shows in the timeline.
+    q2 = client.get("/mission/return-queue", headers=auth_headers).json()
+    assert not any(r["lead_id"] == lid for r in q2)
+    tl = client.get(f"/mission/lead-timeline/{lid}", headers=auth_headers).json()
+    assert any(e["kind"] == "lead_returned" for e in tl["timeline"])
+    # A fresh open follow-up now exists for it.
+    db = SessionLocal()
+    try:
+        n_open = db.query(FollowUp).filter(
+            FollowUp.entity_id == lid, FollowUp.completed.is_(False)).count()
+        assert n_open >= 1
+    finally:
+        db.close()
+
+    assert client.post("/mission/return/00000000-0000-0000-0000-000000000000",
+                       headers=auth_headers).status_code == 404
+
+
+@requires_db
 def test_call_coach_briefs_the_rep_before_the_call(client, auth_headers):
     """The AI Call Coach assembles a pre-call brief — line, coverage, score, stage,
     the call's goal, what to ask for next, an opener, and the objections most
