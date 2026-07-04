@@ -132,6 +132,22 @@ def money_actions(db: Session = Depends(get_db), _=Depends(_read)):
     return ma.actions(db)
 
 
+@router.get("/insurance-commander")
+def insurance_commander(db: Session = Depends(get_db), _=Depends(_read)):
+    """The Insurance Sales OS cockpit — today's tiles, the SPEED scoreboard
+    (first-response time vs the 60s target), and the pipeline funnel."""
+    from .. import insurance_commander as ic
+    return ic.overview(db)
+
+
+@router.get("/lead-timeline/{lead_id}")
+def lead_timeline(lead_id: str, db: Session = Depends(get_db), _=Depends(_read)):
+    """One lead's full AI timeline — everything the workforce did, in order,
+    plus its live score, stage and temperature."""
+    from .. import insurance_commander as ic
+    return ic.lead_timeline(db, lead_id)
+
+
 @router.post("/work-pipeline")
 def work_pipeline(db: Session = Depends(get_db), _=Depends(_rr("admin", "operator"))):
     """Source + draft across every revenue line and queue it all for approval."""

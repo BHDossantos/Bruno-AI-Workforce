@@ -65,6 +65,14 @@ function Factory() {
       await load();
     } catch (e) { setMsg(String(e)); }
   }
+  async function attachAllImages() {
+    setBusy(true); setMsg("Adding photos to every pending post…");
+    try {
+      const r = await api.post<{ ok: boolean; attached?: number; reason?: string }>("/content/attach-images", {});
+      setMsg(r.ok ? `🖼️ Added photos to ${r.attached} post(s). Re-run to continue if there were many.` : `❌ ${r.reason || "failed"}`);
+      await load();
+    } catch (e) { setMsg(String(e)); } finally { setBusy(false); }
+  }
 
   return (
     <div>
@@ -80,6 +88,11 @@ function Factory() {
           {BUSINESSES.map((b) => <option key={b} value={b}>{b}</option>)}
         </select>
         <button className="btn" onClick={run} disabled={busy}>{busy ? "Producing…" : "Produce"}</button>
+        <button className="rounded-lg border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50"
+          onClick={attachAllImages} disabled={busy}
+          title="Generate + attach an on-brand photo to every pending post that has none">
+          🖼️ Add photos to all
+        </button>
       </div>
       {msg && <p className="mb-3 text-sm text-gray-600">{msg}</p>}
 
