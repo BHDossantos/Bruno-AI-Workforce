@@ -1358,6 +1358,42 @@ def test_lifecycle_engine_advances_stages_and_flags(client, auth_headers):
 
 
 @requires_db
+def test_ask_your_book_answers_natural_language_queries(client, auth_headers):
+    """The ask-your-book assistant routes plain-English questions to the right
+    query and returns matching leads with a reason — offline, no AI key."""
+    from app import book_assistant
+    from app.database import SessionLocal
+    from app.models import Lead
+
+    # Intent routing is pure + deterministic.
+    assert book_assistant._match("who needs follow-up today?") == "need_followup"
+    assert book_assistant._match("show me the hottest leads") == "hottest"
+    assert book_assistant._match("who's waiting on a quote") == "waiting_quote"
+    assert book_assistant._match("who should I call today") == "call_today"
+    assert book_assistant._match("dead-ends to revive") == "revive"
+    assert book_assistant._match("banana") == "help"
+
+    db = SessionLocal()
+    try:
+        db.query(Lead).filter(Lead.email == "askbook@x.co").delete(synchronize_session=False)
+        db.commit()
+        db.add(Lead(segment="personal", category="Homeowner", owner_name="Ask Buyer",
+                    email="askbook@x.co", status="Interested", score=95, times_contacted=0))
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.post("/mission/ask", json={"question": "hottest leads"}, headers=auth_headers).json()
+    assert r["ok"] is True and r["intent"] == "hottest"
+    assert isinstance(r["leads"], list) and r["count"] == len(r["leads"])
+    assert all("reason" in l and "stage" in l for l in r["leads"])
+
+    # Help fallback lists what you can ask.
+    h = client.post("/mission/ask", json={"question": "xyzzy"}, headers=auth_headers).json()
+    assert h["intent"] == "help" and "follow-up" in h["answer"].lower()
+
+
+@requires_db
 def test_lead_return_assistant_queues_and_revives_dead_ends(client, auth_headers):
     """A return-eligible lead (flagged by the lifecycle engine) shows up in the
     return queue with a fresh angle; returning it re-arms a short follow-up
