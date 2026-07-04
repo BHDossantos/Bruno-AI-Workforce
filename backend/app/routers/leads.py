@@ -43,6 +43,19 @@ def set_intake(lead_id: str, body: IntakeIn, db: Session = Depends(get_db),
     return result
 
 
+@router.get("/{lead_id}/call-coach")
+def call_coach(lead_id: str, db: Session = Depends(get_db),
+               _=Depends(require_role("admin", "operator", "viewer"))):
+    """The pre-call brief for this lead — line, coverage, score, stage, the call's
+    goal, what to ask for next, an opener, and the objections most likely for
+    their profile with rebuttals. Rule-based; AI sharpens the opener if connected."""
+    from .. import call_coach as cc
+    result = cc.brief(db, lead_id)
+    if not result.get("ok"):
+        raise HTTPException(404, "Lead not found")
+    return result
+
+
 @router.get("/{lead_id}/quote")
 def build_quote(lead_id: str, db: Session = Depends(get_db),
                 _=Depends(require_role("admin", "operator", "viewer"))):

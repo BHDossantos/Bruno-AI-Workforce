@@ -1358,6 +1358,41 @@ def test_lifecycle_engine_advances_stages_and_flags(client, auth_headers):
 
 
 @requires_db
+def test_call_coach_briefs_the_rep_before_the_call(client, auth_headers):
+    """The AI Call Coach assembles a pre-call brief — line, coverage, score, stage,
+    the call's goal, what to ask for next, an opener, and the objections most
+    likely for the lead's segment (each with a rebuttal)."""
+    from app.database import SessionLocal
+    from app.models import Lead
+
+    db = SessionLocal()
+    try:
+        db.query(Lead).filter(Lead.email == "coach@x.co").delete(synchronize_session=False)
+        db.commit()
+        lead = Lead(segment="personal", category="Homeowner", owner_name="Coach Buyer",
+                    email="coach@x.co", phone="+16035551212", status="Interested", score=65,
+                    intake={"quote_type": "personal_auto", "answers": {"vin": "1AAA"},
+                            "updated_at": "2026-07-04T00:00:00Z"})
+        db.add(lead); db.flush(); lid = str(lead.id); db.commit()
+    finally:
+        db.close()
+
+    b = client.get(f"/leads/{lid}/call-coach", headers=auth_headers).json()
+    assert b["ok"] is True
+    assert b["line"] == "auto"            # pinned by the personal_auto intake
+    assert b["stage"] and b["goal"]        # a stage-specific goal
+    assert 0 <= b["score"] <= 100
+    assert b["opener"] and "Coach Buyer" in b["opener"]
+    # Personal-lines leads surface price / already-insured style objections.
+    assert b["likely_objections"] and all(o["rebuttal"] and o["move"] for o in b["likely_objections"])
+    # Intake is partial → the "ask for" step names collecting the rest.
+    assert "Collect" in b["ask_next"] or "quote" in b["ask_next"].lower()
+
+    assert client.get("/leads/00000000-0000-0000-0000-000000000000/call-coach",
+                      headers=auth_headers).status_code == 404
+
+
+@requires_db
 def test_objection_ai_matches_rebuttal_and_logs_to_timeline(client, auth_headers):
     """Objection AI matches a prospect's words to the right objection, returns a
     proven rebuttal + next move, exposes the full playbook, and logs an
