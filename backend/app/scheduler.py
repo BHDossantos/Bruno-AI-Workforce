@@ -137,6 +137,11 @@ def _run_followups(db):
     return process_due_followups(db)
 
 
+def _run_lifecycle(db):
+    from . import lead_lifecycle
+    return lead_lifecycle.run(db)
+
+
 def _run_booking_nudges(db):
     from . import booking_nudge
     return booking_nudge.run(db)
@@ -192,6 +197,10 @@ _JOBS: dict[str, tuple] = {
     "refresh_tokens":   (_refresh_tokens, "0 5 * * *"),
     # Refresh engagement metrics for the learning loop, daily.
     "content_metrics":  (_sync_content_metrics, "0 21 * * *"),
+    # Move the pipeline itself — repair statuses, log every stage transition,
+    # flag speed breaches + return-eligible dead-ends. Every 3 hours so the
+    # cockpit + AI timeline stay live without manual card-moving.
+    "lifecycle":        (_run_lifecycle, "20 */3 * * *"),
     # Send any due follow-ups, daily.
     "followups":        (_run_followups, "0 11 * * *"),
     # Nudge interested-but-not-booked prospects toward the calendar, daily.

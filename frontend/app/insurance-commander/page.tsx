@@ -12,7 +12,9 @@ type Speed = {
   measured: number; avg_seconds: number | null; best_seconds: number | null;
   worst_seconds: number | null; target_seconds: number; over_target: boolean;
 };
-type Overview = { tiles: Tiles; speed: Speed; pipeline: { stage: string; count: number }[]; commission_rate: number };
+type Lifecycle = { stage_moves_today: number; speed_breaches: number; return_eligible: number };
+type Overview = { tiles: Tiles; speed: Speed; pipeline: { stage: string; count: number }[];
+  commission_rate: number; lifecycle?: Lifecycle };
 
 type TimelineEvent = { at: string | null; kind: string; label: string; detail?: string | null; status?: string };
 type Timeline = {
@@ -41,6 +43,20 @@ function InsuranceCommander() {
   const [leadId, setLeadId] = useState("");
   const [timeline, setTimeline] = useState<Timeline | null>(null);
   const [tlErr, setTlErr] = useState("");
+  const [running, setRunning] = useState(false);
+  const [runMsg, setRunMsg] = useState("");
+
+  async function runLifecycle() {
+    setRunning(true); setRunMsg("");
+    try {
+      const r = await api.post<{ stage_transitions: number; status_advanced: number;
+        speed_breaches: number; return_eligible: number }>("/mission/lifecycle/run", {});
+      setRunMsg(`Moved ${r.stage_transitions} stages · advanced ${r.status_advanced} · ` +
+        `${r.speed_breaches} speed flags · ${r.return_eligible} to re-engage`);
+      reload();
+    } catch (e) { setRunMsg(String(e)); }
+    finally { setRunning(false); }
+  }
 
   async function loadTimeline(id: string) {
     if (!id.trim()) return;
@@ -102,6 +118,25 @@ function InsuranceCommander() {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Lifecycle engine — the pipeline moves itself */}
+      <div className="card">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold">🔄 Lifecycle engine — the pipeline moves itself</h2>
+            <p className="text-xs text-gray-500">Every few hours it repairs statuses, logs each stage move into the lead&apos;s AI timeline, and flags slow starts + dead-ends to re-engage. Nobody moves cards by hand.</p>
+          </div>
+          <button className="btn" onClick={runLifecycle} disabled={running}>
+            {running ? "Running…" : "Run a pass now"}
+          </button>
+        </div>
+        <div className="mt-3 grid grid-cols-3 gap-3 text-center">
+          <div><div className="text-xs text-gray-400">Stage moves today</div><div className="text-2xl font-bold text-brand">{data.lifecycle?.stage_moves_today ?? 0}</div></div>
+          <div><div className="text-xs text-gray-400">Speed flags</div><div className="text-2xl font-bold text-amber-600">{data.lifecycle?.speed_breaches ?? 0}</div></div>
+          <div><div className="text-xs text-gray-400">Ready to re-engage</div><div className="text-2xl font-bold text-emerald-600">{data.lifecycle?.return_eligible ?? 0}</div></div>
+        </div>
+        {runMsg && <p className="mt-2 text-sm text-gray-600">{runMsg}</p>}
       </div>
 
       {/* Per-lead AI timeline */}

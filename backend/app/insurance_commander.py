@@ -141,7 +141,17 @@ def overview(db: Session) -> dict:
         "speed": speed(db),
         "pipeline": [{"stage": s, "count": funnel[s]} for s in PIPELINE],
         "commission_rate": rate,
+        "lifecycle": _lifecycle_summary(db),
     }
+
+
+def _lifecycle_summary(db: Session) -> dict:
+    """Lifecycle-engine counts for the cockpit; empty-safe if it can't run."""
+    try:
+        from . import lead_lifecycle
+        return lead_lifecycle.summary(db)
+    except Exception:  # never let the cockpit fail on the add-on metric
+        return {"stage_moves_today": 0, "speed_breaches": 0, "return_eligible": 0}
 
 
 def lead_timeline(db: Session, lead_id: str) -> dict:
@@ -176,10 +186,14 @@ def lead_timeline(db: Session, lead_id: str) -> dict:
                        "label": f"Follow-up step {fu.step}"
                        + (" ✓" if fu.completed else " (scheduled)"),
                        "detail": fu.body or ""})
-    for a in (db.query(ActionLog).filter(ActionLog.entity == "leads",
+    _ACTION_LABELS = {"stage_change": "📈 Stage moved", "speed_breach": "🐌 Slow first response",
+                      "return_eligible": "♻️ Ready to re-engage"}
+    for a in (db.query(ActionLog).filter(ActionLog.entity.in_(["lead", "leads"]),
               ActionLog.entity_id == str(lead.id)).order_by(ActionLog.created_at.asc()).all()):
+        label = _ACTION_LABELS.get(a.action, f"AI: {a.action}")
         events.append({"at": a.created_at.isoformat() if a.created_at else None,
-                       "kind": "ai_action", "label": f"AI: {a.action}",
+                       "kind": a.action if a.action in _ACTION_LABELS else "ai_action",
+                       "label": label,
                        "detail": (a.detail or {}).get("summary") if isinstance(a.detail, dict) else None})
     events.sort(key=lambda e: e["at"] or "")
 
