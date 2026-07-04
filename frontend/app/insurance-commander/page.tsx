@@ -24,6 +24,13 @@ type Timeline = {
     times_contacted: number; received_at: string | null };
   timeline?: TimelineEvent[];
 };
+type Estimate = { monthly_low: number; monthly_high: number; annual_low: number; annual_high: number; note: string };
+type Quote = {
+  ok: boolean; line: string; state: string | null; coverages: string; carriers: string[];
+  estimate: Estimate; quote_type_label: string | null;
+  intake: { collected: number; total: number; complete: boolean; missing: string[] };
+  ready_to_send: boolean; summary: string; marked_sent?: boolean;
+};
 
 function money(n: number) { return n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${n.toFixed(0)}`; }
 function secs(n: number | null) { return n == null ? "—" : n < 60 ? `${n}s` : `${Math.floor(n / 60)}m ${n % 60}s`; }
@@ -45,6 +52,23 @@ function InsuranceCommander() {
   const [tlErr, setTlErr] = useState("");
   const [running, setRunning] = useState(false);
   const [runMsg, setRunMsg] = useState("");
+  const [quote, setQuote] = useState<Quote | null>(null);
+  const [quoteBusy, setQuoteBusy] = useState(false);
+
+  async function buildQuote(id: string) {
+    setQuote(null); setQuoteBusy(true);
+    try { setQuote(await api.get<Quote>(`/leads/${id}/quote`)); }
+    catch (e) { setTlErr(String(e)); }
+    finally { setQuoteBusy(false); }
+  }
+  async function markQuoteSent(id: string) {
+    setQuoteBusy(true);
+    try {
+      setQuote(await api.post<Quote>(`/leads/${id}/quote/sent`, {}));
+      loadTimeline(id); reload();
+    } catch (e) { setTlErr(String(e)); }
+    finally { setQuoteBusy(false); }
+  }
 
   async function runLifecycle() {
     setRunning(true); setRunMsg("");
@@ -60,7 +84,7 @@ function InsuranceCommander() {
 
   async function loadTimeline(id: string) {
     if (!id.trim()) return;
-    setTlErr(""); setTimeline(null);
+    setTlErr(""); setTimeline(null); setQuote(null);
     try {
       const t = await api.get<Timeline>(`/mission/lead-timeline/${id.trim()}`);
       if (!t.ok) setTlErr("Lead not found — paste a valid lead id."); else setTimeline(t);
@@ -158,6 +182,39 @@ function InsuranceCommander() {
               <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-600">{timeline.lead.stage}</span>
               <span className="text-xs text-gray-400">{timeline.lead.source}</span>
             </div>
+            <div className="mt-3 flex gap-2">
+              <button className="btn" onClick={() => buildQuote(timeline.lead!.id)} disabled={quoteBusy}>
+                🧮 Build quote
+              </button>
+              {quote?.ok && (
+                <button className="btn-ghost" onClick={() => markQuoteSent(timeline.lead!.id)} disabled={quoteBusy}>
+                  Mark quote sent →
+                </button>
+              )}
+            </div>
+
+            {quote?.ok && (
+              <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-brand/10 px-2.5 py-1 text-xs font-medium text-brand-dark">{quote.line.toUpperCase()}{quote.state ? ` · ${quote.state}` : ""}</span>
+                  {quote.quote_type_label && <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-600">{quote.quote_type_label}</span>}
+                  <span className={`rounded-full px-2.5 py-1 text-xs ${quote.ready_to_send ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                    {quote.ready_to_send ? "Ready to quote" : `${quote.intake.collected}/${quote.intake.total} intake collected`}
+                  </span>
+                  {quote.marked_sent && <span className="rounded-full bg-emerald-600 px-2.5 py-1 text-xs font-bold text-white">✓ Marked sent</span>}
+                </div>
+                <div className="mt-2 text-2xl font-bold text-emerald-700">
+                  ${quote.estimate.monthly_low}–${quote.estimate.monthly_high}<span className="text-sm font-normal text-gray-400">/mo est.</span>
+                </div>
+                <p className="text-xs text-gray-500">{quote.estimate.note}</p>
+                <p className="mt-2 text-sm"><span className="font-medium">Coverages:</span> {quote.coverages}</p>
+                <p className="mt-1 text-sm"><span className="font-medium">Carriers to shop:</span> {quote.carriers.join(", ")}</p>
+                {!quote.ready_to_send && quote.intake.missing.length > 0 && (
+                  <p className="mt-1 text-sm text-amber-700"><span className="font-medium">Still needed:</span> {quote.intake.missing.join(", ")}</p>
+                )}
+              </div>
+            )}
+
             <ol className="mt-3 space-y-2 border-l-2 border-gray-200 pl-4">
               {(timeline.timeline || []).map((e, i) => (
                 <li key={i} className="relative">

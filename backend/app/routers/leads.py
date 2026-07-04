@@ -43,6 +43,31 @@ def set_intake(lead_id: str, body: IntakeIn, db: Session = Depends(get_db),
     return result
 
 
+@router.get("/{lead_id}/quote")
+def build_quote(lead_id: str, db: Session = Depends(get_db),
+                _=Depends(require_role("admin", "operator", "viewer"))):
+    """Auto-build this lead's quote packet — line, recommended coverages, a
+    fitting carrier shortlist, a ballpark premium estimate, and what's still
+    missing before a real quote can be run. Rule-based, no AI key needed."""
+    from .. import quote_builder
+    result = quote_builder.build(db, lead_id)
+    if not result.get("ok"):
+        raise HTTPException(404, "Lead not found")
+    return result
+
+
+@router.post("/{lead_id}/quote/sent")
+def mark_quote_sent(lead_id: str, db: Session = Depends(get_db),
+                    _=Depends(require_role("admin", "operator"))):
+    """Mark this lead's quote as sent — advances it to the Quote Sent stage and
+    logs it to the lead's AI timeline."""
+    from .. import quote_builder
+    result = quote_builder.mark_sent(db, lead_id)
+    if not result.get("ok"):
+        raise HTTPException(404, "Lead not found")
+    return result
+
+
 class IntakeSendIn(BaseModel):
     quote_type: str
     channel: str  # "sms" | "whatsapp"
