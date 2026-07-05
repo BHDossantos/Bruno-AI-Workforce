@@ -1358,6 +1358,49 @@ def test_lifecycle_engine_advances_stages_and_flags(client, auth_headers):
 
 
 @requires_db
+def test_knowledge_base_add_search_ask_delete(client, auth_headers):
+    """The Insurance Knowledge Base stores docs, answers a plain-English question
+    from the best-matching doc (citing it as a source), and deletes docs."""
+    from app.database import SessionLocal
+    from app.models import KnowledgeDoc
+
+    db = SessionLocal()
+    try:
+        db.query(KnowledgeDoc).filter(KnowledgeDoc.title.like("KBTest%")).delete(
+            synchronize_session=False)
+        db.commit()
+    finally:
+        db.close()
+
+    doc = client.post("/knowledge", headers=auth_headers, json={
+        "title": "KBTest MA auto discounts",
+        "content": "In Massachusetts, homeowners who bundle auto and home qualify for a "
+                   "multi-policy discount. Low-mileage drivers under 10,000 miles/year also "
+                   "get a usage discount. Continuous prior insurance earns a loyalty credit.",
+        "tags": ["auto", "discounts", "MA"]}).json()
+    assert doc["title"] == "KBTest MA auto discounts" and "MA" in doc["tags"]
+    did = doc["id"]
+
+    # Empty title/content → 400.
+    assert client.post("/knowledge", headers=auth_headers,
+                       json={"title": "", "content": ""}).status_code == 400
+
+    a = client.post("/knowledge/ask", headers=auth_headers,
+                    json={"question": "What discounts apply to a homeowner bundling auto in MA?"}).json()
+    assert a["ok"] is True and a["sources"]
+    assert any("MA auto discounts" in s["title"] for s in a["sources"])
+
+    # A question with nothing relevant → graceful, no crash.
+    empty = client.post("/knowledge/ask", headers=auth_headers,
+                        json={"question": "zzzqqq nonexistent topic"}).json()
+    assert empty["ok"] is True and empty["sources"] == []
+
+    assert client.delete(f"/knowledge/{did}", headers=auth_headers).json()["ok"] is True
+    assert client.delete("/knowledge/00000000-0000-0000-0000-000000000000",
+                         headers=auth_headers).status_code == 404
+
+
+@requires_db
 def test_ceo_dashboard_rolls_up_the_business(client, auth_headers):
     """The AI CEO dashboard rolls the book of business into one page — annualized
     commission, policies in force, retention, avg response, close rate and ROI."""
