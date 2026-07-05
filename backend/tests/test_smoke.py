@@ -1393,6 +1393,31 @@ def test_daily_mission_builds_the_morning_card(client, auth_headers):
 
 
 @requires_db
+def test_knowledge_seed_loads_starter_docs_and_is_idempotent(client, auth_headers):
+    """Seeding loads the starter insurance docs only when the base is empty, and a
+    seeded base answers a real question (e.g. bundling discounts)."""
+    from app import knowledge_seed
+    from app.database import SessionLocal
+    from app.models import KnowledgeDoc
+
+    db = SessionLocal()
+    try:
+        db.query(KnowledgeDoc).delete(synchronize_session=False)
+        db.commit()
+        first = knowledge_seed.seed_if_empty(db)
+        assert first["seeded"] == len(knowledge_seed.STARTER_DOCS) >= 5
+        # Idempotent — a second call with docs present seeds nothing.
+        second = knowledge_seed.seed_if_empty(db)
+        assert second["seeded"] == 0 and second["existing"] >= first["seeded"]
+    finally:
+        db.close()
+
+    a = client.post("/knowledge/ask", headers=auth_headers,
+                    json={"question": "What auto discounts should I check for a bundle?"}).json()
+    assert a["ok"] is True and a["sources"]
+
+
+@requires_db
 def test_knowledge_base_add_search_ask_delete(client, auth_headers):
     """The Insurance Knowledge Base stores docs, answers a plain-English question
     from the best-matching doc (citing it as a source), and deletes docs."""

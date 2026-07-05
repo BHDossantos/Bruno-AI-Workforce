@@ -35,6 +35,17 @@ def run(db: Session) -> dict:
     except Exception as exc:
         add("objectives", False, f"error: {str(exc)[:120]}")
 
+    # 1b. Insurance knowledge base has starter content (AUTO-FIX: seed if empty).
+    try:
+        from . import knowledge_seed
+        res = knowledge_seed.seed_if_empty(db)
+        seeded = res.get("seeded", 0)
+        add("knowledge_base", True,
+            f"{res.get('existing', 0) or seeded} docs present"
+            + (f" (seeded {seeded} starter docs)" if seeded else ""), fixed=bool(seeded))
+    except Exception as exc:
+        add("knowledge_base", False, f"error: {str(exc)[:120]}")
+
     # 2. Connected credentials applied to the running process AND OAuth tokens
     #    proactively refreshed so connections never silently expire (AUTO-FIX).
     try:
