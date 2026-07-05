@@ -183,6 +183,14 @@ def ask_book(body: AskIn, db: Session = Depends(get_db), _=Depends(_read)):
     return book_assistant.ask(db, body.question)
 
 
+@router.get("/daily-mission")
+def daily_mission(db: Session = Depends(get_db), _=Depends(_read)):
+    """The AI Daily Mission — today's leads, priority, need-quotes, need-calls,
+    renewals, referral opportunities, and expected revenue, in one morning card."""
+    from .. import daily_mission as dm
+    return dm.build(db)
+
+
 @router.get("/ceo")
 def ceo_dashboard(db: Session = Depends(get_db), _=Depends(_read)):
     """The AI CEO dashboard — revenue, policies in force, commission, retention,

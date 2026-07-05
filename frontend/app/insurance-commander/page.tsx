@@ -15,6 +15,11 @@ type Speed = {
 type Lifecycle = { stage_moves_today: number; speed_breaches: number; return_eligible: number };
 type ReturnLead = { lead_id: string; name: string; email: string | null; phone: string | null;
   line: string; days_since_touch: number | null; angle: string };
+type Mission = {
+  date: string; leads_today: number; priority: number; need_quotes: number;
+  need_calls: number; need_renewal: number; need_referral: number;
+  expected_revenue: number; headline: string;
+};
 type Ceo = {
   revenue_annualized: number; annual_premium: number; policies_in_force: number;
   commission: number; retention_pct: number | null; avg_response_seconds: number | null;
@@ -84,6 +89,7 @@ function InsuranceCommander() {
   const { data: eqReturns } = useFetch<EqReturn[]>(() => api.get<EqReturn[]>("/leads/everquote/return-candidates"));
   const { data: manager } = useFetch<Manager>(() => api.get<Manager>("/mission/ai-manager"));
   const { data: ceo } = useFetch<Ceo>(() => api.get<Ceo>("/mission/ceo"));
+  const { data: mission } = useFetch<Mission>(() => api.get<Mission>("/mission/daily-mission"));
   const [leadId, setLeadId] = useState("");
   const [timeline, setTimeline] = useState<Timeline | null>(null);
   const [tlErr, setTlErr] = useState("");
@@ -220,6 +226,25 @@ function InsuranceCommander() {
     <div className="space-y-6">
       <PageHeader title="🎖️ Insurance Commander"
         subtitle="Your sales operating system — the day's leads, the speed scoreboard, and where every deal sits. Speed wins: first touch under 60 seconds." />
+
+      {/* AI Daily Mission */}
+      {mission && (
+        <div className="card border-l-4 border-brand">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="font-semibold">🎯 Today&apos;s Mission</h2>
+            <span className="text-sm text-gray-500">{mission.headline}</span>
+          </div>
+          <div className="mt-3 grid grid-cols-3 gap-3 text-center sm:grid-cols-4 lg:grid-cols-7">
+            <div><div className="text-xs text-gray-400">Leads today</div><div className="text-xl font-bold text-brand">{mission.leads_today}</div></div>
+            <div><div className="text-xs text-gray-400">Priority</div><div className="text-xl font-bold text-red-600">{mission.priority}</div></div>
+            <div><div className="text-xs text-gray-400">Need quotes</div><div className="text-xl font-bold text-amber-600">{mission.need_quotes}</div></div>
+            <div><div className="text-xs text-gray-400">Need calls</div><div className="text-xl font-bold text-amber-600">{mission.need_calls}</div></div>
+            <div><div className="text-xs text-gray-400">Renewals</div><div className="text-xl font-bold">{mission.need_renewal}</div></div>
+            <div><div className="text-xs text-gray-400">Referrals</div><div className="text-xl font-bold">{mission.need_referral}</div></div>
+            <div><div className="text-xs text-gray-400">Expected rev.</div><div className="text-xl font-bold text-emerald-600">{money(mission.expected_revenue)}</div></div>
+          </div>
+        </div>
+      )}
 
       {/* AI CEO strip */}
       {ceo && (
