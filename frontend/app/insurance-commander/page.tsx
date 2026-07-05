@@ -15,6 +15,12 @@ type Speed = {
 type Lifecycle = { stage_moves_today: number; speed_breaches: number; return_eligible: number };
 type ReturnLead = { lead_id: string; name: string; email: string | null; phone: string | null;
   line: string; days_since_touch: number | null; angle: string };
+type Ceo = {
+  revenue_annualized: number; annual_premium: number; policies_in_force: number;
+  commission: number; retention_pct: number | null; avg_response_seconds: number | null;
+  response_target_seconds: number; close_rate_pct: number | null; lead_spend: number;
+  roi: number | null; commission_rate: number;
+};
 type Insight = { key: string; severity: "high" | "medium" | "info"; headline: string;
   detail: string; value?: number; count: number };
 type Manager = { insights: Insight[]; generated_at: string };
@@ -77,6 +83,7 @@ function InsuranceCommander() {
   const { data: returns, reload: reloadReturns } = useFetch<ReturnLead[]>(() => api.get<ReturnLead[]>("/mission/return-queue"));
   const { data: eqReturns } = useFetch<EqReturn[]>(() => api.get<EqReturn[]>("/leads/everquote/return-candidates"));
   const { data: manager } = useFetch<Manager>(() => api.get<Manager>("/mission/ai-manager"));
+  const { data: ceo } = useFetch<Ceo>(() => api.get<Ceo>("/mission/ceo"));
   const [leadId, setLeadId] = useState("");
   const [timeline, setTimeline] = useState<Timeline | null>(null);
   const [tlErr, setTlErr] = useState("");
@@ -213,6 +220,22 @@ function InsuranceCommander() {
     <div className="space-y-6">
       <PageHeader title="🎖️ Insurance Commander"
         subtitle="Your sales operating system — the day's leads, the speed scoreboard, and where every deal sits. Speed wins: first touch under 60 seconds." />
+
+      {/* AI CEO strip */}
+      {ceo && (
+        <div className="card">
+          <h2 className="mb-2 font-semibold">📊 CEO Dashboard</h2>
+          <div className="grid grid-cols-2 gap-3 text-center sm:grid-cols-4 lg:grid-cols-7">
+            <div><div className="text-xs text-gray-400">Revenue (annual)</div><div className="text-xl font-bold text-emerald-600">{money(ceo.revenue_annualized)}</div></div>
+            <div><div className="text-xs text-gray-400">Policies</div><div className="text-xl font-bold text-brand">{ceo.policies_in_force}</div></div>
+            <div><div className="text-xs text-gray-400">Commission</div><div className="text-xl font-bold text-emerald-600">{money(ceo.commission)}</div></div>
+            <div><div className="text-xs text-gray-400">Retention</div><div className="text-xl font-bold">{ceo.retention_pct == null ? "—" : `${ceo.retention_pct}%`}</div></div>
+            <div><div className="text-xs text-gray-400">Avg response</div><div className={`text-xl font-bold ${ceo.avg_response_seconds != null && ceo.avg_response_seconds > ceo.response_target_seconds ? "text-red-600" : "text-emerald-600"}`}>{secs(ceo.avg_response_seconds)}</div></div>
+            <div><div className="text-xs text-gray-400">Close rate</div><div className="text-xl font-bold">{ceo.close_rate_pct == null ? "—" : `${ceo.close_rate_pct}%`}</div></div>
+            <div><div className="text-xs text-gray-400">ROI</div><div className="text-xl font-bold text-brand">{ceo.roi == null ? "—" : `${ceo.roi}x`}</div></div>
+          </div>
+        </div>
+      )}
 
       {/* Ask your book */}
       <div className="card">
