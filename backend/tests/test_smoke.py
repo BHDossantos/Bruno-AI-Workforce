@@ -1358,6 +1358,41 @@ def test_lifecycle_engine_advances_stages_and_flags(client, auth_headers):
 
 
 @requires_db
+def test_daily_mission_builds_the_morning_card(client, auth_headers):
+    """The AI Daily Mission rolls the pipeline into the morning categories —
+    leads today, priority, need-quotes, need-calls, renewals, referrals and
+    expected revenue — with a plain-English headline."""
+    from datetime import date, timedelta
+
+    from app.database import SessionLocal
+    from app.models import Client, Lead
+
+    db = SessionLocal()
+    try:
+        db.query(Lead).filter(Lead.email == "mission@x.co").delete(synchronize_session=False)
+        db.query(Client).filter(Client.email == "missionclient@x.co").delete(synchronize_session=False)
+        db.commit()
+        # An untouched high-score lead → counts toward priority + need_calls.
+        db.add(Lead(segment="commercial", category="Contractor", company_name="Mission Co",
+                    email="mission@x.co", status="New", times_contacted=0, score=95))
+        # An active client renewing in 10 days → counts toward renewals + referrals.
+        db.add(Client(business="insurance", name="Mission Client", email="missionclient@x.co",
+                      status="Active", line="auto", premium_monthly=180,
+                      expires_at=date.today() + timedelta(days=10)))
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.get("/mission/daily-mission", headers=auth_headers).json()
+    assert set(r) >= {"leads_today", "priority", "need_quotes", "need_calls",
+                      "need_renewal", "need_referral", "expected_revenue", "headline"}
+    assert r["need_calls"] >= 1          # our untouched lead
+    assert r["need_renewal"] >= 1        # the client renewing in 10 days
+    assert r["need_referral"] >= 1       # active client is a referral opportunity
+    assert isinstance(r["expected_revenue"], (int, float)) and r["headline"]
+
+
+@requires_db
 def test_knowledge_base_add_search_ask_delete(client, auth_headers):
     """The Insurance Knowledge Base stores docs, answers a plain-English question
     from the best-matching doc (citing it as a source), and deletes docs."""
