@@ -214,13 +214,22 @@ class Settings(BaseSettings):
     # App passwords). When set, outreach sends via SMTP — no OAuth flow needed.
     gmail_app_password: str = ""
 
-    # Insurance account — Insurance agent outreach + the report's insurance replies.
-    insurance_gmail_address: str = "bruno@thrustinsurance.com"
+    # Insurance account (PRIMARY) — Insurance agent outreach + insurance replies.
+    insurance_gmail_address: str = ""
     insurance_google_oauth_client_id: str = ""
     insurance_google_oauth_client_secret: str = ""
     insurance_google_oauth_refresh_token: str = ""
     insurance_google_token_json: str = ""
-    insurance_gmail_app_password: str = ""  # App Password for the Thrust mailbox
+    insurance_gmail_app_password: str = ""  # App Password for the primary insurance mailbox
+
+    # Insurance account (BACKUP) — a second insurance mailbox (e.g. a second
+    # agency domain). Used automatically when the primary can't send.
+    insurance_backup_gmail_address: str = ""
+    insurance_backup_google_oauth_client_id: str = ""
+    insurance_backup_google_oauth_client_secret: str = ""
+    insurance_backup_google_oauth_refresh_token: str = ""
+    insurance_backup_google_token_json: str = ""
+    insurance_backup_gmail_app_password: str = ""
 
     # BnB Global account — dedicated mailbox for consulting outreach (keeps it off
     # the personal Gmail). Connect via App Password or OAuth, same as the others.

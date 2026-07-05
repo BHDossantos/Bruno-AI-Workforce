@@ -1584,6 +1584,36 @@ def test_everquote_fidelity_objection_and_valid_returns(client, auth_headers):
     assert "dq@x.co" not in by_email
 
 
+def test_insurance_backup_mailbox_fallback(monkeypatch):
+    """A second (backup) insurance mailbox: when the primary insurance mailbox
+    isn't configured but the backup is, sends resolve to the backup — and when
+    the primary IS configured, it wins."""
+    from app.config import settings
+    from app.integrations import gmail
+
+    # Clear both mailboxes' credentials.
+    for a in ("insurance_gmail_address", "insurance_gmail_app_password",
+              "insurance_backup_gmail_address", "insurance_backup_gmail_app_password",
+              "insurance_google_token_json", "insurance_backup_google_token_json"):
+        monkeypatch.setattr(settings, a, "", raising=False)
+
+    # Backup account config resolves to the backup fields.
+    monkeypatch.setattr(settings, "insurance_backup_gmail_address", "bruno@thrustinsurance.com")
+    monkeypatch.setattr(settings, "insurance_backup_gmail_app_password", "abcd efgh ijkl mnop")
+    assert gmail._account_cfg(gmail.INSURANCE_BACKUP)["address"] == "bruno@thrustinsurance.com"
+
+    # Primary blank + backup configured → insurance sends resolve to the backup.
+    assert gmail.is_configured(gmail.INSURANCE) is False
+    assert gmail.is_configured(gmail.INSURANCE_BACKUP) is True
+    assert gmail.effective_account(gmail.INSURANCE) == gmail.INSURANCE_BACKUP
+
+    # Configure the primary → it wins over the backup.
+    monkeypatch.setattr(settings, "insurance_gmail_address", "bruno@dossantosinsurance.org")
+    monkeypatch.setattr(settings, "insurance_gmail_app_password", "zzzz yyyy xxxx wwww")
+    assert gmail.is_configured(gmail.INSURANCE) is True
+    assert gmail.effective_account(gmail.INSURANCE) == gmail.INSURANCE
+
+
 def test_everquote_model_casing():
     """Vehicle models read the way people write them: real words title-cased,
     model codes kept upper."""
