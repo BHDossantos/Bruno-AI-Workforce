@@ -35,6 +35,22 @@ def _title(s: str | None) -> str:
     return " ".join(w.capitalize() for w in (s or "").split())
 
 
+def model_case(model: str | None) -> str:
+    """Case a vehicle model the way people write it: real words title-cased
+    (KONA→Kona, CAMRY→Camry, BLAZER→Blazer) but model codes kept upper
+    (QX60, CR-V, RAV4, F-150, MODEL 3→Model 3)."""
+    def _part(p: str) -> str:
+        if not p:
+            return p
+        if any(c.isdigit() for c in p) or len(p) <= 2:  # codes: QX60, F, CR, RAV4
+            return p.upper()
+        return p.capitalize()
+    words = []
+    for word in (model or "").split():
+        words.append("-".join(_part(p) for p in word.split("-")))
+    return " ".join(words)
+
+
 def _extract(row: dict) -> dict:
     """Flatten one EverQuote CSV row (+ its JSON detail) into the fields we use."""
     detail = {}
@@ -95,7 +111,7 @@ def parse_csv(text: str) -> list[dict]:
 
 def _vehicle(f: dict) -> str:
     parts = [str(f.get("vehicle_year")) if f.get("vehicle_year") else "",
-             f.get("vehicle_make") or "", (f.get("vehicle_model") or "").title()]
+             f.get("vehicle_make") or "", model_case(f.get("vehicle_model"))]
     return " ".join(p for p in parts if p).strip() or "vehicle"
 
 
