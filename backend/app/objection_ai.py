@@ -26,6 +26,21 @@ log = logging.getLogger("bruno.objection")
 # obligation comparison, never disparage or promise a specific price.
 OBJECTIONS: list[dict] = [
     {
+        "key": "didnt_request",
+        "label": "I didn't request this / don't remember",
+        "triggers": ["didn't request", "didnt request", "did not request", "never asked",
+                     "never requested", "don't remember", "dont remember", "who gave you",
+                     "where did you get", "not me", "no idea what", "didn't sign up", "didnt sign up"],
+        # EverQuote note: this is NOT a valid return reason — verify the info, don't return.
+        "rebuttal": ("No problem at all — I have your quote request right here for your {vehicle}. "
+                     "These usually come in when you compare rates online. I just need about two "
+                     "minutes to verify the information so I can give you the most accurate pricing — "
+                     "and if it's genuinely not for you, no worries at all."),
+        "move": "Reassure, reference the SPECIFIC quote request (their vehicle), and verify the "
+                "info. Do NOT treat as a lead return — 'didn't request' is not an EverQuote-valid "
+                "return reason.",
+    },
+    {
         "key": "price",
         "label": "Too expensive / price",
         "triggers": ["expensive", "too much", "cost", "afford", "cheaper", "price", "high", "money", "budget"],
@@ -163,6 +178,18 @@ def handle(db: Session, text: str, lead_id: str | None = None) -> dict:
     tailored = None
 
     lead = db.query(Lead).filter(Lead.id == lead_id).first() if lead_id else None
+
+    # Fill the {vehicle} placeholder from the lead's EverQuote data so the
+    # verify-info reply names their actual car (e.g. "your 2018 Honda Accord").
+    if "{vehicle}" in rebuttal:
+        vehicle = "vehicle"
+        f = ((lead.intake or {}).get("everquote") if lead else None) or {}
+        parts = [str(f.get("vehicle_year") or "").strip(), f.get("vehicle_make") or "",
+                 (f.get("vehicle_model") or "").title()]
+        joined = " ".join(p for p in parts if p).strip()
+        if joined:
+            vehicle = joined
+        rebuttal = rebuttal.replace("{vehicle}", vehicle)
     if client.is_live():
         try:
             who = (lead.company_name or lead.owner_name) if lead else "the prospect"
@@ -197,5 +224,6 @@ def handle(db: Session, text: str, lead_id: str | None = None) -> dict:
 
 def catalog() -> list[dict]:
     """The full objection playbook — label, rebuttal and move, for browsing."""
-    return [{"key": o["key"], "label": o["label"], "rebuttal": o["rebuttal"],
+    return [{"key": o["key"], "label": o["label"],
+             "rebuttal": o["rebuttal"].replace("{vehicle}", "their vehicle"),
              "move": o["move"]} for o in OBJECTIONS]

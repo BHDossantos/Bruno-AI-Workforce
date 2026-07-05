@@ -15,6 +15,8 @@ type Speed = {
 type Lifecycle = { stage_moves_today: number; speed_breaches: number; return_eligible: number };
 type ReturnLead = { lead_id: string; name: string; email: string | null; phone: string | null;
   line: string; days_since_touch: number | null; angle: string };
+type EqReturn = { lead_id: string; name: string; email: string | null; phone: string | null;
+  state: string; vehicle: string; reason_code: string; reason_text: string };
 type AskLead = { lead_id: string; name: string; email: string | null; phone: string | null;
   stage: string; reason: string };
 type AskResult = { ok: boolean; intent: string; title: string; answer: string;
@@ -70,6 +72,7 @@ function Tile({ label, value, tone }: { label: string; value: React.ReactNode; t
 function InsuranceCommander() {
   const { data, loading, error, reload } = useFetch<Overview>(() => api.get<Overview>("/mission/insurance-commander"));
   const { data: returns, reload: reloadReturns } = useFetch<ReturnLead[]>(() => api.get<ReturnLead[]>("/mission/return-queue"));
+  const { data: eqReturns } = useFetch<EqReturn[]>(() => api.get<EqReturn[]>("/leads/everquote/return-candidates"));
   const [leadId, setLeadId] = useState("");
   const [timeline, setTimeline] = useState<Timeline | null>(null);
   const [tlErr, setTlErr] = useState("");
@@ -338,6 +341,27 @@ function InsuranceCommander() {
                 <button className="btn-ghost text-sm" onClick={() => returnLead(r.lead_id)} disabled={returning === r.lead_id}>
                   {returning === r.lead_id ? "…" : "Return →"}
                 </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* EverQuote-valid returns */}
+      {eqReturns && eqReturns.length > 0 && (
+        <div className="card">
+          <h2 className="font-semibold">↩️ EverQuote Return Assistant — {eqReturns.length} eligible for a valid return</h2>
+          <p className="mb-2 text-xs text-gray-500">Only EverQuote-valid reasons: invalid/disconnected phone, invalid email, duplicate, or out-of-footprint. (A consumer saying &quot;I didn&apos;t request this&quot; is <span className="font-medium">not</span> a valid return — that&apos;s an objection to verify, not a return.)</p>
+          <ul className="divide-y divide-gray-100">
+            {eqReturns.slice(0, 15).map((r) => (
+              <li key={r.lead_id} className="py-2">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                  <span className="font-medium">{r.name}</span>
+                  {r.state && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">{r.state}</span>}
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">{r.reason_code.replace(/_/g, " ")}</span>
+                  {r.vehicle && <span className="text-xs text-gray-400">{r.vehicle}</span>}
+                </div>
+                <p className="mt-0.5 text-xs text-gray-600">Return reason: {r.reason_text}</p>
               </li>
             ))}
           </ul>

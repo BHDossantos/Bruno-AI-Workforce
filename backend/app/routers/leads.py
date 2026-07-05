@@ -72,6 +72,16 @@ def everquote_personalize_batch(body: BatchPersonalizeIn, db: Session = Depends(
     return everquote.personalize_batch(db, lead_ids=body.lead_ids)
 
 
+@router.get("/everquote/return-candidates")
+def everquote_return_candidates(db: Session = Depends(get_db),
+                                _=Depends(require_role("admin", "operator", "viewer"))):
+    """EverQuote leads eligible for a VALID return (invalid/disconnected phone,
+    invalid email, duplicate, out-of-footprint) with a prepared return reason —
+    NOT the internal no-reply revive queue, and NOT 'consumer didn't request'."""
+    from .. import everquote_returns
+    return everquote_returns.return_candidates(db)
+
+
 @router.get("/{lead_id}/personalized-outreach")
 def personalized_outreach(lead_id: str, db: Session = Depends(get_db),
                           _=Depends(require_role("admin", "operator", "viewer"))):

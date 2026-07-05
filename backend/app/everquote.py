@@ -94,13 +94,14 @@ def parse_csv(text: str) -> list[dict]:
 
 
 def _vehicle(f: dict) -> str:
-    parts = [str(f["vehicle_year"]) if f["vehicle_year"] else "", f["vehicle_make"],
-             f["vehicle_model"].title()]
+    parts = [str(f.get("vehicle_year")) if f.get("vehicle_year") else "",
+             f.get("vehicle_make") or "", (f.get("vehicle_model") or "").title()]
     return " ".join(p for p in parts if p).strip() or "vehicle"
 
 
 def _lead_name(f: dict) -> str:
-    return (f"{f['first_name']} {f['last_name']}").strip() or (f["email"] or "EverQuote lead")
+    name = f"{f.get('first_name') or ''} {f.get('last_name') or ''}".strip()
+    return name or (f.get("email") or "EverQuote lead")
 
 
 def import_rows(db: Session, rows: list[dict]) -> dict:
