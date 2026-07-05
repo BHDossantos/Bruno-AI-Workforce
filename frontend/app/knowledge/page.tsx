@@ -88,7 +88,14 @@ function KnowledgeBase() {
 
       {/* Docs list */}
       <div className="card">
-        <h2 className="mb-2 font-semibold">Docs</h2>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h2 className="font-semibold">Docs</h2>
+          {data && data.length === 0 && (
+            <button className="btn-ghost text-sm" onClick={async () => { await api.post("/knowledge/seed", {}); reload(); }}>
+              Load starter docs
+            </button>
+          )}
+        </div>
         {!data ? <LoadState loading={loading} error={error} onRetry={reload} /> : data.length === 0 ? (
           <p className="text-sm text-gray-400">No docs yet — add carrier guidelines, discount rules and FAQs above.</p>
         ) : (

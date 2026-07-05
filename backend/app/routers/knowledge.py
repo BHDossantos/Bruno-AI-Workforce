@@ -51,3 +51,11 @@ def ask(body: AskIn, db: Session = Depends(get_db), _=Depends(_read)):
     """Ask a plain-English question; the AI answers from the docs and cites them."""
     from .. import knowledge
     return knowledge.answer(db, body.question)
+
+
+@router.post("/seed")
+def seed(db: Session = Depends(get_db), _=Depends(_write)):
+    """Load the starter insurance docs (MA/NH/FL discounts, coverage basics,
+    EverQuote handling) — only if the knowledge base is currently empty."""
+    from .. import knowledge_seed
+    return knowledge_seed.seed_if_empty(db)
