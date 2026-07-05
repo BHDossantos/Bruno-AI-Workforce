@@ -43,6 +43,59 @@ def set_intake(lead_id: str, body: IntakeIn, db: Session = Depends(get_db),
     return result
 
 
+class EverQuoteImportIn(BaseModel):
+    csv_text: str
+
+
+@router.post("/import-everquote")
+def import_everquote(body: EverQuoteImportIn, db: Session = Depends(get_db),
+                     _=Depends(require_role("admin", "operator"))):
+    """Import an EverQuote CSV export — parses every field (incl. the JSON detail),
+    creates personal-auto leads with a pre-filled quote intake, dedupes by email."""
+    from .. import everquote
+    rows = everquote.parse_csv(body.csv_text or "")
+    if not rows:
+        raise HTTPException(400, "No rows parsed — is this an EverQuote CSV export?")
+    return everquote.import_rows(db, rows)
+
+
+@router.get("/{lead_id}/personalized-outreach")
+def personalized_outreach(lead_id: str, db: Session = Depends(get_db),
+                          _=Depends(require_role("admin", "operator", "viewer"))):
+    """Per-lead personalized email + SMS + voicemail + call notes, built from the
+    lead's actual EverQuote fields (vehicle, current carrier, discounts)."""
+    from .. import everquote
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    result = everquote.personalize(lead)
+    if not result.get("ok"):
+        raise HTTPException(400, result.get("reason", "Cannot personalize this lead"))
+    return result
+
+
+@router.post("/{lead_id}/personalized-outreach/queue")
+def queue_personalized_outreach(lead_id: str, db: Session = Depends(get_db),
+                                _=Depends(require_role("admin", "operator"))):
+    """Save the personalized email as a Drafted message for one-click review/send."""
+    from .. import everquote, outreach
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    if not lead.email:
+        raise HTTPException(400, "This lead has no email on file")
+    pack = everquote.personalize(lead)
+    if not pack.get("ok"):
+        raise HTTPException(400, pack.get("reason", "Cannot personalize this lead"))
+    body = pack["email"]["tailored"] or pack["email"]["body"]
+    msg = outreach.dispatch_email(db, entity_type="lead", entity_id=lead.id,
+                                  to_email=lead.email, subject=pack["email"]["subject"],
+                                  body=body, account="insurance", actor="everquote",
+                                  force_draft=True)
+    return {"ok": True, "message_id": str(msg.id), "status": msg.status,
+            "subject": pack["email"]["subject"]}
+
+
 @router.get("/{lead_id}/call-coach")
 def call_coach(lead_id: str, db: Session = Depends(get_db),
                _=Depends(require_role("admin", "operator", "viewer"))):

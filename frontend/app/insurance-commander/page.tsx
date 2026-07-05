@@ -32,6 +32,12 @@ type Timeline = {
 };
 type Objection = { ok: boolean; objection: string; confidence: string; rebuttal: string;
   tailored: string | null; move: string; ai_used: boolean };
+type Outreach = {
+  ok: boolean; name: string; vehicle: string;
+  email: { subject: string; body: string; tailored: string | null };
+  sms: { body: string; tailored: string | null };
+  voicemail: string; call_notes: string[];
+};
 type Coach = {
   ok: boolean; line: string; coverages: string; score: number; band: string;
   score_reasons: string[]; temperature: string; stage: string;
@@ -73,6 +79,38 @@ function InsuranceCommander() {
   const [quoteBusy, setQuoteBusy] = useState(false);
   const [coach, setCoach] = useState<Coach | null>(null);
   const [coachBusy, setCoachBusy] = useState(false);
+  const [outreach, setOutreach] = useState<Outreach | null>(null);
+  const [outreachBusy, setOutreachBusy] = useState(false);
+  const [outreachMsg, setOutreachMsg] = useState("");
+  const [importCsv, setImportCsv] = useState("");
+  const [importMsg, setImportMsg] = useState("");
+  const [importBusy, setImportBusy] = useState(false);
+
+  async function loadOutreach(id: string) {
+    setOutreach(null); setOutreachMsg(""); setOutreachBusy(true);
+    try { setOutreach(await api.get<Outreach>(`/leads/${id}/personalized-outreach`)); }
+    catch (e) { setOutreachMsg(String(e)); }
+    finally { setOutreachBusy(false); }
+  }
+  async function queueOutreach(id: string) {
+    setOutreachBusy(true);
+    try {
+      const q = await api.post<{ subject: string; status: string }>(`/leads/${id}/personalized-outreach/queue`, {});
+      setOutreachMsg(`Queued as ${q.status}: "${q.subject}" — review it in the approvals queue.`);
+    } catch (e) { setOutreachMsg(String(e)); }
+    finally { setOutreachBusy(false); }
+  }
+  async function importEverquote() {
+    if (!importCsv.trim()) return;
+    setImportBusy(true); setImportMsg("");
+    try {
+      const r = await api.post<{ imported: number; updated: number; skipped: number; total: number }>(
+        "/leads/import-everquote", { csv_text: importCsv });
+      setImportMsg(`Imported ${r.imported} new · ${r.updated} updated · ${r.skipped} skipped (of ${r.total}). Paste a lead id below to see its personalized outreach.`);
+      setImportCsv(""); reload();
+    } catch (e) { setImportMsg(String(e)); }
+    finally { setImportBusy(false); }
+  }
 
   async function loadCoach(id: string) {
     setCoach(null); setCoachBusy(true);
@@ -144,7 +182,7 @@ function InsuranceCommander() {
 
   async function loadTimeline(id: string) {
     if (!id.trim()) return;
-    setTlErr(""); setTimeline(null); setQuote(null); setCoach(null);
+    setTlErr(""); setTimeline(null); setQuote(null); setCoach(null); setOutreach(null); setOutreachMsg("");
     try {
       const t = await api.get<Timeline>(`/mission/lead-timeline/${id.trim()}`);
       if (!t.ok) setTlErr("Lead not found — paste a valid lead id."); else setTimeline(t);
@@ -193,6 +231,21 @@ function InsuranceCommander() {
             </ul>
           </div>
         )}
+      </div>
+
+      {/* Import EverQuote leads */}
+      <div className="card">
+        <h2 className="font-semibold">📥 Import EverQuote leads</h2>
+        <p className="mb-2 text-xs text-gray-500">Paste your EverQuote CSV export. Every field is parsed (vehicle, current carrier, credit, coverage), leads are created with a pre-filled quote intake, and each gets a personalized email + SMS + voicemail + call notes — 500 leads take the same effort as 5.</p>
+        <textarea value={importCsv} onChange={(e) => setImportCsv(e.target.value)}
+          placeholder='Paste EverQuote CSV here (including the header row: "created_at","eqLeadUUID",…)'
+          className="h-24 w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-xs" />
+        <div className="mt-2 flex items-center gap-3">
+          <button className="btn" onClick={importEverquote} disabled={importBusy || !importCsv.trim()}>
+            {importBusy ? "Importing…" : "Import & personalize"}
+          </button>
+          {importMsg && <p className="text-sm text-gray-600">{importMsg}</p>}
+        </div>
       </div>
 
       {/* Today's tiles */}
@@ -333,6 +386,9 @@ function InsuranceCommander() {
               <button className="btn" onClick={() => loadCoach(timeline.lead!.id)} disabled={coachBusy}>
                 📞 Call Coach
               </button>
+              <button className="btn" onClick={() => loadOutreach(timeline.lead!.id)} disabled={outreachBusy}>
+                ✉️ Personalized outreach
+              </button>
               <button className="btn" onClick={() => buildQuote(timeline.lead!.id)} disabled={quoteBusy}>
                 🧮 Build quote
               </button>
@@ -370,6 +426,35 @@ function InsuranceCommander() {
                     </ul>
                   </div>
                 )}
+              </div>
+            )}
+
+            {outreachMsg && <p className="mt-2 text-sm text-emerald-700">{outreachMsg}</p>}
+            {outreach?.ok && (
+              <div className="mt-3 space-y-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-gray-800">✉️ Personalized for {outreach.name} · {outreach.vehicle}</span>
+                  <button className="btn-ghost text-sm" onClick={() => queueOutreach(timeline.lead!.id)} disabled={outreachBusy}>Queue email as draft →</button>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Email</p>
+                  <p className="text-sm font-medium">{outreach.email.subject}</p>
+                  <pre className="mt-1 whitespace-pre-wrap font-sans text-sm text-gray-700">{outreach.email.tailored || outreach.email.body}</pre>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">SMS</p>
+                  <p className="text-sm text-gray-700">{outreach.sms.tailored || outreach.sms.body}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Voicemail script</p>
+                  <p className="text-sm text-gray-700">{outreach.voicemail}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Call notes</p>
+                  <ul className="mt-1 list-disc pl-5 text-sm text-gray-700">
+                    {outreach.call_notes.map((n, i) => <li key={i}>{n}</li>)}
+                  </ul>
+                </div>
               </div>
             )}
 
