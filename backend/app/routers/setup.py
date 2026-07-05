@@ -91,7 +91,8 @@ def mailbox_health(db: Session = Depends(get_db),
     from .. import outreach
     from ..config import settings
     from ..integrations import gmail, sendgrid
-    accounts = [("personal", "Personal Gmail"), ("insurance", "Insurance (Thrust) mailbox"),
+    accounts = [("personal", "Personal Gmail"), ("insurance", "Insurance mailbox (primary)"),
+                ("insurance_backup", "Insurance mailbox #2 (backup)"),
                 ("bnb", "BnB Global mailbox"), ("savorymind", "SavoryMind mailbox")]
     out = []
     # SendGrid (if connected) is the actual sender — show its health first.

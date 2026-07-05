@@ -31,6 +31,8 @@ FIELDS: dict[str, bool] = {
     "gmail_app_password": True,
     "insurance_gmail_address": False,
     "insurance_gmail_app_password": True,
+    "insurance_backup_gmail_address": False,
+    "insurance_backup_gmail_app_password": True,
     "bnb_gmail_address": False,
     "bnb_gmail_app_password": True,
     "savorymind_gmail_address": False,
@@ -162,6 +164,10 @@ def status(db) -> dict:
         "gmail_insurance": {
             "configured": gmail.is_configured(gmail.INSURANCE),
             "address": settings.insurance_gmail_address or "",
+        },
+        "gmail_insurance_backup": {
+            "configured": gmail.is_configured(gmail.INSURANCE_BACKUP),
+            "address": settings.insurance_backup_gmail_address or "",
         },
         "gmail_bnb": {
             "configured": gmail.is_configured(gmail.BNB),

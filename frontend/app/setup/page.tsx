@@ -7,7 +7,8 @@ import { AuthGate, PageHeader, useFetch, LoadState } from "@/components/ui";
 type Area = { configured: boolean; address?: string };
 type Status = {
   ai?: { configured: boolean; model: string };
-  gmail_personal: Area; gmail_insurance: Area; gmail_bnb?: Area; gmail_savorymind?: Area;
+  gmail_personal: Area; gmail_insurance: Area; gmail_insurance_backup?: Area;
+  gmail_bnb?: Area; gmail_savorymind?: Area;
   apollo: Area; google_places: Area;
   sms?: Area; whatsapp?: Area & { via?: string | null }; jobs_api?: Area;
   instantly?: Area; smartlead?: Area; sendgrid?: Area;
@@ -157,19 +158,19 @@ function Setup() {
           </div>
         </div>
 
-        {/* Gmail insurance */}
+        {/* Gmail insurance — PRIMARY */}
         <div className="card">
           <div className="mb-2 flex items-center justify-between">
-            <h2 className="font-semibold">🛡️ Gmail — insurance mailbox (optional)</h2>
+            <h2 className="font-semibold">🛡️ Gmail — insurance mailbox (primary)</h2>
             <Badge ok={data.gmail_insurance.configured} />
           </div>
           <p className="mb-3 text-xs text-gray-500">
-            <b>Most Thrust / Google Workspace accounts block App Passwords</b> (that&apos;s the
-            <code> 535 5.7.8</code> error). Easiest fix: <b>leave these two fields blank</b> and turn ON
-            the toggle below — insurance then sends through your personal mailbox with replies routed to Thrust.
+            Your main insurance sending address — type <b>your own</b> address here (e.g. <code>bruno@dossantosinsurance.org</code>); the greyed-out text is only an example.
+            Use a Google <b>App Password</b> generated from <b>that same account</b> (not your personal Gmail).
+            Note: some Google Workspace accounts block App Passwords (the <code>535 5.7.8</code> error) — if yours does, either enable App Passwords in the Workspace Admin console, or use the toggle below to relay through your personal mailbox.
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
-            <input className="input" placeholder={data.gmail_insurance.address || "you@thrustinsurance.com"}
+            <input className="input" placeholder={data.gmail_insurance.address || "you@youragency.com"}
               value={form.insurance_gmail_address || ""} onChange={(e) => set("insurance_gmail_address", e.target.value)} />
             <input className="input" type="password" placeholder="16-character App Password"
               value={form.insurance_gmail_app_password || ""} onChange={(e) => set("insurance_gmail_app_password", e.target.value)} />
@@ -178,10 +179,27 @@ function Setup() {
             <input type="checkbox" className="mt-0.5" checked={!!control?.insurance_relay}
               onChange={(e) => toggleRelay(e.target.checked)} />
             <span>
-              <b>Send insurance through my personal mailbox</b> (Reply-To set to Thrust). Use this if you don&apos;t have a separate Thrust App Password — insurance emails still go out, and replies land in the Thrust inbox.
+              <b>Send insurance through my personal mailbox</b> (Reply-To set to the insurance address). Use this only if you don&apos;t have a working insurance App Password — emails still go out and replies land in the insurance inbox.
               {control?.insurance_relay ? <span className="ml-1 font-medium text-green-700">ON</span> : null}
             </span>
           </label>
+        </div>
+
+        {/* Gmail insurance — BACKUP (second mailbox) */}
+        <div className="card">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">🛡️ Gmail — insurance mailbox #2 (backup)</h2>
+            <Badge ok={!!data.gmail_insurance_backup?.configured} />
+          </div>
+          <p className="mb-3 text-xs text-gray-500">
+            A <b>second</b> insurance sending address (e.g. a different agency domain like <code>bruno@thrustinsurance.com</code>). It&apos;s used automatically only when the primary mailbox above can&apos;t send. Leave blank if you only use one.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input className="input" placeholder={data.gmail_insurance_backup?.address || "you@second-agency.com"}
+              value={form.insurance_backup_gmail_address || ""} onChange={(e) => set("insurance_backup_gmail_address", e.target.value)} />
+            <input className="input" type="password" placeholder="16-character App Password"
+              value={form.insurance_backup_gmail_app_password || ""} onChange={(e) => set("insurance_backup_gmail_app_password", e.target.value)} />
+          </div>
         </div>
 
         {/* BnB Global mailbox */}

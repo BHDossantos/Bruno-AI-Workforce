@@ -1584,6 +1584,36 @@ def test_everquote_fidelity_objection_and_valid_returns(client, auth_headers):
     assert "dq@x.co" not in by_email
 
 
+def test_insurance_backup_mailbox_fallback(monkeypatch):
+    """A second (backup) insurance mailbox: when the primary insurance mailbox
+    isn't configured but the backup is, sends resolve to the backup — and when
+    the primary IS configured, it wins."""
+    from app.config import settings
+    from app.integrations import gmail
+
+    # Clear both mailboxes' credentials.
+    for a in ("insurance_gmail_address", "insurance_gmail_app_password",
+              "insurance_backup_gmail_address", "insurance_backup_gmail_app_password",
+              "insurance_google_token_json", "insurance_backup_google_token_json"):
+        monkeypatch.setattr(settings, a, "", raising=False)
+
+    # Backup account config resolves to the backup fields.
+    monkeypatch.setattr(settings, "insurance_backup_gmail_address", "bruno@thrustinsurance.com")
+    monkeypatch.setattr(settings, "insurance_backup_gmail_app_password", "abcd efgh ijkl mnop")
+    assert gmail._account_cfg(gmail.INSURANCE_BACKUP)["address"] == "bruno@thrustinsurance.com"
+
+    # Primary blank + backup configured → insurance sends resolve to the backup.
+    assert gmail.is_configured(gmail.INSURANCE) is False
+    assert gmail.is_configured(gmail.INSURANCE_BACKUP) is True
+    assert gmail.effective_account(gmail.INSURANCE) == gmail.INSURANCE_BACKUP
+
+    # Configure the primary → it wins over the backup.
+    monkeypatch.setattr(settings, "insurance_gmail_address", "bruno@dossantosinsurance.org")
+    monkeypatch.setattr(settings, "insurance_gmail_app_password", "zzzz yyyy xxxx wwww")
+    assert gmail.is_configured(gmail.INSURANCE) is True
+    assert gmail.effective_account(gmail.INSURANCE) == gmail.INSURANCE
+
+
 def test_everquote_model_casing():
     """Vehicle models read the way people write them: real words title-cased,
     model codes kept upper."""
@@ -2044,7 +2074,8 @@ def test_mailbox_pool_snapshot(client, auth_headers):
         assert key in d, key
     # The four Gmail mailboxes are always present (connected or not).
     gmail_ids = {m["id"] for m in d["mailboxes"] if m["type"] == "gmail"}
-    assert gmail_ids == {"gmail:personal", "gmail:insurance", "gmail:bnb", "gmail:savorymind"}
+    assert gmail_ids == {"gmail:personal", "gmail:insurance", "gmail:insurance_backup",
+                         "gmail:bnb", "gmail:savorymind"}
     for m in d["mailboxes"]:
         for k in ("label", "connected", "sent_today", "daily_cap", "warmup"):
             assert k in m, k
@@ -4640,7 +4671,8 @@ def test_setup_connect_status_and_save(client, auth_headers):
     """The in-app setup page reports connection status and applies a saved key."""
     from app.config import settings
     s = client.get("/setup", headers=auth_headers).json()
-    assert set(s) == {"ai", "gmail_personal", "gmail_insurance", "gmail_bnb", "gmail_savorymind",
+    assert set(s) == {"ai", "gmail_personal", "gmail_insurance", "gmail_insurance_backup",
+                      "gmail_bnb", "gmail_savorymind",
                       "apollo", "google_places", "sms", "whatsapp", "jobs_api", "instantly",
                       "smartlead", "sendgrid", "meta_app", "tiktok_app", "booking",
                       "contacts_outreach_exclude", "newsletter_banners"}
@@ -4707,7 +4739,7 @@ def test_mailbox_health_diagnostic(client, auth_headers):
     r = client.get("/setup/mailbox-health", headers=auth_headers)
     assert r.status_code == 200
     d = r.json()
-    assert "outbound_mode" in d and len(d["accounts"]) == 4  # personal, insurance, bnb, savorymind
+    assert "outbound_mode" in d and len(d["accounts"]) == 5  # personal, insurance (+backup), bnb, savorymind
     for a in d["accounts"]:
         for k in ("account", "can_send", "configured", "sent_today", "daily_cap", "remaining_today"):
             assert k in a

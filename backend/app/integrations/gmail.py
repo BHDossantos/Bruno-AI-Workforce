@@ -25,6 +25,7 @@ SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 
 PERSONAL = "personal"
 INSURANCE = "insurance"
+INSURANCE_BACKUP = "insurance_backup"
 BNB = "bnb"
 SAVORYMIND = "savorymind"
 
@@ -38,6 +39,15 @@ def _account_cfg(account: str) -> dict:
             "client_secret": settings.insurance_google_oauth_client_secret,
             "refresh_token": settings.insurance_google_oauth_refresh_token,
             "app_password": settings.insurance_gmail_app_password,
+        }
+    if account == INSURANCE_BACKUP:
+        return {
+            "address": settings.insurance_backup_gmail_address,
+            "token_json": settings.insurance_backup_google_token_json,
+            "client_id": settings.insurance_backup_google_oauth_client_id,
+            "client_secret": settings.insurance_backup_google_oauth_client_secret,
+            "refresh_token": settings.insurance_backup_google_oauth_refresh_token,
+            "app_password": settings.insurance_backup_gmail_app_password,
         }
     if account == BNB:
         return {
@@ -246,14 +256,25 @@ def _raw(account: str, to: str, subject: str, body: str) -> dict:
     return {"raw": base64.urlsafe_b64encode(mime.as_bytes()).decode()}
 
 
+def effective_account(account: str) -> str:
+    """Resolve the mailbox that will actually send. Insurance runs primary-with-
+    backup: if the primary insurance mailbox can't send but the backup can, use
+    the backup. Every other account resolves to itself."""
+    if account == INSURANCE and not is_configured(INSURANCE) and is_configured(INSURANCE_BACKUP):
+        return INSURANCE_BACKUP
+    return account
+
+
 def send_message(to: str, subject: str, body: str, account: str = PERSONAL) -> str | None:
     """Send an email immediately from ``account``. Returns the message id or None.
 
     Uses the Gmail API when OAuth is configured; otherwise falls back to SMTP
-    with an App Password (the simplest setup).
+    with an App Password (the simplest setup). Insurance falls back to its backup
+    mailbox when the primary isn't configured.
     """
     if not to:
         return None
+    account = effective_account(account)
     svc = _service(account)
     if svc is None:
         return _send_smtp(account, to, subject, body)  # App Password path

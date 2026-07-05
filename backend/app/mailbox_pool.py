@@ -22,7 +22,8 @@ from .models import Message
 
 _GMAIL_ACCOUNTS = [
     (gmail.PERSONAL, "Personal"),
-    (gmail.INSURANCE, "Thrust Insurance"),
+    (gmail.INSURANCE, "Insurance (primary)"),
+    (gmail.INSURANCE_BACKUP, "Insurance #2 (backup)"),
     (gmail.BNB, "BnB Global"),
     (gmail.SAVORYMIND, "SavoryMind"),
 ]
