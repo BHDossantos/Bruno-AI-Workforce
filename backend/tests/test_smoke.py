@@ -1358,6 +1358,76 @@ def test_lifecycle_engine_advances_stages_and_flags(client, auth_headers):
 
 
 @requires_db
+def test_everquote_import_and_personalized_outreach(client, auth_headers):
+    """An EverQuote CSV export imports into personal-auto leads (parsing the rich
+    JSON detail), and each lead gets a personalized email + SMS + voicemail + call
+    notes that reference the real vehicle and carrier. Re-import dedupes by email."""
+    import csv as _csv
+    import io as _io
+    import json as _json
+
+    from app import everquote
+    from app.database import SessionLocal
+    from app.models import Lead
+
+    detail = _json.dumps({
+        "person": {"firstName": "Tess", "lastName": "Driver", "email": "tess@x.co",
+                   "phone": "6035550100", "maritalStatus": "Married",
+                   "address": {"city": "Nashua", "state": "NH", "zip": "03060"}},
+        "autoPolicy": {"residence": "Own", "creditRating": "Excellent", "monthsInsured": 24,
+                       "currentInsurer": "GEICO", "currentBiLiability": "100/300",
+                       "insuranceExpiration": {"year": 2026, "month": 9},
+                       "primaryCar": {"make": "TOYOTA", "year": 2022, "model": "CAMRY",
+                                      "submodel": "SEDAN 4 CYL", "ownership": "Financed",
+                                      "coverageType": "Typical", "milesPerYear": 8000}},
+        "vertical": "auto"})
+    buf = _io.StringIO()
+    w = _csv.writer(buf)
+    w.writerow(["created_at", "eqLeadUUID", "product", "cost", "first_name", "last_name",
+                "city", "state", "email", "phone", "current_insurer", "zip_code", "detail"])
+    w.writerow(["Jul 3, 2026", "uuid-tess-1", "Preferred", "649", "Tess", "Driver",
+                "Nashua", "NH", "tess@x.co", "6035550100", "GEICO", "03060", detail])
+    csv_text = buf.getvalue()
+
+    # Pure parse pulls the nested fields.
+    rows = everquote.parse_csv(csv_text)
+    assert rows[0]["vehicle_make"] == "Toyota" and rows[0]["current_carrier"] == "GEICO"
+    assert rows[0]["homeowner"] is True and rows[0]["marital_status"] == "Married"
+
+    db = SessionLocal()
+    try:
+        db.query(Lead).filter(Lead.email == "tess@x.co").delete(synchronize_session=False)
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.post("/leads/import-everquote", json={"csv_text": csv_text}, headers=auth_headers).json()
+    assert r["imported"] == 1 and r["total"] == 1
+    lid = r["lead_ids"][0]
+
+    # Re-import the same email dedupes (update, not a new lead).
+    r2 = client.post("/leads/import-everquote", json={"csv_text": csv_text}, headers=auth_headers).json()
+    assert r2["imported"] == 0 and r2["updated"] == 1
+
+    p = client.get(f"/leads/{lid}/personalized-outreach", headers=auth_headers).json()
+    assert p["ok"] is True
+    assert "2022 Toyota Camry" in p["email"]["subject"]
+    assert "GEICO" in p["email"]["body"]        # names their real carrier
+    assert "2022 Toyota Camry" in p["sms"]["body"]
+    assert p["voicemail"] and any("Toyota" in n for n in p["call_notes"])
+    # Homeowner + married + low-mileage → bundle / multi-driver / low-mileage angles show.
+    notes = " ".join(p["call_notes"]).lower()
+    assert "bundle" in notes and "low-mileage" in notes
+
+    # Queue the email as a draft for review.
+    q = client.post(f"/leads/{lid}/personalized-outreach/queue", headers=auth_headers).json()
+    assert q["ok"] is True and "Camry" in q["subject"]
+
+    assert client.get("/leads/00000000-0000-0000-0000-000000000000/personalized-outreach",
+                      headers=auth_headers).status_code == 404
+
+
+@requires_db
 def test_ask_your_book_answers_natural_language_queries(client, auth_headers):
     """The ask-your-book assistant routes plain-English questions to the right
     query and returns matching leads with a reason — offline, no AI key."""

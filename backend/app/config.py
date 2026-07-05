@@ -110,6 +110,11 @@ class Settings(BaseSettings):
     # Speed target: leads should get a first touch within this many seconds
     # (EverQuote's core lesson — speed wins). Over it → the dashboard flags red.
     lead_response_target_seconds: int = 60
+    # Producer identity stamped on personalized EverQuote outreach (email/SMS/
+    # voicemail). Set to the licensed producer's real name + NPN license number.
+    producer_name: str = "Bruno Dos Santos"
+    producer_license: str = "19029331"
+    producer_callback: str = ""  # phone the voicemail/SMS asks them to call back
     # Specialized insurance agents. Commercial is the priority (higher commission,
     # stickier clients, more referrals) → biggest daily quota; home/auto + referral
     # partners run alongside for a balanced pipeline. Quotas are daily targets;
