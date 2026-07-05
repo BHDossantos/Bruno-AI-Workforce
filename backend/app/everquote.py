@@ -249,3 +249,48 @@ def personalize(lead: Lead) -> dict:
             "coverage_type", "credit_rating", "marital_status", "homeowner",
             "state", "expiration")},
     }
+
+
+def _everquote_leads(db: Session):
+    """All leads sourced from EverQuote (by the intake marker we set on import)."""
+    return db.query(Lead).filter(Lead.intake["source"].astext == "everquote")
+
+
+def personalize_batch(db: Session, lead_ids: list[str] | None = None, limit: int = 500) -> dict:
+    """Personalize + queue an email draft for every EverQuote lead (or a given
+    set) that hasn't been contacted yet. Idempotent: a lead that already has an
+    outbound message is skipped, so re-running never double-drafts. Nothing sends
+    — each email lands in the approvals queue for review."""
+    from .models import Message
+    from .outreach import dispatch_email
+
+    q = _everquote_leads(db)
+    if lead_ids:
+        q = q.filter(Lead.id.in_(lead_ids))
+    leads = q.limit(limit).all()
+
+    already = {str(eid) for (eid,) in db.query(Message.entity_id).filter(
+        Message.entity_type == "lead", Message.direction == "outbound").all() if eid}
+
+    queued = skipped = failed = 0
+    for lead in leads:
+        if str(lead.id) in already or not lead.email:
+            skipped += 1
+            continue
+        pack = personalize(lead)
+        if not pack.get("ok"):
+            skipped += 1
+            continue
+        try:
+            dispatch_email(db, entity_type="lead", entity_id=lead.id, to_email=lead.email,
+                           subject=pack["email"]["subject"],
+                           body=pack["email"]["tailored"] or pack["email"]["body"],
+                           account="insurance", actor="everquote", force_draft=True)
+            queued += 1
+        except Exception:  # one lead failing must not stop the batch
+            log.exception("batch personalize failed for lead %s", lead.id)
+            failed += 1
+    db.commit()
+    result = {"queued": queued, "skipped": skipped, "failed": failed, "considered": len(leads)}
+    log.info("EverQuote batch personalize: %s", result)
+    return result

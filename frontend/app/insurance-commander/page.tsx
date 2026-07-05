@@ -106,8 +106,17 @@ function InsuranceCommander() {
     try {
       const r = await api.post<{ imported: number; updated: number; skipped: number; total: number }>(
         "/leads/import-everquote", { csv_text: importCsv });
-      setImportMsg(`Imported ${r.imported} new · ${r.updated} updated · ${r.skipped} skipped (of ${r.total}). Paste a lead id below to see its personalized outreach.`);
+      setImportMsg(`Imported ${r.imported} new · ${r.updated} updated · ${r.skipped} skipped (of ${r.total}). Now click “Personalize & queue all”, or paste a lead id below.`);
       setImportCsv(""); reload();
+    } catch (e) { setImportMsg(String(e)); }
+    finally { setImportBusy(false); }
+  }
+  async function personalizeAll() {
+    setImportBusy(true);
+    try {
+      const r = await api.post<{ queued: number; skipped: number; failed: number; considered: number }>(
+        "/leads/everquote/personalize-batch", {});
+      setImportMsg(`Queued ${r.queued} personalized email drafts · ${r.skipped} skipped (already contacted or no email)${r.failed ? ` · ${r.failed} failed` : ""}. Review them in the approvals queue.`);
     } catch (e) { setImportMsg(String(e)); }
     finally { setImportBusy(false); }
   }
@@ -242,10 +251,13 @@ function InsuranceCommander() {
           className="h-24 w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-xs" />
         <div className="mt-2 flex items-center gap-3">
           <button className="btn" onClick={importEverquote} disabled={importBusy || !importCsv.trim()}>
-            {importBusy ? "Importing…" : "Import & personalize"}
+            {importBusy ? "Working…" : "Import leads"}
           </button>
-          {importMsg && <p className="text-sm text-gray-600">{importMsg}</p>}
+          <button className="btn-ghost" onClick={personalizeAll} disabled={importBusy}>
+            Personalize &amp; queue all →
+          </button>
         </div>
+        {importMsg && <p className="mt-2 text-sm text-gray-600">{importMsg}</p>}
       </div>
 
       {/* Today's tiles */}
