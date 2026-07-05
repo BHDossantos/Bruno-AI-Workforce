@@ -1358,6 +1358,40 @@ def test_lifecycle_engine_advances_stages_and_flags(client, auth_headers):
 
 
 @requires_db
+def test_ai_manager_surfaces_plain_english_coaching(client, auth_headers):
+    """The AI Manager turns pipeline data into ordered, plain-English coaching —
+    a speed-loss dollar estimate from breach flags, and an untouched-leads nudge —
+    most urgent (high severity) first, and never returns an empty panel."""
+    from app.database import SessionLocal
+    from app.models import ActionLog, Lead
+
+    db = SessionLocal()
+    try:
+        db.query(Lead).filter(Lead.email == "aimgr@x.co").delete(synchronize_session=False)
+        db.commit()
+        lead = Lead(segment="commercial", category="Contractor", company_name="AIMgr Co",
+                    email="aimgr@x.co", status="New", times_contacted=0, score=50)
+        db.add(lead); db.flush()
+        # A speed-breach flag → the manager should surface an estimated $ loss.
+        db.add(ActionLog(actor="lifecycle", action="speed_breach", entity="lead",
+                         entity_id=str(lead.id), detail={"seconds": 600, "target": 60}))
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.get("/mission/ai-manager", headers=auth_headers).json()
+    assert isinstance(r["insights"], list) and len(r["insights"]) >= 1
+    keys = {i["key"] for i in r["insights"]}
+    assert "speed_loss" in keys          # breach flag drove a speed-loss insight
+    assert "uncontacted" in keys         # our untouched lead drove the backlog nudge
+    speed = next(i for i in r["insights"] if i["key"] == "speed_loss")
+    assert speed["severity"] == "high" and speed["value"] >= 0 and "$" in speed["headline"]
+    # High-severity insights sort ahead of info-severity ones.
+    sev_order = [i["severity"] for i in r["insights"]]
+    assert sev_order == sorted(sev_order, key=lambda s: {"high": 0, "medium": 1, "info": 2}[s])
+
+
+@requires_db
 def test_everquote_fidelity_objection_and_valid_returns(client, auth_headers):
     """(1) The 'I didn't request this' objection returns the verify-info script
     naming the lead's actual vehicle. (2) EverQuote return candidates surface only

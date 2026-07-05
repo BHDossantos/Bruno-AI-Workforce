@@ -15,6 +15,9 @@ type Speed = {
 type Lifecycle = { stage_moves_today: number; speed_breaches: number; return_eligible: number };
 type ReturnLead = { lead_id: string; name: string; email: string | null; phone: string | null;
   line: string; days_since_touch: number | null; angle: string };
+type Insight = { key: string; severity: "high" | "medium" | "info"; headline: string;
+  detail: string; value?: number; count: number };
+type Manager = { insights: Insight[]; generated_at: string };
 type EqReturn = { lead_id: string; name: string; email: string | null; phone: string | null;
   state: string; vehicle: string; reason_code: string; reason_text: string };
 type AskLead = { lead_id: string; name: string; email: string | null; phone: string | null;
@@ -73,6 +76,7 @@ function InsuranceCommander() {
   const { data, loading, error, reload } = useFetch<Overview>(() => api.get<Overview>("/mission/insurance-commander"));
   const { data: returns, reload: reloadReturns } = useFetch<ReturnLead[]>(() => api.get<ReturnLead[]>("/mission/return-queue"));
   const { data: eqReturns } = useFetch<EqReturn[]>(() => api.get<EqReturn[]>("/leads/everquote/return-candidates"));
+  const { data: manager } = useFetch<Manager>(() => api.get<Manager>("/mission/ai-manager"));
   const [leadId, setLeadId] = useState("");
   const [timeline, setTimeline] = useState<Timeline | null>(null);
   const [tlErr, setTlErr] = useState("");
@@ -274,6 +278,26 @@ function InsuranceCommander() {
         <Tile label="Policies Bound Today" value={data.tiles.policies_bound_today} tone="green" />
         <Tile label="Commission Today" value={money(data.tiles.commission_today)} tone="green" />
       </div>
+
+      {/* AI Manager */}
+      {manager && manager.insights.length > 0 && (
+        <div className="card">
+          <h2 className="mb-2 font-semibold">🧠 AI Manager — what to fix, in plain English</h2>
+          <ul className="space-y-2">
+            {manager.insights.map((i) => {
+              const tone = i.severity === "high" ? "border-red-300 bg-red-50"
+                : i.severity === "medium" ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-gray-50";
+              const dot = i.severity === "high" ? "🔴" : i.severity === "medium" ? "🟠" : "🟢";
+              return (
+                <li key={i.key} className={`rounded-lg border ${tone} p-3`}>
+                  <p className="text-sm font-semibold text-gray-800">{dot} {i.headline}</p>
+                  <p className="mt-0.5 text-xs text-gray-600">{i.detail}</p>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       {/* Speed scoreboard */}
       <div className={`card ${s.over_target ? "border-2 border-red-300 bg-red-50" : ""}`}>

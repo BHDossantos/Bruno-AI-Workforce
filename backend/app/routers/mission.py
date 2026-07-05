@@ -183,6 +183,15 @@ def ask_book(body: AskIn, db: Session = Depends(get_db), _=Depends(_read)):
     return book_assistant.ask(db, body.question)
 
 
+@router.get("/ai-manager")
+def ai_manager(db: Session = Depends(get_db), _=Depends(_read)):
+    """The AI Manager — plain-English coaching from the pipeline (speed loss,
+    untouched leads, open quotes, overdue follow-ups, per-state conversion,
+    reclaimable EverQuote returns), most urgent first."""
+    from .. import ai_manager as am
+    return am.insights(db)
+
+
 @router.get("/return-queue")
 def return_queue(db: Session = Depends(get_db), _=Depends(_read)):
     """Leads the lifecycle engine flagged return-eligible — contacted, never
