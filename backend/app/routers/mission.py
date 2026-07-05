@@ -171,6 +171,18 @@ def objection_help(body: ObjectionIn, db: Session = Depends(get_db),
     return objection_ai.handle(db, body.text, body.lead_id)
 
 
+class AskIn(BaseModel):
+    question: str
+
+
+@router.post("/ask")
+def ask_book(body: AskIn, db: Session = Depends(get_db), _=Depends(_read)):
+    """Ask a natural-language question about the book — follow-ups due, hottest
+    leads, who's waiting on a quote, who to call today, dead-ends to revive, etc."""
+    from .. import book_assistant
+    return book_assistant.ask(db, body.question)
+
+
 @router.get("/return-queue")
 def return_queue(db: Session = Depends(get_db), _=Depends(_read)):
     """Leads the lifecycle engine flagged return-eligible — contacted, never

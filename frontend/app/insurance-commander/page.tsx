@@ -15,6 +15,10 @@ type Speed = {
 type Lifecycle = { stage_moves_today: number; speed_breaches: number; return_eligible: number };
 type ReturnLead = { lead_id: string; name: string; email: string | null; phone: string | null;
   line: string; days_since_touch: number | null; angle: string };
+type AskLead = { lead_id: string; name: string; email: string | null; phone: string | null;
+  stage: string; reason: string };
+type AskResult = { ok: boolean; intent: string; title: string; answer: string;
+  leads: AskLead[]; count: number };
 type Overview = { tiles: Tiles; speed: Speed; pipeline: { stage: string; count: number }[];
   commission_rate: number; lifecycle?: Lifecycle };
 
@@ -75,6 +79,18 @@ function InsuranceCommander() {
     try { setCoach(await api.get<Coach>(`/leads/${id}/call-coach`)); }
     catch (e) { setTlErr(String(e)); }
     finally { setCoachBusy(false); }
+  }
+
+  const [ask, setAsk] = useState("");
+  const [askRes, setAskRes] = useState<AskResult | null>(null);
+  const [askBusy, setAskBusy] = useState(false);
+  async function runAsk(q: string) {
+    const question = q.trim();
+    if (!question) return;
+    setAsk(question); setAskBusy(true);
+    try { setAskRes(await api.post<AskResult>("/mission/ask", { question })); }
+    catch { /* leave prior result */ }
+    finally { setAskBusy(false); }
   }
 
   const [returning, setReturning] = useState("");
@@ -143,6 +159,41 @@ function InsuranceCommander() {
     <div className="space-y-6">
       <PageHeader title="🎖️ Insurance Commander"
         subtitle="Your sales operating system — the day's leads, the speed scoreboard, and where every deal sits. Speed wins: first touch under 60 seconds." />
+
+      {/* Ask your book */}
+      <div className="card">
+        <h2 className="font-semibold">💬 Ask your book</h2>
+        <div className="mt-2 flex gap-2">
+          <input value={ask} onChange={(e) => setAsk(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && runAsk(ask)}
+            placeholder="Who needs follow-up today? · Hottest leads · Who's waiting on a quote?"
+            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+          <button className="btn" onClick={() => runAsk(ask)} disabled={askBusy}>{askBusy ? "…" : "Ask"}</button>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {["Who should I call today?", "Hottest leads", "Who's waiting on a quote?", "Dead-ends to revive", "Who did we respond to too slowly?"].map((s) => (
+            <button key={s} className="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-200"
+              onClick={() => runAsk(s)}>{s}</button>
+          ))}
+        </div>
+        {askRes && (
+          <div className="mt-3">
+            <p className="text-sm font-medium text-gray-800">{askRes.answer}</p>
+            <ul className="mt-2 divide-y divide-gray-100">
+              {askRes.leads.map((l) => (
+                <li key={l.lead_id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-1.5">
+                  <button className="font-medium text-brand hover:underline"
+                    onClick={() => { setLeadId(l.lead_id); loadTimeline(l.lead_id); }}>{l.name}</button>
+                  <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">{l.stage}</span>
+                  <span className="flex-1 text-xs text-gray-600">{l.reason}</span>
+                  {l.phone && <span className="text-xs text-gray-400">☎ {l.phone}</span>}
+                </li>
+              ))}
+              {askRes.count === 0 && askRes.intent !== "help" && <li className="py-1.5 text-sm text-gray-400">Nothing matches right now.</li>}
+            </ul>
+          </div>
+        )}
+      </div>
 
       {/* Today's tiles */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
