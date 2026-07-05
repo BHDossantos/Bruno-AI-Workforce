@@ -1358,6 +1358,66 @@ def test_lifecycle_engine_advances_stages_and_flags(client, auth_headers):
 
 
 @requires_db
+def test_everquote_fidelity_objection_and_valid_returns(client, auth_headers):
+    """(1) The 'I didn't request this' objection returns the verify-info script
+    naming the lead's actual vehicle. (2) EverQuote return candidates surface only
+    valid reasons (invalid phone / email / duplicate / out-of-footprint), never
+    'didn't request'."""
+    from app import objection_ai
+    from app.database import SessionLocal
+    from app.models import Lead
+
+    # (1) Verify-info objection routes correctly and is flagged NOT-a-return.
+    assert objection_ai.match("I didn't request this quote")["objection"]["key"] == "didnt_request"
+    didnt = next(o for o in objection_ai.OBJECTIONS if o["key"] == "didnt_request")
+    assert "everquote-valid return reason" in didnt["move"].lower()
+
+    db = SessionLocal()
+    try:
+        for e in ("dq@x.co", "dupe1@x.co", "dupe2@x.co", "oof@x.co", "badphone@x.co"):
+            db.query(Lead).filter(Lead.email == e).delete(synchronize_session=False)
+        db.commit()
+        # A lead with EverQuote vehicle data → objection reply names the car.
+        veh = Lead(segment="personal", category="EverQuote Auto", owner_name="DQ Verify",
+                   email="dq@x.co", phone="6035551234", status="New",
+                   intake={"source": "everquote", "everquote": {
+                       "vehicle_year": 2018, "vehicle_make": "Honda", "vehicle_model": "ACCORD",
+                       "state": "NH"}})
+        db.add(veh); db.flush()
+        vid = str(veh.id)
+        # Out-of-footprint (CA not in MA/NH/FL), with a valid phone + email.
+        db.add(Lead(segment="personal", category="EverQuote Auto", owner_name="Cal Out",
+                    email="oof@x.co", phone="4155559876", status="New",
+                    intake={"source": "everquote", "everquote": {"state": "CA",
+                            "vehicle_make": "Tesla", "vehicle_model": "MODEL 3"}}))
+        # Invalid phone.
+        db.add(Lead(segment="personal", category="EverQuote Auto", owner_name="No Phone",
+                    email="badphone@x.co", phone="000", status="New",
+                    intake={"source": "everquote", "everquote": {"state": "NH"}}))
+        # Duplicate email pair.
+        for nm, em in (("Dup A", "dupe1@x.co"), ("Dup B", "dupe1@x.co")):
+            db.add(Lead(segment="personal", category="EverQuote Auto", owner_name=nm,
+                        email=em, phone="6035550000", status="New",
+                        intake={"source": "everquote", "everquote": {"state": "NH"}}))
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.post("/mission/objection", json={"text": "I never requested this", "lead_id": vid},
+                    headers=auth_headers).json()
+    assert r["objection_key"] == "didnt_request"
+    assert "2018 Honda Accord" in r["rebuttal"]  # names the real vehicle
+
+    cands = client.get("/leads/everquote/return-candidates", headers=auth_headers).json()
+    by_email = {c["email"]: c["reason_code"] for c in cands}
+    assert by_email.get("oof@x.co") == "out_of_footprint"
+    assert by_email.get("badphone@x.co") == "invalid_phone"
+    assert by_email.get("dupe1@x.co") == "duplicate"
+    # The valid-vehicle NH lead with a good phone/email is NOT returnable.
+    assert "dq@x.co" not in by_email
+
+
+@requires_db
 def test_everquote_import_and_personalized_outreach(client, auth_headers):
     """An EverQuote CSV export imports into personal-auto leads (parsing the rich
     JSON detail), and each lead gets a personalized email + SMS + voicemail + call
