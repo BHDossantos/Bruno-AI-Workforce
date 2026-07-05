@@ -1358,6 +1358,36 @@ def test_lifecycle_engine_advances_stages_and_flags(client, auth_headers):
 
 
 @requires_db
+def test_ceo_dashboard_rolls_up_the_business(client, auth_headers):
+    """The AI CEO dashboard rolls the book of business into one page — annualized
+    commission, policies in force, retention, avg response, close rate and ROI."""
+    from app.database import SessionLocal
+    from app.models import Client
+
+    db = SessionLocal()
+    try:
+        db.query(Client).filter(Client.email.in_(["ceo1@x.co", "ceo2@x.co"])).delete(
+            synchronize_session=False)
+        db.commit()
+        # One active policy ($200/mo) and one cancelled → retention 50%.
+        db.add(Client(business="insurance", name="CEO Active", email="ceo1@x.co",
+                      status="Active", line="auto", premium_monthly=200))
+        db.add(Client(business="insurance", name="CEO Churned", email="ceo2@x.co",
+                      status="Cancelled", line="auto", premium_monthly=150))
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.get("/mission/ceo", headers=auth_headers).json()
+    assert set(r) >= {"revenue_annualized", "policies_in_force", "commission", "retention_pct",
+                      "avg_response_seconds", "close_rate_pct", "lead_spend", "roi"}
+    assert r["policies_in_force"] >= 1
+    # Annual premium on the active policy is 200*12=2400; commission = 2400*rate.
+    assert r["commission"] >= round(2400 * r["commission_rate"]) - 1
+    assert r["retention_pct"] is not None and 0 <= r["retention_pct"] <= 100
+
+
+@requires_db
 def test_ai_manager_surfaces_plain_english_coaching(client, auth_headers):
     """The AI Manager turns pipeline data into ordered, plain-English coaching —
     a speed-loss dollar estimate from breach flags, and an untouched-leads nudge —

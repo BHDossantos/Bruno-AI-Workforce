@@ -183,6 +183,14 @@ def ask_book(body: AskIn, db: Session = Depends(get_db), _=Depends(_read)):
     return book_assistant.ask(db, body.question)
 
 
+@router.get("/ceo")
+def ceo_dashboard(db: Session = Depends(get_db), _=Depends(_read)):
+    """The AI CEO dashboard — revenue, policies in force, commission, retention,
+    average response, close rate, lead spend and ROI on one page."""
+    from .. import ceo
+    return ceo.dashboard(db)
+
+
 @router.get("/ai-manager")
 def ai_manager(db: Session = Depends(get_db), _=Depends(_read)):
     """The AI Manager — plain-English coaching from the pipeline (speed loss,
