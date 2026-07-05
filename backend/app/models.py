@@ -720,6 +720,19 @@ class Webhook(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class KnowledgeDoc(Base):
+    """A piece of the insurance knowledge base — a carrier guideline, discount
+    rule, coverage FAQ, claims note or training snippet. The AI answers questions
+    from these instead of guessing."""
+    __tablename__ = "knowledge_docs"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    tags: Mapped[list] = mapped_column(JSONB, default=list)  # e.g. ["discounts", "auto", "MA"]
+    source: Mapped[str | None] = mapped_column(String)       # where it came from (manual, upload…)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Setting(Base):
     """Runtime key/value settings that change without a redeploy — e.g. the global
     'agents_paused' kill-switch behind the Emergency Stop button."""

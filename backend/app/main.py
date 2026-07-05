@@ -19,6 +19,7 @@ from .routers import (
     cron,
     decisions,
     grants,
+    knowledge,
     mission,
     voice,
     executive,
@@ -132,6 +133,7 @@ app.include_router(content.router)
 app.include_router(control.router)
 app.include_router(approvals.router)
 app.include_router(mission.router)
+app.include_router(knowledge.router)
 app.include_router(grants.router)
 app.include_router(voice.router)
 app.include_router(setup.router)
