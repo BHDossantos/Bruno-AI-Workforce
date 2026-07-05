@@ -1419,7 +1419,21 @@ def test_everquote_import_and_personalized_outreach(client, auth_headers):
     notes = " ".join(p["call_notes"]).lower()
     assert "bundle" in notes and "low-mileage" in notes
 
-    # Queue the email as a draft for review.
+    # Batch: personalize + queue drafts for every not-yet-contacted EverQuote lead.
+    # Our lead has no outbound message yet, so it gets queued; a second run is
+    # idempotent (now it has an outbound draft → skipped, never double-drafted).
+    b1 = client.post("/leads/everquote/personalize-batch", json={}, headers=auth_headers).json()
+    assert b1["queued"] >= 1
+    client.post("/leads/everquote/personalize-batch", json={}, headers=auth_headers)
+    from app.models import Message as _M
+    _db = SessionLocal()
+    try:
+        n_out = _db.query(_M).filter(_M.entity_id == lid, _M.direction == "outbound").count()
+        assert n_out == 1  # exactly one draft, not duplicated by the second batch
+    finally:
+        _db.close()
+
+    # Single-lead queue also works.
     q = client.post(f"/leads/{lid}/personalized-outreach/queue", headers=auth_headers).json()
     assert q["ok"] is True and "Camry" in q["subject"]
 

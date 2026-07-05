@@ -59,6 +59,19 @@ def import_everquote(body: EverQuoteImportIn, db: Session = Depends(get_db),
     return everquote.import_rows(db, rows)
 
 
+class BatchPersonalizeIn(BaseModel):
+    lead_ids: list[str] | None = None
+
+
+@router.post("/everquote/personalize-batch")
+def everquote_personalize_batch(body: BatchPersonalizeIn, db: Session = Depends(get_db),
+                                _=Depends(require_role("admin", "operator"))):
+    """Personalize + queue an email draft for every EverQuote lead not yet
+    contacted (or a given set) — 500 leads in one click, all queued for review."""
+    from .. import everquote
+    return everquote.personalize_batch(db, lead_ids=body.lead_ids)
+
+
 @router.get("/{lead_id}/personalized-outreach")
 def personalized_outreach(lead_id: str, db: Session = Depends(get_db),
                           _=Depends(require_role("admin", "operator", "viewer"))):
