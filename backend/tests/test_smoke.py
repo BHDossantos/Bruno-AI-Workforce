@@ -1584,6 +1584,20 @@ def test_everquote_fidelity_objection_and_valid_returns(client, auth_headers):
     assert "dq@x.co" not in by_email
 
 
+def test_everquote_model_casing():
+    """Vehicle models read the way people write them: real words title-cased,
+    model codes kept upper."""
+    from app.everquote import model_case
+    assert model_case("KONA") == "Kona"
+    assert model_case("CAMRY") == "Camry"
+    assert model_case("QX60") == "QX60"        # code with a digit stays upper
+    assert model_case("CR-V") == "CR-V"        # short hyphenated code stays upper
+    assert model_case("RAV4") == "RAV4"
+    assert model_case("F-150") == "F-150"
+    assert model_case("MODEL 3") == "Model 3"
+    assert model_case("TELLURIDE") == "Telluride"
+
+
 @requires_db
 def test_everquote_import_and_personalized_outreach(client, auth_headers):
     """An EverQuote CSV export imports into personal-auto leads (parsing the rich

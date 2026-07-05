@@ -16,6 +16,7 @@ import re
 
 from sqlalchemy.orm import Session
 
+from . import everquote
 from .config import settings
 from .models import Lead
 from .outreach import is_real_email
@@ -109,7 +110,7 @@ def return_candidates(db: Session, limit: int = 500) -> list[dict]:
                 "lead_id": str(l.id), "name": name, "email": l.email, "phone": l.phone,
                 "state": state, "vehicle": " ".join(p for p in [
                     str(f.get("vehicle_year") or ""), f.get("vehicle_make") or "",
-                    (f.get("vehicle_model") or "").title()] if p).strip(),
+                    everquote.model_case(f.get("vehicle_model"))] if p).strip(),
                 "reason_code": reason_code, "reason_text": reason_text,
                 "eq_uuid": f.get("eq_uuid"),
             })

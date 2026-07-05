@@ -183,9 +183,10 @@ def handle(db: Session, text: str, lead_id: str | None = None) -> dict:
     # verify-info reply names their actual car (e.g. "your 2018 Honda Accord").
     if "{vehicle}" in rebuttal:
         vehicle = "vehicle"
+        from . import everquote
         f = ((lead.intake or {}).get("everquote") if lead else None) or {}
         parts = [str(f.get("vehicle_year") or "").strip(), f.get("vehicle_make") or "",
-                 (f.get("vehicle_model") or "").title()]
+                 everquote.model_case(f.get("vehicle_model"))]
         joined = " ".join(p for p in parts if p).strip()
         if joined:
             vehicle = joined
