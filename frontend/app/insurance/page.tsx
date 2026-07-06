@@ -153,7 +153,7 @@ function Insurance() {
     <div>
       <PageHeader
         title="Insurance Leads"
-        subtitle="Home · Auto · Life · Commercial — direct prospects and the referral partners (realtors, lenders, CPAs) who feed your personal lines in NH/MA/FL"
+        subtitle="👉 Click a lead's name to open their profile and email, text, or call them. Home · Auto · Life · Commercial across NH/MA/FL."
         action={
           <div className="flex gap-2">
             <select value={line} onChange={(e) => setLine(e.target.value)} className="rounded-lg border border-gray-300 px-3 py-2 text-sm" title="Filter by line of business">
