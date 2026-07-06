@@ -1632,6 +1632,28 @@ def test_everquote_parse_csv_is_tolerant():
     assert everquote.parse_csv("   ") == []
 
 
+def test_app_password_whitespace_and_own_creds_win(monkeypatch):
+    """Two send-blocking bugs are fixed: App Passwords pasted WITH the spaces
+    Google shows (or a stray newline) are normalized to the 16 chars SMTP needs,
+    and an insurance mailbox with its OWN credentials always logs in as itself —
+    a stale relay flag can no longer hijack it into the wrong account → 535."""
+    from app.config import settings
+    from app.integrations import gmail
+
+    monkeypatch.setattr(settings, "insurance_gmail_address", "bruno@dossantosinsurance.org")
+    monkeypatch.setattr(settings, "insurance_gmail_app_password", " abcd efgh\tijkl mnop\n")
+    # Spaces/tabs/newlines stripped to the real 16-char password.
+    assert gmail._account_cfg("insurance")["app_password"] == "abcdefghijklmnop"
+
+    # Even with the relay flag stuck ON, its own credentials win → logs in AS
+    # dossantos with the dossantos password, not the personal account.
+    monkeypatch.setattr(settings, "insurance_via_personal_reply_to", True)
+    monkeypatch.setattr(settings, "gmail_address", "personal@gmail.com")
+    monkeypatch.setattr(settings, "gmail_app_password", "personalpwxxxxxx")
+    login, pw, frm, _rt = gmail._smtp_login("insurance")
+    assert login == "bruno@dossantosinsurance.org" and pw == "abcdefghijklmnop" and frm == "bruno@dossantosinsurance.org"
+
+
 def test_everquote_model_casing():
     """Vehicle models read the way people write them: real words title-cased,
     model codes kept upper."""
