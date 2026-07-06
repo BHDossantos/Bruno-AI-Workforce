@@ -33,6 +33,11 @@ steps:
       - --no-cpu-throttling
       - --cpu=1
       - --memory=1Gi
+      # Extra CPU during container startup so the heavy imports (langgraph,
+      # playwright, google libs) finish before Cloud Run's health check window —
+      # without this the new revision intermittently fails to become ready and the
+      # whole deploy errors on the "gcloud run deploy" step (a recurring flake).
+      - --cpu-boost
       # Long actions (Work the pipeline) can exceed the 5-min default.
       - --timeout=600
       # Ensure the scheduler is on in prod (config default, set explicitly here so
