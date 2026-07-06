@@ -12,7 +12,6 @@ from sqlalchemy.orm import Session
 
 from .. import followups, inbound
 from ..database import get_db
-from ..integrations import gmail
 from ..models import Message
 from ..schemas import MessageOut
 from ..security import require_role
@@ -59,9 +58,11 @@ def send_message(message_id: str, db: Session = Depends(get_db), _=Depends(_writ
         raise HTTPException(status_code=404, detail="Message not found")
     if not msg.to_email:
         raise HTTPException(status_code=400, detail="Message has no recipient")
-    if not gmail.is_configured(msg.from_account):
-        raise HTTPException(status_code=400, detail=f"Gmail account '{msg.from_account}' not configured")
-    mid, err = gmail.send_with_error(msg.to_email, msg.subject or "", msg.body or "", account=msg.from_account)
+    from .. import outreach
+    if not outreach.can_deliver(msg.from_account):
+        raise HTTPException(status_code=400,
+                            detail=f"No delivery channel for '{msg.from_account}' — connect SendGrid or a Gmail mailbox in Setup")
+    mid, err = outreach.deliver(msg.to_email, msg.subject, msg.body, account=msg.from_account)
     if not mid:
         raise HTTPException(status_code=502, detail=f"Send failed: {err or 'unknown error'}")
     msg.provider_id = mid
@@ -90,16 +91,17 @@ def send_drafts(body: SendDraftsIn, db: Session = Depends(get_db), _=Depends(_wr
         q = q.filter(Message.from_account == body.account)
     msgs = q.order_by(Message.created_at.asc()).limit(max(1, min(body.limit, 50))).all()
 
+    from .. import outreach
     sent = failed = 0
     errors: list[str] = []
     for m in msgs:
-        if not gmail.is_configured(m.from_account):
+        if not outreach.can_deliver(m.from_account):
             failed += 1
-            reason = f"Mailbox '{m.from_account}' not configured"
+            reason = f"No delivery channel for '{m.from_account}' — connect SendGrid or a Gmail mailbox"
             if reason not in errors:
                 errors.append(reason)
             continue
-        mid, err = gmail.send_with_error(m.to_email, m.subject or "", m.body or "", account=m.from_account)
+        mid, err = outreach.deliver(m.to_email, m.subject, m.body, account=m.from_account)
         if mid:
             m.provider_id = mid
             m.approved = True
