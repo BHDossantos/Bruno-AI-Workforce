@@ -3893,6 +3893,55 @@ def test_sms_opt_out_and_bulk_send_drafts(client, auth_headers):
 
 
 @requires_db
+def test_lead_crm_profile_and_actions(client, auth_headers):
+    """The per-lead CRM profile returns identity + per-channel touch counters +
+    timeline; a logged call shows in both; send-text reports a clear reason offline."""
+    from app.database import SessionLocal
+    from app.models import Lead, Message
+
+    db = SessionLocal()
+    lid = None
+    try:
+        db.query(Lead).filter(Lead.email == "crmprofile@x.co").delete(synchronize_session=False)
+        db.commit()
+        lead = Lead(segment="personal", category="EverQuote Auto", owner_name="Casey Crm",
+                    email="crmprofile@x.co", phone="+15550007777",
+                    intake={"source": "everquote", "everquote": {
+                        "first_name": "Casey", "vehicle_year": "2021",
+                        "vehicle_make": "Ford", "vehicle_model": "Escape"}})
+        db.add(lead); db.flush(); lid = lead.id; db.commit()
+
+        p = client.get(f"/leads/{lid}/profile", headers=auth_headers).json()
+        assert p["lead"]["name"] == "Casey Crm"
+        assert p["counts"] == {"email": 0, "sms": 0, "call": 0}
+        assert p["outreach"] and "2021 Ford Escape" in p["outreach"]["email"]["subject"]
+
+        r = client.post(f"/leads/{lid}/log-call", headers=auth_headers,
+                        json={"outcome": "Left voicemail", "notes": "callback tomorrow"})
+        assert r.json()["counts"]["call"] == 1
+        p2 = client.get(f"/leads/{lid}/profile", headers=auth_headers).json()
+        assert p2["counts"]["call"] == 1
+        assert any("Call" in e["label"] for e in p2["timeline"])
+
+        st = client.post(f"/leads/{lid}/send-text", headers=auth_headers, json={"message": "hi"})
+        assert st.status_code == 400 and "not sent" in st.json()["detail"].lower()
+
+        # Templates: pickable email/text/call scripts, personalized for this lead.
+        t = client.get(f"/leads/{lid}/templates", headers=auth_headers).json()
+        assert len(t["email"]) == 5 and len(t["sms"]) == 4 and len(t["call"]) >= 1
+        first_email = next(x for x in t["email"] if x["id"] == "first_contact")
+        assert "Hi Casey," in first_email["body"]  # token filled with the lead's name
+        assert t["call"][0]["framework"][0] == "Connect"
+        assert "Casey" in t["call"][0]["script"] and "2021 Ford Escape" in t["call"][0]["script"]
+    finally:
+        if lid is not None:
+            db.query(Message).filter(Message.entity_id == lid).delete(synchronize_session=False)
+            db.query(Lead).filter(Lead.id == lid).delete(synchronize_session=False)
+            db.commit()
+        db.close()
+
+
+@requires_db
 def test_everquote_batch_queues_sms_draft(client, auth_headers):
     """The EverQuote batch queues a per-lead SMS draft alongside the email draft,
     de-duped per channel so a re-run never double-drafts the text."""

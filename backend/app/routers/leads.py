@@ -119,6 +119,149 @@ def queue_personalized_outreach(lead_id: str, db: Session = Depends(get_db),
             "subject": pack["email"]["subject"]}
 
 
+# ── CRM lead profile: one place to see + work a single lead ────────────────────
+def _touch_counts(db: Session, lead_id) -> dict:
+    """How many times we OUTBOUND-touched this lead per channel — the CRM counters
+    (📧 emails · 💬 texts · 📞 calls). Inbound replies aren't counted as touches."""
+    from ..models import Message
+    counts = {"email": 0, "sms": 0, "call": 0}
+    rows = (db.query(Message.channel, func.count()).filter(
+            Message.entity_type == "lead", Message.entity_id == lead_id,
+            Message.direction == "outbound").group_by(Message.channel).all())
+    for ch, n in rows:
+        key = ch if ch in counts else ("email" if ch not in ("sms", "call", "whatsapp") else None)
+        if ch == "whatsapp":
+            counts["sms"] += n  # WhatsApp counts as a text touch
+        elif key:
+            counts[key] += n
+    return counts
+
+
+@router.get("/{lead_id}/profile")
+def lead_profile_full(lead_id: str, db: Session = Depends(get_db),
+                      _=Depends(require_role("admin", "operator", "viewer"))):
+    """Full CRM profile for ONE lead: contact + EverQuote detail, per-channel touch
+    counters, the AI-drafted email/text/voicemail/call script, and the complete
+    activity timeline (every email/text/call in order). The single place to work
+    the lead — email, text, and log calls without hunting across pages."""
+    from .. import everquote, insurance_commander
+    tl = insurance_commander.lead_timeline(db, lead_id)
+    if not tl.get("ok"):
+        raise HTTPException(404, "Lead not found")
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    pack = everquote.personalize(lead)
+    return {
+        "lead": tl["lead"],
+        "counts": _touch_counts(db, lead.id),
+        "timeline": tl["timeline"],
+        "everquote": (lead.intake or {}).get("everquote"),
+        "outreach": pack if pack.get("ok") else None,
+    }
+
+
+@router.get("/{lead_id}/templates")
+def lead_templates(lead_id: str, db: Session = Depends(get_db),
+                   _=Depends(require_role("admin", "operator", "viewer"))):
+    """The pickable sales templates (email / text / call scripts), each already
+    personalized for THIS lead — powers the 'choose a template' dropdown on the
+    profile so a touch is one pick + send."""
+    from .. import sales_templates
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    return sales_templates.for_lead(lead)
+
+
+class LogCallIn(BaseModel):
+    outcome: str = "Called"          # Reached · Left voicemail · No answer · Busy
+    notes: str | None = None
+
+
+@router.post("/{lead_id}/log-call")
+def log_call(lead_id: str, body: LogCallIn, db: Session = Depends(get_db),
+             _=Depends(require_role("admin", "operator"))):
+    """Log a call attempt on this lead. Since the app doesn't auto-dial, this is
+    how the 📞 counter and timeline stay real — one row per call, with the outcome
+    and any notes. Also bumps the contact count/last-touched."""
+    from datetime import datetime, timezone
+
+    from ..models import Message
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    now = datetime.now(timezone.utc)
+    detail = body.outcome + (f" — {body.notes}" if body.notes else "")
+    db.add(Message(channel="call", direction="outbound", entity_type="lead",
+                   entity_id=lead.id, from_account="insurance", body=detail,
+                   status="Logged", sent_at=now))
+    lead.times_contacted = (lead.times_contacted or 0) + 1
+    lead.last_contacted_at = now
+    db.commit()
+    return {"ok": True, "counts": _touch_counts(db, lead.id)}
+
+
+class SendNowIn(BaseModel):
+    message: str | None = None       # override the AI-drafted body
+    subject: str | None = None       # email only
+
+
+@router.post("/{lead_id}/send-email")
+def send_lead_email(lead_id: str, body: SendNowIn, db: Session = Depends(get_db),
+                    _=Depends(require_role("admin", "operator"))):
+    """Send this lead an email NOW from their profile. Uses the typed message if
+    given, else the AI-personalized EverQuote email (or the lead's stored cold
+    email). Delivers via the app's SendGrid-first path."""
+    from .. import everquote
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    if not lead.email:
+        raise HTTPException(400, "This lead has no email on file")
+    subject, text = body.subject, body.message
+    if not text:
+        pack = everquote.personalize(lead)
+        if pack.get("ok"):
+            subject = subject or pack["email"]["subject"]
+            text = pack["email"]["tailored"] or pack["email"]["body"]
+        elif lead.cold_email:
+            text = lead.cold_email
+            subject = subject or f"A quick note for {lead.owner_name or 'you'}"
+        else:
+            raise HTTPException(400, "No email content — type a message or personalize first")
+    msg = outreach.dispatch_email(db, entity_type="lead", entity_id=lead.id,
+                                  to_email=lead.email, subject=subject or "", body=text,
+                                  account="insurance", actor="crm", autonomous=False)
+    return {"ok": True, "sent": msg.status == "Sent", "status": msg.status,
+            "counts": _touch_counts(db, lead.id)}
+
+
+@router.post("/{lead_id}/send-text")
+def send_lead_text(lead_id: str, body: SendNowIn, db: Session = Depends(get_db),
+                   _=Depends(require_role("admin", "operator"))):
+    """Send this lead a text NOW from their profile. Uses the typed message if
+    given, else the AI-personalized SMS. Compliance-gated (opt-out/hours/cap)."""
+    from .. import everquote, sms_engine
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    if not lead.phone:
+        raise HTTPException(400, "This lead has no phone on file")
+    text = body.message
+    if not text:
+        pack = everquote.personalize(lead)
+        if pack.get("ok"):
+            text = pack["sms"]["tailored"] or pack["sms"]["body"]
+        else:
+            raise HTTPException(400, "No text content — type a message first")
+    sid = sms_engine.send_text(db, entity_type="lead", entity_id=lead.id,
+                               phone=lead.phone, body=text, account="insurance")
+    if not sid:
+        reason = sms_engine.sms_block_reason(db, lead.phone) or (
+            "No texting channel configured — connect Twilio on Setup")
+        raise HTTPException(400, f"Not sent — {reason}")
+    return {"ok": True, "sent": True, "counts": _touch_counts(db, lead.id)}
+
+
 @router.get("/{lead_id}/call-coach")
 def call_coach(lead_id: str, db: Session = Depends(get_db),
                _=Depends(require_role("admin", "operator", "viewer"))):
