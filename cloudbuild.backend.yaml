@@ -47,6 +47,6 @@ steps:
       # Ensure the scheduler is on in prod (config default, set explicitly here so
       # it can't be silently off), and stamp the deploying commit so /version can
       # report which build is actually live. Other env vars/secrets are untouched.
-      - --update-env-vars=ENABLE_SCHEDULER=true,BUILD_SHA=${_TAG}
+      - --update-env-vars=ENABLE_SCHEDULER=true,AUTONOMY_PROFILE=insurance,BUILD_SHA=${_TAG}
 options:
   logging: CLOUD_LOGGING_ONLY

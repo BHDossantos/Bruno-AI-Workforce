@@ -30,6 +30,28 @@ from .database import SessionLocal
 log = logging.getLogger("bruno.scheduler")
 _scheduler: BackgroundScheduler | None = None
 
+# Insurance-only autonomy (AUTONOMY_PROFILE=insurance) runs just these — every
+# other agent/job (music, bnb, savorymind, instagram, job-hunter, foundation,
+# content publishing, board report…) is skipped so it stops burning AI spend.
+_INSURANCE_AGENTS = {"insurance", "commercial_finder", "homeowner",
+                     "referral_partner", "follow_up_agent", "review_referral"}
+_INSURANCE_JOBS = {"client_autoscale", "leads", "auto_outreach", "followups",
+                   "booking_nudges", "lifecycle", "outreach_digest",
+                   "refresh_tokens", "selfcheck", "referrals"}
+
+
+def _insurance_only() -> bool:
+    return (settings.autonomy_profile or "all").strip().lower() == "insurance"
+
+
+def scheduled_plan() -> tuple[dict, dict]:
+    """(agents, jobs) that WOULD be scheduled given the current autonomy profile.
+    Pure/testable — start_scheduler registers exactly these."""
+    ins = _insurance_only()
+    agents = {k: v for k, v in AGENTS.items() if not ins or k in _INSURANCE_AGENTS}
+    jobs = {k: v for k, v in _JOBS.items() if not ins or k in _INSURANCE_JOBS}
+    return agents, jobs
+
 
 def _with_db(fn, label: str):
     """Run a worker with a fresh DB session, failure-isolated. Skips entirely when
@@ -75,10 +97,13 @@ def _publish_blog_due(db):
 
 
 def _run_leads(db):
-    """Lead-gen + cold-email pass for every outreach business (4×/day)."""
+    """Lead-gen + cold-email pass for every outreach business (4×/day).
+    Insurance-only mode drops the SavoryMind/BnB passes."""
+    keys = ["commercial_finder", "homeowner", "insurance", "referral_partner"]
+    if not _insurance_only():
+        keys += ["savorymind", "bnbglobal"]
     out = {}
-    for key in ("commercial_finder", "homeowner", "insurance", "referral_partner",
-                "savorymind", "bnbglobal"):
+    for key in keys:
         cls = AGENTS.get(key)
         if cls:
             try:
@@ -222,15 +247,20 @@ def start_scheduler() -> BackgroundScheduler | None:
         return None
     _scheduler = BackgroundScheduler(timezone=settings.timezone)
 
+    # Insurance-only mode: register just the insurance agents/jobs so the rest of
+    # the businesses stop making scheduled AI calls (the main cost driver).
+    ins = _insurance_only()
+    agents, jobs = scheduled_plan()
+
     # Each agent on its own daily schedule (job hunter, instagram planner, etc.).
-    for key, cls in AGENTS.items():
+    for key, cls in agents.items():
         _scheduler.add_job(
             _run_agent, CronTrigger.from_crontab(cls.schedule_cron, timezone=settings.timezone),
             args=[key], id=f"agent:{key}", replace_existing=True,
         )
 
     # The whole-business workers (content loops, publishing, leads, outreach, …).
-    for job_id, (fn, cron) in _JOBS.items():
+    for job_id, (fn, cron) in jobs.items():
         _scheduler.add_job(
             lambda fn=fn, job_id=job_id: _with_db(fn, job_id),
             CronTrigger.from_crontab(cron, timezone=settings.timezone),
@@ -242,8 +272,8 @@ def start_scheduler() -> BackgroundScheduler | None:
     _scheduler.add_job(lambda: _with_db(_sync_inbound, "inbound_sync"),
                        IntervalTrigger(hours=2), id="inbound_sync", replace_existing=True)
     _scheduler.start()
-    log.info("24/7 engine started — %d agents + %d business jobs",
-             len(AGENTS), len(_JOBS))
+    log.info("24/7 engine started — %d agents + %d business jobs%s",
+             len(agents), len(jobs), " (insurance-only)" if ins else "")
     return _scheduler
 
 
