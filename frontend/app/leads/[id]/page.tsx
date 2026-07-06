@@ -55,8 +55,13 @@ function Profile() {
   const lead = data?.lead;
   const oe = data?.outreach?.email;
   const os = data?.outreach?.sms;
-  const emailText = emailBody ?? (oe ? oe.tailored || oe.body : "");
-  const smsText = smsBody ?? (os ? os.tailored || os.body : "");
+  // Pre-fill the compose boxes: the lead's AI-drafted message if it's an
+  // EverQuote lead, otherwise the first template (personalized) so the box is
+  // never empty. The user can still switch templates or edit freely.
+  const emailFallback = oe ? oe.tailored || oe.body : (tpl?.email?.[0]?.body ?? "");
+  const smsFallback = os ? os.tailored || os.body : (tpl?.sms?.[0]?.body ?? "");
+  const emailText = emailBody ?? emailFallback;
+  const smsText = smsBody ?? smsFallback;
 
   async function act(kind: string, fn: () => Promise<unknown>) {
     setBusy(kind);
@@ -72,7 +77,7 @@ function Profile() {
     }
   }
 
-  const emailSubj = emailSubject ?? (oe ? oe.subject : "");
+  const emailSubj = emailSubject ?? (oe ? oe.subject : (tpl?.email?.[0]?.subject ?? ""));
   const sendEmail = () =>
     act("Email", async () => {
       const r = await api.post<{ sent: boolean; status: string }>(`/leads/${id}/send-email`, { message: emailText, subject: emailSubj });
