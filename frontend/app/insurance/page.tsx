@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { AuthGate, Expandable, PageHeader, StatusBadge, TempBadge, TempFilter, useFetch, LoadState } from "@/components/ui";
 import LeadHealth from "@/components/LeadHealth";
@@ -221,7 +222,7 @@ function Insurance() {
               <tr key={l.id} className="border-t border-gray-100">
                 <td className="td"><span className="badge bg-brand/10 text-brand-dark">{l.fit_score}</span></td>
                 <td className="td"><span className="badge bg-gray-100 text-gray-600">{l.score}</span></td>
-                <td className="td"><div className="font-medium">{l.company_name}</div><div className="text-xs text-gray-400">{l.owner_name}</div></td>
+                <td className="td"><Link href={`/leads/${l.id}`} className="font-medium text-brand-dark hover:underline">{l.company_name || l.owner_name || "View"}</Link><div className="text-xs text-gray-400">{l.owner_name}</div></td>
                 <td className="td">
                   {l.line && <span className={`badge ${LINE_BADGE[l.line] || "bg-gray-100 text-gray-600"}`}>{LINE_LABEL[l.line] || l.line}</span>}
                   <div className="text-xs capitalize text-gray-500">{l.segment.replace("_", " ")}</div>
