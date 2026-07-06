@@ -87,6 +87,39 @@ def send_email(to: str, subject: str, html: str, *, from_email: str | None = Non
         return None
 
 
+def send_with_error(to: str, subject: str, html: str, *, from_email: str | None = None,
+                    reply_to: str | None = None) -> tuple[str | None, str | None]:
+    """Like send_email but returns (message_id, error_reason) so callers can
+    surface exactly why a send failed instead of silently swallowing it."""
+    if not settings.sendgrid_api_key:
+        return None, "SendGrid API key not set"
+    if not to:
+        return None, "no recipient"
+    sender = from_email or settings.sendgrid_from_email
+    if not sender:
+        return None, "no verified SendGrid sender configured"
+    payload: dict = {
+        "personalizations": [{"to": [{"email": to}], "subject": subject or "(no subject)"}],
+        "from": {"email": sender, "name": settings.sender_name or sender},
+        "content": [{"type": "text/html", "value": html or ""}],
+    }
+    if reply_to:
+        payload["reply_to"] = {"email": reply_to}
+    try:
+        r = httpx.post(_SEND, json=payload, headers=_headers(), timeout=30)
+        if r.status_code >= 400:
+            detail = ""
+            try:
+                errs = (r.json() or {}).get("errors") or []
+                detail = "; ".join(e.get("message", "") for e in errs if e.get("message"))
+            except Exception:
+                detail = (r.text or "")[:200]
+            return None, f"SendGrid {r.status_code}: {detail or 'send rejected'}"
+        return r.headers.get("X-Message-Id") or "sendgrid", None
+    except Exception as exc:  # pragma: no cover - network guard
+        return None, f"SendGrid error: {str(exc)[:160]}"
+
+
 _GLOBAL_STATS = "https://api.sendgrid.com/v3/stats"
 
 # The metrics we surface, in display order, with friendly labels.

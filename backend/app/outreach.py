@@ -106,6 +106,42 @@ def _log(db: Session, actor: str, action: str, msg: Message, **detail) -> None:
                      entity_id=str(msg.id), detail=detail or None))
 
 
+def deliver(to_email: str, subject: str | None, body: str | None,
+            account: str = "insurance") -> tuple[str | None, str | None]:
+    """Deliver one email NOW via the best available channel, returning
+    (message_id, error_reason).
+
+    Order matches the rest of the app: SendGrid first (reliable at volume,
+    sends AS the business's verified sender), then the account's Gmail mailbox.
+    This is what the Outbox "Send" / "Send next N" buttons use, so a working
+    SendGrid delivers even when a Gmail app password is rejected.
+    """
+    from .integrations import sendgrid
+    html = email_template.render(email_template.clean_body(body), account)
+    if sendgrid.is_configured():
+        from_email = sendgrid.from_for(account)
+        reply_to = sendgrid.replyto_for(account, from_email)
+        mid, err = sendgrid.send_with_error(to_email, subject or "", html or "",
+                                            from_email=from_email, reply_to=reply_to)
+        if mid:
+            return mid, None
+        # SendGrid couldn't send — fall through to Gmail if it's set up, else
+        # report the SendGrid reason.
+        if gmail.is_configured(account):
+            mid2, err2 = gmail.send_with_error(to_email, subject or "", body or "", account=account)
+            return mid2, (None if mid2 else (err2 or err))
+        return None, err
+    if gmail.is_configured(account):
+        return gmail.send_with_error(to_email, subject or "", body or "", account=account)
+    return None, f"No delivery channel configured for '{account}' (connect SendGrid or a Gmail mailbox)"
+
+
+def can_deliver(account: str = "insurance") -> bool:
+    """True if any channel can deliver for this account (SendGrid or its Gmail)."""
+    from .integrations import sendgrid
+    return sendgrid.is_configured() or gmail.is_configured(account)
+
+
 def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | None,
                    subject: str | None, body: str | None, account: str = "personal",
                    actor: str = "system", force_draft: bool = False,

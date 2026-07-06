@@ -72,7 +72,7 @@ function Outbox() {
     <div>
       <PageHeader
         title="Outbox"
-        subtitle="Outbound emails routed through your Gmail accounts, and reply status"
+        subtitle="Outbound emails delivered via SendGrid (or your Gmail mailbox), and reply status"
         action={
           <div className="flex gap-2">
             <select value={account} onChange={(e) => setAccount(e.target.value)} className="rounded-lg border border-gray-300 px-3 py-2 text-sm">
