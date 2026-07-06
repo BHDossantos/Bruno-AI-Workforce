@@ -31,10 +31,18 @@ def number_for(account: str) -> str:
     return settings.twilio_from_number or settings.twilio_insurance_number
 
 
-def send_sms(to: str, body: str, account: str = "personal") -> str | None:
-    """Send an SMS. Returns the Twilio message SID, or None if unconfigured/failed."""
-    if not is_configured() or not to or not body:
-        return None
+def send_with_error(to: str, body: str, account: str = "personal") -> tuple[str | None, str | None]:
+    """Send an SMS, returning (message_sid, error_reason). Surfaces the REAL Twilio
+    error (e.g. trial-account 'unverified number', invalid recipient, non-SMS
+    number) instead of a bare None, so failures aren't all mislabeled 'not connected'."""
+    if not is_configured():
+        return None, "Twilio isn't connected — add Account SID, Auth Token and a number in Setup."
+    if not to:
+        return None, "no recipient phone"
+    if not body:
+        return None, "empty message"
+    if not number_for(account):
+        return None, "no Twilio 'from' number set"
     url = f"https://api.twilio.com/2010-04-01/Accounts/{settings.twilio_account_sid}/Messages.json"
     try:
         resp = httpx.post(
@@ -43,11 +51,29 @@ def send_sms(to: str, body: str, account: str = "personal") -> str | None:
             auth=(settings.twilio_account_sid, settings.twilio_auth_token),
             timeout=20,
         )
-        resp.raise_for_status()
-        return resp.json().get("sid")
+        if resp.status_code >= 400:
+            try:
+                j = resp.json()
+                code, msg = j.get("code"), j.get("message", "")
+            except Exception:
+                code, msg = resp.status_code, (resp.text or "")[:160]
+            hint = ""
+            if code == 21608:
+                hint = " (Twilio TRIAL account — you can only text numbers you've verified. Upgrade the Twilio account to text leads.)"
+            elif code in (21211, 21214):
+                hint = " (invalid recipient number)"
+            elif code == 21606:
+                hint = " (your 'from' number can't send SMS — use an SMS-capable Twilio number)"
+            return None, f"Twilio {code}: {msg}{hint}"
+        return resp.json().get("sid"), None
     except Exception as exc:  # pragma: no cover - network guard
         log.warning("Twilio send failed (%s): %s", to, exc)
-        return None
+        return None, f"Twilio error: {str(exc)[:160]}"
+
+
+def send_sms(to: str, body: str, account: str = "personal") -> str | None:
+    """Send an SMS. Returns the Twilio message SID, or None if unconfigured/failed."""
+    return send_with_error(to, body, account)[0]
 
 
 def _twilio_whatsapp_configured() -> bool:
