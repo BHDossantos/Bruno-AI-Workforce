@@ -4795,7 +4795,11 @@ def test_outbox_send_surfaces_errors_and_bulk_send(client, auth_headers):
     # never a silent success.
     r = client.post(f"/messages/{mid}/send", headers=auth_headers)
     assert r.status_code in (400, 502)
-    assert "not configured" in r.json()["detail"].lower() or "send failed" in r.json()["detail"].lower()
+    detail = r.json()["detail"].lower()
+    # A real reason, never a silent success: either no delivery channel is
+    # configured (400) or the send itself failed with a surfaced reason (502).
+    assert ("no delivery channel" in detail or "not configured" in detail
+            or "send failed" in detail)
 
     # Bulk send: returns a structured report, no crash.
     b = client.post("/messages/send-drafts", json={"account": "insurance", "limit": 20},
