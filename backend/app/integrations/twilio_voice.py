@@ -74,7 +74,10 @@ def _dial_lead(lead_phone: str, lead_id: str | None) -> str:
     num = _e164(lead_phone) or lead_phone
     announce = (f'<Number url="{base}/calls/twiml/announce">{num}</Number>'
                 if (rec and base) else f'<Number>{num}</Number>')
-    attrs = f' callerId="{_voice_number()}"'
+    # answerOnBridge keeps YOUR leg on ringback until the lead actually answers
+    # (without it the call can drop in a few seconds); timeout gives the lead time
+    # to pick up. callerId must be a Twilio number you own.
+    attrs = f' callerId="{_voice_number()}" answerOnBridge="true" timeout="30"'
     if rec and base:
         attrs += (' record="record-from-answer-dual"'
                   f' recordingStatusCallback="{base}/calls/recording'
