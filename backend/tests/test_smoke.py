@@ -4751,6 +4751,43 @@ def test_openai_key_connectable_at_runtime(client, auth_headers):
 
 
 @requires_db
+def test_outbox_send_surfaces_errors_and_bulk_send(client, auth_headers):
+    """A failing send returns the REAL reason (not a silent 'nothing happens'),
+    and the paced bulk 'send-drafts' reports sent/failed + the reason. Offline
+    (no mailbox) every send fails with a clear reason, never a crash."""
+    from app.database import SessionLocal
+    from app.models import Message
+
+    db = SessionLocal()
+    try:
+        db.query(Message).filter(Message.to_email == "bulktest@x.co").delete(synchronize_session=False)
+        db.commit()
+        m = Message(channel="email", direction="outbound", entity_type="lead",
+                    to_email="bulktest@x.co", from_account="insurance",
+                    subject="Test", body="Body", status="Drafted")
+        db.add(m); db.flush(); mid = str(m.id); db.commit()
+    finally:
+        db.close()
+
+    # Single send: offline → 400 (mailbox not configured) or 502 with a real reason,
+    # never a silent success.
+    r = client.post(f"/messages/{mid}/send", headers=auth_headers)
+    assert r.status_code in (400, 502)
+    assert "not configured" in r.json()["detail"].lower() or "send failed" in r.json()["detail"].lower()
+
+    # Bulk send: returns a structured report, no crash.
+    b = client.post("/messages/send-drafts", json={"account": "insurance", "limit": 20},
+                    headers=auth_headers).json()
+    assert set(b) >= {"sent", "failed", "considered", "errors"}
+    assert b["sent"] + b["failed"] == b["considered"]
+
+    # send_with_error itself returns a (id, reason) tuple with a reason on failure.
+    from app.integrations import gmail
+    _id, reason = gmail.send_with_error("", "s", "b", account="insurance")
+    assert _id is None and reason
+
+
+@requires_db
 def test_mailbox_health_diagnostic(client, auth_headers):
     """The Connect page can confirm each mailbox can ACTUALLY send (real auth
     check), not just that a key is saved. Offline it truthfully reports not-able."""

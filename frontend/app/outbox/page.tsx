@@ -39,6 +39,24 @@ function Outbox() {
     }
   }
 
+  async function sendNext(limit: number) {
+    setBusy("bulk");
+    setNote(`Sending the next ${limit}${account ? ` from ${account}` : ""}…`);
+    try {
+      const r = await api.post<{ sent: number; failed: number; considered: number; errors: string[] }>(
+        "/messages/send-drafts", { account: account || null, limit });
+      setNote(
+        `✅ Sent ${r.sent} · ${r.failed} failed (of ${r.considered} drafts)` +
+        (r.errors?.length ? ` — reason: ${r.errors.join(" | ")}` : "")
+      );
+      setTick((t) => t + 1);
+    } catch (e) {
+      setNote(`❌ ${e}`);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function syncInbound() {
     setNote("Syncing inbound replies…");
     try {
@@ -62,10 +80,14 @@ function Outbox() {
               <option value="personal">Personal</option>
               <option value="insurance">Insurance</option>
             </select>
+            <button className="btn" disabled={busy === "bulk"} onClick={() => sendNext(20)}>
+              {busy === "bulk" ? "Sending…" : "Send next 20"}
+            </button>
             <button className="btn-ghost" onClick={syncInbound}>Sync replies</button>
           </div>
         }
       />
+      <p className="mb-3 text-xs text-gray-500">“Send next 20” sends your oldest 20 drafts now (paced to protect a new mailbox). Pick an account above to send only that mailbox&apos;s drafts. If a send fails, the exact reason shows below.</p>
       {note && <p className="mb-4 rounded bg-brand/10 p-3 text-sm text-brand-dark">{note}</p>}
       {(loading || error) && <LoadState loading={loading} error={error} onRetry={reload} />}
       <div className="card overflow-x-auto">
