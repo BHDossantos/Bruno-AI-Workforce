@@ -31,8 +31,12 @@ steps:
       # but never sent, and cold starts surface as "Failed to fetch" in the UI.
       - --min-instances=1
       - --no-cpu-throttling
-      - --cpu=1
-      - --memory=1Gi
+      - --cpu=2
+      # 2Gi: the app imports heavy libs (langgraph, playwright, google-cloud,
+      # openai) — 1Gi was tight enough that the container could be OOM-killed on
+      # startup, so the new revision never became healthy and every deploy failed
+      # on the "gcloud run deploy" step. More headroom lets it boot reliably.
+      - --memory=2Gi
       # Extra CPU during container startup so the heavy imports (langgraph,
       # playwright, google libs) finish before Cloud Run's health check window —
       # without this the new revision intermittently fails to become ready and the
