@@ -98,7 +98,7 @@ def send(body: SmsSend, db: Session = Depends(get_db), _=Depends(_write)):
     if sms_engine.is_opted_out(db, body.to):
         return {"ok": False, "sid": None, "status": "Blocked",
                 "reason": "This number opted out (texted STOP) — we can't text them."}
-    sid = sms.send_sms(body.to, body.message, account=body.account)
+    sid, err = sms.send_with_error(body.to, body.message, account=body.account)
     bridge_on = bool(settings.bridge_token)
     # Sent via Twilio → Sent; else if a Mac bridge is configured → Queued (it'll
     # deliver from your real number); else there's nowhere to send → Drafted.
@@ -110,8 +110,7 @@ def send(body: SmsSend, db: Session = Depends(get_db), _=Depends(_write)):
     db.add(msg)
     db.commit()
     ok = bool(sid) or bridge_on
-    reason = None if ok else ("SMS isn't connected — add Twilio in Connect Email & Data, "
-                              "or run the Mac bridge.")
+    reason = None if ok else (err or "SMS isn't connected — add Twilio in Connect Email & Data.")
     return {"ok": ok, "sid": sid, "status": status, "reason": reason}
 
 
@@ -147,7 +146,7 @@ def send_drafts(body: SmsSendDrafts, db: Session = Depends(get_db), _=Depends(_w
             if reason not in reasons:
                 reasons.append(reason)
             continue
-        sid = sms.send_sms(m.to_email, m.body or "", account=m.from_account)
+        sid, err = sms.send_with_error(m.to_email, m.body or "", account=m.from_account)
         if sid:
             m.status = "Sent"
             m.provider_id = sid
@@ -155,7 +154,7 @@ def send_drafts(body: SmsSendDrafts, db: Session = Depends(get_db), _=Depends(_w
             sent += 1
         else:
             failed += 1
-            r = "SMS isn't connected — add Twilio in Connect Email & Data."
+            r = err or "SMS send failed"
             if r not in reasons:
                 reasons.append(r)
     db.commit()
