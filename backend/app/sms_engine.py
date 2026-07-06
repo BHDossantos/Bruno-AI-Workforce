@@ -106,6 +106,7 @@ def maybe_warm_text(db: Session, *, entity_type: str, entity_id, name: str | Non
     from . import control
     if control.is_paused_safe(db):
         return None  # emergency stop — no autonomous texts
+    _refresh_config(db)
     # Send via Twilio if configured, else queue for the Mac iMessage bridge.
     use_bridge = not sms.is_configured() and bool(settings.bridge_token)
     if not settings.sms_auto_on_reply or not phone or not (sms.is_configured() or use_bridge):
@@ -138,12 +139,24 @@ def maybe_warm_text(db: Session, *, entity_type: str, entity_id, name: str | Non
     return "queued" if use_bridge else sid
 
 
+def _refresh_config(db: Session) -> None:
+    """Load Twilio/data credentials saved via the in-app Setup page into settings,
+    even if THIS server instance started before they were saved (multi-instance
+    safe). Without this, a stale instance wrongly reports SMS 'not configured'."""
+    try:
+        from . import runtime_config
+        runtime_config.apply_to_settings(db)
+    except Exception:  # never let a config refresh block a send
+        pass
+
+
 def send_text(db: Session, *, entity_type: str, entity_id, phone: str, body: str,
              account: str = "insurance", enforce_hours: bool = True) -> str | None:
     """Send an explicit (non-AI-drafted) text now — e.g. a quote-intake request —
     via Twilio if configured, else queue it for the free Mac iMessage bridge.
     Returns 'queued' (bridge), the provider SID (Twilio), or None if neither
     channel is available or a compliance guard (opt-out/hours/cap) blocks it."""
+    _refresh_config(db)
     use_bridge = not sms.is_configured() and bool(settings.bridge_token)
     if not phone or not body or not (sms.is_configured() or use_bridge):
         return None

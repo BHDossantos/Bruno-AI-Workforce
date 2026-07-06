@@ -1042,6 +1042,63 @@ def test_whatsapp_prefers_meta_cloud_over_twilio():
 
 
 @requires_db
+def test_send_text_refreshes_saved_twilio_config(client, auth_headers, monkeypatch):
+    """Per-lead texting reloads the credentials saved in Setup before checking,
+    so a server instance that started before Twilio was connected still sees it
+    configured — the root of the 'No texting channel configured' error."""
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.integrations import sms as sms_int
+    from app.models import Message
+
+    called = {"refresh": False}
+    monkeypatch.setattr("app.sms_engine._refresh_config",
+                        lambda db: called.__setitem__("refresh", True))
+    monkeypatch.setattr(sms_int, "is_configured", lambda: True)
+    monkeypatch.setattr(sms_int, "send_sms", lambda to, body, account="personal": "SMFAKE")
+    monkeypatch.setattr(settings, "sms_daily_send_cap", 100000)
+
+    from app import sms_engine
+    db = SessionLocal()
+    try:
+        db.query(Message).filter(Message.to_email == "+15550002222").delete(synchronize_session=False)
+        db.commit()
+        sid = sms_engine.send_text(db, entity_type=None, entity_id=None,
+                                   phone="+15550002222", body="hi", enforce_hours=False)
+        assert called["refresh"] is True     # it refreshed config first
+        assert sid == "SMFAKE"                # and then actually sent
+    finally:
+        db.query(Message).filter(Message.to_email == "+15550002222").delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
+
+def test_sms_configured_accepts_either_number():
+    """Twilio SMS is 'configured' with the creds + EITHER number field (default or
+    insurance) — requiring both was a trap that silently blocked texting. And the
+    From never resolves empty when only one is set."""
+    from app.config import settings
+    from app.integrations import sms
+    orig = (settings.twilio_account_sid, settings.twilio_auth_token,
+            settings.twilio_from_number, settings.twilio_insurance_number)
+    try:
+        settings.twilio_account_sid, settings.twilio_auth_token = "AC1", "tok"
+        settings.twilio_from_number = settings.twilio_insurance_number = ""
+        assert sms.is_configured() is False  # creds but no number
+        settings.twilio_insurance_number = "+16035550100"
+        assert sms.is_configured() is True   # insurance number alone is enough
+        assert sms.number_for("personal") == "+16035550100"  # falls back, never empty
+        assert sms.number_for("insurance") == "+16035550100"
+        settings.twilio_insurance_number = ""
+        settings.twilio_from_number = "+16175550111"
+        assert sms.is_configured() is True   # default number alone is enough
+        assert sms.number_for("insurance") == "+16175550111"
+    finally:
+        (settings.twilio_account_sid, settings.twilio_auth_token,
+         settings.twilio_from_number, settings.twilio_insurance_number) = orig
+
+
+@requires_db
 def test_client_whatsapp_send_gated_and_logged(client, auth_headers):
     """Sending a client WhatsApp message requires a phone number, a non-empty
     body, and a configured provider — and it's rejected cleanly otherwise."""
