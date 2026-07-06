@@ -92,6 +92,12 @@ def send(body: SmsSend, db: Session = Depends(get_db), _=Depends(_write)):
     except Exception:
         pass
     from ..config import settings
+    # A hard opt-out (STOP) is a legal line — never text an opted-out number,
+    # even on a manual send. Hours/cap are NOT enforced here: a human replying
+    # in an active thread is exempt, and the guard would only get in the way.
+    if sms_engine.is_opted_out(db, body.to):
+        return {"ok": False, "sid": None, "status": "Blocked",
+                "reason": "This number opted out (texted STOP) — we can't text them."}
     sid = sms.send_sms(body.to, body.message, account=body.account)
     bridge_on = bool(settings.bridge_token)
     # Sent via Twilio → Sent; else if a Mac bridge is configured → Queued (it'll
@@ -107,6 +113,54 @@ def send(body: SmsSend, db: Session = Depends(get_db), _=Depends(_write)):
     reason = None if ok else ("SMS isn't connected — add Twilio in Connect Email & Data, "
                               "or run the Mac bridge.")
     return {"ok": ok, "sid": sid, "status": status, "reason": reason}
+
+
+class SmsSendDrafts(BaseModel):
+    account: str | None = None
+    limit: int = 20
+
+
+@router.post("/sms/send-drafts")
+def send_drafts(body: SmsSendDrafts, db: Session = Depends(get_db), _=Depends(_write)):
+    """Send the oldest N drafted texts in one click (e.g. the EverQuote batch's
+    per-lead SMS). Paced and compliance-gated: opted-out numbers, out-of-hours,
+    and the daily cap are all honored, and each skip reports its real reason."""
+    try:
+        from .. import runtime_config
+        runtime_config.apply_to_settings(db)
+    except Exception:
+        pass
+    q = db.query(Message).filter(
+        Message.channel == "sms", Message.direction == "outbound",
+        Message.status == "Drafted", Message.to_email.isnot(None))
+    if body.account:
+        q = q.filter(Message.from_account == body.account)
+    msgs = q.order_by(Message.created_at.asc()).limit(max(1, min(body.limit, 50))).all()
+
+    sent = failed = blocked = 0
+    reasons: list[str] = []
+    for m in msgs:
+        reason = sms_engine.sms_block_reason(db, m.to_email, enforce_hours=True,
+                                             already_sent=sent)
+        if reason:
+            blocked += 1
+            if reason not in reasons:
+                reasons.append(reason)
+            continue
+        sid = sms.send_sms(m.to_email, m.body or "", account=m.from_account)
+        if sid:
+            m.status = "Sent"
+            m.provider_id = sid
+            m.sent_at = datetime.now(timezone.utc)
+            sent += 1
+        else:
+            failed += 1
+            r = "SMS isn't connected — add Twilio in Connect Email & Data."
+            if r not in reasons:
+                reasons.append(r)
+    db.commit()
+    return {"sent": sent, "failed": failed, "blocked": blocked,
+            "considered": len(msgs), "reasons": reasons[:3]}
 
 
 @router.post("/sms/inbound")

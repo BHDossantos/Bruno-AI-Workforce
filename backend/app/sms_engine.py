@@ -9,8 +9,10 @@ contact's phone in ``to_email`` (the thread key).
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+import re
+from datetime import date, datetime, timedelta, timezone
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .ai import client, skills
@@ -20,6 +22,76 @@ from .integrations import sms
 from .models import Message
 
 log = logging.getLogger("bruno.sms_engine")
+
+
+# --- Compliance + deliverability guards ------------------------------------
+# A hard STOP is a legal line (TCPA): once someone texts an opt-out keyword we
+# must never text them again. We also cap daily volume (deliverability) and
+# refuse to text outside legal hours (8am-9pm recipient-local).
+_STOP_WORDS = {"stop", "stopall", "unsubscribe", "cancel", "end", "quit",
+               "optout", "revoke", "remove"}
+
+
+def _norm_phone(phone: str | None) -> str:
+    return re.sub(r"\D", "", phone or "")[-10:]
+
+
+def is_opted_out(db: Session, phone: str) -> bool:
+    """True if this number ever texted us a STOP keyword. Deterministic (no AI):
+    a message that IS just a stop word (e.g. 'STOP', 'unsubscribe') opts out.
+    Carriers honor STOP too, but we refuse to even queue so we never re-text
+    someone who opted out."""
+    key = _norm_phone(phone)
+    if not key:
+        return False
+    for m in db.query(Message).filter(
+            Message.channel == "sms", Message.direction == "inbound").all():
+        if _norm_phone(m.to_email) != key:
+            continue
+        words = re.findall(r"[a-z]+", (m.body or "").lower())
+        if words and words[0] in _STOP_WORDS:
+            return True
+    return False
+
+
+def sms_sent_today(db: Session) -> int:
+    """Texts actually sent today, across all numbers (the daily cap is global)."""
+    start = datetime.combine(date.today(), datetime.min.time(), tzinfo=timezone.utc)
+    return db.query(func.count()).select_from(Message).filter(
+        Message.channel == "sms", Message.direction == "outbound",
+        Message.sent_at >= start).scalar() or 0
+
+
+def _now_local(now: datetime | None = None) -> datetime:
+    now = now or datetime.now(timezone.utc)
+    try:
+        from zoneinfo import ZoneInfo
+        return now.astimezone(ZoneInfo(settings.sms_timezone or "America/New_York"))
+    except Exception:  # tzdata missing (e.g. slim image) — approximate US Eastern
+        return now.astimezone(timezone(timedelta(hours=-5)))
+
+
+def in_send_window(now: datetime | None = None) -> bool:
+    """True if the current recipient-local hour is inside the legal texting
+    window (default 8am-9pm)."""
+    hour = _now_local(now).hour
+    return settings.sms_send_window_start <= hour < settings.sms_send_window_end
+
+
+def sms_block_reason(db: Session, phone: str, *, enforce_hours: bool = True,
+                     already_sent: int = 0) -> str | None:
+    """A human reason to BLOCK this text, or None if it's clear to send.
+    Opt-out is always enforced; hours/cap are enforced for autonomous + bulk
+    sends (a human replying in-thread passes enforce_hours=False)."""
+    if is_opted_out(db, phone):
+        return "recipient opted out (texted STOP)"
+    if enforce_hours and not in_send_window():
+        return (f"outside texting hours "
+                f"({settings.sms_send_window_start}:00-{settings.sms_send_window_end}:00 "
+                f"{settings.sms_timezone})")
+    if sms_sent_today(db) + already_sent >= settings.sms_daily_send_cap:
+        return f"daily SMS cap reached ({settings.sms_daily_send_cap})"
+    return None
 
 
 def _has_prior_sms(db: Session, phone: str) -> bool:
@@ -40,6 +112,10 @@ def maybe_warm_text(db: Session, *, entity_type: str, entity_id, name: str | Non
         return None
     if _has_prior_sms(db, phone):
         return None  # already in an SMS conversation
+    block = sms_block_reason(db, phone, enforce_hours=True)
+    if block:
+        log.info("Warm SMS to %s blocked: %s", phone, block)
+        return None
 
     art = client.complete_json(
         SMS_INTRO.format(name=name or "there", context=context or "your inquiry"),
@@ -63,14 +139,16 @@ def maybe_warm_text(db: Session, *, entity_type: str, entity_id, name: str | Non
 
 
 def send_text(db: Session, *, entity_type: str, entity_id, phone: str, body: str,
-             account: str = "insurance") -> str | None:
+             account: str = "insurance", enforce_hours: bool = True) -> str | None:
     """Send an explicit (non-AI-drafted) text now — e.g. a quote-intake request —
     via Twilio if configured, else queue it for the free Mac iMessage bridge.
     Returns 'queued' (bridge), the provider SID (Twilio), or None if neither
-    channel is available."""
+    channel is available or a compliance guard (opt-out/hours/cap) blocks it."""
     use_bridge = not sms.is_configured() and bool(settings.bridge_token)
     if not phone or not body or not (sms.is_configured() or use_bridge):
         return None
+    if sms_block_reason(db, phone, enforce_hours=enforce_hours):
+        return None  # opted out / outside legal hours / daily cap hit
     sid = None if use_bridge else sms.send_sms(phone, body, account=account)
     status = "Queued" if use_bridge else ("Sent" if sid else "Drafted")
     db.add(Message(
@@ -81,11 +159,6 @@ def send_text(db: Session, *, entity_type: str, entity_id, phone: str, body: str
     ))
     db.commit()
     return "queued" if use_bridge else sid
-
-
-def _norm_phone(phone: str | None) -> str:
-    import re
-    return re.sub(r"\D", "", phone or "")[-10:]
 
 
 def record_inbound(db: Session, *, phone: str, body: str) -> Message:

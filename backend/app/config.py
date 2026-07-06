@@ -198,6 +198,11 @@ class Settings(BaseSettings):
     newsletter_banner_music: str = ""
     # Auto-send a warm intro text when a lead replies to our email (becomes warm).
     sms_auto_on_reply: bool = True
+    # SMS compliance + deliverability guards (applied to every autonomous/bulk send).
+    sms_daily_send_cap: int = 50           # max texts per day across all numbers
+    sms_send_window_start: int = 8         # earliest local hour to text (TCPA: 8am)
+    sms_send_window_end: int = 21          # latest local hour to text (TCPA: 9pm)
+    sms_timezone: str = "America/New_York"  # recipient tz (NH/MA/FL are all Eastern)
 
     # Gmail (outbound + inbound). Two accounts: "personal" (default, used by all
     # agents) and "insurance" (used by the Insurance agent). Each authenticates

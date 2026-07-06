@@ -1731,16 +1731,20 @@ def test_everquote_import_and_personalized_outreach(client, auth_headers):
     assert "bundle" in notes and "low-mileage" in notes
 
     # Batch: personalize + queue drafts for every not-yet-contacted EverQuote lead.
-    # Our lead has no outbound message yet, so it gets queued; a second run is
-    # idempotent (now it has an outbound draft → skipped, never double-drafted).
+    # Our lead has a phone, so it gets BOTH an email draft and an SMS draft; a
+    # second run is idempotent per channel (both already drafted → skipped).
     b1 = client.post("/leads/everquote/personalize-batch", json={}, headers=auth_headers).json()
-    assert b1["queued"] >= 1
+    assert b1["queued"] >= 1 and b1["queued_sms"] >= 1
     client.post("/leads/everquote/personalize-batch", json={}, headers=auth_headers)
     from app.models import Message as _M
     _db = SessionLocal()
     try:
-        n_out = _db.query(_M).filter(_M.entity_id == lid, _M.direction == "outbound").count()
-        assert n_out == 1  # exactly one draft, not duplicated by the second batch
+        emails = _db.query(_M).filter(_M.entity_id == lid, _M.direction == "outbound",
+                                      _M.channel == "email").count()
+        texts = _db.query(_M).filter(_M.entity_id == lid, _M.direction == "outbound",
+                                     _M.channel == "sms").count()
+        # Exactly one of each — the second batch double-drafts neither channel.
+        assert emails == 1 and texts == 1
     finally:
         _db.close()
 
@@ -3838,6 +3842,91 @@ def test_sms_inbound_webhook_and_threads(client, auth_headers):
     assert any(t["phone"] == "+15551234567" for t in threads)
     thread = client.get("/sms/thread?phone=%2B15551234567", headers=auth_headers).json()
     assert thread["messages"] and thread["messages"][0]["direction"] == "inbound"
+
+
+@requires_db
+def test_sms_opt_out_and_bulk_send_drafts(client, auth_headers):
+    """A STOP text opts a number out (a hard legal line); the compliance guard
+    then holds it, and the paced bulk 'send-drafts' reports sent/failed/blocked
+    with real reasons instead of silently texting an opted-out number."""
+    from app import sms_engine
+    from app.database import SessionLocal
+    from app.models import Message
+
+    stop_phone, fresh_phone = "+15550000001", "+15550000002"
+    db = SessionLocal()
+    try:
+        db.query(Message).filter(Message.to_email.in_([stop_phone, fresh_phone])).delete(
+            synchronize_session=False)
+        db.commit()
+        # Inbound STOP → opted out (deterministic keyword match, no AI needed).
+        sms_engine.record_inbound(db, phone=stop_phone, body="STOP")
+        assert sms_engine.is_opted_out(db, stop_phone) is True
+        assert sms_engine.is_opted_out(db, "+15559998888") is False
+        # An explicit send to an opted-out number is refused (returns None, no row).
+        assert sms_engine.send_text(db, entity_type=None, entity_id=None,
+                                    phone=stop_phone, body="hi") is None
+        # Unique from_account so send-drafts considers exactly these two (other
+        # tests leave 'insurance' drafts that would crowd the oldest-20 window).
+        db.add_all([
+            Message(channel="sms", direction="outbound", to_email=stop_phone,
+                    from_account="optout_test", body="draft1", status="Drafted"),
+            Message(channel="sms", direction="outbound", to_email=fresh_phone,
+                    from_account="optout_test", body="draft2", status="Drafted"),
+        ])
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.post("/sms/send-drafts", json={"account": "optout_test", "limit": 20},
+                    headers=auth_headers).json()
+    assert set(r) >= {"sent", "failed", "blocked", "considered", "reasons"}
+    assert r["sent"] == 0  # no Twilio in tests → nothing actually sends
+    assert r["sent"] + r["failed"] + r["blocked"] == r["considered"]
+    assert r["blocked"] >= 1  # the opted-out number is held, never sent
+    assert any("opted out" in x for x in r["reasons"])
+
+    # Manual /sms/send also refuses the opted-out number with a clear reason.
+    s = client.post("/sms/send", json={"to": stop_phone, "message": "hi"},
+                    headers=auth_headers).json()
+    assert s["ok"] is False and "opted out" in (s["reason"] or "").lower()
+
+
+@requires_db
+def test_everquote_batch_queues_sms_draft(client, auth_headers):
+    """The EverQuote batch queues a per-lead SMS draft alongside the email draft,
+    de-duped per channel so a re-run never double-drafts the text."""
+    from app import everquote
+    from app.database import SessionLocal
+    from app.models import Lead, Message
+
+    db = SessionLocal()
+    lid = None
+    try:
+        db.query(Lead).filter(Lead.email == "eqsms@x.co").delete(synchronize_session=False)
+        db.commit()
+        lead = Lead(segment="personal", category="EverQuote Auto", owner_name="Pat Doe",
+                    email="eqsms@x.co", phone="+15550004321",
+                    intake={"source": "everquote", "everquote": {
+                        "first_name": "Pat", "vehicle_year": "2020",
+                        "vehicle_make": "Honda", "vehicle_model": "Civic"}})
+        db.add(lead); db.flush(); lid = lead.id; db.commit()
+
+        res = everquote.personalize_batch(db, lead_ids=[str(lid)])
+        assert res["queued_sms"] >= 1
+        drafts = db.query(Message).filter(
+            Message.channel == "sms", Message.entity_id == lid,
+            Message.status == "Drafted").count()
+        assert drafts == 1
+        # Idempotent: re-running does not queue a second text for the same lead.
+        res2 = everquote.personalize_batch(db, lead_ids=[str(lid)])
+        assert res2["queued_sms"] == 0
+    finally:
+        if lid is not None:
+            db.query(Message).filter(Message.entity_id == lid).delete(synchronize_session=False)
+            db.query(Lead).filter(Lead.id == lid).delete(synchronize_session=False)
+            db.commit()
+        db.close()
 
 
 @requires_db
