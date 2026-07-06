@@ -15,6 +15,7 @@ function Texts() {
   const [refresh, setRefresh] = useState(0);
   const [newPhone, setNewPhone] = useState("");
   const [sendMsg, setSendMsg] = useState<string | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
   const { data: setup } = useFetch<{ sms?: { configured: boolean; via: string | null } }>(
     () => api.get("/setup"), []);
   const smsReady = setup?.sms?.configured ?? true;  // assume ok until we know
@@ -39,6 +40,24 @@ function Texts() {
     setRefresh((r) => r + 1);
   }
 
+  async function sendNext(limit: number) {
+    setBulkBusy(true);
+    setSendMsg(`Sending the next ${limit} drafted texts…`);
+    try {
+      const r = await api.post<{ sent: number; failed: number; blocked: number; considered: number; reasons: string[] }>(
+        "/sms/send-drafts", { limit });
+      setSendMsg(
+        `✅ Sent ${r.sent} · ${r.failed} failed · ${r.blocked} held (of ${r.considered} drafts)` +
+        (r.reasons?.length ? ` — ${r.reasons.join(" | ")}` : "")
+      );
+      setRefresh((x) => x + 1);
+    } catch (e) {
+      setSendMsg(`❌ ${e}`);
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   function startNew() {
     const phone = newPhone.trim();
     if (!/^\+?\d{10,15}$/.test(phone.replace(/[\s()-]/g, ""))) {
@@ -51,7 +70,16 @@ function Texts() {
 
   return (
     <div>
-      <PageHeader title="Texts" subtitle="Two-way SMS — start a new text or reply to warm leads here" />
+      <PageHeader
+        title="Texts"
+        subtitle="Two-way SMS — start a new text or reply to warm leads here"
+        action={
+          <button className="btn" disabled={bulkBusy} onClick={() => sendNext(20)}>
+            {bulkBusy ? "Sending…" : "Send next 20"}
+          </button>
+        }
+      />
+      <p className="mb-3 text-xs text-gray-500">“Send next 20” sends your oldest drafted texts (e.g. the EverQuote batch). Opt-outs, texting hours (8am–9pm ET), and the daily cap are enforced automatically — anything held shows the reason.</p>
       {!smsReady && (
         <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
           ⚠️ SMS isn&apos;t connected yet — messages won&apos;t actually send. Add Twilio in <b>Connect Email &amp; Data</b> (or run the Mac bridge).

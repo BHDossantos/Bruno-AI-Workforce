@@ -285,11 +285,18 @@ def _everquote_leads(db: Session):
     return db.query(Lead).filter(Lead.intake["source"].astext == "everquote")
 
 
-def personalize_batch(db: Session, lead_ids: list[str] | None = None, limit: int = 500) -> dict:
-    """Personalize + queue an email draft for every EverQuote lead (or a given
-    set) that hasn't been contacted yet. Idempotent: a lead that already has an
-    outbound message is skipped, so re-running never double-drafts. Nothing sends
-    — each email lands in the approvals queue for review."""
+def personalize_batch(db: Session, lead_ids: list[str] | None = None, limit: int = 500,
+                      queue_sms: bool = True) -> dict:
+    """Personalize + queue an email draft (and, by default, a matching SMS draft)
+    for every EverQuote lead (or a given set) that hasn't been contacted on that
+    channel yet. Idempotent per channel: a lead that already has an outbound email
+    won't be re-emailed, and one that already has an outbound text won't be
+    re-texted, so re-running never double-drafts. Nothing sends — the email lands
+    in the approval queue and the SMS in the Texts drafts (send with 'Send next N',
+    which enforces opt-out/hours/cap)."""
+    from datetime import datetime, timezone
+
+    from . import sms_engine
     from .models import Message
     from .outreach import dispatch_email
 
@@ -298,28 +305,50 @@ def personalize_batch(db: Session, lead_ids: list[str] | None = None, limit: int
         q = q.filter(Lead.id.in_(lead_ids))
     leads = q.limit(limit).all()
 
-    already = {str(eid) for (eid,) in db.query(Message.entity_id).filter(
-        Message.entity_type == "lead", Message.direction == "outbound").all() if eid}
+    # Track prior outreach PER CHANNEL so email and SMS de-dupe independently.
+    emailed, texted = set(), set()
+    for eid, chan in db.query(Message.entity_id, Message.channel).filter(
+            Message.entity_type == "lead", Message.direction == "outbound").all():
+        if not eid:
+            continue
+        (texted if chan == "sms" else emailed).add(str(eid))
 
-    queued = skipped = failed = 0
+    queued = queued_sms = skipped = failed = 0
     for lead in leads:
-        if str(lead.id) in already or not lead.email:
+        did_something = False
+        pack = None
+        # Email draft (skip if already emailed or no address).
+        if lead.email and str(lead.id) not in emailed:
+            pack = personalize(lead, use_ai=False)  # templates only — keep bulk fast
+            if pack.get("ok"):
+                try:
+                    dispatch_email(db, entity_type="lead", entity_id=lead.id, to_email=lead.email,
+                                   subject=pack["email"]["subject"],
+                                   body=pack["email"]["tailored"] or pack["email"]["body"],
+                                   account="insurance", actor="everquote", force_draft=True)
+                    queued += 1
+                    did_something = True
+                except Exception:  # one lead failing must not stop the batch
+                    log.exception("batch personalize (email) failed for lead %s", lead.id)
+                    failed += 1
+        # SMS draft (skip if already texted, no phone, or opted out). Stored as a
+        # Drafted sms Message so it shows in Texts and sends via /sms/send-drafts.
+        if queue_sms and lead.phone and str(lead.id) not in texted \
+                and not sms_engine.is_opted_out(db, lead.phone):
+            if pack is None:
+                pack = personalize(lead, use_ai=False)
+            if pack.get("ok"):
+                db.add(Message(channel="sms", direction="outbound", entity_type="lead",
+                               entity_id=lead.id, to_email=lead.phone, from_account="insurance",
+                               body=pack["sms"]["tailored"] or pack["sms"]["body"],
+                               status="Drafted"))
+                texted.add(str(lead.id))
+                queued_sms += 1
+                did_something = True
+        if not did_something:
             skipped += 1
-            continue
-        pack = personalize(lead, use_ai=False)  # templates only — keep the bulk pass fast
-        if not pack.get("ok"):
-            skipped += 1
-            continue
-        try:
-            dispatch_email(db, entity_type="lead", entity_id=lead.id, to_email=lead.email,
-                           subject=pack["email"]["subject"],
-                           body=pack["email"]["tailored"] or pack["email"]["body"],
-                           account="insurance", actor="everquote", force_draft=True)
-            queued += 1
-        except Exception:  # one lead failing must not stop the batch
-            log.exception("batch personalize failed for lead %s", lead.id)
-            failed += 1
     db.commit()
-    result = {"queued": queued, "skipped": skipped, "failed": failed, "considered": len(leads)}
+    result = {"queued": queued, "queued_sms": queued_sms, "skipped": skipped,
+              "failed": failed, "considered": len(leads)}
     log.info("EverQuote batch personalize: %s", result)
     return result
