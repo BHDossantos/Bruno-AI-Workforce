@@ -4784,6 +4784,32 @@ def test_newsletter_funnels_and_cadence():
     assert _JOBS["newsletters"][1] == "0 11 * * 1,3,5"
 
 
+def test_insurance_only_scheduler_registers_insurance_jobs_only(monkeypatch):
+    """AUTONOMY_PROFILE=insurance registers ONLY the insurance agents/jobs so the
+    other businesses stop making scheduled AI calls (the cost cut). Also confirms
+    the cost-optimized default model."""
+    from app import scheduler
+    from app.config import settings
+
+    assert settings.openai_model == "gpt-4o-mini"  # cheap default
+
+    monkeypatch.setattr(settings, "autonomy_profile", "insurance")
+    agents, jobs = scheduler.scheduled_plan()
+    # insurance agents + jobs are scheduled
+    assert "insurance" in agents and "commercial_finder" in agents
+    assert "leads" in jobs and "followups" in jobs and "lifecycle" in jobs
+    # everything else is skipped
+    assert "music" not in agents and "job_hunter" not in agents
+    assert "savorymind" not in agents and "bnbglobal" not in agents
+    assert "publish_content" not in jobs and "music_releases" not in jobs
+    assert "board_report" not in jobs and "auto_apply" not in jobs
+
+    # "all" profile keeps everything
+    monkeypatch.setattr(settings, "autonomy_profile", "all")
+    agents_all, jobs_all = scheduler.scheduled_plan()
+    assert "music" in agents_all and "publish_content" in jobs_all
+
+
 def test_consulting_wedge_is_industry_specific():
     """BnB Global outreach leads with the right wedge per industry, not generic."""
     from app import consulting_value as c

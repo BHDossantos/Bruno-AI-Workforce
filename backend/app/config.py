@@ -22,7 +22,13 @@ class Settings(BaseSettings):
 
     # OpenAI
     openai_api_key: str = ""
-    openai_model: str = "gpt-4o"
+    # Cost-optimized default: gpt-4o-mini is ~15-20x cheaper than gpt-4o and is
+    # plenty for drafting emails/texts and classifying replies. Override with
+    # OPENAI_MODEL=gpt-4o only where you truly need the bigger model.
+    openai_model: str = "gpt-4o-mini"
+    # Autonomy scope. "all" runs every business's agents; "insurance" runs ONLY the
+    # insurance agents/jobs (cost cut — skips music/bnb/savorymind/instagram/etc.).
+    autonomy_profile: str = "all"
     embedding_model: str = "text-embedding-3-small"  # for the memory/knowledge layer
     image_model: str = "gpt-image-1"  # for auto-generated social post images
     # Jennifer voice assistant — real neural TTS so she sounds natural, not robotic.
