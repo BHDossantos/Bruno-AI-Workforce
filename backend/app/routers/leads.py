@@ -159,6 +159,19 @@ def lead_profile_full(lead_id: str, db: Session = Depends(get_db),
     }
 
 
+@router.get("/{lead_id}/templates")
+def lead_templates(lead_id: str, db: Session = Depends(get_db),
+                   _=Depends(require_role("admin", "operator", "viewer"))):
+    """The pickable sales templates (email / text / call scripts), each already
+    personalized for THIS lead — powers the 'choose a template' dropdown on the
+    profile so a touch is one pick + send."""
+    from .. import sales_templates
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    return sales_templates.for_lead(lead)
+
+
 class LogCallIn(BaseModel):
     outcome: str = "Called"          # Reached · Left voicemail · No answer · Busy
     notes: str | None = None

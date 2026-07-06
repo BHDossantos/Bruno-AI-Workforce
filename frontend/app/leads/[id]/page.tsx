@@ -26,6 +26,10 @@ type Profile = {
   everquote: Record<string, unknown> | null;
   outreach: Outreach | null;
 };
+type EmailTpl = { id: string; name: string; subject: string; body: string };
+type SmsTpl = { id: string; name: string; body: string };
+type CallTpl = { id: string; name: string; framework: string[]; script: string };
+type Templates = { email: EmailTpl[]; sms: SmsTpl[]; call: CallTpl[] };
 
 function fmt(at: string | null) {
   if (!at) return "";
@@ -38,12 +42,15 @@ function Profile() {
   const [tick, setTick] = useState(0);
   const { data, loading, error, reload } = useFetch<Profile>(
     () => api.get<Profile>(`/leads/${id}/profile`), [id, tick]);
+  const { data: tpl } = useFetch<Templates>(() => api.get<Templates>(`/leads/${id}/templates`), [id]);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState("");
   const [emailBody, setEmailBody] = useState<string | null>(null);
+  const [emailSubject, setEmailSubject] = useState<string | null>(null);
   const [smsBody, setSmsBody] = useState<string | null>(null);
   const [callOutcome, setCallOutcome] = useState("Reached");
   const [callNotes, setCallNotes] = useState("");
+  const [callScript, setCallScript] = useState<CallTpl | null>(null);
 
   const lead = data?.lead;
   const oe = data?.outreach?.email;
@@ -65,9 +72,10 @@ function Profile() {
     }
   }
 
+  const emailSubj = emailSubject ?? (oe ? oe.subject : "");
   const sendEmail = () =>
     act("Email", async () => {
-      const r = await api.post<{ sent: boolean; status: string }>(`/leads/${id}/send-email`, { message: emailText });
+      const r = await api.post<{ sent: boolean; status: string }>(`/leads/${id}/send-email`, { message: emailText, subject: emailSubj });
       setNote(r.sent ? "✅ Email sent." : `✅ Email ${r.status}.`);
     });
   const sendText = () =>
@@ -126,7 +134,22 @@ function Profile() {
               <button className="btn w-full" disabled={busy === "Call log"} onClick={logCall}>
                 {busy === "Call log" ? "Logging…" : "📞 Log call"}
               </button>
-              {data.outreach && (
+              <select className="mt-3 w-full rounded-lg border border-gray-300 px-2 py-2 text-sm"
+                defaultValue="" onChange={(e) => setCallScript(tpl?.call.find((x) => x.id === e.target.value) || null)}>
+                <option value="">Call script…</option>
+                {(tpl?.call || []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+              {callScript && (
+                <div className="mt-2">
+                  <div className="mb-1 flex flex-wrap gap-1">
+                    {callScript.framework.map((f) => (
+                      <span key={f} className="badge bg-brand/10 text-brand-dark text-[10px]">{f}</span>
+                    ))}
+                  </div>
+                  <p className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded bg-gray-50 p-2 text-xs text-gray-600">{callScript.script}</p>
+                </div>
+              )}
+              {!callScript && data.outreach && (
                 <p className="mt-2 whitespace-pre-wrap text-xs text-gray-500">Voicemail script:{"\n"}{data.outreach.voicemail}</p>
               )}
             </div>
@@ -135,7 +158,17 @@ function Profile() {
           {/* Middle: compose email + text */}
           <div className="space-y-4">
             <div className="card">
-              <h3 className="mb-2 text-sm font-semibold text-gray-500">Email {oe && <span className="text-gray-400">· {oe.subject}</span>}</h3>
+              <h3 className="mb-2 text-sm font-semibold text-gray-500">Email</h3>
+              <select className="mb-2 w-full rounded-lg border border-gray-300 px-2 py-2 text-sm"
+                defaultValue="" onChange={(e) => {
+                  const t = tpl?.email.find((x) => x.id === e.target.value);
+                  if (t) { setEmailBody(t.body); setEmailSubject(t.subject); }
+                }}>
+                <option value="">Pick a template…</option>
+                {(tpl?.email || []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+              <input value={emailSubj} onChange={(e) => setEmailSubject(e.target.value)}
+                placeholder="Subject" className="mb-2 w-full rounded-lg border border-gray-300 px-2 py-2 text-sm" />
               <textarea value={emailText} onChange={(e) => setEmailBody(e.target.value)} rows={8}
                 className="mb-2 w-full rounded-lg border border-gray-300 p-2 text-sm" placeholder="No email content — type here or import an EverQuote lead." />
               <button className="btn w-full" disabled={busy === "Email" || !lead.email || !emailText} onClick={sendEmail}>
@@ -144,6 +177,14 @@ function Profile() {
             </div>
             <div className="card">
               <h3 className="mb-2 text-sm font-semibold text-gray-500">Text</h3>
+              <select className="mb-2 w-full rounded-lg border border-gray-300 px-2 py-2 text-sm"
+                defaultValue="" onChange={(e) => {
+                  const t = tpl?.sms.find((x) => x.id === e.target.value);
+                  if (t) setSmsBody(t.body);
+                }}>
+                <option value="">Pick a template…</option>
+                {(tpl?.sms || []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
               <textarea value={smsText} onChange={(e) => setSmsBody(e.target.value)} rows={4}
                 className="mb-2 w-full rounded-lg border border-gray-300 p-2 text-sm" placeholder="Type a text…" />
               <button className="btn w-full" disabled={busy === "Text" || !lead.phone || !smsText} onClick={sendText}>

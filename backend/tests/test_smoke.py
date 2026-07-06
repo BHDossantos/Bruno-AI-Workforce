@@ -3925,6 +3925,14 @@ def test_lead_crm_profile_and_actions(client, auth_headers):
 
         st = client.post(f"/leads/{lid}/send-text", headers=auth_headers, json={"message": "hi"})
         assert st.status_code == 400 and "not sent" in st.json()["detail"].lower()
+
+        # Templates: pickable email/text/call scripts, personalized for this lead.
+        t = client.get(f"/leads/{lid}/templates", headers=auth_headers).json()
+        assert len(t["email"]) == 5 and len(t["sms"]) == 4 and len(t["call"]) >= 1
+        first_email = next(x for x in t["email"] if x["id"] == "first_contact")
+        assert "Hi Casey," in first_email["body"]  # token filled with the lead's name
+        assert t["call"][0]["framework"][0] == "Connect"
+        assert "Casey" in t["call"][0]["script"] and "2021 Ford Escape" in t["call"][0]["script"]
     finally:
         if lid is not None:
             db.query(Message).filter(Message.entity_id == lid).delete(synchronize_session=False)
