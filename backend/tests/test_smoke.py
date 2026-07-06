@@ -4806,6 +4806,8 @@ def test_setup_connect_status_and_save(client, auth_headers):
                       "smartlead", "sendgrid", "meta_app", "tiktok_app", "booking",
                       "contacts_outreach_exclude", "newsletter_banners"}
     assert s["apollo"]["configured"] is False
+    # SMS compliance guardrails are surfaced so the Texts UI shows the real window/cap.
+    assert {"daily_cap", "window_start", "window_end", "timezone"} <= set(s["sms"])
     assert set(s["booking"]) == {"default", "insurance", "bnb", "savorymind"}
     # The AI-brain status block is present so the UI can warn when drafts are stubs.
     assert "configured" in s["ai"] and "model" in s["ai"]

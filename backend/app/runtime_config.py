@@ -180,7 +180,13 @@ def status(db) -> dict:
         "apollo": {"configured": apollo.is_configured()},
         "google_places": {"configured": places.is_configured()},
         "sms": {"configured": sms.is_configured() or bridge_on,
-                "via": "twilio" if sms.is_configured() else ("bridge" if bridge_on else None)},
+                "via": "twilio" if sms.is_configured() else ("bridge" if bridge_on else None),
+                # Surface the compliance guardrails so the Texts UI can show the
+                # real window/cap instead of a hardcoded note.
+                "daily_cap": settings.sms_daily_send_cap,
+                "window_start": settings.sms_send_window_start,
+                "window_end": settings.sms_send_window_end,
+                "timezone": settings.sms_timezone},
         "whatsapp": {"configured": sms.whatsapp_configured(),
                     "via": "meta_cloud" if whatsapp_cloud.is_configured()
                     else ("twilio" if sms.whatsapp_configured() else None)},
