@@ -188,15 +188,18 @@ def has_own_credentials(account: str = PERSONAL) -> bool:
     return _credentials(account) is not None or bool(cfg.get("app_password") and cfg.get("address"))
 
 
-def _send_smtp(account: str, to: str, subject: str, body: str) -> str | None:
-    """Send via Gmail SMTP using an App Password. Returns a synthetic id or None."""
+def _send_smtp_verbose(account: str, to: str, subject: str, body: str) -> tuple[str | None, str | None]:
+    """Send via Gmail SMTP (App Password). Returns (message_id, error_reason);
+    exactly one is non-None — so callers can SHOW why a send actually failed
+    instead of swallowing it."""
     import smtplib
     from email.utils import make_msgid
 
     login_addr, pw, from_addr, reply_to = _smtp_login(account)
     if not (login_addr and pw):
-        return None
-    mime = MIMEText(body, "html")
+        return None, ("No SMTP credentials for this mailbox — set its address + a "
+                      "Google App Password on the Connect page.")
+    mime = MIMEText(body or "", "html")
     mime["To"] = to
     mime["From"] = from_addr or login_addr
     mime["Subject"] = subject or "(no subject)"
@@ -209,10 +212,35 @@ def _send_smtp(account: str, to: str, subject: str, body: str) -> str | None:
             server.starttls()
             server.login(login_addr, pw)
             server.sendmail(from_addr or login_addr, [to], mime.as_string())
-        return msg_id
+        return msg_id, None
     except Exception as exc:  # pragma: no cover - network guard
-        log.warning("SMTP send failed (%s via %s): %s", to, account, exc)
-        return None
+        reason = str(exc)[:250] or exc.__class__.__name__
+        log.warning("SMTP send failed (%s via %s): %s", to, account, reason)
+        return None, reason
+
+
+def _send_smtp(account: str, to: str, subject: str, body: str) -> str | None:
+    """Send via Gmail SMTP using an App Password. Returns a synthetic id or None."""
+    return _send_smtp_verbose(account, to, subject, body)[0]
+
+
+def send_with_error(to: str, subject: str, body: str, account: str = PERSONAL) -> tuple[str | None, str | None]:
+    """Like send_message but returns (message_id, error_reason) so the caller can
+    show the operator exactly why a send failed."""
+    if not to:
+        return None, "No recipient address."
+    account = effective_account(account)
+    svc = _service(account)
+    if svc is None:
+        return _send_smtp_verbose(account, to, subject, body)  # App Password path
+    try:
+        sent = svc.users().messages().send(userId="me", body=_raw(account, to, subject, body)).execute()
+        return sent.get("id"), None
+    except Exception as exc:  # Gmail API failed → try SMTP, keep whichever error is real
+        mid, smtp_err = _send_smtp_verbose(account, to, subject, body)
+        if mid:
+            return mid, None
+        return None, f"Gmail API: {str(exc)[:120]} · SMTP: {smtp_err}"
 
 
 def verify(account: str = PERSONAL) -> dict:

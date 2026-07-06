@@ -61,9 +61,9 @@ def send_message(message_id: str, db: Session = Depends(get_db), _=Depends(_writ
         raise HTTPException(status_code=400, detail="Message has no recipient")
     if not gmail.is_configured(msg.from_account):
         raise HTTPException(status_code=400, detail=f"Gmail account '{msg.from_account}' not configured")
-    mid = gmail.send_message(msg.to_email, msg.subject or "", msg.body or "", account=msg.from_account)
+    mid, err = gmail.send_with_error(msg.to_email, msg.subject or "", msg.body or "", account=msg.from_account)
     if not mid:
-        raise HTTPException(status_code=502, detail="Gmail send failed")
+        raise HTTPException(status_code=502, detail=f"Send failed: {err or 'unknown error'}")
     msg.provider_id = mid
     msg.approved = True
     msg.status = "Sent"
@@ -71,6 +71,47 @@ def send_message(message_id: str, db: Session = Depends(get_db), _=Depends(_writ
     db.commit()
     db.refresh(msg)
     return msg
+
+
+class SendDraftsIn(BaseModel):
+    account: str | None = None
+    limit: int = 20
+
+
+@router.post("/messages/send-drafts")
+def send_drafts(body: SendDraftsIn, db: Session = Depends(get_db), _=Depends(_write)):
+    """Send the oldest N drafted outbound messages in one click (paced — protects
+    a new mailbox's deliverability). Reports how many sent/failed and the real
+    reason for any failure, instead of silently doing nothing."""
+    q = db.query(Message).filter(
+        Message.direction == "outbound", Message.to_email.isnot(None),
+        Message.status.in_(["Drafted", "Approved"]))
+    if body.account:
+        q = q.filter(Message.from_account == body.account)
+    msgs = q.order_by(Message.created_at.asc()).limit(max(1, min(body.limit, 50))).all()
+
+    sent = failed = 0
+    errors: list[str] = []
+    for m in msgs:
+        if not gmail.is_configured(m.from_account):
+            failed += 1
+            reason = f"Mailbox '{m.from_account}' not configured"
+            if reason not in errors:
+                errors.append(reason)
+            continue
+        mid, err = gmail.send_with_error(m.to_email, m.subject or "", m.body or "", account=m.from_account)
+        if mid:
+            m.provider_id = mid
+            m.approved = True
+            m.status = "Sent"
+            m.sent_at = datetime.now(timezone.utc)
+            sent += 1
+        else:
+            failed += 1
+            if err and err not in errors:
+                errors.append(err)
+    db.commit()
+    return {"sent": sent, "failed": failed, "considered": len(msgs), "errors": errors[:3]}
 
 
 @router.post("/messages/reply")
