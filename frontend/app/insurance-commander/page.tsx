@@ -120,16 +120,24 @@ function InsuranceCommander() {
     } catch (e) { setOutreachMsg(String(e)); }
     finally { setOutreachBusy(false); }
   }
-  async function importEverquote() {
-    if (!importCsv.trim()) return;
+  async function doImport(text: string) {
+    if (!text.trim()) { setImportMsg("That file/paste was empty."); return; }
     setImportBusy(true); setImportMsg("");
     try {
       const r = await api.post<{ imported: number; updated: number; skipped: number; total: number }>(
-        "/leads/import-everquote", { csv_text: importCsv });
-      setImportMsg(`Imported ${r.imported} new · ${r.updated} updated · ${r.skipped} skipped (of ${r.total}). Now click “Personalize & queue all”, or paste a lead id below.`);
+        "/leads/import-everquote", { csv_text: text });
+      setImportMsg(`✅ Imported ${r.imported} new · ${r.updated} updated · ${r.skipped} skipped (of ${r.total}). Now click “Personalize & queue all”.`);
       setImportCsv(""); reload();
-    } catch (e) { setImportMsg(String(e)); }
+    } catch (e) { setImportMsg(`❌ ${e}`); }
     finally { setImportBusy(false); }
+  }
+  function importEverquote() { doImport(importCsv); }
+  async function handleCsvFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = "";  // allow re-picking the same file
+    if (!f) return;
+    try { await doImport(await f.text()); }
+    catch (err) { setImportMsg(`❌ Couldn't read that file: ${err}`); }
   }
   async function personalizeAll() {
     setImportBusy(true);
@@ -300,7 +308,13 @@ function InsuranceCommander() {
       {/* Import EverQuote leads */}
       <div className="card">
         <h2 className="font-semibold">📥 Import EverQuote leads</h2>
-        <p className="mb-2 text-xs text-gray-500">Paste your EverQuote CSV export. Every field is parsed (vehicle, current carrier, credit, coverage), leads are created with a pre-filled quote intake, and each gets a personalized email + SMS + voicemail + call notes — 500 leads take the same effort as 5.</p>
+        <p className="mb-2 text-xs text-gray-500">Upload your EverQuote CSV file (easiest — no copy/paste needed), or paste the raw text. Every field is parsed (vehicle, current carrier, credit, coverage), leads get a pre-filled quote intake, and each gets a personalized email + SMS + voicemail + call notes — 500 leads take the same effort as 5.</p>
+        <label className="mb-2 flex cursor-pointer items-center gap-2 rounded-lg border-2 border-dashed border-brand/40 bg-brand/5 px-3 py-3 text-sm text-brand-dark hover:bg-brand/10">
+          <span className="font-medium">📄 Choose CSV file…</span>
+          <span className="text-xs text-gray-500">(your EverQuote export)</span>
+          <input type="file" accept=".csv,text/csv,text/plain" className="hidden" onChange={handleCsvFile} disabled={importBusy} />
+        </label>
+        <p className="mb-1 text-center text-[11px] text-gray-400">— or paste the raw CSV text —</p>
         <textarea value={importCsv} onChange={(e) => setImportCsv(e.target.value)}
           placeholder='Paste EverQuote CSV here (including the header row: "created_at","eqLeadUUID",…)'
           className="h-24 w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-xs" />

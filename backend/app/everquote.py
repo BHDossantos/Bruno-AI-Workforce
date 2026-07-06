@@ -104,9 +104,19 @@ def _extract(row: dict) -> dict:
 
 
 def parse_csv(text: str) -> list[dict]:
-    """Parse an EverQuote CSV export into normalized field dicts."""
-    reader = csv.DictReader(io.StringIO(text))
-    return [_extract(r) for r in reader]
+    """Parse an EverQuote CSV export into normalized field dicts. Tolerant of a
+    UTF-8 BOM, mixed line endings, and a tab/semicolon delimiter (e.g. when the
+    file was exported from a spreadsheet instead of raw CSV)."""
+    text = (text or "").lstrip("﻿")
+    if not text.strip():
+        return []
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    # Pick the delimiter that dominates the header line (raw CSV → comma;
+    # spreadsheet export → tab/semicolon).
+    header = text.split("\n", 1)[0]
+    delimiter = max([",", "\t", ";"], key=header.count)
+    reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
+    return [_extract(r) for r in reader if any((v or "").strip() for v in r.values())]
 
 
 def _vehicle(f: dict) -> str:
