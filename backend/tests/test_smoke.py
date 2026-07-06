@@ -1614,6 +1614,24 @@ def test_insurance_backup_mailbox_fallback(monkeypatch):
     assert gmail.effective_account(gmail.INSURANCE) == gmail.INSURANCE
 
 
+def test_everquote_parse_csv_is_tolerant():
+    """The importer parses raw CSV, and survives a UTF-8 BOM, CRLF line endings,
+    and a tab-delimited spreadsheet export; header-only/empty → 0 rows (not junk)."""
+    from app import everquote
+    header = '"first_name","last_name","email","phone","detail"'
+    row = '"Tess","Driver","tess@x.co","6035550100",""'
+    csv_text = header + "\n" + row + "\n"
+    assert len(everquote.parse_csv(csv_text)) == 1
+    # UTF-8 BOM + CRLF (common when a file is saved from Excel/Notepad).
+    assert len(everquote.parse_csv("﻿" + csv_text.replace("\n", "\r\n"))) == 1
+    # Tab-delimited (pasted/exported from a spreadsheet).
+    tabbed = "first_name\tlast_name\temail\tphone\nTess\tDriver\ttess@x.co\t6035550100\n"
+    assert everquote.parse_csv(tabbed)[0]["email"] == "tess@x.co"
+    # Header-only or blank → nothing (the real "No rows parsed" case).
+    assert everquote.parse_csv(header) == []
+    assert everquote.parse_csv("   ") == []
+
+
 def test_everquote_model_casing():
     """Vehicle models read the way people write them: real words title-cased,
     model codes kept upper."""
