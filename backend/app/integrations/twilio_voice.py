@@ -15,7 +15,9 @@ No-ops cleanly when unconfigured.
 from __future__ import annotations
 
 import logging
+import re
 import time
+from urllib.parse import urlencode
 
 import httpx
 import jwt
@@ -23,6 +25,17 @@ import jwt
 from ..config import settings
 
 log = logging.getLogger("bruno.voice")
+
+
+def _e164(phone: str | None) -> str:
+    """Normalize a US phone to E.164 (+1XXXXXXXXXX) so Twilio accepts it and it's
+    safe in a URL. '(978) 254-1435' -> '+19782541435'."""
+    d = re.sub(r"\D", "", phone or "")
+    if len(d) == 11 and d.startswith("1"):
+        return "+" + d
+    if len(d) == 10:
+        return "+1" + d
+    return ("+" + d) if d else ""
 
 _CONSENT = ("This call is with a licensed insurance producer and may be "
             "recorded for quality and training purposes.")
@@ -58,8 +71,9 @@ def _dial_lead(lead_phone: str, lead_id: str | None) -> str:
     """TwiML that dials the lead with our caller-ID, plays the consent notice TO
     the lead when they answer, and records the bridged call."""
     base, rec = _base_url(), settings.call_recording_enabled
-    announce = (f'<Number url="{base}/calls/twiml/announce">{lead_phone}</Number>'
-                if (rec and base) else f'<Number>{lead_phone}</Number>')
+    num = _e164(lead_phone) or lead_phone
+    announce = (f'<Number url="{base}/calls/twiml/announce">{num}</Number>'
+                if (rec and base) else f'<Number>{num}</Number>')
     attrs = f' callerId="{_voice_number()}"'
     if rec and base:
         attrs += (' record="record-from-answer-dual"'
@@ -90,13 +104,19 @@ def place_bridge_call(lead_phone: str, lead_id: str | None) -> tuple[str | None,
     base = _base_url()
     if not base:
         return None, "PUBLIC_BASE_URL is not set, so Twilio can't reach the call webhooks."
+    to_lead = _e164(lead_phone)
+    if not to_lead:
+        return None, "lead has no valid phone number"
+    # URL-encode the query params — a raw '(978) 254-1435' makes Twilio reject the
+    # callback URL (code 21205 'Url is not a valid URL').
+    bridge_q = urlencode({k: v for k, v in {"lead_phone": to_lead, "lead_id": lead_id}.items() if v})
+    status_q = urlencode({"lead_id": lead_id}) if lead_id else ""
     url = f"https://api.twilio.com/2010-04-01/Accounts/{settings.twilio_account_sid}/Calls.json"
     data = {
-        "To": settings.producer_callback,   # ring YOU first
+        "To": _e164(settings.producer_callback),   # ring YOU first
         "From": _voice_number(),
-        "Url": f"{base}/calls/twiml/bridge?lead_phone={lead_phone}"
-               + (f"&lead_id={lead_id}" if lead_id else ""),
-        "StatusCallback": f"{base}/calls/status" + (f"?lead_id={lead_id}" if lead_id else ""),
+        "Url": f"{base}/calls/twiml/bridge?{bridge_q}",
+        "StatusCallback": f"{base}/calls/status" + (f"?{status_q}" if status_q else ""),
         "StatusCallbackEvent": "completed",
     }
     try:
