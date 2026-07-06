@@ -16,13 +16,19 @@ log = logging.getLogger("bruno.sms")
 
 
 def is_configured() -> bool:
-    return bool(settings.twilio_account_sid and settings.twilio_auth_token and settings.twilio_from_number)
+    # Ready to send once we have the account creds AND at least one Twilio number —
+    # either the default sending number OR the insurance line. Requiring BOTH was a
+    # trap: filling only the insurance number left texting silently "not configured".
+    return bool(settings.twilio_account_sid and settings.twilio_auth_token
+                and (settings.twilio_from_number or settings.twilio_insurance_number))
 
 
 def number_for(account: str) -> str:
     if account == "insurance" and settings.twilio_insurance_number:
         return settings.twilio_insurance_number
-    return settings.twilio_from_number
+    # Fall back to whichever number IS set, so a send never goes out with an empty
+    # From (which Twilio rejects) just because one field was left blank.
+    return settings.twilio_from_number or settings.twilio_insurance_number
 
 
 def send_sms(to: str, body: str, account: str = "personal") -> str | None:

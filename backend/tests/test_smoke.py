@@ -1041,6 +1041,31 @@ def test_whatsapp_prefers_meta_cloud_over_twilio():
          settings.twilio_whatsapp_number) = orig
 
 
+def test_sms_configured_accepts_either_number():
+    """Twilio SMS is 'configured' with the creds + EITHER number field (default or
+    insurance) — requiring both was a trap that silently blocked texting. And the
+    From never resolves empty when only one is set."""
+    from app.config import settings
+    from app.integrations import sms
+    orig = (settings.twilio_account_sid, settings.twilio_auth_token,
+            settings.twilio_from_number, settings.twilio_insurance_number)
+    try:
+        settings.twilio_account_sid, settings.twilio_auth_token = "AC1", "tok"
+        settings.twilio_from_number = settings.twilio_insurance_number = ""
+        assert sms.is_configured() is False  # creds but no number
+        settings.twilio_insurance_number = "+16035550100"
+        assert sms.is_configured() is True   # insurance number alone is enough
+        assert sms.number_for("personal") == "+16035550100"  # falls back, never empty
+        assert sms.number_for("insurance") == "+16035550100"
+        settings.twilio_insurance_number = ""
+        settings.twilio_from_number = "+16175550111"
+        assert sms.is_configured() is True   # default number alone is enough
+        assert sms.number_for("insurance") == "+16175550111"
+    finally:
+        (settings.twilio_account_sid, settings.twilio_auth_token,
+         settings.twilio_from_number, settings.twilio_insurance_number) = orig
+
+
 @requires_db
 def test_client_whatsapp_send_gated_and_logged(client, auth_headers):
     """Sending a client WhatsApp message requires a phone number, a non-empty
