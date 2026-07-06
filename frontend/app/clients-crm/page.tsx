@@ -49,7 +49,7 @@ function CRM() {
   const [detail, setDetail] = useState<Client | null>(null);            // detail + timeline
   const [msg, setMsg] = useState("");
   const bizLabel = (k: string) => opts?.businesses.find((b) => b.key === k)?.label || k;
-  const [quickLog, setQuickLog] = useState<{ id: string; kind: "call" | "sms" } | null>(null);
+  const [quickLog, setQuickLog] = useState<{ id: string; kind: "call" | "sms"; phone: string | null } | null>(null);
   const [quickBody, setQuickBody] = useState("");
   const [quickBusy, setQuickBusy] = useState(false);
 
@@ -57,8 +57,17 @@ function CRM() {
     if (!quickLog || !quickBody.trim()) return;
     setQuickBusy(true);
     try {
+      // 💬 actually SENDS the text (then logs it); 📞 just logs the call.
+      if (quickLog.kind === "sms") {
+        if (!quickLog.phone) throw new Error("This client has no phone on file");
+        const r = await api.post<{ ok?: boolean; reason?: string }>("/sms/send", {
+          to: quickLog.phone, message: quickBody.trim(), account: "insurance",
+          entity_type: "client", entity_id: quickLog.id });
+        if (r.ok === false) throw new Error(r.reason || "Text not sent");
+      }
       await api.post(`/book/clients/${quickLog.id}/notes`, { kind: quickLog.kind, body: quickBody.trim() });
-      setQuickLog(null); setQuickBody(""); setRefresh((n) => n + 1); setMsg("✅ Logged.");
+      setQuickLog(null); setQuickBody(""); setRefresh((n) => n + 1);
+      setMsg(quickLog.kind === "sms" ? "✅ Text sent & logged." : "✅ Call logged.");
     } catch (e) { setMsg(`❌ ${e}`); }
     finally { setQuickBusy(false); }
   }
@@ -176,7 +185,8 @@ function CRM() {
                 <td className="p-3" onClick={(e) => e.stopPropagation()}>
                   {quickLog?.id === c.id ? (
                     <div className="flex items-center gap-1">
-                      <input autoFocus className="input w-40 text-xs" placeholder={`What happened (${quickLog.kind})?`}
+                      <input autoFocus className="input w-40 text-xs"
+                        placeholder={quickLog.kind === "sms" ? "Text to send…" : "What happened on the call?"}
                         value={quickBody} onChange={(e) => setQuickBody(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && submitQuickLog()} />
                       <button className="rounded bg-brand px-2 py-1 text-xs text-white disabled:opacity-50"
@@ -186,10 +196,17 @@ function CRM() {
                     </div>
                   ) : (
                     <div className="flex gap-1">
+                      {c.phone ? (
+                        <a href={`tel:${c.phone}`} onClick={(e) => e.stopPropagation()}
+                          className="rounded-lg border border-gray-200 px-2 py-1 text-xs hover:bg-gray-50"
+                          title={`Call ${c.phone}`}>📞</a>
+                      ) : (
+                        <button className="rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-300" disabled title="No phone on file">📞</button>
+                      )}
                       <button className="rounded-lg border border-gray-200 px-2 py-1 text-xs hover:bg-gray-50"
-                        onClick={() => { setQuickLog({ id: c.id, kind: "call" }); setQuickBody(""); }} title="Log a call">📞</button>
+                        onClick={() => { setQuickLog({ id: c.id, kind: "call", phone: c.phone }); setQuickBody(""); }} title="Log a call">📝</button>
                       <button className="rounded-lg border border-gray-200 px-2 py-1 text-xs hover:bg-gray-50"
-                        onClick={() => { setQuickLog({ id: c.id, kind: "sms" }); setQuickBody(""); }} title="Log an SMS">💬</button>
+                        onClick={() => { setQuickLog({ id: c.id, kind: "sms", phone: c.phone }); setQuickBody(""); }} title="Send a text">💬</button>
                     </div>
                   )}
                 </td>

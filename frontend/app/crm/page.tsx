@@ -1,8 +1,14 @@
 "use client";
 
 import { Fragment, useEffect, useState } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { AuthGate, PageHeader } from "@/components/ui";
+
+// A CRM contact that is a lead exposes its full profile at /leads/{id}.
+function leadProfileHref(cid: string): string | null {
+  return cid.startsWith("lead:") ? `/leads/${cid.slice(5)}` : null;
+}
 
 type Contact = {
   id: string; name: string; company: string | null; title: string | null;
@@ -133,7 +139,13 @@ function CRM() {
                   <td className="p-3 text-gray-500">{[c.title, c.company].filter(Boolean).join(" · ")}</td>
                   <td className="p-3"><span className="rounded bg-gray-100 px-2 py-0.5 text-xs">{c.kind || c.source}</span></td>
                   <td className="p-3 text-gray-500">{c.status || "—"}</td>
-                  <td className="p-3 text-right text-gray-400">{open === c.id ? "▲" : "▼"}</td>
+                  <td className="p-3 text-right whitespace-nowrap">
+                    {leadProfileHref(c.id) && (
+                      <Link href={leadProfileHref(c.id)!} onClick={(e) => e.stopPropagation()}
+                        className="mr-3 text-xs font-medium text-brand hover:underline">Open profile ↗</Link>
+                    )}
+                    <span className="text-gray-400">{open === c.id ? "▲" : "▼"}</span>
+                  </td>
                 </tr>
                 {open === c.id && (
                   <tr className="border-t bg-gray-50/50">
@@ -141,6 +153,11 @@ function CRM() {
                       <div className="flex flex-wrap gap-4 text-xs text-gray-600">
                         {c.email && <span>✉️ {c.email}</span>}
                         {c.phone && <span>📞 {c.phone}</span>}
+                        {leadProfileHref(c.id) && (
+                          <Link href={leadProfileHref(c.id)!} className="font-medium text-brand">
+                            Open full CRM profile (email · text · call · timeline) ↗
+                          </Link>
+                        )}
                         <a href={c.link} className="text-brand">Open in {c.source} ↗</a>
                       </div>
                       <div className="mt-3">
