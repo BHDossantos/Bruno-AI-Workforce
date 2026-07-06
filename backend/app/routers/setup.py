@@ -35,6 +35,11 @@ class CredIn(BaseModel):
     twilio_auth_token: str | None = None
     twilio_from_number: str | None = None
     twilio_insurance_number: str | None = None
+    twilio_voice_number: str | None = None
+    producer_callback: str | None = None
+    twilio_api_key_sid: str | None = None
+    twilio_api_key_secret: str | None = None
+    twilio_twiml_app_sid: str | None = None
     twilio_whatsapp_number: str | None = None
     whatsapp_cloud_phone_number_id: str | None = None
     whatsapp_cloud_token: str | None = None

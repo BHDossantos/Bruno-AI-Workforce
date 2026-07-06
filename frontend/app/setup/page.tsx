@@ -11,6 +11,7 @@ type Status = {
   gmail_bnb?: Area; gmail_savorymind?: Area;
   apollo: Area; google_places: Area;
   sms?: Area; whatsapp?: Area & { via?: string | null }; jobs_api?: Area;
+  calling?: Area & { browser?: boolean; recording?: boolean; callback_set?: boolean };
   instantly?: Area; smartlead?: Area; sendgrid?: Area;
   meta_app?: { configured: boolean; app_id: string; redirect_uri: string };
   tiktok_app?: { configured: boolean; client_key: string; redirect_uri: string };
@@ -457,6 +458,29 @@ function Setup() {
               value={form.twilio_from_number || ""} onChange={(e) => set("twilio_from_number", e.target.value)} />
             <input className="input" placeholder="Insurance number (optional)"
               value={form.twilio_insurance_number || ""} onChange={(e) => set("twilio_insurance_number", e.target.value)} />
+          </div>
+        </div>
+
+        {/* Calling — Twilio Voice (bridge + browser softphone) */}
+        <div className="card">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">📞 Calling (Twilio Voice)</h2>
+            <Badge ok={!!data.calling?.configured} />
+          </div>
+          <p className="mb-3 text-xs text-gray-500">
+            Click “Call” on a lead → Twilio rings <b>your phone</b>, then connects the lead (recorded, with a consent notice; AI notes post to the timeline). Uses your Twilio account above. Enter <b>your cell</b> as the callback number. For browser calling (when your phone’s dead), add a Twilio <b>API Key</b> (SID + Secret) and a <b>TwiML App SID</b> whose Voice URL is <code>…/calls/twiml/outbound</code>.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input className="input" placeholder="Your cell to ring +1 617 555 1234"
+              value={form.producer_callback || ""} onChange={(e) => set("producer_callback", e.target.value)} />
+            <input className="input" placeholder="Caller-ID / Voice number (optional)"
+              value={form.twilio_voice_number || ""} onChange={(e) => set("twilio_voice_number", e.target.value)} />
+            <input className="input" placeholder="API Key SID (browser calling)"
+              value={form.twilio_api_key_sid || ""} onChange={(e) => set("twilio_api_key_sid", e.target.value)} />
+            <input className="input" type="password" placeholder="API Key Secret (browser calling)"
+              value={form.twilio_api_key_secret || ""} onChange={(e) => set("twilio_api_key_secret", e.target.value)} />
+            <input className="input" placeholder="TwiML App SID (browser calling)"
+              value={form.twilio_twiml_app_sid || ""} onChange={(e) => set("twilio_twiml_app_sid", e.target.value)} />
           </div>
         </div>
 

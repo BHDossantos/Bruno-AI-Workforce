@@ -1073,6 +1073,66 @@ def test_send_text_refreshes_saved_twilio_config(client, auth_headers, monkeypat
         db.close()
 
 
+def test_twilio_voice_config_twiml_and_token():
+    """Bridge calling is configured with creds + a number + a callback phone;
+    browser softphone also needs an API key + TwiML App. TwiML bridges + records
+    with a consent notice, and the browser access token carries a voice grant."""
+    import jwt
+    from app.config import settings
+    from app.integrations import twilio_voice as v
+    orig = (settings.twilio_account_sid, settings.twilio_auth_token,
+            settings.twilio_insurance_number, settings.producer_callback,
+            settings.public_base_url, settings.twilio_api_key_sid,
+            settings.twilio_api_key_secret, settings.twilio_twiml_app_sid)
+    try:
+        settings.twilio_account_sid = "AC1"; settings.twilio_auth_token = "tok"
+        settings.twilio_insurance_number = "+16035550100"
+        settings.producer_callback = ""; settings.public_base_url = "https://x.run.app"
+        assert v.is_configured() is False          # no callback phone yet
+        settings.producer_callback = "+16175551234"
+        assert v.is_configured() is True
+        # Bridge TwiML dials the lead, records dual-channel, and announces consent.
+        tw = v.bridge_twiml("+15551234567", "lead-1")
+        assert "<Dial" in tw and "record-from-answer-dual" in tw and "+15551234567" in tw
+        assert "may be recorded" in v.announce_twiml()
+
+        # Browser softphone token
+        assert v.browser_configured() is False
+        settings.twilio_api_key_sid = "SK1"; settings.twilio_api_key_secret = "secret"
+        settings.twilio_twiml_app_sid = "AP1"
+        assert v.browser_configured() is True
+        tok = v.access_token("agent")
+        claims = jwt.decode(tok, "secret", algorithms=["HS256"])
+        assert claims["grants"]["voice"]["outgoing"]["application_sid"] == "AP1"
+        assert claims["grants"]["identity"] == "agent"
+    finally:
+        (settings.twilio_account_sid, settings.twilio_auth_token,
+         settings.twilio_insurance_number, settings.producer_callback,
+         settings.public_base_url, settings.twilio_api_key_sid,
+         settings.twilio_api_key_secret, settings.twilio_twiml_app_sid) = orig
+
+
+@requires_db
+def test_call_lead_offline_returns_reason(client, auth_headers):
+    """Calling a lead with Twilio not connected returns a clear 400, not a crash."""
+    from app.database import SessionLocal
+    from app.models import Lead
+    db = SessionLocal()
+    lid = None
+    try:
+        db.query(Lead).filter(Lead.email == "calltest@x.co").delete(synchronize_session=False)
+        db.commit()
+        lead = Lead(segment="personal", owner_name="Call Test", email="calltest@x.co",
+                    phone="+15550009999")
+        db.add(lead); db.flush(); lid = lead.id; db.commit()
+        r = client.post(f"/calls/lead/{lid}", headers=auth_headers)
+        assert r.status_code == 400 and "call" in r.json()["detail"].lower()
+    finally:
+        if lid is not None:
+            db.query(Lead).filter(Lead.id == lid).delete(synchronize_session=False); db.commit()
+        db.close()
+
+
 def test_sms_configured_accepts_either_number():
     """Twilio SMS is 'configured' with the creds + EITHER number field (default or
     insurance) — requiring both was a trap that silently blocked texting. And the
@@ -4934,7 +4994,7 @@ def test_setup_connect_status_and_save(client, auth_headers):
     s = client.get("/setup", headers=auth_headers).json()
     assert set(s) == {"ai", "gmail_personal", "gmail_insurance", "gmail_insurance_backup",
                       "gmail_bnb", "gmail_savorymind",
-                      "apollo", "google_places", "sms", "whatsapp", "jobs_api", "instantly",
+                      "apollo", "google_places", "sms", "whatsapp", "calling", "jobs_api", "instantly",
                       "smartlead", "sendgrid", "meta_app", "tiktok_app", "booking",
                       "contacts_outreach_exclude", "newsletter_banners"}
     assert s["apollo"]["configured"] is False

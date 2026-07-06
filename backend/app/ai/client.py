@@ -90,6 +90,22 @@ def complete_json(prompt: str, *, system: str = "You output only valid JSON.") -
         return {}
 
 
+def transcribe(audio: bytes, filename: str = "call.mp3") -> str | None:
+    """Transcribe a call recording (mp3/wav bytes) via Whisper. None when offline."""
+    client = _get_client()
+    if client is None or not audio:
+        return None
+    try:
+        import io
+        buf = io.BytesIO(audio)
+        buf.name = filename
+        resp = client.audio.transcriptions.create(model="whisper-1", file=buf)
+        return getattr(resp, "text", None) or None
+    except Exception as exc:  # pragma: no cover - network guard
+        log.warning("OpenAI transcription failed: %s", exc)
+        return None
+
+
 def embed(text: str) -> list[float] | None:
     """Return an embedding vector for the text, or None when offline/unavailable.
 

@@ -90,6 +90,11 @@ function Profile() {
       await api.post(`/leads/${id}/log-call`, { outcome: callOutcome, notes: callNotes || null });
       setCallNotes("");
     });
+  const callNow = () =>
+    act("Call", async () => {
+      const r = await api.post<{ message: string }>(`/calls/lead/${id}`, {});
+      setNote(`📞 ${r.message}`);
+    });
 
   return (
     <div>
@@ -125,9 +130,14 @@ function Profile() {
               </div>
             </div>
 
-            {/* Log a call */}
+            {/* Call */}
             <div className="card">
-              <h3 className="mb-2 text-sm font-semibold text-gray-500">Log a call</h3>
+              <h3 className="mb-2 text-sm font-semibold text-gray-500">Call</h3>
+              <button className="btn mb-2 w-full" disabled={busy === "Call" || !lead.phone} onClick={callNow}>
+                {busy === "Call" ? "Calling…" : "📞 Call lead (rings your phone)"}
+              </button>
+              <p className="mb-3 text-xs text-gray-400">Twilio rings your phone, then connects the lead. Recorded with a consent notice; AI notes post to the timeline after.</p>
+              <h3 className="mb-2 text-sm font-semibold text-gray-500">Log a call manually</h3>
               <select value={callOutcome} onChange={(e) => setCallOutcome(e.target.value)}
                 className="mb-2 w-full rounded-lg border border-gray-300 px-2 py-2 text-sm">
                 {["Reached", "Left voicemail", "No answer", "Busy", "Wrong number", "Callback scheduled"].map((o) => (

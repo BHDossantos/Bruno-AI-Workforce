@@ -195,6 +195,21 @@ class Settings(BaseSettings):
     # reuses the same Facebook Developer app already connected for FB/IG.
     whatsapp_cloud_phone_number_id: str = ""
     whatsapp_cloud_token: str = ""
+    # ── Twilio Voice (calling) ────────────────────────────────────────────────
+    # Caller-ID number for outbound calls (Voice-enabled Twilio number). Falls
+    # back to the insurance/default SMS number when blank.
+    twilio_voice_number: str = ""
+    # Record calls + play a "this call may be recorded" notice (MA/FL are
+    # two-party-consent states, so the notice is required when recording).
+    call_recording_enabled: bool = True
+    # Public base URL of THIS backend, so Twilio can reach our TwiML/status
+    # webhooks (e.g. https://ai-workforce-...run.app). Set in the deploy env.
+    public_base_url: str = ""
+    # Browser softphone (Twilio Voice JS SDK) — needs an API Key + a TwiML App
+    # whose Voice URL points at {public_base_url}/calls/twiml/outbound.
+    twilio_api_key_sid: str = ""
+    twilio_api_key_secret: str = ""
+    twilio_twiml_app_sid: str = ""
 
     # Newsletter banner photo per funnel (optional — a tasteful gradient banner
     # is used automatically when none is set, so newsletters never look bare).

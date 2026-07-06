@@ -44,6 +44,11 @@ FIELDS: dict[str, bool] = {
     "twilio_auth_token": True,
     "twilio_from_number": False,
     "twilio_insurance_number": False,  # optional separate number for insurance texts
+    "twilio_voice_number": False,      # caller-ID for outbound calls (Voice-enabled)
+    "producer_callback": False,        # YOUR cell — Twilio rings this to bridge calls
+    "twilio_api_key_sid": False,       # browser softphone: API Key SID
+    "twilio_api_key_secret": True,     # browser softphone: API Key secret
+    "twilio_twiml_app_sid": False,     # browser softphone: TwiML App SID
     "twilio_whatsapp_number": False,   # WhatsApp Business number (Twilio)
     "whatsapp_cloud_phone_number_id": False,  # Meta WhatsApp Cloud API (no Twilio)
     "whatsapp_cloud_token": True,
@@ -143,7 +148,7 @@ def save(db, field: str, value: str) -> bool:
 def status(db) -> dict:
     """Connection status — booleans + non-secret addresses only, never secrets."""
     from .integrations import (apollo, gmail, instantly, jobs_api, places, sendgrid,
-                               smartlead, sms, whatsapp_cloud)
+                               smartlead, sms, twilio_voice, whatsapp_cloud)
     apply_to_settings(db)  # make sure the live view reflects stored values
     bridge_on = bool(settings.bridge_token)
     from .ai import client as ai_client
@@ -190,6 +195,10 @@ def status(db) -> dict:
         "whatsapp": {"configured": sms.whatsapp_configured(),
                     "via": "meta_cloud" if whatsapp_cloud.is_configured()
                     else ("twilio" if sms.whatsapp_configured() else None)},
+        "calling": {"configured": twilio_voice.is_configured(),      # bridge (ring my phone)
+                    "browser": twilio_voice.browser_configured(),    # softphone
+                    "recording": settings.call_recording_enabled,
+                    "callback_set": bool(settings.producer_callback)},
         "jobs_api": {"configured": jobs_api.is_configured()},
         # Meta app for the one-click Facebook/Instagram connect button.
         "meta_app": {
