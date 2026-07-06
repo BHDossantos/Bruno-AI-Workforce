@@ -194,8 +194,10 @@ def _signature() -> str:
     return f"{settings.producer_name}{lic}"
 
 
-def personalize(lead: Lead) -> dict:
-    """Generate personalized email + SMS + voicemail + call notes for one lead."""
+def personalize(lead: Lead, use_ai: bool = True) -> dict:
+    """Generate personalized email + SMS + voicemail + call notes for one lead.
+    ``use_ai=False`` skips the per-lead AI polish (the templates are already
+    personalized) — used by the bulk batch so it stays fast and never times out."""
     intake = lead.intake or {}
     f = intake.get("everquote") or {}
     if not f:
@@ -249,7 +251,7 @@ def personalize(lead: Lead) -> dict:
     tailored_email = tailored_sms = None
     try:
         from .ai import client
-        if client.is_live():
+        if use_ai and client.is_live():
             te = client.complete(
                 f"Rewrite this insurance follow-up email warmer and more natural, same facts, "
                 f"no placeholders, keep the signature:\n\n{email_body}",
@@ -304,7 +306,7 @@ def personalize_batch(db: Session, lead_ids: list[str] | None = None, limit: int
         if str(lead.id) in already or not lead.email:
             skipped += 1
             continue
-        pack = personalize(lead)
+        pack = personalize(lead, use_ai=False)  # templates only — keep the bulk pass fast
         if not pack.get("ok"):
             skipped += 1
             continue
