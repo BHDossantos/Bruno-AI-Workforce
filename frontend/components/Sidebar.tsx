@@ -15,15 +15,25 @@ type NavGroup = { title: string; icon: string; items: NavItem[] };
 
 const GROUPS: NavGroup[] = [
   {
+    title: "🛡️ Insurance — Start Here", icon: "🛡️",
+    items: [
+      { href: "/insurance", label: "Leads (email · text · call)", icon: "🎯" },
+      { href: "/texts", label: "Texts", icon: "💬" },
+      { href: "/outbox", label: "Email Outbox", icon: "📧" },
+      { href: "/approvals", label: "Approval Queue", icon: "☑️" },
+      { href: "/clients-crm", label: "Client Book (CRM)", icon: "🗃️" },
+      { href: "/insurance-commander", label: "Insurance Commander", icon: "🎖️" },
+      { href: "/setup", label: "Connect Email & Data", icon: "🔑" },
+    ],
+  },
+  {
     title: "Daily Driver", icon: "⭐",
     items: [
       { href: "/", label: "Mission Control", icon: "🛰️" },
-      { href: "/insurance-commander", label: "Insurance Commander", icon: "🎖️" },
       { href: "/knowledge", label: "Knowledge Base", icon: "📚" },
       { href: "/today", label: "Today's Money Actions", icon: "💸" },
       { href: "/brief", label: "Daily Brief", icon: "📋" },
       { href: "/inbox", label: "Unified Inbox", icon: "📨" },
-      { href: "/approvals", label: "Approval Queue", icon: "☑️" },
     ],
   },
   {
