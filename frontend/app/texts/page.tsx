@@ -16,9 +16,12 @@ function Texts() {
   const [newPhone, setNewPhone] = useState("");
   const [sendMsg, setSendMsg] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
-  const { data: setup } = useFetch<{ sms?: { configured: boolean; via: string | null } }>(
+  const { data: setup } = useFetch<{ sms?: { configured: boolean; via: string | null; daily_cap?: number; window_start?: number; window_end?: number; timezone?: string } }>(
     () => api.get("/setup"), []);
   const smsReady = setup?.sms?.configured ?? true;  // assume ok until we know
+  const win = setup?.sms;
+  const hours = win?.window_start != null && win?.window_end != null
+    ? `${win.window_start}am–${win.window_end - 12}pm` : "8am–9pm";
   const { data: threads, loading, error, reload } = useFetch<Thread[]>(() => api.get<Thread[]>("/sms/threads"), [refresh]);
   const { data: detail } = useFetch<ThreadDetail | null>(
     () => (active ? api.get<ThreadDetail>(`/sms/thread?phone=${encodeURIComponent(active)}`) : Promise.resolve(null)),
@@ -79,7 +82,7 @@ function Texts() {
           </button>
         }
       />
-      <p className="mb-3 text-xs text-gray-500">“Send next 20” sends your oldest drafted texts (e.g. the EverQuote batch). Opt-outs, texting hours (8am–9pm ET), and the daily cap are enforced automatically — anything held shows the reason.</p>
+      <p className="mb-3 text-xs text-gray-500">“Send next 20” sends your oldest drafted texts (e.g. the EverQuote batch). Opt-outs, texting hours ({hours}{win?.timezone ? "" : " ET"}){win?.daily_cap ? `, and the daily cap of ${win.daily_cap}` : ", and the daily cap"} are enforced automatically — anything held shows the reason.</p>
       {!smsReady && (
         <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
           ⚠️ SMS isn&apos;t connected yet — messages won&apos;t actually send. Add Twilio in <b>Connect Email &amp; Data</b> (or run the Mac bridge).
