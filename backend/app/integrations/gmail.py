@@ -30,7 +30,23 @@ BNB = "bnb"
 SAVORYMIND = "savorymind"
 
 
+def _clean_app_password(pw: str | None) -> str:
+    """Google shows App Passwords as four space-separated groups (e.g.
+    'abcd efgh ijkl mnop'). SMTP/IMAP auth needs the 16 characters with NO spaces
+    — pasting them verbatim (with spaces or a stray newline) makes Gmail reject
+    the login as 535 BadCredentials. Strip ALL whitespace so the user's real
+    password just works, however they pasted it."""
+    return "".join((pw or "").split())
+
+
 def _account_cfg(account: str) -> dict:
+    cfg = _account_cfg_raw(account)
+    cfg["address"] = (cfg.get("address") or "").strip()
+    cfg["app_password"] = _clean_app_password(cfg.get("app_password"))
+    return cfg
+
+
+def _account_cfg_raw(account: str) -> dict:
     if account == INSURANCE:
         return {
             "address": settings.insurance_gmail_address,
@@ -147,27 +163,20 @@ def _smtp_login(account: str):
         Thrust access needed at all; replies still land in the Thrust inbox)
     """
     cfg = _account_cfg(account)
-    # Insurance relay requested EXPLICITLY → always send through the personal mailbox,
-    # even if the insurance account has its own (possibly broken/blocked) App Password.
-    # This is what lets "send insurance through my personal mailbox" actually work
-    # without first deleting a bad Thrust password.
-    if account == INSURANCE and (settings.insurance_send_as_alias or settings.insurance_via_personal_reply_to):
-        p = _account_cfg(PERSONAL)
-        if p.get("app_password") and p.get("address"):
-            if settings.insurance_send_as_alias:
-                return p["address"], p["app_password"], cfg["address"], None
-            return p["address"], p["app_password"], p["address"], cfg["address"]
-    # Otherwise send as the account itself.
+    # An account with its OWN App Password always logs in and sends as itself.
+    # (Previously a stale/auto-set "relay through personal" flag could hijack a
+    # properly-configured insurance mailbox and try the WRONG account's password
+    # → 535 BadCredentials. If you gave insurance its own password, use it.)
     if cfg.get("app_password") and cfg.get("address"):
         return cfg["address"], cfg["app_password"], cfg["address"], None
-    # Insurance with no usable creds of its own → fall back to the personal relay.
+    # Insurance with NO usable creds of its own → relay through the personal
+    # mailbox (either the explicit toggle, or automatically when personal can send).
     if account == INSURANCE:
         p = _account_cfg(PERSONAL)
         if p.get("app_password") and p.get("address"):
             if settings.insurance_send_as_alias:
                 return p["address"], p["app_password"], cfg["address"], None
-            if settings.insurance_via_personal_reply_to:
-                return p["address"], p["app_password"], p["address"], cfg["address"]
+            return p["address"], p["app_password"], p["address"], cfg["address"]
     return None, None, None, None
 
 
@@ -214,7 +223,7 @@ def _send_smtp_verbose(account: str, to: str, subject: str, body: str) -> tuple[
             server.sendmail(from_addr or login_addr, [to], mime.as_string())
         return msg_id, None
     except Exception as exc:  # pragma: no cover - network guard
-        reason = str(exc)[:250] or exc.__class__.__name__
+        reason = f"(logging in as {login_addr}) {str(exc)[:230] or exc.__class__.__name__}"
         log.warning("SMTP send failed (%s via %s): %s", to, account, reason)
         return None, reason
 
