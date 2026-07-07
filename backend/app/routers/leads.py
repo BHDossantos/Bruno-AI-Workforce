@@ -373,12 +373,20 @@ def list_leads(segment: str | None = None, status: str | None = None,
     # it never gets starved by an unrelated row LIMIT (whichever bucket
     # dominates the sort order would otherwise silently crowd out the rest).
     if temperature:
+        temp = (temperature or "").strip().lower()
         wanted = lead_temperature.statuses_for(temperature)
-        if wanted is not None:
+        hot_by_score = Lead.score >= lead_temperature.HOT_SCORE  # in-market inbound → hot
+        if temp == lead_temperature.HOT:
+            # Hot = hot statuses OR a high score (freshly-imported EverQuote leads),
+            # but never something already gone dead.
+            q = q.filter(or_(func.lower(Lead.status).in_(wanted), hot_by_score),
+                         ~func.lower(Lead.status).in_(lead_temperature.statuses_for(lead_temperature.DEAD)))
+        elif wanted is not None:
             q = q.filter(func.lower(Lead.status).in_(wanted))
-        else:  # cold = everything NOT hot/warm/dead, including blank/unknown
+        else:  # cold = NOT hot/warm/dead by status AND not hot-by-score
             q = q.filter(or_(Lead.status.is_(None),
-                             ~func.lower(Lead.status).in_(lead_temperature.all_classified_statuses())))
+                             ~func.lower(Lead.status).in_(lead_temperature.all_classified_statuses())),
+                         ~hot_by_score)
     # Commercial-line leads only ever come from segment="commercial", and
     # home/life leads only ever come from everything else — narrow by segment
     # first so the (much larger) commercial volume can't bloat the scan below.

@@ -20,16 +20,29 @@ _DEAD = {"closed lost", "lost", "do_not_contact", "unsubscribed", "bounced"}
 
 COLD, WARM, HOT, DEAD = "cold", "warm", "hot", "dead"
 
+# In-market inbound leads (EverQuote quote requests, opt-in web leads) are HOT by
+# SOURCE the moment they arrive — they raised their hand — even before they reply.
+# We tag those with a high score on import, so a score at/above this floors the
+# temperature to hot (unless they've since gone dead). This is what makes a fresh
+# EverQuote lead sort and get worked FIRST instead of being treated as cold.
+HOT_SCORE = 80
 
-def classify(status: str | None) -> str:
-    """Map a pipeline status to a temperature bucket."""
+
+def classify(status: str | None, score: int | None = None) -> str:
+    """Map a pipeline status (and optional lead score) to a temperature bucket.
+
+    Dead/lost always wins. Then explicit hot/warm statuses. Then a high score
+    (in-market inbound leads) floors to hot even at a still-'New' status. `score`
+    is optional so every existing status-only caller keeps its exact behavior."""
     s = (status or "").strip().lower()
+    if s in _DEAD:
+        return DEAD
     if s in _HOT:
         return HOT
     if s in _WARM:
         return WARM
-    if s in _DEAD:
-        return DEAD
+    if score is not None and score >= HOT_SCORE:
+        return HOT  # freshly-imported EverQuote / opt-in lead — hot by source
     return COLD  # New, Drafted, Sent, contact, insurance_emailed, unknown → cold
 
 

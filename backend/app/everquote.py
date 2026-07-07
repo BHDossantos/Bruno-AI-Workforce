@@ -30,6 +30,10 @@ log = logging.getLogger("bruno.everquote")
 # Carrier strings EverQuote uses that don't name a real prior carrier.
 _NO_CARRIER = {"", "company not listed", "not insured", "none", "no prior insurance"}
 
+# Score stamped on every EverQuote lead so it sorts + gets worked FIRST (hot).
+# At/above lead_temperature.HOT_SCORE so the temperature reads "hot" by source.
+_EVERQUOTE_SCORE = 92
+
 
 def _title(s: str | None) -> str:
     return " ".join(w.capitalize() for w in (s or "").split())
@@ -156,12 +160,19 @@ def import_rows(db: Session, rows: list[dict]) -> dict:
             existing.reason = reason
             if f["phone"] and not existing.phone:
                 existing.phone = f["phone"]
+            # Keep them at the top of the queue on re-import (never downgrade a
+            # lead that's already been scored/engaged higher).
+            existing.score = max(existing.score or 0, _EVERQUOTE_SCORE)
             lead_ids.append(str(existing.id))
             updated += 1
             continue
+        # EverQuote leads are HOT — in-market quote requests, not cold prospects.
+        # A high score puts them at the TOP of every score-sorted list AND first
+        # in the outreach automation (dispatch_leads orders by score), so they get
+        # emailed / texted / called before any cold-sourced lead.
         lead = Lead(segment="personal", category="EverQuote Auto", owner_name=_lead_name(f),
                     email=f["email"], phone=f["phone"], status="New", times_contacted=0,
-                    reason=reason, intake=intake, score=0)
+                    reason=reason, intake=intake, score=_EVERQUOTE_SCORE)
         db.add(lead); db.flush()
         lead_ids.append(str(lead.id))
         imported += 1
