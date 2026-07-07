@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { AuthGate, PageHeader, useFetch, LoadState } from "@/components/ui";
 
@@ -104,6 +105,7 @@ function InsuranceCommander() {
   const [outreachMsg, setOutreachMsg] = useState("");
   const [importCsv, setImportCsv] = useState("");
   const [importMsg, setImportMsg] = useState("");
+  const [importedOk, setImportedOk] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
 
   async function loadOutreach(id: string) {
@@ -126,7 +128,8 @@ function InsuranceCommander() {
     try {
       const r = await api.post<{ imported: number; updated: number; skipped: number; total: number }>(
         "/leads/import-everquote", { csv_text: text });
-      setImportMsg(`✅ Imported ${r.imported} new · ${r.updated} updated · ${r.skipped} skipped (of ${r.total}). Now click “Personalize & queue all”.`);
+      setImportMsg(`✅ Imported ${r.imported} new · ${r.updated} updated · ${r.skipped} skipped (of ${r.total}). They're at the top of your Call List, ready to work.`);
+      setImportedOk(r.imported + r.updated > 0);
       setImportCsv(""); reload();
     } catch (e) { setImportMsg(`❌ ${e}`); }
     finally { setImportBusy(false); }
@@ -327,6 +330,11 @@ function InsuranceCommander() {
           </button>
         </div>
         {importMsg && <p className="mt-2 text-sm text-gray-600">{importMsg}</p>}
+        {importedOk && (
+          <Link href="/worklist" className="mt-3 inline-block rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700">
+            📞 Work these leads now →
+          </Link>
+        )}
       </div>
 
       {/* Today's tiles */}
