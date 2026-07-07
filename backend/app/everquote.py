@@ -201,8 +201,21 @@ def _discount_angles(f: dict) -> list[str]:
 
 
 def _signature() -> str:
-    lic = f"\nLicensed Insurance Producer #{settings.producer_license}" if settings.producer_license else ""
-    return f"{settings.producer_name}{lic}"
+    """Producer email signature block (configurable). Renders as:
+        Thrust Insurance
+        Bruno Dossantos | insurance agent
+        phone# (833) 854-7055   Cell# 16039308272
+    """
+    name_line = settings.producer_name + (f" | {settings.producer_title}" if settings.producer_title else " | ")
+    lines = [settings.insurance_business_name or "Thrust Insurance", name_line]
+    phones = []
+    if settings.producer_office_phone:
+        phones.append(f"phone# {settings.producer_office_phone}")
+    if settings.producer_cell:
+        phones.append(f"Cell# {settings.producer_cell}")
+    if phones:
+        lines.append("   ".join(phones))
+    return "\n".join(lines)
 
 
 def personalize(lead: Lead, use_ai: bool = True) -> dict:

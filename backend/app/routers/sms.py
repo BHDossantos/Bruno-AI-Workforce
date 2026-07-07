@@ -121,7 +121,7 @@ class SmsSendDrafts(BaseModel):
 
 @router.post("/sms/send-drafts")
 def send_drafts(body: SmsSendDrafts, db: Session = Depends(get_db), _=Depends(_write)):
-    """Send the oldest N drafted texts in one click (e.g. the EverQuote batch's
+    """Send N drafted texts in one click, HOT LEADS FIRST (e.g. the EverQuote batch's
     per-lead SMS). Paced and compliance-gated: opted-out numbers, out-of-hours,
     and the daily cap are all honored, and each skip reports its real reason."""
     try:
@@ -129,12 +129,17 @@ def send_drafts(body: SmsSendDrafts, db: Session = Depends(get_db), _=Depends(_w
         runtime_config.apply_to_settings(db)
     except Exception:
         pass
-    q = db.query(Message).filter(
-        Message.channel == "sms", Message.direction == "outbound",
-        Message.status == "Drafted", Message.to_email.isnot(None))
+    from sqlalchemy import and_, func
+    # Left-join the lead so hot/in-market leads (EverQuote) get texted first; within
+    # a tier the oldest draft goes first for fair pacing.
+    q = (db.query(Message)
+         .outerjoin(Lead, and_(Message.entity_type == "lead", Message.entity_id == Lead.id))
+         .filter(Message.channel == "sms", Message.direction == "outbound",
+                 Message.status == "Drafted", Message.to_email.isnot(None)))
     if body.account:
         q = q.filter(Message.from_account == body.account)
-    msgs = q.order_by(Message.created_at.asc()).limit(max(1, min(body.limit, 50))).all()
+    msgs = (q.order_by(func.coalesce(Lead.score, 0).desc(), Message.created_at.asc())
+            .limit(max(1, min(body.limit, 50))).all())
 
     sent = failed = blocked = 0
     reasons: list[str] = []

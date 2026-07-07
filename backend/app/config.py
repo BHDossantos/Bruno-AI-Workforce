@@ -122,9 +122,17 @@ class Settings(BaseSettings):
     lead_response_target_seconds: int = 60
     # Producer identity stamped on personalized EverQuote outreach (email/SMS/
     # voicemail). Set to the licensed producer's real name + NPN license number.
-    producer_name: str = "Bruno Dos Santos"
+    producer_name: str = "Bruno Dossantos"
     producer_license: str = "19029331"
     producer_callback: str = ""  # phone the voicemail/SMS asks them to call back
+    # Email signature block for insurance outreach (business name comes from
+    # insurance_business_name). Shown as:
+    #   Thrust Insurance
+    #   Bruno Dossantos | insurance agent
+    #   phone# (833) 854-7055   Cell# 16039308272
+    producer_title: str = "insurance agent"
+    producer_office_phone: str = "(833) 854-7055"
+    producer_cell: str = "16039308272"
     # Specialized insurance agents. Commercial is the priority (higher commission,
     # stickier clients, more referrals) → biggest daily quota; home/auto + referral
     # partners run alongside for a balanced pipeline. Quotas are daily targets;
