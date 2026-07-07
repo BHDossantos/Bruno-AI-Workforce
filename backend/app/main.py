@@ -1,5 +1,6 @@
 """FastAPI application entrypoint."""
 import logging
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -53,6 +54,7 @@ from .routers import (
     sms,
     webhooks,
 )
+from .config import settings
 from .scheduler import shutdown_scheduler, start_scheduler
 from .seed import seed
 
@@ -60,14 +62,13 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("bruno")
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Don't let a DB/seed hiccup crash startup — the container must listen on
-    # $PORT for Cloud Run. Errors are logged so they're visible in the logs.
-    try:
-        seed()
-    except Exception:
-        log.exception("Startup seed() failed — check DATABASE_URL / Cloud SQL connection")
+def _post_boot() -> None:
+    """Slower, network-touching boot work — run in a background thread so it never
+    delays the port from opening. Cloud Run marks the revision healthy once the app
+    is listening; doing OAuth token refresh (inside selfcheck) or a slow Cloud SQL
+    read here synchronously intermittently blew past the startup-probe window and
+    failed the deploy. None of this needs to finish before /health can answer, and
+    endpoints that need connected creds already call apply_to_settings themselves."""
     try:
         from .database import SessionLocal
         from . import client_goal, runtime_config, selfcheck
@@ -79,12 +80,34 @@ async def lifespan(app: FastAPI):
         finally:
             _db.close()
     except Exception:
-        log.exception("Startup runtime-config / self-check failed")
+        log.exception("Background runtime-config / self-check failed")
     try:
         start_scheduler()
     except Exception:
         log.exception("Scheduler failed to start")
-    log.info("Bruno AI Workforce backend started.")
+    log.info("Bruno AI Workforce background boot complete.")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Do the MINIMUM before serving so Cloud Run's startup health check passes fast
+    # and deploys stop flaking: create the schema, then hand the slow/network boot
+    # work to a background thread. Don't let a DB/seed hiccup crash startup — the
+    # container must listen on $PORT. Errors are logged so they're visible.
+    try:
+        seed()
+    except Exception:
+        log.exception("Startup seed() failed — check DATABASE_URL / Cloud SQL connection")
+    if settings.enable_scheduler:
+        # Production (Cloud Run): defer slow boot work so the port opens immediately
+        # and the deploy's startup probe passes without flaking.
+        threading.Thread(target=_post_boot, name="post-boot", daemon=True).start()
+        log.info("Bruno AI Workforce backend started (serving; background boot running).")
+    else:
+        # Tests / local without the scheduler: run synchronously so seeded state
+        # (objectives, knowledge base, applied creds) is deterministic before use.
+        _post_boot()
+        log.info("Bruno AI Workforce backend started.")
     yield
     shutdown_scheduler()
 
