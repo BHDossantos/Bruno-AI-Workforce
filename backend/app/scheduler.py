@@ -33,8 +33,8 @@ _scheduler: BackgroundScheduler | None = None
 # Insurance-only autonomy (AUTONOMY_PROFILE=insurance) runs just these — every
 # other agent/job (music, bnb, savorymind, instagram, job-hunter, foundation,
 # content publishing, board report…) is skipped so it stops burning AI spend.
-_INSURANCE_AGENTS = {"insurance", "commercial_finder", "homeowner",
-                     "referral_partner", "follow_up_agent", "review_referral"}
+_INSURANCE_AGENTS = {"insurance", "commercial_finder", "home_finder", "auto_finder",
+                     "homeowner", "referral_partner", "follow_up_agent", "review_referral"}
 _INSURANCE_JOBS = {"client_autoscale", "leads", "auto_outreach", "followups",
                    "booking_nudges", "lifecycle", "outreach_digest",
                    "refresh_tokens", "selfcheck", "referrals"}
@@ -99,7 +99,7 @@ def _publish_blog_due(db):
 def _run_leads(db):
     """Lead-gen + cold-email pass for every outreach business (4×/day).
     Insurance-only mode drops the SavoryMind/BnB passes."""
-    keys = ["commercial_finder", "homeowner", "insurance", "referral_partner"]
+    keys = ["commercial_finder", "home_finder", "auto_finder", "insurance", "referral_partner"]
     if not _insurance_only():
         keys += ["savorymind", "bnbglobal"]
     out = {}

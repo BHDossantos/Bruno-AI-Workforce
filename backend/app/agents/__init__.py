@@ -1,7 +1,9 @@
 """Daily agents. Each exposes ``run(db) -> dict`` and a cron schedule."""
+from .auto_finder import AutoLeadFinderAgent
 from .bnbglobal import BnbGlobalAgent
 from .ceo_dashboard import CEODashboardAgent
 from .commercial_finder import CommercialLeadFinderAgent
+from .home_finder import HomeLeadFinderAgent
 from .followup import FollowUpAgent
 from .foundation_outreach import FoundationOutreachAgent
 from .grant_research import GrantResearchAgent
@@ -21,8 +23,11 @@ from .savorymind import SavoryMindAgent
 AGENTS = {
     "job_hunter": JobHunterAgent,
     "insurance": InsuranceAgent,
-    # Specialized insurance team (commercial is the priority engine).
+    # Specialized insurance team (commercial is the priority engine; Home & Auto
+    # finders source the real personal-lines feeders — realtors/lenders, dealers).
     "commercial_finder": CommercialLeadFinderAgent,
+    "home_finder": HomeLeadFinderAgent,
+    "auto_finder": AutoLeadFinderAgent,
     "homeowner": HomeownerLeadAgent,
     "referral_partner": ReferralPartnerAgent,
     "follow_up_agent": FollowUpAgent,

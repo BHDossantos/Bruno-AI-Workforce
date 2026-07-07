@@ -97,6 +97,10 @@ class Settings(BaseSettings):
     # When False, agents use ONLY live-sourced data (no synthetic top-up to hit
     # target counts). Set False in production once real sourcing is in place.
     allow_synthetic_fallback: bool = True
+    # Insurance-specific gate: even when the global synthetic fallback is on for
+    # other businesses, NEVER fabricate insurance leads (fake homeowners/partners
+    # are pure junk that buries the real book). Flip on only to demo an empty DB.
+    synthetic_insurance_leads: bool = False
     # Optional narrow city list for lead sourcing. Left EMPTY by default: we search
     # each whole STATE statewide instead (see lead_states / per-business scopes),
     # not a handful of cities. Set this only to deliberately restrict to cities.
@@ -128,6 +132,11 @@ class Settings(BaseSettings):
     commercial_lead_daily_target: int = 200
     homeowner_lead_daily_target: int = 75
     referral_partner_daily_target: int = 25
+    # Dedicated Home + Auto lead engines — find the real businesses that FEED each
+    # personal line (realtors/lenders → home; dealers/repair → auto) in the
+    # licensed states. Real OSM data; run several times a day toward these targets.
+    home_lead_daily_target: int = 60
+    auto_lead_daily_target: int = 60
     # Google review request link, sent to won clients by the Review & Referral agent.
     google_review_link: str = ""
 
