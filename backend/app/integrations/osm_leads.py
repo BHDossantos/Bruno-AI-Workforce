@@ -52,6 +52,14 @@ COMMERCIAL_OSM = {
     "Hospitality": ['node["tourism"~"hotel|guest_house|motel|hostel|apartment|chalet"]'],
     "Trades & industrial": ['node["shop"~"trade|building_materials|hvac|electrical"]',
                             'node["craft"~"electronics_repair|sun_protection|key_cutter|locksmith|cleaning"]'],
+    # Trucking / transport — commercial-auto & fleet risk (owner-op & small fleets).
+    "Trucking & transport": ['node["office"~"logistics|transport|forwarding"]',
+                             'node["shop"="trade"]', 'node["industrial"="warehouse"]'],
+    # Construction firms & GCs — GL / workers-comp / commercial-auto. (Painters,
+    # carpenters, roofers etc. also come through the Contractor craft selectors.)
+    "Construction & GC": ['node["craft"~"builder|carpenter|painter|roofer|plasterer|scaffolder|insulation|paver|floorer"]',
+                          'node["office"~"construction_company|engineer"]',
+                          'node["shop"="building_materials"]'],
     "Childcare & education": ['node["amenity"~"childcare|kindergarten|driving_school|language_school|music_school|prep_school"]'],
     "Funeral & specialty": ['node["shop"~"funeral_directors|pawnbroker|laundry|dry_cleaning|travel_agency|copyshop|locksmith"]'],
 }
@@ -299,6 +307,64 @@ def fetch_education_leads(count: int, scope: str | None = None) -> list[dict]:
         r["category"] = "Education institution"
         r["industry"] = "Education"
     return rows
+
+
+# ── Home & Auto referral feeders — real businesses whose customers need that ──
+# line of insurance. A new mortgage/closing needs HOME (+ bundled auto); a car
+# sale/repair customer needs AUTO. These are the free, compliant personal-lines
+# engine: B2B partnership outreach to the feeder, not cold-contacting consumers.
+HOME_FEEDER_OSM = {
+    "Real Estate Agency": ['node["office"="estate_agent"]', 'way["office"="estate_agent"]'],
+    "Property Management": ['node["office"="property_management"]'],
+    "Mortgage / Finance": ['node["office"~"financial|tax_advisor|accountant"]'],
+    "Title / Closing Attorney": ['node["office"~"lawyer|notary"]'],
+    "Home Builder": ['node["craft"~"builder|carpenter"]', 'node["office"="construction_company"]'],
+}
+AUTO_FEEDER_OSM = {
+    "Auto Dealership": ['node["shop"="car"]', 'way["shop"="car"]'],
+    "Auto Repair Shop": ['node["shop"~"car_repair|tyres|car_parts"]'],
+    "Motorcycle Dealer": ['node["shop"="motorcycle"]'],
+    "Car Rental / Fleet": ['node["amenity"="car_rental"]'],
+}
+
+
+def _fetch_feeders(groups: dict[str, list[str]], segment: str, count: int,
+                   scope: str | None = None) -> list[dict]:
+    """Harvest real feeder businesses, labeling each with its feeder category (so a
+    lead reads 'Real Estate Agency' / 'Auto Dealership', not a generic bucket).
+    Splits the target across categories so no single one dominates, then de-dupes."""
+    if not (is_enabled() or (scope and settings.wider_lead_sourcing)):
+        return []
+    areas = _scoped_areas(scope)
+    if not areas:
+        return []
+    per = max(3, (count // max(1, len(groups))) + 2)
+    seen: set[str] = set()
+    out: list[dict] = []
+    for category, selectors in groups.items():
+        if len(out) >= count:
+            break
+        for r in _harvest(selectors, segment, per, areas):
+            email = (r.get("email") or "").lower()
+            if not email or email in seen:
+                continue
+            seen.add(email)
+            r["category"] = category      # the feeder type drives the pitch
+            r["industry"] = category
+            out.append(r)
+    return out[:count]
+
+
+def fetch_home_feeders(count: int, scope: str | None = None) -> list[dict]:
+    """Real realtors, mortgage/finance offices, property managers, title attorneys
+    and home builders — every closing they touch needs home (+ bundled auto)."""
+    return _fetch_feeders(HOME_FEEDER_OSM, "referral_partner", count, scope)
+
+
+def fetch_auto_feeders(count: int, scope: str | None = None) -> list[dict]:
+    """Real car dealerships, auto-repair & tire shops, motorcycle dealers and
+    rental/fleet operators — their customers all need auto coverage."""
+    return _fetch_feeders(AUTO_FEEDER_OSM, "referral_partner", count, scope)
 
 
 def fetch_restaurants(count: int, scope: str | None = None) -> list[dict]:

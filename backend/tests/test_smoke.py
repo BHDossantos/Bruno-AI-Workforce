@@ -671,7 +671,8 @@ def test_recap_and_mission_count_actual_sends_not_drafts(client, auth_headers):
 
 def test_all_agents_registered():
     assert set(AGENTS) == {
-        "job_hunter", "insurance", "commercial_finder", "homeowner", "referral_partner",
+        "job_hunter", "insurance", "commercial_finder", "home_finder", "auto_finder",
+        "homeowner", "referral_partner",
         "follow_up_agent", "review_referral", "bnbglobal", "savorymind", "music",
         "music_pr", "music_collab", "music_sync", "instagram", "life_ops",
         "grant_research", "foundation_outreach", "school_partner", "ceo_dashboard",
@@ -687,6 +688,59 @@ def test_sync_licensing_targets_and_prompt():
     # Prompt formats with the call site's exact keys (guards KeyError).
     SYNC_PITCH.format(name="X Sync", kind="TV music supervisor", focus="dramas",
                       contact="A. Reed", memory="")
+
+
+# ── Home + Auto lead finders (real feeders, no fabricated consumers) ─────────
+def test_no_synthetic_personal_insurance_leads():
+    """The fake-homeowner junk is gone: with SYNTHETIC_INSURANCE_LEADS off (the
+    default), personal-lines sourcing never fabricates individuals — better empty
+    than junk. Commercial still tops up synthetically so that pipeline keeps flowing."""
+    from app.config import settings
+    assert settings.synthetic_insurance_leads is False
+    # No real source + no synthetic → personal returns nothing (not fake @example.com rows).
+    assert providers.fetch_insurance_leads("personal", 20) == []
+    # Commercial is unaffected — synthetic top-up still fills it for demos/tests.
+    commercial = providers.fetch_insurance_leads("commercial", 5)
+    assert len(commercial) == 5
+
+
+def test_home_and_auto_feeders_gated_offline():
+    """Home + Auto finders source REAL OSM businesses only; with live sourcing
+    disabled (test env) they make no network call and return empty — never synthetic."""
+    assert providers.fetch_home_feeders(30) == []
+    assert providers.fetch_auto_feeders(30) == []
+    from app.integrations import osm_leads
+    assert osm_leads.fetch_home_feeders(30) == []
+    assert osm_leads.fetch_auto_feeders(30) == []
+
+
+def test_home_auto_agents_registered_and_prompts_build():
+    """Both new agents are in the registry, in the daily lead run, and their
+    partnership prompt formats with the exact keys the agent passes (guards KeyError)."""
+    from app.agents.auto_finder import AutoLeadFinderAgent
+    from app.agents.home_finder import HomeLeadFinderAgent
+    from app.ai.prompts import REFERRAL_PARTNER_OUTREACH
+    assert AGENTS["home_finder"] is HomeLeadFinderAgent
+    assert AGENTS["auto_finder"] is AutoLeadFinderAgent
+    # Distinct lines, distinct feeder framing.
+    assert "home" in HomeLeadFinderAgent.description.lower()
+    assert "auto" in AutoLeadFinderAgent.description.lower()
+    REFERRAL_PARTNER_OUTREACH.format(
+        company_name="Bay State Realty", category="Real Estate Agency", city="Boston")
+
+
+def test_commercial_targets_trucking_and_construction():
+    """Commercial sourcing now explicitly nets trucking + construction/painting/
+    carpentry verticals the user asked for (real OSM selectors, not synthetic)."""
+    from app.integrations import osm_leads
+    cats = osm_leads.COMMERCIAL_OSM
+    assert "Trucking & transport" in cats
+    assert "Construction & GC" in cats
+    # Painters/carpenters/builders are covered by the construction + contractor sets.
+    construction = " ".join(osm_leads.COMMERCIAL_OSM["Construction & GC"])
+    assert "painter" in construction and "carpenter" in construction
+    contractor = " ".join(osm_leads.COMMERCIAL_OSM["Contractor"])
+    assert "carpenter" in contractor and "painter" in contractor
 
 
 # ── Live-source integrations (no network; key-gated) ─────────────────────────

@@ -133,6 +133,11 @@ def fetch_insurance_leads(segment: str, count: int, scope: str | None = None) ->
         if len(out) >= count:
             return out[:count]
 
+    # Personal-lines consumers have no legitimate free source — fabricating them is
+    # exactly the junk that buried the real leads. Never synthesize individuals
+    # unless synthetic insurance data is explicitly turned on.
+    if segment != "commercial" and not settings.synthetic_insurance_leads:
+        return out[:count]
     if not settings.allow_synthetic_fallback:
         return out[:count]  # live-sourced data only
     cats = COMMERCIAL_CATEGORIES if segment == "commercial" else PERSONAL_CATEGORIES
@@ -177,7 +182,8 @@ def fetch_referral_partners(count: int, scope: str | None = None) -> list[dict]:
     for lead in out:
         lead["segment"] = "referral_partner"
         lead.setdefault("category", "Referral Partner")
-    if len(out) >= count or not settings.allow_synthetic_fallback:
+    # Real businesses only by default — no fabricated "partners" cluttering the book.
+    if len(out) >= count or not (settings.allow_synthetic_fallback and settings.synthetic_insurance_leads):
         return out[:count]
     for i in range(count - len(out)):
         cat = _rng.choice(REFERRAL_PARTNER_CATEGORIES)
@@ -192,6 +198,20 @@ def fetch_referral_partners(count: int, scope: str | None = None) -> list[dict]:
             "industry": cat, "city": _rng.choice(_CITIES),
         })
     return out[:count]
+
+
+def fetch_home_feeders(count: int, scope: str | None = None) -> list[dict]:
+    """Home-line lead engine: real realtors, mortgage/finance offices, property
+    managers, title attorneys and builders (their closings need home + auto).
+    Real OSM businesses only — no synthetic consumers."""
+    return osm_leads.fetch_home_feeders(count, scope=scope)[:count]
+
+
+def fetch_auto_feeders(count: int, scope: str | None = None) -> list[dict]:
+    """Auto-line lead engine: real dealerships, repair & tire shops, motorcycle
+    dealers and rental/fleet operators (their customers need auto). Real OSM
+    businesses only — no synthetic consumers."""
+    return osm_leads.fetch_auto_feeders(count, scope=scope)[:count]
 
 
 # ── Foundation: real education institutions (schools/universities/centers) ────

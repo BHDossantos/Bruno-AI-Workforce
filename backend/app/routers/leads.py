@@ -329,8 +329,12 @@ def send_quote_intake(lead_id: str, body: IntakeSendIn, db: Session = Depends(ge
         raise HTTPException(400, "No text template for this quote type")
 
     if body.channel == "sms":
+        # A human operator chose to send this quote-intake ask right now, so it's
+        # exempt from the AUTOMATED texting-window/cap (same as the /sms/send
+        # thread reply). Opt-out (STOP) is still always enforced inside send_text.
         result = sms_engine.send_text(db, entity_type="lead", entity_id=lead.id,
-                                      phone=lead.phone, body=text, account="insurance")
+                                      phone=lead.phone, body=text, account="insurance",
+                                      enforce_hours=False)
         if not result:
             raise HTTPException(400, "No texting channel configured — connect Twilio or the "
                                 "iMessage bridge on Setup first")
