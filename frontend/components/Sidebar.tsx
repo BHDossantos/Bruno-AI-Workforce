@@ -15,118 +15,98 @@ type NavGroup = { title: string; icon: string; items: NavItem[] };
 
 const GROUPS: NavGroup[] = [
   {
-    title: "🛡️ Insurance — Start Here", icon: "🛡️",
+    title: "🛡️ Work Leads", icon: "🛡️",
     items: [
-      { href: "/insurance", label: "Leads (email · text · call)", icon: "🎯" },
+      { href: "/insurance", label: "Insurance Leads", icon: "🎯" },
       { href: "/texts", label: "Texts", icon: "💬" },
       { href: "/outbox", label: "Email Outbox", icon: "📧" },
       { href: "/approvals", label: "Approval Queue", icon: "☑️" },
-      { href: "/clients-crm", label: "Client Book (CRM)", icon: "🗃️" },
-      { href: "/insurance-commander", label: "Insurance Commander", icon: "🎖️" },
-      { href: "/setup", label: "Connect Email & Data", icon: "🔑" },
-    ],
-  },
-  {
-    title: "Daily Driver", icon: "⭐",
-    items: [
-      { href: "/", label: "Mission Control", icon: "🛰️" },
-      { href: "/knowledge", label: "Knowledge Base", icon: "📚" },
-      { href: "/today", label: "Today's Money Actions", icon: "💸" },
-      { href: "/brief", label: "Daily Brief", icon: "📋" },
       { href: "/inbox", label: "Unified Inbox", icon: "📨" },
-    ],
-  },
-  {
-    title: "Leads & Outreach", icon: "🎯",
-    items: [
-      { href: "/lead-finder", label: "Lead Finder", icon: "🔎" },
-      { href: "/insurance", label: "Insurance Leads", icon: "🛡️" },
-      { href: "/bnbglobal", label: "BnB Global Consulting", icon: "💻" },
-      { href: "/savorymind", label: "SavoryMind Leads", icon: "🍽️" },
-      { href: "/music", label: "Music Campaigns", icon: "🎵" },
-      { href: "/foundation", label: "Foundation", icon: "🎓" },
-      { href: "/campaign-builder", label: "Campaign Builder", icon: "🧭" },
-      { href: "/clients", label: "Client Engine", icon: "🎯" },
-      { href: "/deals", label: "Deal Pipeline", icon: "🗂️" },
-      { href: "/pipeline", label: "Sales Pipeline", icon: "💰" },
       { href: "/followups", label: "Follow-ups", icon: "🔁" },
       { href: "/queue", label: "Outreach Queue", icon: "✋" },
+      { href: "/lead-finder", label: "Lead Finder", icon: "🔎" },
     ],
   },
   {
-    title: "CRM & Clients", icon: "🗃️",
+    title: "🗃️ CRM & Pipeline", icon: "🗃️",
     items: [
       { href: "/clients-crm", label: "Client Book (CRM)", icon: "🗃️" },
-      { href: "/accounts", label: "Accounts", icon: "🏢" },
       { href: "/crm", label: "Universal CRM", icon: "👥" },
+      { href: "/accounts", label: "Accounts", icon: "🏢" },
+      { href: "/deals", label: "Deal Pipeline", icon: "🗂️" },
+      { href: "/pipeline", label: "Sales Pipeline", icon: "💰" },
       { href: "/quote-intake", label: "Quote Intake", icon: "📝" },
       { href: "/import", label: "Import Contacts", icon: "📥" },
     ],
   },
   {
-    title: "Content & Social", icon: "✍️",
+    title: "⭐ Command", icon: "⭐",
     items: [
-      { href: "/factory", label: "Content Factory", icon: "🏭" },
-      { href: "/calendar", label: "Content Calendar", icon: "🗓️" },
-      { href: "/newsletters", label: "Newsletters", icon: "📰" },
-      { href: "/instagram", label: "Instagram Planner", icon: "📸" },
+      { href: "/", label: "Mission Control", icon: "🛰️" },
+      { href: "/insurance-commander", label: "Insurance Commander", icon: "🎖️" },
+      { href: "/today", label: "Today's Money Actions", icon: "💸" },
+      { href: "/brief", label: "Daily Brief", icon: "📋" },
+      { href: "/knowledge", label: "Knowledge Base", icon: "📚" },
     ],
   },
   {
-    title: "Messaging & Deliverability", icon: "✉️",
-    items: [
-      { href: "/outbox", label: "Outbox", icon: "📧" },
-      { href: "/texts", label: "Texts", icon: "💬" },
-      { href: "/deliverability", label: "Email Deliverability", icon: "📬" },
-      { href: "/mailboxes", label: "Mailbox Pool", icon: "📮" },
-      { href: "/outreach-report", label: "Outreach Performance", icon: "📈" },
-      { href: "/subject-ab", label: "Subject A/B Testing", icon: "🧪" },
-      { href: "/by-line", label: "Conversion by Line", icon: "📶" },
-    ],
-  },
-  {
-    title: "Analytics & Reports", icon: "📊",
+    title: "📊 Analytics", icon: "📊",
     items: [
       { href: "/analytics", label: "Funnel Analytics", icon: "📊" },
-      { href: "/growth", label: "Growth Analytics", icon: "📈" },
       { href: "/revenue", label: "Revenue & ROI", icon: "💵" },
-      { href: "/money", label: "Money / Net Worth", icon: "🏦" },
-      { href: "/objectives", label: "Objectives", icon: "🎯" },
+      { href: "/growth", label: "Growth Analytics", icon: "📈" },
+      { href: "/outreach-report", label: "Outreach Performance", icon: "📈" },
+      { href: "/by-line", label: "Conversion by Line", icon: "📶" },
+      { href: "/agents", label: "Agent Performance", icon: "🤖" },
       { href: "/opportunities", label: "Opportunities", icon: "✨" },
-      { href: "/centers", label: "Command Centers", icon: "🎖️" },
+      { href: "/objectives", label: "Objectives", icon: "🎯" },
       { href: "/board", label: "Board Report", icon: "🧑‍⚖️" },
       { href: "/planning", label: "Predictive Planning", icon: "🔮" },
       { href: "/decisions", label: "Decision Journal", icon: "📓" },
-      { href: "/agents", label: "Agent Performance", icon: "🤖" },
       { href: "/learnings", label: "AI Learnings", icon: "🎓" },
+      { href: "/money", label: "Money / Net Worth", icon: "🏦" },
+      { href: "/centers", label: "Command Centers", icon: "🎖️" },
     ],
   },
   {
-    title: "Jobs", icon: "💼",
+    title: "📬 Deliverability", icon: "📬",
     items: [
-      { href: "/jobs", label: "Jobs", icon: "💼" },
-      { href: "/apply", label: "Apply Queue", icon: "✅" },
-      { href: "/autopilot", label: "Application Autopilot", icon: "🤖" },
+      { href: "/deliverability", label: "Email Deliverability", icon: "📬" },
+      { href: "/mailboxes", label: "Mailbox Pool", icon: "📮" },
+      { href: "/subject-ab", label: "Subject A/B Testing", icon: "🧪" },
     ],
   },
   {
-    title: "Automation & AI", icon: "⚡",
-    items: [
-      { href: "/automations", label: "Automations", icon: "⚡" },
-      { href: "/agent-builder", label: "Create AI Agent", icon: "✨" },
-      { href: "/memory", label: "Memory / Knowledge", icon: "🧠" },
-    ],
-  },
-  {
-    title: "Setup & System", icon: "⚙️",
+    title: "⚙️ Setup & System", icon: "⚙️",
     items: [
       { href: "/setup", label: "Connect Email & Data", icon: "🔑" },
       { href: "/connections", label: "Connections", icon: "🔌" },
       { href: "/activation", label: "Go-Live Setup", icon: "🚀" },
-      { href: "/webhooks", label: "Webhooks", icon: "🔗" },
       { href: "/settings", label: "Brand Profile", icon: "⚙️" },
       { href: "/status", label: "System Status", icon: "🩺" },
+      { href: "/webhooks", label: "Webhooks", icon: "🔗" },
+      { href: "/automations", label: "Automations", icon: "⚡" },
+      { href: "/agent-builder", label: "Create AI Agent", icon: "✨" },
+      { href: "/memory", label: "Memory / Knowledge", icon: "🧠" },
       { href: "/search", label: "Search", icon: "🔍" },
+    ],
+  },
+  {
+    title: "📦 Other Businesses (paused)", icon: "📦",
+    items: [
+      { href: "/bnbglobal", label: "BnB Global Consulting", icon: "💻" },
+      { href: "/savorymind", label: "SavoryMind Leads", icon: "🍽️" },
+      { href: "/music", label: "Music Campaigns", icon: "🎵" },
+      { href: "/foundation", label: "Foundation", icon: "🎓" },
+      { href: "/clients", label: "Client Engine", icon: "🎯" },
+      { href: "/campaign-builder", label: "Campaign Builder", icon: "🧭" },
+      { href: "/factory", label: "Content Factory", icon: "🏭" },
+      { href: "/calendar", label: "Content Calendar", icon: "🗓️" },
+      { href: "/newsletters", label: "Newsletters", icon: "📰" },
+      { href: "/instagram", label: "Instagram Planner", icon: "📸" },
+      { href: "/jobs", label: "Jobs", icon: "💼" },
+      { href: "/apply", label: "Apply Queue", icon: "✅" },
+      { href: "/autopilot", label: "Application Autopilot", icon: "🤖" },
     ],
   },
 ];
@@ -144,9 +124,9 @@ export default function Sidebar() {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   // Per-browser memory of which sections are expanded. Starts with just the
-  // Daily Driver group open; the section containing the current page is always
+  // Work Leads group open; the section containing the current page is always
   // shown regardless (see `sectionOpen`).
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ "Daily Driver": true });
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ "🛡️ Work Leads": true });
 
   useEffect(() => {
     try {
