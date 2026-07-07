@@ -92,6 +92,29 @@ def run(db: Session) -> dict:
     except Exception as exc:
         add("lead_pipeline", False, f"error: {str(exc)[:120]}")
 
+    # 6. EverQuote leads are HOT (AUTO-FIX): any imported before we started scoring
+    #    them high still sits at score 0 and sinks to the bottom of every list.
+    #    Bump them so they sort + get worked first, matching new imports.
+    try:
+        from . import everquote
+        from .lead_temperature import HOT_SCORE
+        from .models import Lead
+        stale = (db.query(Lead)
+                 .filter(Lead.intake["source"].astext == "everquote",
+                         (Lead.score.is_(None)) | (Lead.score < HOT_SCORE)))
+        bumped = 0
+        for lead in stale.all():
+            lead.score = everquote._EVERQUOTE_SCORE
+            bumped += 1
+        if bumped:
+            db.commit()
+        add("everquote_hot", True,
+            f"{bumped} EverQuote leads promoted to hot" if bumped else "EverQuote leads scored hot",
+            fixed=bool(bumped))
+    except Exception as exc:
+        db.rollback()
+        add("everquote_hot", False, f"error: {str(exc)[:120]}")
+
     healthy = all(c["ok"] for c in checks)
     fixed = sum(1 for c in checks if c["fixed"])
     issues = [c["name"] for c in checks if not c["ok"]]

@@ -83,7 +83,8 @@ class LeadOut(ORMModel):
     @computed_field
     @property
     def temperature(self) -> str:
-        return _temperature(self.status)
+        # Pass score so in-market inbound leads (EverQuote) read HOT by source.
+        return _temperature(self.status, self.score)
 
     @computed_field
     @property

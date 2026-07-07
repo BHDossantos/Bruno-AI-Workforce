@@ -24,6 +24,17 @@ def _get(obj, key):
 
 
 def score(lead) -> int:
+    # In-market INBOUND leads (EverQuote quote requests / opt-in web leads) are the
+    # single strongest signal — a real person actively shopping right now. They
+    # outrank every cold-sourced prospect, so they hit the ceiling and sort first
+    # even on fit-ranked views. We detect them by the hot score stamped on import
+    # (or an everquote intake source).
+    stored = _get(lead, "score") or 0
+    intake = _get(lead, "intake") or {}
+    in_market = stored >= 80 or (isinstance(intake, dict) and intake.get("source") == "everquote")
+    if in_market:
+        return 100
+
     s = 35
     # Reachability → we can actually pitch them.
     if _get(lead, "email"):
@@ -41,4 +52,4 @@ def score(lead) -> int:
         s += 10  # priority book of business
     if _get(lead, "reason"):
         s += 4   # a concrete qualifying reason on file
-    return max(0, min(100, s))
+    return max(0, min(99, s))  # cold-sourced tops out below an in-market lead

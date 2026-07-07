@@ -1840,6 +1840,30 @@ def test_everquote_model_casing():
 
 
 @requires_db
+def test_everquote_leads_are_hot_by_source():
+    """In-market inbound leads (EverQuote) are HOT even at status 'New' — a high
+    score floors the temperature to hot, so they sort + get worked first. Cold-
+    sourced 'New' leads stay cold; a dead status always wins over the score."""
+    from app.everquote import _EVERQUOTE_SCORE
+    from app.lead_temperature import HOT_SCORE, classify
+
+    assert _EVERQUOTE_SCORE >= HOT_SCORE
+    # Score-only caller keeps the old behavior; the score floors to hot.
+    assert classify("New") == "cold"                       # cold-sourced, no score
+    assert classify("New", _EVERQUOTE_SCORE) == "hot"      # EverQuote import
+    assert classify("New", 10) == "cold"                   # low-score New
+    assert classify("interested", 0) == "hot"              # engaged wins regardless
+    assert classify("closed lost", _EVERQUOTE_SCORE) == "dead"  # dead beats hot score
+
+    # The LeadOut schema surfaces the same hot temperature to the frontend.
+    import uuid
+    from datetime import datetime, timezone
+    from app.schemas import LeadOut
+    lead = LeadOut(id=uuid.uuid4(), segment="personal", score=_EVERQUOTE_SCORE,
+                   status="New", pushed_to_crm=False, created_at=datetime.now(timezone.utc))
+    assert lead.temperature == "hot"
+
+
 def test_everquote_import_and_personalized_outreach(client, auth_headers):
     """An EverQuote CSV export imports into personal-auto leads (parsing the rich
     JSON detail), and each lead gets a personalized email + SMS + voicemail + call
@@ -1886,6 +1910,20 @@ def test_everquote_import_and_personalized_outreach(client, auth_headers):
     r = client.post("/leads/import-everquote", json={"csv_text": csv_text}, headers=auth_headers).json()
     assert r["imported"] == 1 and r["total"] == 1
     lid = r["lead_ids"][0]
+
+    # Imported EverQuote leads are HOT — scored high so they sort + get worked first,
+    # and they show up in the hot-temperature filter even at status "New".
+    from app.everquote import _EVERQUOTE_SCORE
+    from app.lead_temperature import HOT_SCORE
+    _d = SessionLocal()
+    try:
+        imported = _d.query(Lead).filter(Lead.id == lid).first()
+        assert imported.score == _EVERQUOTE_SCORE and imported.score >= HOT_SCORE
+    finally:
+        _d.close()
+    hot = client.get("/leads?temperature=hot&limit=500", headers=auth_headers).json()
+    assert any(l["id"] == lid for l in hot)  # fresh EverQuote lead reads hot
+    assert all(l["temperature"] == "hot" for l in hot if l["id"] == lid)
 
     # Re-import the same email dedupes (update, not a new lead).
     r2 = client.post("/leads/import-everquote", json={"csv_text": csv_text}, headers=auth_headers).json()
