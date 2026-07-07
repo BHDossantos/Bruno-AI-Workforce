@@ -137,14 +137,19 @@ def _count_contacted(db: Session) -> int:
 
 
 def _sent_today(db: Session) -> int:
-    from sqlalchemy import func as _f
+    from datetime import time as _time
 
     from .models import Message
 
+    # Compare against a start-of-day timestamp, NOT `func.date(sent_at) == '<str>'`:
+    # Postgres has no `date = varchar` operator, so the string form raised and
+    # poisoned the whole request transaction (silently returning 0 while breaking
+    # every later query in the session, e.g. a quote-intake send 400ing).
+    start = datetime.combine(datetime.now(timezone.utc).date(), _time.min, tzinfo=timezone.utc)
     try:
         return (db.query(Message)
                 .filter(Message.direction == "outbound", Message.status == "Sent",
-                        _f.date(Message.sent_at) == _today())
+                        Message.sent_at >= start)
                 .count())
     except Exception:  # pragma: no cover
         return 0
