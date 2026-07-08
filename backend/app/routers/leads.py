@@ -82,6 +82,57 @@ def everquote_return_candidates(db: Session = Depends(get_db),
     return everquote_returns.return_candidates(db)
 
 
+@router.get("/coverage")
+def lead_coverage(source: str = "everquote", db: Session = Depends(get_db),
+                  _=Depends(require_role("admin", "operator", "viewer"))):
+    """Outreach coverage for a lead source (default EverQuote): how many leads have
+    actually been emailed / texted / called, how many aren't reachable, and the list
+    of leads not yet emailed — so 'did they all get an email?' is a number, not a hunt."""
+    from ..models import Message
+    q = db.query(Lead)
+    if source == "everquote":
+        q = q.filter(Lead.intake["source"].astext == "everquote")
+    leads = q.all()
+    ids = [l.id for l in leads]
+    emailed, texted, called = set(), set(), set()
+    if ids:
+        rows = (db.query(Message.entity_id, Message.channel, Message.status)
+                .filter(Message.entity_type == "lead", Message.entity_id.in_(ids),
+                        Message.direction == "outbound").all())
+        for eid, ch, st in rows:
+            if ch == "email" and st == "Sent":
+                emailed.add(eid)
+            elif ch in ("sms", "whatsapp") and st == "Sent":
+                texted.add(eid)
+            elif ch == "call":
+                called.add(eid)  # a logged call = contacted by phone
+
+    def _reachable(l: Lead) -> bool:
+        return outreach.is_real_email(l.email) or bool((l.phone or "").strip())
+
+    def _st(l: Lead):
+        return ((l.intake or {}).get("everquote") or {}).get("state")
+
+    unreachable = [l for l in leads if not _reachable(l)]
+    # "Not yet emailed" = has a real email but no SENT email on file — the stragglers
+    # to finish. Hot (highest score) first so the best ones surface at the top.
+    not_emailed = sorted(
+        [l for l in leads if outreach.is_real_email(l.email) and l.id not in emailed],
+        key=lambda l: l.score or 0, reverse=True)
+    return {
+        "source": source,
+        "total": len(leads),
+        "emailed": len(emailed),
+        "texted": len(texted),
+        "called": len(called),
+        "unreachable": len(unreachable),
+        "not_emailed_count": len(not_emailed),
+        "not_emailed": [{"id": str(l.id), "name": l.owner_name or l.company_name or l.email,
+                         "email": l.email, "phone": l.phone, "state": _st(l),
+                         "score": l.score or 0} for l in not_emailed[:100]],
+    }
+
+
 @router.get("/{lead_id}/personalized-outreach")
 def personalized_outreach(lead_id: str, db: Session = Depends(get_db),
                           _=Depends(require_role("admin", "operator", "viewer"))):

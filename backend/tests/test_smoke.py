@@ -5424,3 +5424,60 @@ def test_multitouch_cadence_enrolls_and_runs_all_channels(client, monkeypatch):
         db.query(Lead).filter(Lead.id.in_([lid, no_touch_id])).delete(synchronize_session=False)
         db.commit()
         db.close()
+
+
+@requires_db
+def test_everquote_lead_coverage(client, auth_headers):
+    """Coverage answers 'did they all get an email?' — counts SENT emails/texts/calls
+    per EverQuote lead, flags unreachable ones, and lists who's not emailed yet."""
+    from datetime import datetime, timezone
+    from app.database import SessionLocal
+    from app.models import Lead, Message
+
+    db = SessionLocal()
+    try:
+        db.query(Lead).filter(Lead.email.in_(["cov-a@x.co", "cov-b@x.co"])).delete(synchronize_session=False)
+        db.commit()
+        emailed = Lead(segment="personal", category="EverQuote Auto", owner_name="Emailed One",
+                       email="cov-a@x.co", phone="+16170000011", status="New", score=92,
+                       intake={"source": "everquote", "everquote": {"state": "MA"}})
+        gap = Lead(segment="personal", category="EverQuote Auto", owner_name="Not Emailed One",
+                   email="cov-b@x.co", phone="+16170000012", status="New", score=90,
+                   intake={"source": "everquote", "everquote": {"state": "NH"}})
+        unreachable = Lead(segment="personal", category="EverQuote Auto", owner_name="No Contact",
+                           email=None, phone=None, status="New", score=88,
+                           intake={"source": "everquote", "everquote": {"state": "FL"}})
+        db.add_all([emailed, gap, unreachable]); db.flush()
+        db.add(Message(channel="email", direction="outbound", entity_type="lead",
+                       entity_id=emailed.id, to_email="cov-a@x.co", from_account="insurance",
+                       subject="s", body="b", status="Sent", sent_at=datetime.now(timezone.utc)))
+        db.commit()
+        emailed_id, gap_id = str(emailed.id), str(gap.id)
+    finally:
+        db.close()
+
+    cov = client.get("/leads/coverage", headers=auth_headers).json()
+    assert cov["total"] >= 3
+    # A drafted-but-unsent email doesn't count as "emailed" — only a real Sent one.
+    names = {l["name"] for l in cov["not_emailed"]}
+    assert "Not Emailed One" in names        # reachable, no sent email → in the gap list
+    assert "No Contact" not in names         # no email at all → unreachable, not a gap
+    assert cov["unreachable"] >= 1
+    assert cov["emailed"] >= 1  # the one with a Sent email is counted
+    assert emailed_id not in {l["id"] for l in cov["not_emailed"]}  # already emailed → not a gap
+
+
+def test_bridge_call_has_valid_e164_caller_id(monkeypatch):
+    """The bridge <Dial> must carry a valid E.164 callerId even if the voice number
+    was saved with formatting — an invalid callerId makes Twilio drop the call the
+    moment the producer answers."""
+    from app.config import settings
+    from app.integrations import twilio_voice as voice
+    monkeypatch.setattr(settings, "twilio_voice_number", "(978) 254-1435", raising=False)
+    monkeypatch.setattr(settings, "twilio_insurance_number", "", raising=False)
+    monkeypatch.setattr(settings, "twilio_from_number", "", raising=False)
+    monkeypatch.setattr(settings, "public_base_url", "https://example.run.app", raising=False)
+    xml = voice.bridge_twiml("617-555-0100", "lead-1")
+    assert 'callerId="+19782541435"' in xml   # normalized, not the raw formatted value
+    assert "(978)" not in xml                  # the invalid form never reaches Twilio
+    assert 'answerOnBridge="true"' in xml and "+16175550100" in xml
