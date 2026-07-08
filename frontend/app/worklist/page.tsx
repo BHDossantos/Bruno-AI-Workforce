@@ -55,25 +55,27 @@ const FILTER_KEY = "worklist_filters";
 export default function WorkListPage() {
   const [temp, setTemp] = useState("");
   const [stateF, setStateF] = useState("");
+  const [sortBy, setSortBy] = useState("score");
   const [q, setQ] = useState("");
   const [tick, setTick] = useState(0);
-  // Remember the filters across a refresh (until the user changes or resets them).
+  // Remember the filters + sort across a refresh (until the user changes them).
   // Hydrate after mount so server + first client render match (no hydration warning).
   useEffect(() => {
     try {
       const s = JSON.parse(localStorage.getItem(FILTER_KEY) || "{}");
       if (s.temp) setTemp(s.temp);
       if (s.state) setStateF(s.state);
+      if (s.sort) setSortBy(s.sort);
       if (s.q) setQ(s.q);
     } catch { /* ignore malformed storage */ }
   }, []);
   useEffect(() => {
-    try { localStorage.setItem(FILTER_KEY, JSON.stringify({ temp, state: stateF, q })); }
+    try { localStorage.setItem(FILTER_KEY, JSON.stringify({ temp, state: stateF, sort: sortBy, q })); }
     catch { /* ignore */ }
-  }, [temp, stateF, q]);
+  }, [temp, stateF, sortBy, q]);
   const { data, loading, error, reload } = useFetch<Lead[]>(
-    () => api.get<Lead[]>(`/leads?limit=300${temp ? `&temperature=${temp}` : ""}${stateF ? `&state=${stateF}` : ""}`),
-    [temp, stateF, tick]
+    () => api.get<Lead[]>(`/leads?limit=300&sort=${sortBy}${temp ? `&temperature=${temp}` : ""}${stateF ? `&state=${stateF}` : ""}`),
+    [temp, stateF, sortBy, tick]
   );
   const { data: coverage } = useFetch<Coverage>(() => api.get<Coverage>("/leads/coverage"), [tick]);
   const [showGaps, setShowGaps] = useState(false);
@@ -180,6 +182,18 @@ export default function WorkListPage() {
           <option value="MA">MA</option>
           <option value="NH">NH</option>
           <option value="FL">FL</option>
+        </select>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value)}
+          className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700"
+          title="Sort leads"
+        >
+          <option value="score">Sort: Hottest first</option>
+          <option value="recent">Sort: Newest first</option>
+          <option value="oldest">Sort: Oldest first</option>
+          <option value="stale">Sort: Longest since contact</option>
+          <option value="name">Sort: Name (A–Z)</option>
         </select>
         <input
           value={q}
