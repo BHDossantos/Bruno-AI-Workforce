@@ -360,7 +360,7 @@ def send_quote_intake(lead_id: str, body: IntakeSendIn, db: Session = Depends(ge
 @router.get("", response_model=list[LeadOut])
 def list_leads(segment: str | None = None, status: str | None = None,
                temperature: str | None = None, line: str | None = None,
-               sort: str | None = None, limit: int = 200,
+               state: str | None = None, sort: str | None = None, limit: int = 200,
                db: Session = Depends(get_db), _=Depends(require_role("admin", "operator", "viewer"))):
     from .. import lead_temperature
     from ..insurance_lines import COMMERCIAL, HOME, LIFE, line_for
@@ -369,6 +369,11 @@ def list_leads(segment: str | None = None, status: str | None = None,
         q = q.filter(Lead.segment == segment)
     if status:
         q = q.filter(Lead.status == status)
+    if state:
+        # EverQuote leads carry their state in the intake detail (leads have no
+        # state column). Match on that so "MA/NH/FL" actually narrows the list.
+        st = state.strip().upper()
+        q = q.filter(Lead.intake["everquote"]["state"].astext == st)
     # Temperature maps to a fixed, known set of statuses — push it into SQL so
     # it never gets starved by an unrelated row LIMIT (whichever bucket
     # dominates the sort order would otherwise silently crowd out the rest).

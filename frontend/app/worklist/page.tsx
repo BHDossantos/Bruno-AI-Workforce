@@ -46,11 +46,12 @@ function since(iso?: string | null) {
 
 export default function WorkListPage() {
   const [temp, setTemp] = useState("");
+  const [stateF, setStateF] = useState("");
   const [q, setQ] = useState("");
   const [tick, setTick] = useState(0);
   const { data, loading, error, reload } = useFetch<Lead[]>(
-    () => api.get<Lead[]>(`/leads?limit=300${temp ? `&temperature=${temp}` : ""}`),
-    [temp, tick]
+    () => api.get<Lead[]>(`/leads?limit=300${temp ? `&temperature=${temp}` : ""}${stateF ? `&state=${stateF}` : ""}`),
+    [temp, stateF, tick]
   );
 
   // Per-lead action state: a status message + a busy flag, keyed by lead id.
@@ -113,6 +114,17 @@ export default function WorkListPage() {
             {f.label}
           </button>
         ))}
+        <select
+          value={stateF}
+          onChange={(e) => setStateF(e.target.value)}
+          className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700"
+          title="Filter by state"
+        >
+          <option value="">All states</option>
+          <option value="MA">MA</option>
+          <option value="NH">NH</option>
+          <option value="FL">FL</option>
+        </select>
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}

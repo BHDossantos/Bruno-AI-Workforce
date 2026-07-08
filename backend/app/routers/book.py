@@ -341,10 +341,15 @@ def from_lead(lead_id: str, db: Session = Depends(get_db), _=Depends(_write)):
     # Route the lead's segment to the right business book.
     business = {"consulting": "bnb", "foundation": "foundation"}.get(lead.segment or "", "insurance")
     ln = line_for(lead.category, lead.segment, lead.industry) if business == "insurance" else None
+    # Carry the lead's state (EverQuote leads store it in the intake detail) onto the
+    # client, so the Client Book's state filter actually has a value to match — before
+    # this, from-lead clients had a NULL state and every state filter returned nothing.
+    eq = (lead.intake or {}).get("everquote") or {}
+    lead_state = (eq.get("state") or "").strip().upper() or None
     c = Client(
         lead_id=lead.id, business=business,
         name=lead.company_name or lead.owner_name or (lead.email or "New client"),
-        email=lead.email, phone=lead.phone,
+        email=lead.email, phone=lead.phone, state=lead_state,
         line=ln if ln in carriers_ref.LINES else None,
         status="Active", signed_at=date.today())
     db.add(c)
