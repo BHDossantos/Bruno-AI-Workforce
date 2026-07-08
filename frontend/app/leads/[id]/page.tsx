@@ -96,6 +96,16 @@ function Profile() {
       const r = await api.post<{ message: string }>(`/calls/lead/${id}`, {});
       setNote(`📞 ${r.message}`);
     });
+  const autoCall = () =>
+    act("Auto-call", async () => {
+      const r = await api.post<{ message: string }>(`/calls/auto/${id}`, {});
+      setNote(`🤖 ${r.message}`);
+    });
+  const recordVoicemail = () =>
+    act("Record voicemail", async () => {
+      const r = await api.post<{ message: string }>(`/calls/record-voicemail`, {});
+      setNote(`🎙️ ${r.message}`);
+    });
   const saveNote = () =>
     act("Note", async () => {
       await api.post(`/leads/${id}/note`, { note: noteText });
@@ -142,7 +152,13 @@ function Profile() {
               <button className="btn mb-2 w-full" disabled={busy === "Call" || !lead.phone} onClick={callNow}>
                 {busy === "Call" ? "Calling…" : "📞 Call lead (rings your phone)"}
               </button>
-              <p className="mb-3 text-xs text-gray-400">Twilio rings your phone, then connects the lead. Recorded with a consent notice; AI notes post to the timeline after.</p>
+              <button className="btn mb-2 w-full" disabled={busy === "Auto-call" || !lead.phone} onClick={autoCall}>
+                {busy === "Auto-call" ? "Dialing…" : "🤖 Auto-call (transfer or voicemail)"}
+              </button>
+              <p className="mb-2 text-xs text-gray-400">Auto-call dials the lead: if they pick up your phone rings and you&apos;re connected; if it goes to voicemail it leaves your recorded message.</p>
+              <button className="btn-ghost mb-3 w-full text-xs" disabled={busy === "Record voicemail"} onClick={recordVoicemail}>
+                {busy === "Record voicemail" ? "Calling you…" : "🎙️ Record my voicemail (one-time)"}
+              </button>
               <h3 className="mb-2 text-sm font-semibold text-gray-500">Log a call manually</h3>
               <select value={callOutcome} onChange={(e) => setCallOutcome(e.target.value)}
                 className="mb-2 w-full rounded-lg border border-gray-300 px-2 py-2 text-sm">

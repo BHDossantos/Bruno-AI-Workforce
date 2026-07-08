@@ -5544,3 +5544,35 @@ def test_lead_standalone_note_saves_and_shows_in_timeline(client, auth_headers):
     assert any("Note" in (e.get("label") or "") for e in prof["timeline"])
     # A standalone note is internal — it must NOT inflate the outreach counters.
     assert prof["counts"]["email"] == 0 and prof["counts"]["call"] == 0
+
+
+def test_auto_dial_transfers_human_and_drops_recorded_voicemail(monkeypatch):
+    """The auto-dialer: a human answer transfers to the producer's phone; voicemail
+    plays the recorded drop (real voice), else a spoken fallback. Numbers E.164."""
+    from app.config import settings
+    from app.integrations import twilio_voice as voice
+    monkeypatch.setattr(settings, "twilio_voice_number", "+19781112222", raising=False)
+    monkeypatch.setattr(settings, "twilio_insurance_number", "", raising=False)
+    monkeypatch.setattr(settings, "twilio_from_number", "", raising=False)
+    monkeypatch.setattr(settings, "producer_callback", "(603) 930-8272", raising=False)
+    monkeypatch.setattr(settings, "public_base_url", "https://x.run.app", raising=False)
+    monkeypatch.setattr(settings, "call_recording_enabled", True, raising=False)
+
+    # Human (and 'unknown') → transfer to YOUR phone, normalized to E.164, recorded.
+    for ab in ("human", "unknown", ""):
+        xml = voice.amd_twiml(ab, "lead-1")
+        assert "<Dial" in xml and "+16039308272" in xml and 'callerId="+19781112222"' in xml
+
+    # Machine + a recorded voicemail → play it, no transfer.
+    monkeypatch.setattr(settings, "producer_voicemail_url", "https://cdn/vm.mp3", raising=False)
+    machine = voice.amd_twiml("machine_end", "lead-1")
+    assert "<Play>https://cdn/vm.mp3</Play>" in machine and "<Dial" not in machine
+    assert voice.voicemail_configured() is True
+
+    # Machine + no recording → a spoken fallback still leaves a message.
+    monkeypatch.setattr(settings, "producer_voicemail_url", "", raising=False)
+    assert "<Say>" in voice.amd_twiml("machine_end", None) and voice.voicemail_configured() is False
+
+    # Recording flow captures audio and posts it back to be saved.
+    rec = voice.record_vm_twiml()
+    assert "<Record" in rec and "/calls/vm-saved" in rec

@@ -46,6 +46,7 @@ FIELDS: dict[str, bool] = {
     "twilio_insurance_number": False,  # optional separate number for insurance texts
     "twilio_voice_number": False,      # caller-ID for outbound calls (Voice-enabled)
     "producer_callback": False,        # YOUR cell — Twilio rings this to bridge calls
+    "producer_voicemail_url": False,   # recorded voicemail drop (auto-dialer plays it)
     "twilio_api_key_sid": False,       # browser softphone: API Key SID
     "twilio_api_key_secret": True,     # browser softphone: API Key secret
     "twilio_twiml_app_sid": False,     # browser softphone: TwiML App SID
