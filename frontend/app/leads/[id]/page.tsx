@@ -50,6 +50,7 @@ function Profile() {
   const [smsBody, setSmsBody] = useState<string | null>(null);
   const [callOutcome, setCallOutcome] = useState("Reached");
   const [callNotes, setCallNotes] = useState("");
+  const [noteText, setNoteText] = useState("");
   const [callScript, setCallScript] = useState<CallTpl | null>(null);
 
   const lead = data?.lead;
@@ -94,6 +95,11 @@ function Profile() {
     act("Call", async () => {
       const r = await api.post<{ message: string }>(`/calls/lead/${id}`, {});
       setNote(`📞 ${r.message}`);
+    });
+  const saveNote = () =>
+    act("Note", async () => {
+      await api.post(`/leads/${id}/note`, { note: noteText });
+      setNoteText("");
     });
 
   return (
@@ -148,6 +154,12 @@ function Profile() {
                 placeholder="Notes (optional)" className="mb-2 w-full rounded-lg border border-gray-300 px-2 py-2 text-sm" />
               <button className="btn w-full" disabled={busy === "Call log"} onClick={logCall}>
                 {busy === "Call log" ? "Logging…" : "📞 Log call"}
+              </button>
+              <h3 className="mb-2 mt-4 text-sm font-semibold text-gray-500">Add a note</h3>
+              <textarea value={noteText} onChange={(e) => setNoteText(e.target.value)} rows={2}
+                placeholder="Jot a note about this lead…" className="mb-2 w-full rounded-lg border border-gray-300 px-2 py-2 text-sm" />
+              <button className="btn w-full" disabled={busy === "Note" || !noteText.trim()} onClick={saveNote}>
+                {busy === "Note" ? "Saving…" : "📝 Save note"}
               </button>
               <select className="mt-3 w-full rounded-lg border border-gray-300 px-2 py-2 text-sm"
                 defaultValue="" onChange={(e) => setCallScript(tpl?.call.find((x) => x.id === e.target.value) || null)}>

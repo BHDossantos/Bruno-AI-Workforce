@@ -278,6 +278,31 @@ def log_call(lead_id: str, body: LogCallIn, db: Session = Depends(get_db),
     return {"ok": True, "counts": _touch_counts(db, lead.id)}
 
 
+class NoteIn(BaseModel):
+    note: str
+
+
+@router.post("/{lead_id}/note")
+def add_lead_note(lead_id: str, body: NoteIn, db: Session = Depends(get_db),
+                  _=Depends(require_role("admin", "operator"))):
+    """Save a free-text note on this lead — a standalone note (NOT tied to logging a
+    call). Shows in the lead's timeline. Doesn't count as an outreach touch."""
+    from datetime import datetime, timezone
+
+    from ..models import Message
+    text = (body.note or "").strip()
+    if not text:
+        raise HTTPException(400, "Note is empty")
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    db.add(Message(channel="note", direction="internal", entity_type="lead",
+                   entity_id=lead.id, from_account="insurance", body=text,
+                   status="Logged", sent_at=datetime.now(timezone.utc)))
+    db.commit()
+    return {"ok": True}
+
+
 class SendNowIn(BaseModel):
     message: str | None = None       # override the AI-drafted body
     subject: str | None = None       # email only

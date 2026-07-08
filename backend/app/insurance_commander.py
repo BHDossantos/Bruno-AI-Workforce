@@ -173,11 +173,14 @@ def lead_timeline(db: Session, lead_id: str) -> dict:
     for m in (db.query(Message).filter(Message.entity_type == "lead",
               Message.entity_id == lead.id).order_by(Message.created_at.asc()).all()):
         when = m.sent_at or m.created_at
-        ch = _CH.get(m.channel or "email", (m.channel or "email").title())
-        direction = "sent" if m.direction == "outbound" else "received"
+        if m.channel == "note":
+            label = "📝 Note"
+        else:
+            ch = _CH.get(m.channel or "email", (m.channel or "email").title())
+            label = f"{ch} {'sent' if m.direction == 'outbound' else 'received'}"
         events.append({"at": when.isoformat() if when else None,
                        "kind": f"{m.direction}_{m.channel or 'email'}",
-                       "label": f"{ch} {direction}",
+                       "label": label,
                        "detail": (m.subject or (m.body or ""))[:120], "status": m.status,
                        "delivery_status": m.delivery_status})
     for fu in (db.query(FollowUp).filter(FollowUp.entity_type == "lead",
