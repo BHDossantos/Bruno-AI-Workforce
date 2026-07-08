@@ -30,6 +30,11 @@ def dispatch_leads(db: Session, segment: str | None = None, limit: int = 1000,
             lead.status = "Skipped"
             retired += 1
             continue
+        # No cold-email body → nothing to send here. These are the personalized-draft
+        # leads (EverQuote / quote-intake), which go out via their own Drafted Message
+        # in send_email_drafts — sending lead.cold_email would fire a blank email.
+        if not (lead.cold_email or "").strip():
+            continue
         from .integrations import gmail
         account = gmail.account_for_segment(lead.segment)
         subject = f"A quick idea for {lead.company_name or lead.owner_name}"

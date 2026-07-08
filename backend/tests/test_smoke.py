@@ -5251,6 +5251,38 @@ def test_send_drafts_sends_hot_leads_first(client, auth_headers, monkeypatch):
 
 
 @requires_db
+def test_flush_hot_drafts_gated_by_autopilot(monkeypatch):
+    """The auto-send cron only fires when the operator has enabled auto-send
+    (full-auto mode OR Outreach Autopilot). With both off, drafts wait for review;
+    with autopilot on, it flushes the email + SMS drafts (hot leads first)."""
+    from app import control, outreach, scheduler, sms_engine
+    from app.database import SessionLocal
+
+    calls = {"email": 0, "sms": 0}
+    monkeypatch.setattr(outreach, "send_email_drafts",
+                        lambda db, **k: calls.__setitem__("email", calls["email"] + 1) or {"sent": 1})
+    monkeypatch.setattr(sms_engine, "send_sms_drafts",
+                        lambda db, **k: calls.__setitem__("sms", calls["sms"] + 1) or {"sent": 1})
+    monkeypatch.setattr(control, "is_paused_safe", lambda db: False)
+    monkeypatch.setattr(control, "get_mode", lambda db: "semi")
+
+    db = SessionLocal()
+    try:
+        # Auto-send OFF → nothing sent, drafts wait for review.
+        monkeypatch.setattr(control, "outreach_autopilot", lambda db: False)
+        res_off = scheduler._flush_hot_drafts(db)
+        assert "skipped" in res_off and calls == {"email": 0, "sms": 0}
+
+        # Autopilot ON → both channels flush (hot leads first, inside each sender).
+        monkeypatch.setattr(control, "outreach_autopilot", lambda db: True)
+        res_on = scheduler._flush_hot_drafts(db)
+        assert calls == {"email": 1, "sms": 1}
+        assert "email" in res_on and "sms" in res_on
+    finally:
+        db.close()
+
+
+@requires_db
 def test_mailbox_health_diagnostic(client, auth_headers):
     """The Connect page can confirm each mailbox can ACTUALLY send (real auth
     check), not just that a key is saved. Offline it truthfully reports not-able."""

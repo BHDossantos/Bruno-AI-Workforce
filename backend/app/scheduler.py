@@ -35,8 +35,8 @@ _scheduler: BackgroundScheduler | None = None
 # content publishing, board report…) is skipped so it stops burning AI spend.
 _INSURANCE_AGENTS = {"insurance", "commercial_finder", "home_finder", "auto_finder",
                      "homeowner", "referral_partner", "follow_up_agent", "review_referral"}
-_INSURANCE_JOBS = {"client_autoscale", "leads", "auto_outreach", "followups",
-                   "booking_nudges", "lifecycle", "outreach_digest",
+_INSURANCE_JOBS = {"client_autoscale", "leads", "auto_outreach", "flush_drafts",
+                   "followups", "booking_nudges", "lifecycle", "outreach_digest",
                    "refresh_tokens", "selfcheck", "referrals"}
 
 
@@ -119,6 +119,24 @@ def _auto_outreach(db):
         "leads": bulk_outreach.dispatch_leads(db),
         "restaurants": bulk_outreach.dispatch_restaurants(db),
         "contacts": contacts_outreach.run(db),
+    }
+
+
+def _flush_hot_drafts(db):
+    """Auto-send the personalized DRAFTED emails + texts — HOT LEADS FIRST — so a
+    fresh EverQuote lead gets its first touch on its own instead of waiting for a
+    manual 'Send drafts' click. Only fires when the operator has enabled auto-send
+    (full-auto mode OR Outreach Autopilot); otherwise the drafts wait for review.
+    Bounded per run + compliance-gated (daily cap, texting hours, opt-out) so it
+    paces itself and protects deliverability."""
+    from . import control, outreach, sms_engine
+    if control.is_paused_safe(db):
+        return {"skipped": "paused"}
+    if control.get_mode(db) != "auto" and not control.outreach_autopilot(db):
+        return {"skipped": "auto-send off (turn on Outreach Autopilot to enable)"}
+    return {
+        "email": outreach.send_email_drafts(db, limit=25),
+        "sms": sms_engine.send_sms_drafts(db, limit=25),
     }
 
 
@@ -210,6 +228,10 @@ _JOBS: dict[str, tuple] = {
     "leads":            (_run_leads, "0 8,12,16,20 * * *"),
     # Drain the outreach backlog (leads + restaurants + warm contacts), 2×/day.
     "auto_outreach":    (_auto_outreach, "30 9,15 * * *"),
+    # Auto-send personalized DRAFTS — hot leads first — hourly during the day so a
+    # fresh EverQuote lead gets its first email/text fast (speed wins). Only acts
+    # when Outreach Autopilot / full-auto is on; otherwise drafts wait for review.
+    "flush_drafts":     (_flush_hot_drafts, "20 8-20 * * *"),
     # Per-funnel newsletters to warm repliers, Mon/Wed/Fri.
     "newsletters":      (_run_newsletters, "0 11 * * 1,3,5"),
     # Build any due music release kit (release-as-eras), daily.
