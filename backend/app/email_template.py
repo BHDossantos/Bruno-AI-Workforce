@@ -54,17 +54,40 @@ def _business(account: str) -> str:
     return settings.personal_business_name or ""
 
 
+def _tel(phone: str) -> str:
+    """A US phone (formatted or raw) → an E.164 tel: href value."""
+    d = re.sub(r"\D", "", phone or "")
+    if len(d) == 10:
+        d = "1" + d
+    return "+" + d if d else ""
+
+
+def _phone_line() -> str:
+    """'phone# (833) 854-7055   Cell# 16039308272' — click-to-call, from config."""
+    parts = []
+    if settings.producer_office_phone:
+        parts.append(f'phone# <a href="tel:{_tel(settings.producer_office_phone)}" '
+                     f'style="color:#6d28d9;text-decoration:none">{settings.producer_office_phone}</a>')
+    if settings.producer_cell:
+        parts.append(f'Cell# <a href="tel:{_tel(settings.producer_cell)}" '
+                     f'style="color:#6d28d9;text-decoration:none">{settings.producer_cell}</a>')
+    return " &nbsp;&nbsp; ".join(parts)
+
+
 def _signature(account: str) -> str:
     """Per-account signature block with click-to-call phone numbers."""
     if account == "insurance":
+        title = f" | {settings.producer_title}" if settings.producer_title else ""
         return (
-            'Best regards,<br>'
-            '<strong>Bruno Dossantos</strong><br>'
-            'Phone: <a href="tel:+16175683000" style="color:#6d28d9;text-decoration:none">(617) 568-3000</a> ext. 119'
-            ' &nbsp;|&nbsp; '
-            'Cell: <a href="tel:+16039308272" style="color:#6d28d9;text-decoration:none">(603) 930-8272</a><br>'
-            'Thrust Insurance — Independent Agent<br>'
-            '<span style="color:#666">Languages: English, Portuguese, Spanish &amp; Italian</span>'
+            f'<strong>{settings.insurance_business_name or "Thrust Insurance"}</strong><br>'
+            f'{settings.producer_name}{title}<br>'
+            f'{_phone_line()}'
+        )
+    if account == "savorymind":
+        return (
+            '<strong>SavoryMind</strong> tastes better!<br>'
+            f'{settings.producer_name} | <br>'
+            f'{_phone_line()}'
         )
     return (
         'Best regards,<br>'

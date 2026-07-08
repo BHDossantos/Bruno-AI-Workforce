@@ -811,8 +811,9 @@ def test_email_template_wraps_body_with_signature_and_footer():
     out = email_template.render("Hi there\nThanks", account="insurance")
     assert "Hi there" in out
     assert "Thrust Insurance" in out  # signature/footer
-    assert "Bruno Dossantos" in out
-    assert "tel:+16175683000" in out and "tel:+16039308272" in out  # click-to-call
+    assert "Bruno Dossantos" in out and "insurance agent" in out
+    assert "tel:+18338547055" in out and "tel:+16039308272" in out  # office + cell click-to-call
+    assert "(833) 854-7055" in out and "16039308272" in out          # shown as configured
     assert "unsubscribe" in out.lower()  # CAN-SPAM footer
     assert email_template.render(None) is None
 
@@ -820,6 +821,12 @@ def test_email_template_wraps_body_with_signature_and_footer():
     assert "Bruno Dos Santos, MBA, MSIT" in personal
     assert "tel:+16039308272" in personal
     assert "Thrust Insurance" not in personal  # insurance signature must not leak
+
+    # SavoryMind restaurant outreach gets its own tagline signature, not the IT one.
+    savory = email_template.render("Hi chef", account="savorymind")
+    assert "SavoryMind" in savory and "tastes better" in savory
+    assert "tel:+18338547055" in savory                 # same producer phones
+    assert "MBA, MSIT" not in savory                     # not the consulting signature
 
     # AI placeholders + sign-off are stripped; only the real signature remains.
     raw = ("Hi [Prospect's Name],\n\nRunning a restaurant is hard.\n\n"
@@ -1921,9 +1928,10 @@ def test_everquote_import_and_personalized_outreach(client, auth_headers):
         assert imported.score == _EVERQUOTE_SCORE and imported.score >= HOT_SCORE
     finally:
         _d.close()
-    hot = client.get("/leads?temperature=hot&limit=500", headers=auth_headers).json()
-    assert any(l["id"] == lid for l in hot)  # fresh EverQuote lead reads hot
-    assert all(l["temperature"] == "hot" for l in hot if l["id"] == lid)
+    # High limit so the assertion doesn't depend on how many other hot leads exist.
+    hot = client.get("/leads?temperature=hot&limit=5000", headers=auth_headers).json()
+    ours = [l for l in hot if l["id"] == lid]
+    assert ours and ours[0]["temperature"] == "hot"  # fresh EverQuote lead reads hot
 
     # Re-import the same email dedupes (update, not a new lead).
     r2 = client.post("/leads/import-everquote", json={"csv_text": csv_text}, headers=auth_headers).json()
@@ -5186,6 +5194,60 @@ def test_outbox_send_surfaces_errors_and_bulk_send(client, auth_headers):
     from app.integrations import gmail
     _id, reason = gmail.send_with_error("", "s", "b", account="insurance")
     assert _id is None and reason
+
+
+@requires_db
+def test_send_drafts_sends_hot_leads_first(client, auth_headers, monkeypatch):
+    """The rule: emails go to HOT leads first. A drafted email to a hot in-market
+    lead (EverQuote, high score) is sent before an OLDER draft to a colder lead."""
+    from datetime import datetime, timedelta, timezone
+
+    from app import outreach
+    from app.database import SessionLocal
+    from app.models import Lead, Message
+
+    # Delivery always succeeds, so what we're testing is the ORDER, not the channel.
+    monkeypatch.setattr(outreach, "can_deliver", lambda account: True)
+    monkeypatch.setattr(outreach, "deliver", lambda to, subject, body, account: ("fake-mid", None))
+
+    acct = "hotfirst_test"
+    db = SessionLocal()
+    try:
+        db.query(Message).filter(Message.from_account == acct).delete(synchronize_session=False)
+        db.query(Lead).filter(Lead.email.in_(["hot-hf@x.co", "cold-hf@x.co"])).delete(synchronize_session=False)
+        db.commit()
+        hot = Lead(segment="personal", category="EverQuote Auto", owner_name="Hot",
+                   email="hot-hf@x.co", status="New", score=92)
+        cold = Lead(segment="commercial", category="Biz", owner_name="Cold",
+                    email="cold-hf@x.co", status="New", score=10)
+        db.add_all([hot, cold]); db.flush()
+        now = datetime.now(timezone.utc)
+        # OLDER draft to the COLD lead, NEWER draft to the HOT lead — oldest-first
+        # would send the cold one; hot-first must send the hot one instead.
+        cold_msg = Message(channel="email", direction="outbound", entity_type="lead",
+                           entity_id=cold.id, to_email="cold-hf@x.co", from_account=acct,
+                           subject="c", body="c", status="Drafted",
+                           created_at=now - timedelta(hours=2))
+        hot_msg = Message(channel="email", direction="outbound", entity_type="lead",
+                          entity_id=hot.id, to_email="hot-hf@x.co", from_account=acct,
+                          subject="h", body="h", status="Drafted", created_at=now)
+        db.add_all([cold_msg, hot_msg]); db.flush()
+        hot_mid, cold_mid = str(hot_msg.id), str(cold_msg.id)
+        db.commit()
+    finally:
+        db.close()
+
+    # Send exactly ONE — hot-first means the HOT lead's email goes, not the older cold one.
+    r = client.post("/messages/send-drafts", json={"account": acct, "limit": 1},
+                    headers=auth_headers).json()
+    assert r["sent"] == 1 and r["considered"] == 1
+
+    db = SessionLocal()
+    try:
+        assert db.query(Message).filter(Message.id == hot_mid).first().status == "Sent"
+        assert db.query(Message).filter(Message.id == cold_mid).first().status == "Drafted"
+    finally:
+        db.close()
 
 
 @requires_db

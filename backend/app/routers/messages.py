@@ -10,9 +10,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from sqlalchemy import and_, func
+
 from .. import followups, inbound
 from ..database import get_db
-from ..models import Message
+from ..models import Lead, Message
 from ..schemas import MessageOut
 from ..security import require_role
 
@@ -81,15 +83,21 @@ class SendDraftsIn(BaseModel):
 
 @router.post("/messages/send-drafts")
 def send_drafts(body: SendDraftsIn, db: Session = Depends(get_db), _=Depends(_write)):
-    """Send the oldest N drafted outbound messages in one click (paced — protects
-    a new mailbox's deliverability). Reports how many sent/failed and the real
-    reason for any failure, instead of silently doing nothing."""
-    q = db.query(Message).filter(
-        Message.direction == "outbound", Message.to_email.isnot(None),
-        Message.status.in_(["Drafted", "Approved"]))
+    """Send N drafted outbound messages in one click, HOT LEADS FIRST (paced —
+    protects a new mailbox's deliverability). A drafted email to a hot/in-market
+    lead (EverQuote) goes out before any colder lead's; within the same tier the
+    oldest draft goes first so pacing stays fair. Reports sent/failed + the real
+    reason for any failure."""
+    # Left-join the lead so we can rank by its score; non-lead messages (no match)
+    # fall to score 0 and send after the hot leads.
+    q = (db.query(Message)
+         .outerjoin(Lead, and_(Message.entity_type == "lead", Message.entity_id == Lead.id))
+         .filter(Message.direction == "outbound", Message.to_email.isnot(None),
+                 Message.status.in_(["Drafted", "Approved"])))
     if body.account:
         q = q.filter(Message.from_account == body.account)
-    msgs = q.order_by(Message.created_at.asc()).limit(max(1, min(body.limit, 50))).all()
+    msgs = (q.order_by(func.coalesce(Lead.score, 0).desc(), Message.created_at.asc())
+            .limit(max(1, min(body.limit, 50))).all())
 
     from .. import outreach
     sent = failed = 0
