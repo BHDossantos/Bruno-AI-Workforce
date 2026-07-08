@@ -76,8 +76,10 @@ def _dial_lead(lead_phone: str, lead_id: str | None) -> str:
                 if (rec and base) else f'<Number>{num}</Number>')
     # answerOnBridge keeps YOUR leg on ringback until the lead actually answers
     # (without it the call can drop in a few seconds); timeout gives the lead time
-    # to pick up. callerId must be a Twilio number you own.
-    attrs = f' callerId="{_voice_number()}" answerOnBridge="true" timeout="30"'
+    # to pick up. callerId must be a Twilio number you own, in E.164 — a value stored
+    # with formatting ("(978)…") is an invalid callerId and Twilio drops the <Dial>.
+    caller_id = _e164(_voice_number()) or _voice_number()
+    attrs = f' callerId="{caller_id}" answerOnBridge="true" timeout="30"'
     if rec and base:
         attrs += (' record="record-from-answer-dual"'
                   f' recordingStatusCallback="{base}/calls/recording'

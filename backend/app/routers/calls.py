@@ -69,8 +69,12 @@ def browser_token(db: Session = Depends(get_db), _=Depends(_read)):
 
 # ── Public Twilio webhooks ────────────────────────────────────────────────────
 @router.post("/twiml/bridge")
-def twiml_bridge(lead_phone: str = "", lead_id: str = ""):
-    """Returned to Twilio after YOU answer — dials + records the lead."""
+def twiml_bridge(lead_phone: str = "", lead_id: str = "", db: Session = Depends(get_db)):
+    """Returned to Twilio after YOU answer — dials + records the lead. Refreshes the
+    connected Twilio config first: this webhook can land on a Cloud Run instance that
+    never loaded the voice number from the DB, which left callerId empty and made
+    Twilio reject the <Dial> — so the call dropped the moment you picked up."""
+    _refresh(db)
     return Response(voice.bridge_twiml(lead_phone, lead_id or None), media_type=_XML)
 
 
@@ -81,9 +85,10 @@ def twiml_announce():
 
 
 @router.post("/twiml/outbound")
-async def twiml_outbound(request: Request):
+async def twiml_outbound(request: Request, db: Session = Depends(get_db)):
     """TwiML App voiceUrl for the browser softphone — dials the number the SDK
     passed as 'To'."""
+    _refresh(db)  # load the connected voice number so callerId isn't empty
     form = await request.form()
     to = (form.get("To") or "").strip()
     lead_id = (form.get("lead_id") or "").strip()

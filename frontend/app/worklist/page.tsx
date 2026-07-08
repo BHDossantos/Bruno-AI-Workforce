@@ -23,6 +23,12 @@ type Lead = {
   last_contacted_at?: string | null;
 };
 
+type Coverage = {
+  total: number; emailed: number; texted: number; called: number;
+  unreachable: number; not_emailed_count: number;
+  not_emailed: { id: string; name: string; email?: string | null; state?: string | null }[];
+};
+
 const STATUSES = ["New", "Contacted", "Quoted", "Closed Won", "Closed Lost"];
 const FILTERS: { key: string; label: string }[] = [
   { key: "", label: "All" },
@@ -53,6 +59,8 @@ export default function WorkListPage() {
     () => api.get<Lead[]>(`/leads?limit=300${temp ? `&temperature=${temp}` : ""}${stateF ? `&state=${stateF}` : ""}`),
     [temp, stateF, tick]
   );
+  const { data: coverage } = useFetch<Coverage>(() => api.get<Coverage>("/leads/coverage"), [tick]);
+  const [showGaps, setShowGaps] = useState(false);
 
   // Per-lead action state: a status message + a busy flag, keyed by lead id.
   const [busy, setBusy] = useState<Record<string, boolean>>({});
@@ -101,6 +109,38 @@ export default function WorkListPage() {
           </Link>
         }
       />
+
+      {/* Coverage: did every EverQuote lead actually get worked? At a glance. */}
+      {coverage && coverage.total > 0 && (
+        <div className="mb-4 rounded-xl border border-gray-200 bg-white p-4">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+            <span className="font-semibold text-gray-700">EverQuote coverage</span>
+            <span>📧 <b>{coverage.emailed}</b>/{coverage.total} emailed</span>
+            <span>💬 <b>{coverage.texted}</b> texted</span>
+            <span>📞 <b>{coverage.called}</b> called</span>
+            {coverage.unreachable > 0 && <span className="text-gray-400">{coverage.unreachable} unreachable</span>}
+            {coverage.not_emailed_count > 0 && (
+              <button onClick={() => setShowGaps((s) => !s)}
+                className="ml-auto rounded-lg bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-200">
+                {showGaps ? "Hide" : `⚠️ ${coverage.not_emailed_count} not emailed yet`}
+              </button>
+            )}
+          </div>
+          {showGaps && coverage.not_emailed.length > 0 && (
+            <div className="mt-3 max-h-56 overflow-y-auto rounded-lg border border-gray-100">
+              {coverage.not_emailed.map((l) => (
+                <div key={l.id} className="flex items-center justify-between border-b border-gray-50 px-3 py-1.5 text-sm last:border-0">
+                  <span>{l.name} <span className="text-xs text-gray-400">{l.email}{l.state ? ` · ${l.state}` : ""}</span></span>
+                  <button disabled={busy[l.id]} onClick={() => email(l.id)}
+                    className="rounded bg-brand-dark px-2 py-1 text-xs text-white hover:opacity-90 disabled:opacity-50">
+                    {busy[l.id] ? "…" : "Email now"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         {FILTERS.map((f) => (
