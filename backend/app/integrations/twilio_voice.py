@@ -138,6 +138,107 @@ def place_bridge_call(lead_phone: str, lead_id: str | None) -> tuple[str | None,
         return None, f"Call failed: {str(exc)[:160]}"
 
 
+# ── Auto-dial with answering-machine detection: leave a voicemail or transfer ──
+def voicemail_configured() -> bool:
+    """True once the producer has recorded their voicemail drop."""
+    return bool(settings.producer_voicemail_url)
+
+
+def _amd_is_human(answered_by: str | None) -> bool:
+    """Treat human AND unknown as 'human' — better to connect you to a real person
+    than to accidentally leave a voicemail for someone who's actually on the line."""
+    return (answered_by or "").strip().lower() in ("human", "", "unknown")
+
+
+def _vm_fallback_text() -> str:
+    return (f"Hi, this is {settings.producer_name} with Thrust Insurance. I'm following up on the "
+            "insurance quote you requested. Please give me a call back whenever you have a moment. "
+            "Thank you and talk soon.")
+
+
+def amd_twiml(answered_by: str | None, lead_id: str | None) -> str:
+    """After Twilio detects who answered our call to the lead:
+      • human  → transfer to the producer's phone (bridged + recorded), or
+      • machine → play the producer's recorded voicemail (real voice), then hang up."""
+    base = _base_url()
+    if _amd_is_human(answered_by):
+        num = _e164(settings.producer_callback)
+        rec = ""
+        if settings.call_recording_enabled and base:
+            rec = (' record="record-from-answer-dual"'
+                   f' recordingStatusCallback="{base}/calls/recording'
+                   f'{("?lead_id=" + lead_id) if lead_id else ""}"')
+        return _xml('<Say>Please hold — connecting you with a licensed insurance producer. '
+                    'This call may be recorded for quality.</Say>'
+                    f'<Dial callerId="{_e164(_voice_number())}" timeout="25"{rec}>{num}</Dial>')
+    # Machine → leave the recorded voicemail (your real voice), else a spoken fallback.
+    vm = settings.producer_voicemail_url
+    return _xml(f'<Play>{vm}</Play>' if vm else f'<Say>{_vm_fallback_text()}</Say>')
+
+
+def record_vm_twiml() -> str:
+    """Played when we call the producer to capture their voicemail drop."""
+    base = _base_url()
+    return _xml('<Say>Record the voicemail you want left for leads after the beep. '
+                'Press the pound key when you are done.</Say>'
+                f'<Record action="{base}/calls/vm-saved" maxLength="60" '
+                'finishOnKey="#" playBeep="true"/>')
+
+
+def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, str | None]:
+    """Dial the LEAD directly with answering-machine detection. On answer Twilio hits
+    /calls/twiml/amd, which transfers a human to your phone or drops your voicemail on
+    a machine. Returns (call_sid, error)."""
+    if not is_configured():
+        return None, "Calling not connected — add Twilio + your callback number on Setup."
+    base = _base_url()
+    if not base:
+        return None, "PUBLIC_BASE_URL is not set, so Twilio can't reach the call webhooks."
+    to_lead = _e164(lead_phone)
+    if not to_lead:
+        return None, "lead has no valid phone number"
+    q = urlencode({k: v for k, v in {"lead_phone": to_lead, "lead_id": lead_id}.items() if v})
+    status_q = urlencode({"lead_id": lead_id}) if lead_id else ""
+    url = f"https://api.twilio.com/2010-04-01/Accounts/{settings.twilio_account_sid}/Calls.json"
+    data = {
+        "To": to_lead,                       # dial the LEAD directly (not you first)
+        "From": _e164(_voice_number()),
+        "Url": f"{base}/calls/twiml/amd?{q}",
+        "MachineDetection": "DetectMessageEnd",   # wait for the beep so the whole VM lands
+        "MachineDetectionTimeout": "15",
+        "StatusCallback": f"{base}/calls/status" + (f"?{status_q}" if status_q else ""),
+        "StatusCallbackEvent": "completed",
+    }
+    try:
+        r = httpx.post(url, data=data, auth=(settings.twilio_account_sid, settings.twilio_auth_token), timeout=20)
+        if r.status_code >= 400:
+            return None, f"Twilio {r.status_code}: {(r.text or '')[:160]}"
+        return r.json().get("sid"), None
+    except Exception as exc:  # pragma: no cover - network guard
+        return None, f"Auto-call failed: {str(exc)[:160]}"
+
+
+def record_voicemail_call() -> tuple[str | None, str | None]:
+    """Ring the producer's phone so they can record the voicemail drop in their own
+    voice. The recording is saved via the /calls/vm-saved webhook."""
+    if not (settings.twilio_account_sid and settings.twilio_auth_token
+            and _voice_number() and settings.producer_callback):
+        return None, "Add Twilio + your callback number on Setup first."
+    base = _base_url()
+    if not base:
+        return None, "PUBLIC_BASE_URL is not set, so Twilio can't reach the record webhook."
+    url = f"https://api.twilio.com/2010-04-01/Accounts/{settings.twilio_account_sid}/Calls.json"
+    data = {"To": _e164(settings.producer_callback), "From": _e164(_voice_number()),
+            "Url": f"{base}/calls/twiml/record-vm"}
+    try:
+        r = httpx.post(url, data=data, auth=(settings.twilio_account_sid, settings.twilio_auth_token), timeout=20)
+        if r.status_code >= 400:
+            return None, f"Twilio {r.status_code}: {(r.text or '')[:160]}"
+        return r.json().get("sid"), None
+    except Exception as exc:  # pragma: no cover - network guard
+        return None, f"Record call failed: {str(exc)[:160]}"
+
+
 def access_token(identity: str) -> str | None:
     """Mint a Twilio Voice access token (JWT) for the browser softphone."""
     if not browser_configured():

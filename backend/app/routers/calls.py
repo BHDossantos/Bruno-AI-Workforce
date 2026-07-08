@@ -54,6 +54,49 @@ def call_lead(lead_id: str, db: Session = Depends(get_db), _=Depends(_write)):
             "message": "Calling your phone now — pick up to be connected to the lead."}
 
 
+@router.post("/auto/{lead_id}")
+def auto_call_lead(lead_id: str, db: Session = Depends(get_db), _=Depends(_write)):
+    """Auto-dial the lead: a human answer transfers to your phone; voicemail gets your
+    recorded drop. One call, hands-free."""
+    _refresh(db)
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    if not lead.phone:
+        raise HTTPException(400, "This lead has no phone on file")
+    sid, err = voice.place_auto_call(lead.phone, str(lead.id))
+    if not sid:
+        raise HTTPException(400, f"Couldn't start the call — {err}")
+    vm = "your recorded voicemail" if voice.voicemail_configured() else "a spoken message"
+    db.add(Message(channel="call", direction="outbound", entity_type="lead",
+                   entity_id=lead.id, from_account="insurance",
+                   body=f"📞 Auto-dialing — transfers to you if answered, leaves {vm} if not…",
+                   status="Dialing", provider_id=sid, sent_at=datetime.now(timezone.utc)))
+    db.commit()
+    return {"ok": True, "call_sid": sid,
+            "message": "Auto-dialing the lead — your phone rings if they pick up; "
+                       f"otherwise it leaves {vm}."}
+
+
+@router.post("/record-voicemail")
+def record_voicemail(db: Session = Depends(get_db), _=Depends(_write)):
+    """Ring your phone so you can record the voicemail drop in your own voice."""
+    _refresh(db)
+    sid, err = voice.record_voicemail_call()
+    if not sid:
+        raise HTTPException(400, f"Couldn't start the recording call — {err}")
+    return {"ok": True, "message": "Calling your phone now — record your voicemail after the beep, "
+                                   "then press #. It'll be used on every voicemail drop."}
+
+
+@router.get("/voicemail-status")
+def voicemail_status(db: Session = Depends(get_db), _=Depends(_read)):
+    """Whether a voicemail drop is recorded (for the Setup UI)."""
+    _refresh(db)
+    from ..config import settings
+    return {"recorded": voice.voicemail_configured(), "url": settings.producer_voicemail_url or None}
+
+
 @router.get("/token")
 def browser_token(db: Session = Depends(get_db), _=Depends(_read)):
     """Short-lived Twilio Voice token for the in-browser softphone."""
@@ -82,6 +125,39 @@ def twiml_bridge(lead_phone: str = "", lead_id: str = "", db: Session = Depends(
 def twiml_announce():
     """Played to the lead on answer — the recording-consent notice."""
     return Response(voice.announce_twiml(), media_type=_XML)
+
+
+@router.post("/twiml/amd")
+async def twiml_amd(request: Request, lead_id: str = "", db: Session = Depends(get_db)):
+    """Auto-dial answer webhook: Twilio tells us who answered (AnsweredBy). Human →
+    transfer to your phone; machine → leave your recorded voicemail. Refreshes config
+    so the voice number / voicemail URL are loaded on any instance."""
+    _refresh(db)
+    form = await request.form()
+    answered_by = form.get("AnsweredBy")
+    return Response(voice.amd_twiml(answered_by, lead_id or None), media_type=_XML)
+
+
+@router.post("/twiml/record-vm")
+def twiml_record_vm(db: Session = Depends(get_db)):
+    """Played when we call you to record your voicemail drop."""
+    _refresh(db)
+    return Response(voice.record_vm_twiml(), media_type=_XML)
+
+
+@router.post("/vm-saved")
+async def vm_saved(request: Request, db: Session = Depends(get_db)):
+    """Save the producer's recorded voicemail so the auto-dialer plays it on machines."""
+    form = await request.form()
+    rec_url = form.get("RecordingUrl")
+    if rec_url:
+        try:
+            from .. import runtime_config
+            # Twilio recording URLs serve audio at the .mp3 variant; <Play> fetches it.
+            runtime_config.save(db, "producer_voicemail_url", rec_url + ".mp3")
+        except Exception:
+            db.rollback()
+    return Response(voice._xml("<Say>Got it — your voicemail is saved. Goodbye.</Say>"), media_type=_XML)
 
 
 @router.post("/twiml/outbound")

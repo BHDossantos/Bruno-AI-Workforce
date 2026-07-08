@@ -125,6 +125,9 @@ class Settings(BaseSettings):
     producer_name: str = "Bruno Dossantos"
     producer_license: str = "19029331"
     producer_callback: str = ""  # phone the voicemail/SMS asks them to call back
+    # Recorded voicemail drop (producer's real voice) played by the auto-dialer when
+    # a lead's call goes to voicemail. Set by recording via /calls/record-voicemail.
+    producer_voicemail_url: str = ""
     # Email signature block for insurance outreach (business name comes from
     # insurance_business_name). Shown as:
     #   Thrust Insurance
