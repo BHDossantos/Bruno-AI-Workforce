@@ -142,6 +142,45 @@ def can_deliver(account: str = "insurance") -> bool:
     return sendgrid.is_configured() or gmail.is_configured(account)
 
 
+def send_email_drafts(db: Session, *, limit: int = 25, account: str | None = None) -> dict:
+    """Send drafted/approved outbound emails, HOT LEADS FIRST (paced). Shared by the
+    manual 'Send drafts' button AND the auto-outreach cron, so hot/in-market leads
+    (EverQuote) are emailed before any colder lead's — within a tier the oldest draft
+    goes first for fair pacing. Returns sent/failed counts + the real failure reasons."""
+    from sqlalchemy import and_
+    q = (db.query(Message)
+         .outerjoin(Lead, and_(Message.entity_type == "lead", Message.entity_id == Lead.id))
+         .filter(Message.direction == "outbound", Message.to_email.isnot(None),
+                 Message.status.in_(["Drafted", "Approved"])))
+    if account:
+        q = q.filter(Message.from_account == account)
+    msgs = (q.order_by(func.coalesce(Lead.score, 0).desc(), Message.created_at.asc())
+            .limit(max(1, min(limit, 50))).all())
+
+    sent = failed = 0
+    errors: list[str] = []
+    for m in msgs:
+        if not can_deliver(m.from_account):
+            failed += 1
+            reason = f"No delivery channel for '{m.from_account}' — connect SendGrid or a Gmail mailbox"
+            if reason not in errors:
+                errors.append(reason)
+            continue
+        mid, err = deliver(m.to_email, m.subject, m.body, account=m.from_account)
+        if mid:
+            m.provider_id = mid
+            m.approved = True
+            m.status = "Sent"
+            m.sent_at = datetime.now(timezone.utc)
+            sent += 1
+        else:
+            failed += 1
+            if err and err not in errors:
+                errors.append(err)
+    db.commit()
+    return {"sent": sent, "failed": failed, "considered": len(msgs), "errors": errors[:3]}
+
+
 def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | None,
                    subject: str | None, body: str | None, account: str = "personal",
                    actor: str = "system", force_draft: bool = False,

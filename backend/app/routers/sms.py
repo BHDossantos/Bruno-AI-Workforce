@@ -124,47 +124,7 @@ def send_drafts(body: SmsSendDrafts, db: Session = Depends(get_db), _=Depends(_w
     """Send N drafted texts in one click, HOT LEADS FIRST (e.g. the EverQuote batch's
     per-lead SMS). Paced and compliance-gated: opted-out numbers, out-of-hours,
     and the daily cap are all honored, and each skip reports its real reason."""
-    try:
-        from .. import runtime_config
-        runtime_config.apply_to_settings(db)
-    except Exception:
-        pass
-    from sqlalchemy import and_, func
-    # Left-join the lead so hot/in-market leads (EverQuote) get texted first; within
-    # a tier the oldest draft goes first for fair pacing.
-    q = (db.query(Message)
-         .outerjoin(Lead, and_(Message.entity_type == "lead", Message.entity_id == Lead.id))
-         .filter(Message.channel == "sms", Message.direction == "outbound",
-                 Message.status == "Drafted", Message.to_email.isnot(None)))
-    if body.account:
-        q = q.filter(Message.from_account == body.account)
-    msgs = (q.order_by(func.coalesce(Lead.score, 0).desc(), Message.created_at.asc())
-            .limit(max(1, min(body.limit, 50))).all())
-
-    sent = failed = blocked = 0
-    reasons: list[str] = []
-    for m in msgs:
-        reason = sms_engine.sms_block_reason(db, m.to_email, enforce_hours=True,
-                                             already_sent=sent)
-        if reason:
-            blocked += 1
-            if reason not in reasons:
-                reasons.append(reason)
-            continue
-        sid, err = sms.send_with_error(m.to_email, m.body or "", account=m.from_account)
-        if sid:
-            m.status = "Sent"
-            m.provider_id = sid
-            m.sent_at = datetime.now(timezone.utc)
-            sent += 1
-        else:
-            failed += 1
-            r = err or "SMS send failed"
-            if r not in reasons:
-                reasons.append(r)
-    db.commit()
-    return {"sent": sent, "failed": failed, "blocked": blocked,
-            "considered": len(msgs), "reasons": reasons[:3]}
+    return sms_engine.send_sms_drafts(db, limit=body.limit, account=body.account)
 
 
 @router.post("/sms/inbound")

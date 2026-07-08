@@ -150,6 +150,52 @@ def _refresh_config(db: Session) -> None:
         pass
 
 
+def send_sms_drafts(db: Session, *, limit: int = 25, account: str | None = None,
+                    enforce_hours: bool = True) -> dict:
+    """Send drafted texts, HOT LEADS FIRST (EverQuote leads before colder ones),
+    compliance-gated: opted-out numbers, out-of-hours and the daily cap are honored
+    and each skip reports its real reason. Shared by the manual 'Send drafts' button
+    AND the auto-outreach cron. Returns sent/failed/blocked counts + reasons."""
+    _refresh_config(db)
+    from sqlalchemy import and_
+    from .integrations import sms
+    from .models import Lead, Message
+    # Left-join the lead so hot/in-market leads (EverQuote) get texted first; within
+    # a tier the oldest draft goes first for fair pacing.
+    q = (db.query(Message)
+         .outerjoin(Lead, and_(Message.entity_type == "lead", Message.entity_id == Lead.id))
+         .filter(Message.channel == "sms", Message.direction == "outbound",
+                 Message.status == "Drafted", Message.to_email.isnot(None)))
+    if account:
+        q = q.filter(Message.from_account == account)
+    msgs = (q.order_by(func.coalesce(Lead.score, 0).desc(), Message.created_at.asc())
+            .limit(max(1, min(limit, 50))).all())
+
+    sent = failed = blocked = 0
+    reasons: list[str] = []
+    for m in msgs:
+        reason = sms_block_reason(db, m.to_email, enforce_hours=enforce_hours, already_sent=sent)
+        if reason:
+            blocked += 1
+            if reason not in reasons:
+                reasons.append(reason)
+            continue
+        sid, err = sms.send_with_error(m.to_email, m.body or "", account=m.from_account)
+        if sid:
+            m.status = "Sent"
+            m.provider_id = sid
+            m.sent_at = datetime.now(timezone.utc)
+            sent += 1
+        else:
+            failed += 1
+            r = err or "SMS send failed"
+            if r not in reasons:
+                reasons.append(r)
+    db.commit()
+    return {"sent": sent, "failed": failed, "blocked": blocked,
+            "considered": len(msgs), "reasons": reasons[:3]}
+
+
 def send_text(db: Session, *, entity_type: str, entity_id, phone: str, body: str,
              account: str = "insurance", enforce_hours: bool = True) -> str | None:
     """Send an explicit (non-AI-drafted) text now — e.g. a quote-intake request —
