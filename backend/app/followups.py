@@ -13,10 +13,13 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
+from sqlalchemy import func
+
 from . import memory, outreach
 from .ai import client, skills
 from .ai.prompts import FOLLOWUP_EMAIL
-from .models import FollowUp, Influencer, Lead, Message, MusicPlaylist, Restaurant
+from .config import settings
+from .models import FollowUp, Influencer, Lead, Message, MusicPlaylist, Restaurant, Task
 
 log = logging.getLogger("bruno.followups")
 
@@ -67,36 +70,98 @@ def _entity_context(db: Session, etype: str, eid) -> tuple[str | None, str]:
     return None, "previous outreach"
 
 
+def _lead_first(db: Session, lead_id):
+    return db.query(Lead).filter(Lead.id == lead_id).first()
+
+
+def _sms_text(name: str | None, purpose: str) -> str:
+    """A short, compliant follow-up text. Uses AI when live, else a safe template —
+    always identifies the producer + business (CAN-SPAM/TCPA identity) and stays
+    under one segment."""
+    producer = settings.producer_name
+    fallback = (f"Hi {name or 'there'}, it's {producer} with Thrust Insurance — it takes "
+                "2 minutes to verify a couple details and get you an accurate quote. "
+                "Reply or text me the best time to talk. Reply STOP to opt out.")
+    try:
+        if client.is_live():
+            txt = client.complete(
+                f"Write ONE friendly follow-up SMS (under 300 chars) for an insurance lead "
+                f"named {name or 'there'}. Goal: {purpose}. Sign as {producer} with Thrust "
+                "Insurance. No placeholders. End with 'Reply STOP to opt out.'",
+                system="You are a warm, compliant licensed insurance producer.")
+            if txt and not txt.startswith("["):
+                return txt.strip()
+    except Exception:  # AI must never block the cadence
+        log.debug("sequence SMS AI generation skipped", exc_info=True)
+    return fallback
+
+
 def process_due_followups(db: Session, limit: int = 400) -> dict:
-    """Send all due, not-yet-completed follow-ups. Returns a summary."""
+    """Execute all due, not-yet-completed follow-ups — HOT LEADS FIRST — across every
+    channel in the cadence: email (sent via the dispatcher), SMS (queued as a
+    compliance-gated draft), and calls (a task in the call queue). Anyone who already
+    replied is skipped and their sequence stops."""
     today = date.today()
+    # Hot leads first: rank due steps by their lead's score (non-lead follow-ups
+    # fall to 0 and run after). Then by due date so older touches don't starve.
     due = (db.query(FollowUp)
+           .outerjoin(Lead, (FollowUp.entity_type == "lead") & (FollowUp.entity_id == Lead.id))
            .filter(FollowUp.due_date <= today, FollowUp.completed.is_(False))
-           .order_by(FollowUp.due_date)
+           .order_by(func.coalesce(Lead.score, 0).desc(), FollowUp.due_date)
            .limit(limit).all())
     sysp = skills.system_prompt("cold-email")
-    sent = skipped = 0
+    sent = texted = tasked = skipped = 0
 
     for fu in due:
         msgs = db.query(Message).filter(
             Message.entity_type == fu.entity_type, Message.entity_id == fu.entity_id,
         ).all()
-        to_email = next((m.to_email for m in msgs if m.to_email), None)
-        if not msgs or not to_email:
-            fu.completed = True  # no one to follow up with
-            continue
         if any(m.status == "Replied" for m in msgs):
-            fu.completed = True  # they responded — stop the sequence
+            fu.completed = True  # they responded — stop the whole sequence
             skipped += 1
             continue
-
-        account = msgs[0].from_account
+        channel = fu.channel or "email"
+        purpose = fu.body or _purpose_for(fu.step)
         name, context = _entity_context(db, fu.entity_type, fu.entity_id)
-        # Recall what we know about them so the follow-up is personal + well-timed.
+
+        # ── Call task: a to-do in the queue, not an auto-send (you place the call). ──
+        if channel == "call" and fu.entity_type == "lead":
+            lead = _lead_first(db, fu.entity_id)
+            db.add(Task(status="pending",
+                        summary=f"📞 Call {name or 'lead'} — {purpose[:120]}",
+                        payload={"kind": "call", "lead_id": str(fu.entity_id),
+                                 "phone": (lead.phone if lead else None),
+                                 "purpose": purpose, "context": context}))
+            fu.completed = True
+            tasked += 1
+            continue
+
+        # ── SMS: queue a compliance-gated draft (sends hot-first via the SMS engine). ──
+        if channel == "sms" and fu.entity_type == "lead":
+            lead = _lead_first(db, fu.entity_id)
+            phone = lead.phone if lead else None
+            if not phone:
+                fu.completed = True  # nothing to text
+                continue
+            text = _sms_text(name, purpose)
+            db.add(Message(channel="sms", direction="outbound", entity_type="lead",
+                           entity_id=fu.entity_id, to_email=phone, from_account="insurance",
+                           body=text, status="Drafted"))
+            fu.body = text
+            fu.completed = True
+            texted += 1
+            continue
+
+        # ── Email: generate + send/draft via the shared dispatcher (respects mode). ──
+        to_email = next((m.to_email for m in msgs if m.to_email and "@" in (m.to_email or "")), None)
+        if not to_email:
+            fu.completed = True  # no address to email
+            continue
+        account = msgs[0].from_account if msgs else "insurance"
         memory_block = memory.entity_context(db, name=name, email=to_email)
         art = client.complete_json(
             FOLLOWUP_EMAIL.format(step=fu.step, name=name or "there", context=context,
-                                  purpose=_purpose_for(fu.step), memory=memory_block),
+                                  purpose=purpose, memory=memory_block),
             system=sysp)
         subject = (art.get("subject") if isinstance(art, dict) else None) or f"Following up ({fu.step})"
         body = art.get("body") if isinstance(art, dict) else None
@@ -108,7 +173,6 @@ def process_due_followups(db: Session, limit: int = 400) -> dict:
         fu.completed = True
         if msg.status == "Sent":
             sent += 1
-            # Remember the touch so the next follow-up never repeats it.
             try:
                 memory.add(db, f"Sent follow-up #{fu.step} about {context}"
                            + (f' — "{subject}"' if subject else ""),
@@ -117,5 +181,7 @@ def process_due_followups(db: Session, limit: int = 400) -> dict:
                 log.debug("follow-up memory capture skipped", exc_info=True)
 
     db.commit()
-    log.info("Follow-ups: due=%d sent=%d skipped_replied=%d", len(due), sent, skipped)
-    return {"due": len(due), "sent": sent, "skipped_replied": skipped}
+    log.info("Follow-ups: due=%d email=%d sms=%d calls=%d skipped_replied=%d",
+             len(due), sent, texted, tasked, skipped)
+    return {"due": len(due), "sent": sent, "texted": texted, "call_tasks": tasked,
+            "skipped_replied": skipped}

@@ -172,6 +172,33 @@ def lead_templates(lead_id: str, db: Session = Depends(get_db),
     return sales_templates.for_lead(lead)
 
 
+@router.get("/{lead_id}/sequence")
+def lead_sequence_view(lead_id: str, db: Session = Depends(get_db),
+                       _=Depends(require_role("admin", "operator", "viewer"))):
+    """This lead's multi-touch cadence — each step's channel (email/sms/call), when
+    it's due, and whether it's done. Shows how the lead is being worked over time."""
+    from .. import lead_sequence
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    return {"lead_id": lead_id, "steps": lead_sequence.steps_for(db, lead.id)}
+
+
+@router.post("/{lead_id}/sequence/enroll")
+def lead_sequence_enroll(lead_id: str, db: Session = Depends(get_db),
+                         _=Depends(require_role("admin", "operator"))):
+    """Manually enroll one lead into the multi-touch cadence now (idempotent — a
+    lead already in a sequence is left as-is)."""
+    from .. import lead_sequence
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    created = lead_sequence.enroll(db, lead)
+    db.commit()
+    return {"lead_id": lead_id, "steps_created": created,
+            "steps": lead_sequence.steps_for(db, lead.id)}
+
+
 class LogCallIn(BaseModel):
     outcome: str = "Called"          # Reached · Left voicemail · No answer · Busy
     notes: str | None = None

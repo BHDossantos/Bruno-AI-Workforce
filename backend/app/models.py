@@ -397,6 +397,9 @@ class FollowUp(Base):
     entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     step: Mapped[int] = mapped_column(Integer, nullable=False)
     due_date: Mapped[date] = mapped_column(Date, nullable=False)
+    # Channel for this touch in the multi-touch cadence: email | sms | call.
+    # Defaults to email so pre-existing rows keep their behavior.
+    channel: Mapped[str] = mapped_column(String, nullable=False, default="email")
     body: Mapped[str | None] = mapped_column(Text)
     completed: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

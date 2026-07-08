@@ -5361,3 +5361,66 @@ def test_leads_filter_by_state_and_client_carries_state(client, auth_headers):
     # Converting the MA lead to a client carries the state over (was NULL before).
     created = client.post(f"/book/from-lead/{ma_id}", headers=auth_headers).json()
     assert created.get("state") == "MA"
+
+
+@requires_db
+def test_multitouch_cadence_enrolls_and_runs_all_channels(client, monkeypatch):
+    """A contacted lead is enrolled into the multi-touch cadence (email→call→SMS…),
+    and the engine executes each due channel: email via the dispatcher, SMS as a
+    compliance-gated draft, and calls as a task in the queue. A reply stops it."""
+    from datetime import date
+    from app import followups, lead_sequence
+    from app.database import SessionLocal
+    from app.models import FollowUp, Lead, Message, Task
+
+    db = SessionLocal()
+    try:
+        # A hot lead whose opener already went out (Sent) → eligible for the cadence.
+        lead = Lead(segment="personal", category="EverQuote Auto", owner_name="Cadence Test",
+                    email="cadence@x.co", phone="+16175550100", status="New", score=100)
+        db.add(lead); db.flush()
+        db.add(Message(channel="email", direction="outbound", entity_type="lead",
+                       entity_id=lead.id, to_email="cadence@x.co", from_account="insurance",
+                       subject="opener", body="hi", status="Sent"))
+        db.commit()
+        lid = lead.id
+
+        # A lead with NO opener sent yet must NOT be enrolled (cadence starts after first touch).
+        no_touch = Lead(segment="personal", category="EverQuote Auto", owner_name="No Touch",
+                        email="notouch@x.co", phone="+16175550101", status="New", score=100)
+        db.add(no_touch); db.commit()
+        no_touch_id = no_touch.id
+
+        # High limit so a large shared test DB can't crowd out our lead; it's contacted
+        # + unenrolled so it must be enrolled, while the un-contacted lead is skipped.
+        lead_sequence.enroll_active_leads(db, limit=5000)
+        steps = lead_sequence.steps_for(db, lid)
+        assert len(steps) == len(lead_sequence.INSURANCE_CADENCE)
+        assert {s["channel"] for s in steps} == {"email", "sms", "call"}
+        # The un-contacted lead was skipped.
+        assert lead_sequence.steps_for(db, no_touch_id) == []
+
+        # Make every step due now, no AI (deterministic templates/drafts).
+        monkeypatch.setattr(followups.client, "is_live", lambda: False)
+        db.query(FollowUp).filter(FollowUp.entity_type == "lead", FollowUp.entity_id == lid)\
+            .update({FollowUp.due_date: date.today()}, synchronize_session=False)
+        db.commit()
+
+        out = followups.process_due_followups(db)
+        assert out["call_tasks"] >= 1 and out["texted"] >= 1
+        # SMS steps became Drafted sms Messages; call steps became pending call Tasks.
+        sms_drafts = db.query(Message).filter(
+            Message.channel == "sms", Message.entity_id == lid, Message.status == "Drafted").count()
+        assert sms_drafts >= 1
+        call_tasks = db.query(Task).filter(Task.summary.ilike("%Call Cadence Test%")).count()
+        assert call_tasks >= 1
+        # Every due step is now completed.
+        assert db.query(FollowUp).filter(
+            FollowUp.entity_id == lid, FollowUp.completed.is_(False)).count() == 0
+    finally:
+        db.query(Task).filter(Task.summary.ilike("%Call Cadence Test%")).delete(synchronize_session=False)
+        db.query(FollowUp).filter(FollowUp.entity_id.in_([lid, no_touch_id])).delete(synchronize_session=False)
+        db.query(Message).filter(Message.entity_id.in_([lid, no_touch_id])).delete(synchronize_session=False)
+        db.query(Lead).filter(Lead.id.in_([lid, no_touch_id])).delete(synchronize_session=False)
+        db.commit()
+        db.close()

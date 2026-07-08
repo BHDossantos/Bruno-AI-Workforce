@@ -176,8 +176,13 @@ def _sync_inbound(db):
 
 
 def _run_followups(db):
+    from . import lead_sequence
     from .followups import process_due_followups
-    return process_due_followups(db)
+    # Enroll any newly-contacted lead into the multi-touch cadence (hot first),
+    # then execute everything due across email / SMS / call today.
+    enrolled = lead_sequence.enroll_active_leads(db)
+    processed = process_due_followups(db)
+    return {"enrolled": enrolled, **processed}
 
 
 def _run_lifecycle(db):
