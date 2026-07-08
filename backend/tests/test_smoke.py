@@ -5517,3 +5517,30 @@ def test_delivery_status_webhooks_record_outcome(client, auth_headers):
     finally:
         db.query(Message).filter(Message.id.in_([sms_id, call_id])).delete(synchronize_session=False)
         db.commit(); db.close()
+
+
+@requires_db
+def test_lead_standalone_note_saves_and_shows_in_timeline(client, auth_headers):
+    """A lead note can be saved on its own (not only by logging a call) and shows in
+    the timeline as a Note — without counting as an outreach touch."""
+    from app.database import SessionLocal
+    from app.models import Lead
+
+    db = SessionLocal()
+    try:
+        lead = Lead(segment="personal", category="EverQuote Auto", owner_name="Note Lead",
+                    email="note-lead@x.co", status="New", score=90)
+        db.add(lead); db.commit()
+        lid = str(lead.id)
+    finally:
+        db.close()
+
+    # Empty note is rejected; a real note saves.
+    assert client.post(f"/leads/{lid}/note", json={"note": "   "}, headers=auth_headers).status_code == 400
+    r = client.post(f"/leads/{lid}/note", json={"note": "Prefers email, works nights"}, headers=auth_headers)
+    assert r.status_code == 200 and r.json()["ok"] is True
+
+    prof = client.get(f"/leads/{lid}/profile", headers=auth_headers).json()
+    assert any("Note" in (e.get("label") or "") for e in prof["timeline"])
+    # A standalone note is internal — it must NOT inflate the outreach counters.
+    assert prof["counts"]["email"] == 0 and prof["counts"]["call"] == 0
