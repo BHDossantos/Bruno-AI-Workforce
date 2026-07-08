@@ -386,6 +386,10 @@ class Message(Base):
     status: Mapped[str] = mapped_column(String, default="Drafted")
     approved: Mapped[bool] = mapped_column(Boolean, default=False)
     provider_id: Mapped[str | None] = mapped_column(String)  # Gmail message/draft id
+    # Real delivery outcome from the provider (Twilio): "delivered" / "undelivered" /
+    # "failed" for SMS, or the Dial outcome for calls — plus any error reason. Lets the
+    # UI show whether a text/call actually LANDED, not just that we handed it off.
+    delivery_status: Mapped[str | None] = mapped_column(String)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

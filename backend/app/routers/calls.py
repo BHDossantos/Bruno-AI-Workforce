@@ -97,6 +97,26 @@ async def twiml_outbound(request: Request, db: Session = Depends(get_db)):
     return Response(voice.outbound_twiml(to, lead_id or None), media_type=_XML)
 
 
+@router.post("/dial-status")
+async def dial_status(request: Request, lead_id: str = "", db: Session = Depends(get_db)):
+    """<Dial action> callback — the real outcome of dialing the lead (completed /
+    no-answer / busy / failed). Records it on the call row so a dropped call shows
+    WHY, and returns empty TwiML so the call just ends. CallSid here is the parent
+    (producer) leg = the sid we stored when we placed the call."""
+    form = await request.form()
+    sid = form.get("CallSid")
+    dial = (form.get("DialCallStatus") or "").strip().lower()
+    if sid and dial:
+        msg = db.query(Message).filter(Message.provider_id == sid,
+                                       Message.channel == "call").first()
+        if msg:
+            msg.delivery_status = dial
+            if dial != "completed" and msg.status == "Dialing":
+                msg.status = "Missed"
+            db.commit()
+    return Response("", media_type=_XML)
+
+
 @router.post("/status")
 async def call_status(request: Request, lead_id: str = "", db: Session = Depends(get_db)):
     """Call status callback — mark the call row done when it completes."""

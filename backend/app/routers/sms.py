@@ -79,6 +79,7 @@ def thread(phone: str, db: Session = Depends(get_db), _=Depends(_read)):
     return {
         "phone": phone, "name": _contact_name(db, phone),
         "messages": [{"direction": m.direction, "body": m.body, "status": m.status,
+                      "delivery_status": m.delivery_status,
                       "at": m.created_at.isoformat() if m.created_at else None} for m in msgs],
     }
 
@@ -125,6 +126,24 @@ def send_drafts(body: SmsSendDrafts, db: Session = Depends(get_db), _=Depends(_w
     per-lead SMS). Paced and compliance-gated: opted-out numbers, out-of-hours,
     and the daily cap are all honored, and each skip reports its real reason."""
     return sms_engine.send_sms_drafts(db, limit=body.limit, account=body.account)
+
+
+@router.post("/sms/status")
+async def sms_status(request: Request, db: Session = Depends(get_db)):
+    """Twilio delivery-status webhook (public). Records whether the text actually
+    landed — delivered / undelivered / failed (+ error) — onto the Message, so the
+    UI can show real delivery instead of just 'Sent'."""
+    form = await request.form()
+    sid = form.get("MessageSid") or form.get("SmsSid")
+    st = (form.get("MessageStatus") or form.get("SmsStatus") or "").strip().lower()
+    err = form.get("ErrorCode")
+    if sid and st:
+        msg = (db.query(Message).filter(Message.provider_id == sid, Message.channel == "sms")
+               .first())
+        if msg:
+            msg.delivery_status = st + (f" (error {err})" if err and err not in ("0", "") else "")
+            db.commit()
+    return Response(content="", media_type="application/xml")
 
 
 @router.post("/sms/inbound")

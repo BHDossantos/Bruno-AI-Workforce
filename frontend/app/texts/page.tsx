@@ -5,7 +5,17 @@ import { api } from "@/lib/api";
 import { AuthGate, PageHeader, useFetch, LoadState } from "@/components/ui";
 
 type Thread = { phone: string; name: string | null; count: number; last_at: string | null; last_body: string | null; last_direction: string | null };
-type Msg = { direction: string; body: string; status: string; at: string | null };
+type Msg = { direction: string; body: string; status: string; delivery_status?: string | null; at: string | null };
+
+// Turn Twilio's raw delivery state into a clear ✓/✗ the user can trust.
+function deliveryLabel(d?: string | null): string {
+  if (!d) return "";
+  const s = d.toLowerCase();
+  if (s.startsWith("delivered")) return " · ✓ delivered";
+  if (s.startsWith("sent")) return " · sent";
+  if (s.startsWith("undelivered") || s.startsWith("failed")) return ` · ✗ ${d}`;
+  return ` · ${d}`;
+}
 type ThreadDetail = { phone: string; name: string | null; messages: Msg[] };
 
 function Texts() {
@@ -130,7 +140,7 @@ function Texts() {
                     <div className={`max-w-[70%] rounded-2xl px-3 py-2 text-sm ${m.direction === "outbound" ? "bg-brand text-white" : "bg-white border border-gray-200"}`}>
                       {m.body}
                       <div className={`mt-1 text-[10px] ${m.direction === "outbound" ? "text-white/70" : "text-gray-400"}`}>
-                        {m.at ? new Date(m.at).toLocaleString() : ""} {m.direction === "outbound" ? `· ${m.status}` : ""}
+                        {m.at ? new Date(m.at).toLocaleString() : ""} {m.direction === "outbound" ? `· ${m.status}${deliveryLabel(m.delivery_status)}` : ""}
                       </div>
                     </div>
                   </div>
