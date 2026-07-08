@@ -44,10 +44,17 @@ def send_with_error(to: str, body: str, account: str = "personal") -> tuple[str 
     if not number_for(account):
         return None, "no Twilio 'from' number set"
     url = f"https://api.twilio.com/2010-04-01/Accounts/{settings.twilio_account_sid}/Messages.json"
+    data = {"To": to, "From": number_for(account), "Body": body}
+    # Ask Twilio to report the REAL delivery outcome (delivered/undelivered/failed)
+    # to our webhook, so the app can show whether the text actually landed — not just
+    # that Twilio accepted it. No callback set → we'd only ever know "handed off".
+    base = (settings.public_base_url or "").rstrip("/")
+    if base:
+        data["StatusCallback"] = f"{base}/sms/status"
     try:
         resp = httpx.post(
             url,
-            data={"To": to, "From": number_for(account), "Body": body},
+            data=data,
             auth=(settings.twilio_account_sid, settings.twilio_auth_token),
             timeout=20,
         )

@@ -5481,3 +5481,39 @@ def test_bridge_call_has_valid_e164_caller_id(monkeypatch):
     assert 'callerId="+19782541435"' in xml   # normalized, not the raw formatted value
     assert "(978)" not in xml                  # the invalid form never reaches Twilio
     assert 'answerOnBridge="true"' in xml and "+16175550100" in xml
+
+
+@requires_db
+def test_delivery_status_webhooks_record_outcome(client, auth_headers):
+    """Twilio delivery webhooks record whether a text/call actually LANDED onto the
+    Message, so the UI can show 'delivered' / 'failed' instead of just 'Sent'."""
+    from app.database import SessionLocal
+    from app.models import Message
+
+    db = SessionLocal()
+    try:
+        sms = Message(channel="sms", direction="outbound", entity_type="lead",
+                      to_email="+16175559999", from_account="insurance", body="hi",
+                      status="Sent", provider_id="SM_test_123")
+        call = Message(channel="call", direction="outbound", entity_type="lead",
+                       from_account="insurance", body="call", status="Dialing",
+                       provider_id="CA_test_123")
+        db.add_all([sms, call]); db.commit()
+        sms_id, call_id = sms.id, call.id
+    finally:
+        db.close()
+
+    # SMS delivered → recorded; call failed → recorded + marked Missed.
+    client.post("/sms/status", data={"MessageSid": "SM_test_123", "MessageStatus": "delivered"})
+    client.post("/sms/status", data={"MessageSid": "SM_never", "MessageStatus": "failed", "ErrorCode": "30006"})
+    client.post("/calls/dial-status", data={"CallSid": "CA_test_123", "DialCallStatus": "failed"})
+
+    db = SessionLocal()
+    try:
+        s = db.query(Message).filter(Message.id == sms_id).first()
+        c = db.query(Message).filter(Message.id == call_id).first()
+        assert s.delivery_status == "delivered"
+        assert c.delivery_status == "failed" and c.status == "Missed"
+    finally:
+        db.query(Message).filter(Message.id.in_([sms_id, call_id])).delete(synchronize_session=False)
+        db.commit(); db.close()

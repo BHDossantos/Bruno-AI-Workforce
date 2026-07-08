@@ -178,7 +178,8 @@ def lead_timeline(db: Session, lead_id: str) -> dict:
         events.append({"at": when.isoformat() if when else None,
                        "kind": f"{m.direction}_{m.channel or 'email'}",
                        "label": f"{ch} {direction}",
-                       "detail": (m.subject or (m.body or ""))[:120], "status": m.status})
+                       "detail": (m.subject or (m.body or ""))[:120], "status": m.status,
+                       "delivery_status": m.delivery_status})
     for fu in (db.query(FollowUp).filter(FollowUp.entity_type == "lead",
                FollowUp.entity_id == lead.id).order_by(FollowUp.step.asc()).all()):
         events.append({"at": fu.due_date.isoformat() if fu.due_date else None,

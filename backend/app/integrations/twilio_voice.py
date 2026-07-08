@@ -80,6 +80,11 @@ def _dial_lead(lead_phone: str, lead_id: str | None) -> str:
     # with formatting ("(978)…") is an invalid callerId and Twilio drops the <Dial>.
     caller_id = _e164(_voice_number()) or _voice_number()
     attrs = f' callerId="{caller_id}" answerOnBridge="true" timeout="30"'
+    if base:
+        # After the Dial ends, Twilio POSTs the real outcome (completed / no-answer /
+        # busy / failed) here — so a dropped call records WHY instead of us guessing.
+        attrs += (f' action="{base}/calls/dial-status'
+                  f'{("?lead_id=" + lead_id) if lead_id else ""}"')
     if rec and base:
         attrs += (' record="record-from-answer-dual"'
                   f' recordingStatusCallback="{base}/calls/recording'

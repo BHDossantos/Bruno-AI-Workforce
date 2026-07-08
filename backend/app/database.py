@@ -52,6 +52,8 @@ _MIGRATIONS = [
     "ALTER TABLE leads ADD COLUMN IF NOT EXISTS intake JSONB",
     # Multi-touch cadence: each follow-up step now carries a channel (email/sms/call).
     "ALTER TABLE follow_ups ADD COLUMN IF NOT EXISTS channel VARCHAR NOT NULL DEFAULT 'email'",
+    # Real provider delivery outcome (Twilio) for texts/calls — did it actually land?
+    "ALTER TABLE messages ADD COLUMN IF NOT EXISTS delivery_status VARCHAR",
     # Backfill streaming links onto an already-seeded profile — only when it still
     # holds the original Spotify-only seed, so user edits are never clobbered.
     ("UPDATE brand_profile SET music_links = "
