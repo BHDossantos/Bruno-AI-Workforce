@@ -5325,3 +5325,39 @@ def test_education_partners_target_schools_not_generic_businesses():
     assert all(r["segment"] == "school_partner" for r in rows)
     assert all(r.get("category") in providers.EDUCATION_CATEGORIES
                or r.get("industry") == "Education" for r in rows)
+
+
+@requires_db
+def test_leads_filter_by_state_and_client_carries_state(client, auth_headers):
+    """Leads can be filtered by state (EverQuote leads store it in the intake), so
+    the Call List's state filter actually narrows them. And converting a lead to a
+    client carries the state over, so the Client Book's state filter has a value to
+    match (from-lead clients used to have a NULL state → every filter returned none)."""
+    from app.database import SessionLocal
+    from app.models import Lead
+
+    db = SessionLocal()
+    try:
+        db.query(Lead).filter(Lead.email.in_(["ma-flt@x.co", "nh-flt@x.co"])).delete(synchronize_session=False)
+        db.commit()
+        ma = Lead(segment="personal", category="EverQuote Auto", owner_name="MA Lead",
+                  email="ma-flt@x.co", status="New", score=92,
+                  intake={"source": "everquote", "everquote": {"state": "MA"}})
+        nh = Lead(segment="personal", category="EverQuote Auto", owner_name="NH Lead",
+                  email="nh-flt@x.co", status="New", score=92,
+                  intake={"source": "everquote", "everquote": {"state": "NH"}})
+        db.add_all([ma, nh]); db.commit()
+        ma_id = str(ma.id)
+    finally:
+        db.close()
+
+    # State filter narrows to just that state's EverQuote leads.
+    ma_rows = client.get("/leads?state=MA&limit=300", headers=auth_headers).json()
+    nh_rows = client.get("/leads?state=NH&limit=300", headers=auth_headers).json()
+    ma_hits = {l["email"] for l in ma_rows if l.get("email") in ("ma-flt@x.co", "nh-flt@x.co")}
+    nh_hits = {l["email"] for l in nh_rows if l.get("email") in ("ma-flt@x.co", "nh-flt@x.co")}
+    assert ma_hits == {"ma-flt@x.co"} and nh_hits == {"nh-flt@x.co"}
+
+    # Converting the MA lead to a client carries the state over (was NULL before).
+    created = client.post(f"/book/from-lead/{ma_id}", headers=auth_headers).json()
+    assert created.get("state") == "MA"
