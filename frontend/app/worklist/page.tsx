@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { AuthGate, PageHeader, TempBadge, StatusBadge, useFetch, LoadState } from "@/components/ui";
@@ -50,11 +50,27 @@ function since(iso?: string | null) {
   return `contacted ${days}d ago`;
 }
 
+const FILTER_KEY = "worklist_filters";
+
 export default function WorkListPage() {
   const [temp, setTemp] = useState("");
   const [stateF, setStateF] = useState("");
   const [q, setQ] = useState("");
   const [tick, setTick] = useState(0);
+  // Remember the filters across a refresh (until the user changes or resets them).
+  // Hydrate after mount so server + first client render match (no hydration warning).
+  useEffect(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem(FILTER_KEY) || "{}");
+      if (s.temp) setTemp(s.temp);
+      if (s.state) setStateF(s.state);
+      if (s.q) setQ(s.q);
+    } catch { /* ignore malformed storage */ }
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem(FILTER_KEY, JSON.stringify({ temp, state: stateF, q })); }
+    catch { /* ignore */ }
+  }, [temp, stateF, q]);
   const { data, loading, error, reload } = useFetch<Lead[]>(
     () => api.get<Lead[]>(`/leads?limit=300${temp ? `&temperature=${temp}` : ""}${stateF ? `&state=${stateF}` : ""}`),
     [temp, stateF, tick]

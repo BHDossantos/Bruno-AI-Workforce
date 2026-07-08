@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { AuthGate, Expandable, PageHeader, StatusBadge, TempBadge, TempFilter, useFetch, LoadState } from "@/components/ui";
@@ -43,12 +43,28 @@ const LINE_BADGE: Record<string, string> = {
   life: "bg-rose-100 text-rose-700", commercial: "bg-violet-100 text-violet-700",
 };
 
+const INS_FILTER_KEY = "insurance_filters";
+
 function Insurance() {
   const [segment, setSegment] = useState("");
   const [temp, setTemp] = useState("");
   const [status, setStatus] = useState("");
   const [line, setLine] = useState("");
   const [refresh, setRefresh] = useState(0);
+  // Persist the filters across a refresh (until the user changes or resets them).
+  useEffect(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem(INS_FILTER_KEY) || "{}");
+      if (s.segment) setSegment(s.segment);
+      if (s.temp) setTemp(s.temp);
+      if (s.status) setStatus(s.status);
+      if (s.line) setLine(s.line);
+    } catch { /* ignore malformed storage */ }
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem(INS_FILTER_KEY, JSON.stringify({ segment, temp, status, line })); }
+    catch { /* ignore */ }
+  }, [segment, temp, status, line]);
   const { data, loading, error, reload } = useFetch<Lead[]>(
     () => api.get<Lead[]>(`/leads?limit=200&sort=fit${segment ? `&segment=${segment}` : ""}${temp ? `&temperature=${temp}` : ""}${status ? `&status=${status}` : ""}${line ? `&line=${line}` : ""}`),
     [segment, temp, status, line, refresh]
