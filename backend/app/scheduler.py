@@ -37,7 +37,7 @@ _INSURANCE_AGENTS = {"insurance", "commercial_finder", "home_finder", "auto_find
                      "homeowner", "referral_partner", "follow_up_agent", "review_referral"}
 _INSURANCE_JOBS = {"client_autoscale", "leads", "auto_outreach", "flush_drafts",
                    "followups", "booking_nudges", "lifecycle", "outreach_digest",
-                   "refresh_tokens", "selfcheck", "referrals"}
+                   "refresh_tokens", "selfcheck", "referrals", "auto_dial"}
 
 
 def _insurance_only() -> bool:
@@ -215,6 +215,11 @@ def _run_client_autoscale(db):
     return client_goal.autoscale(db)
 
 
+def _run_auto_dial(db):
+    from . import auto_dial
+    return auto_dial.run(db)
+
+
 # job_id -> (worker, cron expression). These run the marketing/advertising/sales
 # engine around the clock so the platform operates without any external scheduler.
 _JOBS: dict[str, tuple] = {
@@ -231,6 +236,10 @@ _JOBS: dict[str, tuple] = {
     "client_autoscale": (_run_client_autoscale, "30 5 * * *"),
     # Lead sourcing + cold email, 4×/day (insurance + SavoryMind + BnB Global).
     "leads":            (_run_leads, "0 8,12,16,20 * * *"),
+    # Auto-dial the Call List hands-free once every morning at 8am — live answers
+    # transfer to the producer, voicemail gets the recorded drop. Gated by Outreach
+    # Autopilot + compliance rails (opt-out, 8am-9pm window, daily cap, cooldown).
+    "auto_dial":        (_run_auto_dial, "0 8 * * *"),
     # Drain the outreach backlog (leads + restaurants + warm contacts), 2×/day.
     "auto_outreach":    (_auto_outreach, "30 9,15 * * *"),
     # Auto-send personalized DRAFTS — hot leads first — hourly during the day so a

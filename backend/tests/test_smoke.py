@@ -5578,6 +5578,109 @@ def test_auto_dial_transfers_human_and_drops_recorded_voicemail(monkeypatch):
     assert "<Record" in rec and "/calls/vm-saved" in rec
 
 
+def test_auto_dial_in_scheduler_plan_and_insurance_mode(monkeypatch):
+    """The daily 8am auto-dial is a registered business job, at 8am, and survives the
+    insurance-only autonomy profile (it's an insurance job)."""
+    from app import scheduler
+    from app.config import settings
+    assert scheduler._JOBS["auto_dial"][1] == "0 8 * * *"           # 8am daily
+    monkeypatch.setattr(settings, "autonomy_profile", "insurance", raising=False)
+    _, jobs = scheduler.scheduled_plan()
+    assert "auto_dial" in jobs                                       # kept in insurance mode
+
+
+@requires_db
+def test_auto_dial_daily_pass_calls_hottest_respects_cooldown_optout_and_dead(monkeypatch):
+    """The daily auto-dial pass: hottest-first, capped, skips opted-out + dead/closed
+    leads, and never re-dials a lead inside the cooldown window."""
+    from app import auto_dial, control, sms_engine
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.integrations import twilio_voice as voice
+    from app.models import Lead, Message
+
+    db = SessionLocal()
+    try:
+        db.query(Lead).filter(Lead.email.like("ad-%@x.co")).delete(synchronize_session=False)
+        db.commit()
+        # Three hot leads that will sort to the very top of the Call List, plus a
+        # dead one and an opted-out one that must be skipped. Unrealistically high
+        # score guarantees they lead the score-desc order over the shared test DB.
+        hot = [Lead(segment="personal", owner_name=f"Hot {i}", email=f"ad-hot{i}@x.co",
+                    phone=f"(978) 555-01{i:02d}", status="New", score=99000 + i) for i in range(3)]
+        dead = Lead(segment="personal", owner_name="Dead", email="ad-dead@x.co",
+                    phone="(978) 555-0200", status="Closed Lost", score=99999)
+        opted = Lead(segment="personal", owner_name="Opted", email="ad-opt@x.co",
+                     phone="(978) 555-0300", status="New", score=99998)
+        for lead in hot + [dead, opted]:
+            db.add(lead)
+        db.commit()
+        opted_phone = opted.phone
+        # Opt-out: an inbound 'STOP' text from the opted-out lead's number.
+        db.add(Message(channel="sms", direction="inbound", entity_type="lead",
+                       entity_id=opted.id, to_email=opted_phone, body="STOP"))
+        db.commit()
+        hot_e164 = {"+19785550100", "+19785550101", "+19785550102"}
+    finally:
+        db.close()
+
+    # Force the gates open deterministically (no Twilio, any time of day).
+    called: list[str] = []
+    monkeypatch.setattr(voice, "is_configured", lambda: True)
+    monkeypatch.setattr(voice, "voicemail_configured", lambda: True)
+    monkeypatch.setattr(sms_engine, "in_send_window", lambda now=None: True)
+    monkeypatch.setattr(settings, "auto_dial_enabled", True, raising=False)
+    monkeypatch.setattr(settings, "auto_dial_daily_cap", 3, raising=False)
+
+    def _fake_place(phone, lead_id):
+        called.append(phone)
+        return f"CA{len(called)}", None
+    monkeypatch.setattr(voice, "place_auto_call", _fake_place)
+
+    db = SessionLocal()
+    try:
+        control.set_paused(db, False)
+        control.set_outreach_autopilot(db, True)
+        res = auto_dial.run(db)
+    finally:
+        db.close()
+
+    assert res["placed"] == 3                       # capped at 3
+    assert set(called) == hot_e164                  # exactly the 3 hottest, E.164 normalized
+    assert res["skipped_optout"] >= 1               # the STOP lead was skipped
+    assert "+19785550300" not in called             # opted-out never dialed
+    assert "+19785550200" not in called             # dead/closed never dialed
+
+    # A Message was logged per placed call, so they show on the lead timeline.
+    db = SessionLocal()
+    try:
+        logged = (db.query(Message)
+                  .filter(Message.channel == "call", Message.direction == "outbound",
+                          Message.body.like("%Auto-dial (8am)%")).count())
+        assert logged >= 3
+    finally:
+        db.close()
+
+    # Second run the same day → the 3 just-called leads are inside the cooldown and
+    # must not be re-dialed.
+    called.clear()
+    db = SessionLocal()
+    try:
+        auto_dial.run(db)
+    finally:
+        db.close()
+    assert hot_e164.isdisjoint(called)              # none of ours re-dialed
+
+    # Master switch off → the pass no-ops with a clear reason.
+    monkeypatch.setattr(settings, "auto_dial_enabled", False, raising=False)
+    db = SessionLocal()
+    try:
+        off = auto_dial.run(db)
+    finally:
+        db.close()
+    assert off.get("placed") is None and "disabled" in off.get("skipped", "")
+
+
 @requires_db
 def test_leads_sort_options(client, auth_headers):
     """The leads list is sortable: hottest (score), newest/oldest, longest-since-

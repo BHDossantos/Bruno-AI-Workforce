@@ -78,6 +78,25 @@ def auto_call_lead(lead_id: str, db: Session = Depends(get_db), _=Depends(_write
                        f"otherwise it leaves {vm}."}
 
 
+@router.post("/auto-dial-run")
+def auto_dial_run(db: Session = Depends(get_db), _=Depends(_write)):
+    """Run the daily auto-dial pass right now (the same worker the 8am scheduler fires):
+    auto-dials the Call List hottest-first, transfers live answers to your phone and
+    drops your voicemail otherwise. Returns how many it placed / why it skipped."""
+    _refresh(db)
+    from .. import auto_dial
+    result = auto_dial.run(db)
+    placed = result.get("placed")
+    if placed is None:
+        return {"ok": True, "ran": False,
+                "message": f"Auto-dial didn't run — {result.get('skipped', 'unknown')}.",
+                **result}
+    return {"ok": True, "ran": True,
+            "message": f"Auto-dialing {placed} lead(s) now — your phone rings on a live "
+                       "answer; voicemail gets your drop.",
+            **result}
+
+
 @router.post("/record-voicemail")
 def record_voicemail(db: Session = Depends(get_db), _=Depends(_write)):
     """Ring your phone so you can record the voicemail drop in your own voice."""
