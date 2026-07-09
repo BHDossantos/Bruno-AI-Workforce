@@ -16,6 +16,7 @@ from .routers import (
     auth,
     book,
     calls,
+    compliance,
     connections,
     control,
     cron,
@@ -156,6 +157,7 @@ app.include_router(social.router)
 app.include_router(finance.router)
 app.include_router(content.router)
 app.include_router(control.router)
+app.include_router(compliance.router)
 app.include_router(approvals.router)
 app.include_router(mission.router)
 app.include_router(knowledge.router)

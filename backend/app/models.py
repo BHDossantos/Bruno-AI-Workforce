@@ -409,6 +409,38 @@ class FollowUp(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class ComplianceEvent(Base):
+    """Immutable audit log — one row per compliance decision (allow/block/review).
+
+    Append-only by contract: nothing in the app updates or deletes these rows, so
+    there's a permanent record of what every autonomous action was allowed to do,
+    what was blocked, and why. This is what makes the automation defensible."""
+    __tablename__ = "compliance_events"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    channel: Mapped[str | None] = mapped_column(String)          # sms | call | email | …
+    outcome: Mapped[str] = mapped_column(String, index=True)     # allow | block | review
+    rule: Mapped[str | None] = mapped_column(String)             # opt_out | dnc | contact_hours | …
+    reason: Mapped[str | None] = mapped_column(Text)
+    target: Mapped[str | None] = mapped_column(String, index=True)  # phone/email acted on
+    state: Mapped[str | None] = mapped_column(String)
+    entity_type: Mapped[str | None] = mapped_column(String)
+    entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    actor: Mapped[str | None] = mapped_column(String)            # auto_dial | sms_engine | followups | …
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class DoNotContact(Base):
+    """Suppression list — phones/emails we must never contact (opt-outs, carrier
+    DNC, manual adds). The compliance gate blocks any outbound to a match."""
+    __tablename__ = "do_not_contact"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    kind: Mapped[str] = mapped_column(String)                    # phone | email
+    value: Mapped[str] = mapped_column(String, index=True)       # normalized key
+    reason: Mapped[str | None] = mapped_column(String)
+    source: Mapped[str | None] = mapped_column(String)           # manual | unsubscribe | carrier
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class DailyReport(Base):
     __tablename__ = "daily_reports"
     id: Mapped[uuid.UUID] = _uuid_pk()
