@@ -5620,7 +5620,10 @@ def test_auto_dial_daily_pass_calls_hottest_respects_cooldown_optout_and_dead(mo
         db.add(Message(channel="sms", direction="inbound", entity_type="lead",
                        entity_id=opted.id, to_email=opted_phone, body="STOP"))
         db.commit()
-        hot_e164 = {"+19785550100", "+19785550101", "+19785550102"}
+        # place_auto_call (stubbed below) is what normalizes to E.164, so the pass
+        # forwards the lead's raw phone — assert on that. (E.164 normalization itself
+        # is covered by test_auto_dial_transfers_human_and_drops_recorded_voicemail.)
+        hot_phones = {"(978) 555-0100", "(978) 555-0101", "(978) 555-0102"}
     finally:
         db.close()
 
@@ -5646,10 +5649,10 @@ def test_auto_dial_daily_pass_calls_hottest_respects_cooldown_optout_and_dead(mo
         db.close()
 
     assert res["placed"] == 3                       # capped at 3
-    assert set(called) == hot_e164                  # exactly the 3 hottest, E.164 normalized
+    assert set(called) == hot_phones                # exactly the 3 hottest were dialed
     assert res["skipped_optout"] >= 1               # the STOP lead was skipped
-    assert "+19785550300" not in called             # opted-out never dialed
-    assert "+19785550200" not in called             # dead/closed never dialed
+    assert "(978) 555-0300" not in called           # opted-out never dialed
+    assert "(978) 555-0200" not in called           # dead/closed never dialed
 
     # A Message was logged per placed call, so they show on the lead timeline.
     db = SessionLocal()
@@ -5669,7 +5672,7 @@ def test_auto_dial_daily_pass_calls_hottest_respects_cooldown_optout_and_dead(mo
         auto_dial.run(db)
     finally:
         db.close()
-    assert hot_e164.isdisjoint(called)              # none of ours re-dialed
+    assert hot_phones.isdisjoint(called)            # none of ours re-dialed
 
     # Master switch off → the pass no-ops with a clear reason.
     monkeypatch.setattr(settings, "auto_dial_enabled", False, raising=False)
