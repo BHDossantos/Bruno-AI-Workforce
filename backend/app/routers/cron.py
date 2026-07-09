@@ -134,6 +134,17 @@ def cron_refresh_tokens(x_cron_token: str | None = Header(default=None), db: Ses
     return oauth_refresh.refresh_all(db)
 
 
+@router.post("/auto-dial")
+def cron_auto_dial(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
+    """Auto-dial the Call List hands-free (hottest first): live answers transfer to
+    the producer, voicemail gets the recorded drop. Gated by Outreach Autopilot +
+    compliance (opt-out, 8am-9pm window, daily cap, per-lead cooldown). Schedule at
+    8am so the day's calls go out before the desk even opens."""
+    _auth(x_cron_token)
+    from .. import auto_dial
+    return _safe("auto-dial", lambda: auto_dial.run(db))
+
+
 @router.post("/leads")
 def cron_leads(x_cron_token: str | None = Header(default=None), db: Session = Depends(get_db)):
     """Lead-gen + auto cold-email pass: the insurance, SavoryMind and BnB Global

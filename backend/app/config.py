@@ -245,6 +245,13 @@ class Settings(BaseSettings):
     sms_send_window_end: int = 21          # latest local hour to text (TCPA: 9pm)
     sms_timezone: str = "America/New_York"  # recipient tz (NH/MA/FL are all Eastern)
 
+    # Daily auto-dial: at 8am the scheduler auto-calls the Call List (hottest first),
+    # transferring live answers to the producer and dropping the recorded voicemail
+    # otherwise. Gated by the same Outreach Autopilot / full-auto switch as auto-send.
+    auto_dial_enabled: bool = True         # master switch for the daily 8am auto-dial pass
+    auto_dial_daily_cap: int = 25          # max leads auto-dialed per day (protects your line)
+    auto_dial_cooldown_days: int = 7       # don't auto-dial the same lead within N days
+
     # Gmail (outbound + inbound). Two accounts: "personal" (default, used by all
     # agents) and "insurance" (used by the Insurance agent). Each authenticates
     # via an authorized-user token JSON, or client id/secret + refresh token.
