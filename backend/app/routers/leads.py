@@ -506,7 +506,18 @@ def list_leads(segment: str | None = None, status: str | None = None,
         q = q.filter(Lead.segment == "commercial")
     elif ln in (HOME, LIFE):
         q = q.filter(Lead.segment != "commercial")
-    q = q.order_by(Lead.score.desc(), Lead.created_at.desc())
+    # Sort order the user picked. "fit" re-ranks in Python below; the rest are SQL.
+    _name = func.lower(func.coalesce(Lead.owner_name, Lead.company_name, Lead.email))
+    _orders = {
+        "recent": (Lead.created_at.desc(),),                     # newest leads first
+        "oldest": (Lead.created_at.asc(),),                      # oldest first
+        "name": (_name.asc(),),                                  # A→Z
+        "stale": (Lead.last_contacted_at.asc().nullsfirst(),),   # least-recently-contacted first
+        # hottest first (default) — unscored leads sort LAST, not first (Postgres
+        # floats NULLs to the top of a DESC order otherwise, burying real hot leads).
+        "score": (Lead.score.desc().nullslast(), Lead.created_at.desc()),
+    }
+    q = q.order_by(*_orders.get((sort or "").lower(), _orders["score"]))
     if line:
         # `line` needs category/industry keyword matching, which isn't a real
         # column — so it can't be a SQL WHERE clause. Applying it AFTER a row

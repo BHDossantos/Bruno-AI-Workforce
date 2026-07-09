@@ -5576,3 +5576,39 @@ def test_auto_dial_transfers_human_and_drops_recorded_voicemail(monkeypatch):
     # Recording flow captures audio and posts it back to be saved.
     rec = voice.record_vm_twiml()
     assert "<Record" in rec and "/calls/vm-saved" in rec
+
+
+@requires_db
+def test_leads_sort_options(client, auth_headers):
+    """The leads list is sortable: hottest (score), newest/oldest, longest-since-
+    contact, and name A–Z — so the user isn't stuck with one fixed order."""
+    from app.database import SessionLocal
+    from app.models import Lead
+
+    # Tag both leads with a unique state so we can filter to JUST them — the DB
+    # may hold hundreds of leads from other tests, which would otherwise crowd
+    # ours past the row limit and make the ordering assertion flaky.
+    db = SessionLocal()
+    try:
+        db.query(Lead).filter(Lead.email.like("srt-%@x.co")).delete(synchronize_session=False)
+        db.commit()
+        # Alpha is high-score; Zeta is low-score. Name order is the reverse of score.
+        alpha = Lead(segment="personal", category="EverQuote Auto", owner_name="Alpha Srt",
+                     email="srt-a@x.co", status="New", score=5,
+                     intake={"everquote": {"state": "SRT"}})
+        zeta = Lead(segment="personal", category="EverQuote Auto", owner_name="Zeta Srt",
+                    email="srt-z@x.co", status="New", score=98,
+                    intake={"everquote": {"state": "SRT"}})
+        db.add_all([alpha, zeta]); db.commit()
+    finally:
+        db.close()
+
+    def emails(rows):
+        return [r["email"] for r in rows]
+
+    # Hottest first → Zeta (98) before Alpha (5).
+    by_score = emails(client.get("/leads?sort=score&state=SRT&limit=500", headers=auth_headers).json())
+    assert by_score == ["srt-z@x.co", "srt-a@x.co"]
+    # Name A→Z → Alpha before Zeta (opposite of score, proving the sort applied).
+    by_name = emails(client.get("/leads?sort=name&state=SRT&limit=500", headers=auth_headers).json())
+    assert by_name == ["srt-a@x.co", "srt-z@x.co"]
