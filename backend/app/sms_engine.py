@@ -82,16 +82,27 @@ def sms_block_reason(db: Session, phone: str, *, enforce_hours: bool = True,
                      already_sent: int = 0) -> str | None:
     """A human reason to BLOCK this text, or None if it's clear to send.
     Opt-out is always enforced; hours/cap are enforced for autonomous + bulk
-    sends (a human replying in-thread passes enforce_hours=False)."""
-    if is_opted_out(db, phone):
-        return "recipient opted out (texted STOP)"
-    if enforce_hours and not in_send_window():
-        return (f"outside texting hours "
-                f"({settings.sms_send_window_start}:00-{settings.sms_send_window_end}:00 "
-                f"{settings.sms_timezone})")
-    if sms_sent_today(db) + already_sent >= settings.sms_daily_send_cap:
-        return f"daily SMS cap reached ({settings.sms_daily_send_cap})"
-    return None
+    sends (a human replying in-thread passes enforce_hours=False). The Do-Not-Contact
+    suppression list is checked first, and a block is written to the compliance
+    audit log so there's an immutable record of what was suppressed and why."""
+    from . import compliance
+    reason = None
+    if compliance.is_dnc(db, phone=phone):
+        reason = "on the Do-Not-Contact list"
+    elif is_opted_out(db, phone):
+        reason = "recipient opted out (texted STOP)"
+    elif enforce_hours and not in_send_window():
+        reason = (f"outside texting hours "
+                  f"({settings.sms_send_window_start}:00-{settings.sms_send_window_end}:00 "
+                  f"{settings.sms_timezone})")
+    elif sms_sent_today(db) + already_sent >= settings.sms_daily_send_cap:
+        reason = f"daily SMS cap reached ({settings.sms_daily_send_cap})"
+    if reason:
+        rule = ("dnc" if "Do-Not-Contact" in reason else "opt_out" if "opted out" in reason
+                else "contact_hours" if "hours" in reason else "daily_cap")
+        compliance.record(db, compliance.Decision(compliance.BLOCK, rule, reason),
+                          channel="sms", target=phone, actor="sms_engine")
+    return reason
 
 
 def _has_prior_sms(db: Session, phone: str) -> bool:

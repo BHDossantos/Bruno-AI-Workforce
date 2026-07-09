@@ -21,7 +21,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func
 
-from . import control, lead_temperature, sms_engine
+from . import compliance, control, lead_temperature, sms_engine
 from .config import settings
 from .integrations import twilio_voice as voice
 from .models import Lead, Message
@@ -76,19 +76,26 @@ def run(db) -> dict:
          .order_by(Lead.score.desc().nullslast(), Lead.created_at.desc()))
 
     placed: list[str] = []
-    errors = skipped_recent = skipped_optout = 0
+    errors = skipped_recent = skipped_optout = skipped_blocked = 0
     vm = voice.voicemail_configured()
 
-    # Over-fetch: the cooldown + opt-out filters thin the set, so pull more than the
-    # cap and stop once `cap` calls are actually placed.
+    # Over-fetch: the cooldown + compliance filters thin the set, so pull more than
+    # the cap and stop once `cap` calls are actually placed.
     for lead in q.limit(max(cap * 6, cap)).all():
         if len(placed) >= cap:
             break
         if lead.id in recent:
             skipped_recent += 1
             continue
-        if sms_engine.is_opted_out(db, lead.phone):
-            skipped_optout += 1
+        # Every call clears the Compliance & Governance gate first (opt-out/DNC,
+        # licensing, contact-hours, daily cap) — and the decision is audit-logged.
+        decision = compliance.gate(db, channel="call", phone=lead.phone,
+                                   entity_type="lead", entity_id=lead.id, actor="auto_dial")
+        if not decision.allowed:
+            if decision.rule in ("opt_out", "dnc"):
+                skipped_optout += 1
+            else:
+                skipped_blocked += 1
             continue
         sid, err = voice.place_auto_call(lead.phone, str(lead.id))
         if not sid:
@@ -106,7 +113,9 @@ def run(db) -> dict:
         placed.append(str(lead.id))
 
     db.commit()
-    log.info("Auto-dial: placed=%d errors=%d skipped_recent=%d skipped_optout=%d cap=%d",
-             len(placed), errors, skipped_recent, skipped_optout, cap)
+    log.info("Auto-dial: placed=%d errors=%d skipped_recent=%d skipped_optout=%d "
+             "skipped_blocked=%d cap=%d", len(placed), errors, skipped_recent,
+             skipped_optout, skipped_blocked, cap)
     return {"placed": len(placed), "errors": errors, "skipped_recent": skipped_recent,
-            "skipped_optout": skipped_optout, "voicemail_recorded": vm, "cap": cap}
+            "skipped_optout": skipped_optout, "skipped_blocked": skipped_blocked,
+            "voicemail_recorded": vm, "cap": cap}

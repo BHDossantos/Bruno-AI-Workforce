@@ -136,6 +136,12 @@ class Settings(BaseSettings):
     producer_title: str = "insurance agent"
     producer_office_phone: str = "(833) 854-7055"
     producer_cell: str = "16039308272"
+    # Compliance & Governance — the single gate every autonomous outbound action
+    # passes through (opt-out/DNC, contact-hour windows, per-state licensing,
+    # required disclosures) with an immutable audit log. See app/compliance.py.
+    compliance_enforce: bool = True        # master switch for the compliance gate
+    licensed_states: str = "Massachusetts,New Hampshire,Florida"  # where the producer may sell
+    call_daily_cap: int = 200              # max outbound calls/day (focus + carrier trust)
     # Specialized insurance agents. Commercial is the priority (higher commission,
     # stickier clients, more referrals) → biggest daily quota; home/auto + referral
     # partners run alongside for a balanced pipeline. Quotas are daily targets;

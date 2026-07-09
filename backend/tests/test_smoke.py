@@ -5684,6 +5684,90 @@ def test_auto_dial_daily_pass_calls_hottest_respects_cooldown_optout_and_dead(mo
     assert off.get("placed") is None and "disabled" in off.get("skipped", "")
 
 
+def test_compliance_gate_rules_and_audit(monkeypatch):
+    """The compliance gate is the single decision point: opt-out/DNC block, an
+    out-of-scope state blocks (licensing), contact-hours + cap block live channels,
+    a bare message is flagged for review, and a clean action is allowed."""
+    from app import compliance, sms_engine
+    from app.config import settings
+    monkeypatch.setattr(settings, "compliance_enforce", True, raising=False)
+    monkeypatch.setattr(settings, "licensed_states", "Massachusetts,New Hampshire,Florida", raising=False)
+    monkeypatch.setattr(sms_engine, "in_send_window", lambda now=None: True)
+    # Stub the DB-touching lookups so this stays a fast, pure unit test.
+    monkeypatch.setattr(compliance, "is_dnc", lambda db, **k: k.get("phone") == "+1dnc")
+    monkeypatch.setattr(sms_engine, "is_opted_out", lambda db, phone: phone == "+1stop")
+    monkeypatch.setattr(sms_engine, "sms_sent_today", lambda db: 0)
+    monkeypatch.setattr(compliance, "_calls_today", lambda db: 0)
+
+    def ev(**kw):
+        return compliance.evaluate(None, **kw)
+
+    assert ev(channel="call", phone="+1dnc").rule == "dnc"
+    assert ev(channel="call", phone="+1stop").rule == "opt_out"
+    # Licensing: a KNOWN out-of-scope state blocks; unknown state is allowed.
+    assert ev(channel="email", email="a@b.co", state="California").rule == "unlicensed"
+    assert ev(channel="email", email="a@b.co", state="Massachusetts").allowed
+    assert ev(channel="email", email="a@b.co", state=None).allowed
+    # Contact hours (live channels only).
+    monkeypatch.setattr(sms_engine, "in_send_window", lambda now=None: False)
+    assert ev(channel="sms", phone="+1ok").rule == "contact_hours"
+    assert ev(channel="email", email="a@b.co").allowed          # email ignores the window
+    monkeypatch.setattr(sms_engine, "in_send_window", lambda now=None: True)
+    # Daily cap.
+    monkeypatch.setattr(sms_engine, "sms_sent_today", lambda db: settings.sms_daily_send_cap)
+    assert ev(channel="sms", phone="+1ok").rule == "daily_cap"
+    monkeypatch.setattr(sms_engine, "sms_sent_today", lambda db: 0)
+    # Disclosure: a bare SMS body is flagged for review; one with an opt-out clears.
+    assert ev(channel="sms", phone="+1ok", body="hi there").outcome == compliance.REVIEW
+    assert ev(channel="sms", phone="+1ok", body="hi — reply STOP to opt out").allowed
+    # Regulated action always routes to a human; enforcement off allows everything.
+    assert ev(channel="call", phone="+1ok", regulated=True).outcome == compliance.REVIEW
+    monkeypatch.setattr(settings, "compliance_enforce", False, raising=False)
+    assert ev(channel="call", phone="+1dnc").rule == "enforce_off"
+
+
+@requires_db
+def test_compliance_api_dnc_audit_and_status(client, auth_headers, monkeypatch):
+    """The /compliance API: adding a number to the DNC list blocks it (and the block
+    is audit-logged), the audit log + status surface it, and it can be removed."""
+    from app import compliance, sms_engine
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        # Clean slate for our test number.
+        from app.models import DoNotContact
+        db.query(DoNotContact).filter(DoNotContact.value == "9785551212").delete(
+            synchronize_session=False)
+        db.commit()
+    finally:
+        db.close()
+
+    # Add via the API, then confirm the gate blocks a text to it and audits the block.
+    r = client.post("/compliance/dnc", headers=auth_headers,
+                    json={"value": "(978) 555-1212", "kind": "phone", "reason": "asked us to stop"})
+    assert r.status_code == 200 and r.json()["ok"] is True
+    dnc_id = r.json()["entry"]["id"]
+
+    db = SessionLocal()
+    try:
+        assert compliance.is_dnc(db, phone="978-555-1212") is True
+        # sms_block_reason routes through the gate → DNC reason + an audit row.
+        reason = sms_engine.sms_block_reason(db, "9785551212", enforce_hours=False)
+        db.commit()
+        assert reason and "Do-Not-Contact" in reason
+    finally:
+        db.close()
+
+    listed = client.get("/compliance/dnc", headers=auth_headers).json()["entries"]
+    assert any(e["value"] == "9785551212" for e in listed)
+    audit = client.get("/compliance/audit?outcome=block", headers=auth_headers).json()["events"]
+    assert any(e["rule"] == "dnc" and e["channel"] == "sms" for e in audit)
+    st = client.get("/compliance/status", headers=auth_headers).json()
+    assert st["enforcing"] is True and st["dnc_count"] >= 1 and "Massachusetts" in st["licensed_states"]
+
+    assert client.delete(f"/compliance/dnc/{dnc_id}", headers=auth_headers).json()["ok"] is True
+
+
 @requires_db
 def test_leads_sort_options(client, auth_headers):
     """The leads list is sortable: hottest (score), newest/oldest, longest-since-
