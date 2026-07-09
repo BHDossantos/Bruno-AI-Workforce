@@ -37,7 +37,8 @@ _INSURANCE_AGENTS = {"insurance", "commercial_finder", "home_finder", "auto_find
                      "homeowner", "referral_partner", "follow_up_agent", "review_referral"}
 _INSURANCE_JOBS = {"client_autoscale", "leads", "auto_outreach", "flush_drafts",
                    "followups", "booking_nudges", "lifecycle", "outreach_digest",
-                   "refresh_tokens", "selfcheck", "referrals", "auto_dial"}
+                   "refresh_tokens", "selfcheck", "referrals", "auto_dial",
+                   "everquote_drafts"}
 
 
 def _insurance_only() -> bool:
@@ -120,6 +121,15 @@ def _auto_outreach(db):
         "restaurants": bulk_outreach.dispatch_restaurants(db),
         "contacts": contacts_outreach.run(db),
     }
+
+
+def _everquote_drafts(db):
+    """Draft the first-touch email + SMS for any EverQuote lead that doesn't have
+    one yet — the opener that dispatch_leads/flush_drafts expect to already exist.
+    New leads are drafted on import; this sweep catches the backlog + any that
+    slipped, so no in-market lead ever sits with no outreach queued. Idempotent."""
+    from . import everquote
+    return everquote.personalize_batch(db)
 
 
 def _flush_hot_drafts(db):
@@ -240,6 +250,10 @@ _JOBS: dict[str, tuple] = {
     # transfer to the producer, voicemail gets the recorded drop. Gated by Outreach
     # Autopilot + compliance rails (opt-out, 8am-9pm window, daily cap, cooldown).
     "auto_dial":        (_run_auto_dial, "0 8 * * *"),
+    # Draft the first-touch email + SMS for EverQuote leads that don't have one yet
+    # (the opener flush_drafts sends). Hourly during the day so a lead imported
+    # before this ran, or without going through the import path, still gets queued.
+    "everquote_drafts": (_everquote_drafts, "10 8-20 * * *"),
     # Drain the outreach backlog (leads + restaurants + warm contacts), 2×/day.
     "auto_outreach":    (_auto_outreach, "30 9,15 * * *"),
     # Auto-send personalized DRAFTS — hot leads first — hourly during the day so a

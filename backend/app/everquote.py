@@ -177,8 +177,19 @@ def import_rows(db: Session, rows: list[dict]) -> dict:
         lead_ids.append(str(lead.id))
         imported += 1
     db.commit()
+    # Speed-to-lead (EverQuote's core lesson): draft the first-touch email + SMS
+    # immediately so a fresh lead has outreach ready to auto-send, instead of
+    # waiting for someone to click 'personalize'. Idempotent (never re-drafts a
+    # lead already contacted) and best-effort — a drafting hiccup must never fail
+    # the import itself. The scheduled sweep + flush_drafts then send it.
+    drafted = {}
+    if lead_ids:
+        try:
+            drafted = personalize_batch(db, lead_ids=lead_ids)
+        except Exception:  # pragma: no cover - drafting must not break the import
+            log.exception("EverQuote auto-personalize on import failed")
     result = {"imported": imported, "updated": updated, "skipped": skipped,
-              "total": len(rows), "lead_ids": lead_ids}
+              "total": len(rows), "lead_ids": lead_ids, "drafted": drafted}
     log.info("EverQuote import: %s", result)
     return result
 

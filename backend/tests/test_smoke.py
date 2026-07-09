@@ -1974,6 +1974,70 @@ def test_everquote_import_and_personalized_outreach(client, auth_headers):
 
 
 @requires_db
+def test_everquote_import_auto_drafts_opener(client, auth_headers):
+    """Regression: importing an EverQuote lead now auto-creates its first-touch email
+    draft (the opener) on import — so it flows into flush_drafts instead of silently
+    sitting with no outreach until someone clicks 'personalize'. This was the cause
+    of 'leads have emails but no insurance email ever exists'."""
+    import csv as _csv
+    import io as _io
+    import json as _json
+
+    from app.database import SessionLocal
+    from app.models import Lead, Message
+
+    detail = _json.dumps({
+        "person": {"firstName": "Opener", "lastName": "Test", "email": "opener@x.co",
+                   "phone": "6035550199",
+                   "address": {"city": "Nashua", "state": "NH", "zip": "03060"}},
+        "autoPolicy": {"currentInsurer": "Progressive",
+                       "primaryCar": {"make": "HONDA", "year": 2021, "model": "CIVIC"}},
+        "vertical": "auto"})
+    buf = _io.StringIO()
+    w = _csv.writer(buf)
+    w.writerow(["created_at", "eqLeadUUID", "product", "cost", "first_name", "last_name",
+                "city", "state", "email", "phone", "current_insurer", "zip_code", "detail"])
+    w.writerow(["Jul 9, 2026", "uuid-opener-1", "Preferred", "500", "Opener", "Test",
+                "Nashua", "NH", "opener@x.co", "6035550199", "Progressive", "03060", detail])
+    csv_text = buf.getvalue()
+
+    db = SessionLocal()
+    try:
+        old = [l.id for l in db.query(Lead).filter(Lead.email == "opener@x.co").all()]
+        if old:
+            db.query(Message).filter(Message.entity_id.in_(old)).delete(synchronize_session=False)
+        db.query(Lead).filter(Lead.email == "opener@x.co").delete(synchronize_session=False)
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.post("/leads/import-everquote", json={"csv_text": csv_text}, headers=auth_headers).json()
+    assert r["imported"] == 1
+    assert r["drafted"]["queued"] >= 1          # the email opener was drafted on import
+    lid = r["lead_ids"][0]
+
+    db = SessionLocal()
+    try:
+        emails = db.query(Message).filter(
+            Message.entity_type == "lead", Message.entity_id == lid,
+            Message.channel == "email").all()
+        assert emails and any(m.status in ("Drafted", "Sent") for m in emails)
+    finally:
+        db.close()
+
+
+def test_everquote_drafts_job_scheduled_and_insurance(monkeypatch):
+    """The EverQuote opener-drafting sweep is a registered job and survives the
+    insurance-only autonomy profile (so the opener always gets created)."""
+    from app import scheduler
+    from app.config import settings
+    assert "everquote_drafts" in scheduler._JOBS
+    monkeypatch.setattr(settings, "autonomy_profile", "insurance", raising=False)
+    _, jobs = scheduler.scheduled_plan()
+    assert "everquote_drafts" in jobs
+
+
+@requires_db
 def test_ask_your_book_answers_natural_language_queries(client, auth_headers):
     """The ask-your-book assistant routes plain-English questions to the right
     query and returns matching leads with a reason — offline, no AI key."""
