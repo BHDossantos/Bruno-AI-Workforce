@@ -46,6 +46,12 @@ def _voice_number() -> str:
             or settings.twilio_from_number or "")
 
 
+def _transfer_number() -> str:
+    """Where a live-answered auto-dial is transferred — the producer's CELL first,
+    then the callback number as a fallback. So 'someone answers → my cell rings.'"""
+    return _e164(settings.producer_cell or settings.producer_callback)
+
+
 def is_configured() -> bool:
     """Bridge calling: account creds + a caller-ID number + your callback phone."""
     return bool(settings.twilio_account_sid and settings.twilio_auth_token
@@ -162,7 +168,7 @@ def amd_twiml(answered_by: str | None, lead_id: str | None) -> str:
       • machine → play the producer's recorded voicemail (real voice), then hang up."""
     base = _base_url()
     if _amd_is_human(answered_by):
-        num = _e164(settings.producer_callback)
+        num = _transfer_number()   # transfer a live answer to the producer's cell
         rec = ""
         if settings.call_recording_enabled and base:
             rec = (' record="record-from-answer-dual"'

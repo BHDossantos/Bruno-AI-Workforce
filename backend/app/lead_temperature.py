@@ -58,3 +58,27 @@ def statuses_for(temperature: str) -> set[str] | None:
 def all_classified_statuses() -> set[str]:
     """Every status that is NOT cold — the complement defines 'cold'."""
     return _HOT | _WARM | _DEAD
+
+
+def send_priority_order(Lead, Message):
+    """ORDER BY clauses for the auto-send queue — the operator's stated priority:
+
+        new HOT & uncontacted → HOT needing follow-up → WARM → COLD  (dead last)
+
+    Within a tier: uncontacted first, then hottest score, then the oldest draft
+    (fair pacing). Pass the Lead + Message models. Lead may be OUTER-joined, so its
+    columns can be NULL for non-lead drafts → those fall into the cold tier.
+    Splat into a query: ``.order_by(*send_priority_order(Lead, Message))``."""
+    from sqlalchemy import case, func
+    score = func.coalesce(Lead.score, 0)
+    status = func.lower(func.coalesce(Lead.status, ""))
+    band = case(
+        (status.in_(list(_DEAD)), 4),                          # dead / closed lost → last
+        (status.in_(list(_HOT)) | (score >= HOT_SCORE), 0),    # hot (status OR in-market score)
+        (status.in_(list(_WARM)), 1),                          # warm (engaged/replied)
+        else_=2,                                               # cold / new / unknown
+    )
+    contacted = func.coalesce(Lead.times_contacted, 0)
+    # band → uncontacted-first → hottest score → oldest draft.
+    return [band.asc(), contacted.asc(), score.desc(), Message.created_at.asc()]
+

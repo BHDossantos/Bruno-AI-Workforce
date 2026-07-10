@@ -226,8 +226,10 @@ def _run_client_autoscale(db):
 
 
 def _run_auto_dial(db):
+    # per_run_limit=1 → one call per minute (paced, human), starting at 8am; the
+    # daily total is still bounded by AUTO_DIAL_DAILY_CAP.
     from . import auto_dial
-    return auto_dial.run(db)
+    return auto_dial.run(db, per_run_limit=1)
 
 
 # job_id -> (worker, cron expression). These run the marketing/advertising/sales
@@ -246,10 +248,12 @@ _JOBS: dict[str, tuple] = {
     "client_autoscale": (_run_client_autoscale, "30 5 * * *"),
     # Lead sourcing + cold email, 4×/day (insurance + SavoryMind + BnB Global).
     "leads":            (_run_leads, "0 8,12,16,20 * * *"),
-    # Auto-dial the Call List hands-free once every morning at 8am — live answers
-    # transfer to the producer, voicemail gets the recorded drop. Gated by Outreach
-    # Autopilot + compliance rails (opt-out, 8am-9pm window, daily cap, cooldown).
-    "auto_dial":        (_run_auto_dial, "0 8 * * *"),
+    # Auto-dial the Call List hands-free, ONE call per minute starting at 8am (paced
+    # so it's human, not a burst) until the daily cap — live answers transfer to your
+    # cell, voicemail gets the recorded drop. Every minute 8am-8:59pm local; each run
+    # places 1 and stops once today's cap is hit. Gated by Outreach Autopilot +
+    # compliance rails (opt-out, 8am-9pm window, daily cap, cooldown).
+    "auto_dial":        (_run_auto_dial, "* 8-20 * * *"),
     # Draft the first-touch email + SMS for EverQuote leads that don't have one yet
     # (the opener flush_drafts sends). Hourly during the day so a lead imported
     # before this ran, or without going through the import path, still gets queued.

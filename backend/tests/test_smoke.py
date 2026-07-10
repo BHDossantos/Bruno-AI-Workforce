@@ -5643,14 +5643,107 @@ def test_auto_dial_transfers_human_and_drops_recorded_voicemail(monkeypatch):
 
 
 def test_auto_dial_in_scheduler_plan_and_insurance_mode(monkeypatch):
-    """The daily 8am auto-dial is a registered business job, at 8am, and survives the
-    insurance-only autonomy profile (it's an insurance job)."""
+    """Auto-dial is a registered business job, fires every minute from 8am (paced,
+    1 call/run), and survives the insurance-only autonomy profile."""
     from app import scheduler
     from app.config import settings
-    assert scheduler._JOBS["auto_dial"][1] == "0 8 * * *"           # 8am daily
+    assert scheduler._JOBS["auto_dial"][1] == "* 8-20 * * *"        # every minute 8am-8:59pm
     monkeypatch.setattr(settings, "autonomy_profile", "insurance", raising=False)
     _, jobs = scheduler.scheduled_plan()
     assert "auto_dial" in jobs                                       # kept in insurance mode
+
+
+def test_auto_dial_paced_one_per_run_and_daily_cap(monkeypatch):
+    """Paced mode: per_run_limit=1 places exactly ONE call per invocation (so the
+    scheduler's every-minute tick = one call per minute), and the daily cap halts it
+    across runs regardless of how many minutes tick."""
+    from app import auto_dial, control, sms_engine
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.integrations import twilio_voice as voice
+    from app.models import Lead, Message
+
+    db = SessionLocal()
+    try:
+        db.query(Message).filter(Message.channel == "call",
+                                 Message.body.like("📞 Auto-dial%")).delete(synchronize_session=False)
+        db.query(Lead).filter(Lead.email.like("pace-%@x.co")).delete(synchronize_session=False)
+        for i in range(5):
+            db.add(Lead(segment="personal", owner_name=f"Pace {i}", email=f"pace-{i}@x.co",
+                        phone=f"(978) 556-02{i:02d}", status="New", score=98000 + i))
+        db.commit()
+    finally:
+        db.close()
+
+    calls: list[str] = []
+    monkeypatch.setattr(voice, "is_configured", lambda: True)
+    monkeypatch.setattr(voice, "voicemail_configured", lambda: True)
+    monkeypatch.setattr(sms_engine, "in_send_window", lambda now=None: True)
+    monkeypatch.setattr(settings, "auto_dial_enabled", True, raising=False)
+    monkeypatch.setattr(settings, "auto_dial_daily_cap", 3, raising=False)
+    monkeypatch.setattr(voice, "place_auto_call",
+                        lambda phone, lead_id: (calls.append(phone) or f"CA{len(calls)}", None))
+
+    db = SessionLocal()
+    try:
+        control.set_paused(db, False)
+        control.set_outreach_autopilot(db, True)
+        r1 = auto_dial.run(db, per_run_limit=1)
+        assert r1["placed"] == 1                     # exactly one call this minute
+        r2 = auto_dial.run(db, per_run_limit=1)
+        assert r2["placed"] == 1                     # next minute, next call
+        r3 = auto_dial.run(db, per_run_limit=1)
+        assert r3["placed"] == 1                     # third
+        r4 = auto_dial.run(db, per_run_limit=1)      # cap=3 reached → no more today
+        assert r4.get("placed") is None and "cap reached" in r4.get("skipped", "")
+    finally:
+        db.close()
+    assert len(calls) == 3                           # daily cap held across the 4 ticks
+
+
+@requires_db
+def test_send_priority_order_ranks_new_hot_first_then_followup_warm_cold():
+    """Auto-send priority: new HOT & uncontacted → HOT needing follow-up → WARM →
+    COLD. Isolated to our own drafts so the shared DB's volume can't skew the rank."""
+    from sqlalchemy import and_
+
+    from app import lead_temperature
+    from app.database import SessionLocal
+    from app.models import Lead, Message
+
+    db = SessionLocal()
+    try:
+        db.query(Message).filter(Message.to_email.like("prio-%@x.co")).delete(synchronize_session=False)
+        db.query(Lead).filter(Lead.email.like("prio-%@x.co")).delete(synchronize_session=False)
+        db.commit()
+        # (email, status, score, times_contacted) across every band.
+        specs = [
+            ("prio-cold@x.co", "New", 10, 0),        # cold
+            ("prio-warm@x.co", "Replied", 30, 1),    # warm (engaged)
+            ("prio-hotfu@x.co", "New", 95, 2),       # hot by score, already contacted → follow-up
+            ("prio-hotnew@x.co", "New", 95, 0),      # hot by score, uncontacted → first
+        ]
+        for email, status, score, contacted in specs:
+            lead = Lead(segment="personal", owner_name=email, email=email, status=status,
+                        score=score, times_contacted=contacted)
+            db.add(lead)
+            db.flush()
+            db.add(Message(channel="email", direction="outbound", entity_type="lead",
+                           entity_id=lead.id, to_email=email, from_account="insurance",
+                           subject="s", body="b", status="Drafted"))
+        db.commit()
+
+        rows = (db.query(Message)
+                .outerjoin(Lead, and_(Message.entity_type == "lead", Message.entity_id == Lead.id))
+                .filter(Message.to_email.like("prio-%@x.co"))
+                .order_by(*lead_temperature.send_priority_order(Lead, Message)).all())
+        assert [m.to_email for m in rows] == [
+            "prio-hotnew@x.co", "prio-hotfu@x.co", "prio-warm@x.co", "prio-cold@x.co"]
+    finally:
+        db.query(Message).filter(Message.to_email.like("prio-%@x.co")).delete(synchronize_session=False)
+        db.query(Lead).filter(Lead.email.like("prio-%@x.co")).delete(synchronize_session=False)
+        db.commit()
+        db.close()
 
 
 @requires_db
@@ -5665,6 +5758,10 @@ def test_auto_dial_daily_pass_calls_hottest_respects_cooldown_optout_and_dead(mo
 
     db = SessionLocal()
     try:
+        # Clear any auto-dial markers from earlier runs so today's cap starts at 0
+        # (the daily cap counts today's auto-dial call logs).
+        db.query(Message).filter(Message.channel == "call",
+                                 Message.body.like("📞 Auto-dial%")).delete(synchronize_session=False)
         db.query(Lead).filter(Lead.email.like("ad-%@x.co")).delete(synchronize_session=False)
         db.commit()
         # Three hot leads that will sort to the very top of the Call List, plus a
@@ -5723,13 +5820,14 @@ def test_auto_dial_daily_pass_calls_hottest_respects_cooldown_optout_and_dead(mo
     try:
         logged = (db.query(Message)
                   .filter(Message.channel == "call", Message.direction == "outbound",
-                          Message.body.like("%Auto-dial (8am)%")).count())
+                          Message.body.like("%Auto-dial%")).count())
         assert logged >= 3
     finally:
         db.close()
 
     # Second run the same day → the 3 just-called leads are inside the cooldown and
-    # must not be re-dialed.
+    # must not be re-dialed. Raise the cap so the daily cap doesn't mask the cooldown.
+    monkeypatch.setattr(settings, "auto_dial_daily_cap", 50, raising=False)
     called.clear()
     db = SessionLocal()
     try:
