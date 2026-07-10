@@ -1974,6 +1974,38 @@ def test_everquote_import_and_personalized_outreach(client, auth_headers):
 
 
 @requires_db
+def test_two_way_test_creates_profile_and_attempts_both_channels(client, auth_headers):
+    """The two-way self-test creates ONE CRM profile and reports each channel's
+    result, so replies can be linked back to it and a failure is self-diagnosing."""
+    from app.database import SessionLocal
+    from app.models import Lead
+
+    db = SessionLocal()
+    try:
+        db.query(Lead).filter(Lead.email == "twoway@dossantos.test").delete(synchronize_session=False)
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.post("/leads/two-way-test", headers=auth_headers,
+                    json={"email": "twoway@dossantos.test", "phone": "(603) 555-7788",
+                          "name": "Two-Way Test"}).json()
+    assert r["ok"] is True and r["lead_id"]
+    assert r["email"] is not None and "sent" in r["email"]
+    assert r["sms"] is not None and "sent" in r["sms"]
+
+    db = SessionLocal()
+    try:
+        lead = db.query(Lead).filter(Lead.email == "twoway@dossantos.test").first()
+        assert lead is not None and lead.phone and lead.category == "Two-Way Test"
+        again = client.post("/leads/two-way-test", headers=auth_headers,
+                            json={"email": "twoway@dossantos.test", "phone": "(603) 555-7788"}).json()
+        assert again["lead_id"] == str(lead.id)     # upsert — reuses the same profile
+    finally:
+        db.close()
+
+
+@requires_db
 def test_everquote_import_auto_drafts_opener(client, auth_headers):
     """Regression: importing an EverQuote lead now auto-creates its first-touch email
     draft (the opener) on import — so it flows into flush_drafts instead of silently
