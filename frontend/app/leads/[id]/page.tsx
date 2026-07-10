@@ -43,6 +43,10 @@ function Profile() {
   const { data, loading, error, reload } = useFetch<Profile>(
     () => api.get<Profile>(`/leads/${id}/profile`), [id, tick]);
   const { data: tpl } = useFetch<Templates>(() => api.get<Templates>(`/leads/${id}/templates`), [id]);
+  // The voicemail drop is a SINGLE shared recording (not per-lead) — surface its
+  // status here so it's clear you only record it once for the whole account.
+  const { data: vmStatus } = useFetch<{ recorded: boolean }>(
+    () => api.get<{ recorded: boolean }>(`/calls/voicemail-status`), [tick]);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState("");
   const [emailBody, setEmailBody] = useState<string | null>(null);
@@ -156,9 +160,25 @@ function Profile() {
                 {busy === "Auto-call" ? "Dialing…" : "🤖 Auto-call (transfer or voicemail)"}
               </button>
               <p className="mb-2 text-xs text-gray-400">Auto-call dials the lead: if they pick up your phone rings and you&apos;re connected; if it goes to voicemail it leaves your recorded message.</p>
-              <button className="btn-ghost mb-3 w-full text-xs" disabled={busy === "Record voicemail"} onClick={recordVoicemail}>
-                {busy === "Record voicemail" ? "Calling you…" : "🎙️ Record my voicemail (one-time)"}
-              </button>
+              <div className="mb-3 rounded-lg border border-gray-200 bg-gray-50 p-2">
+                <p className="text-xs font-medium text-gray-600">
+                  {vmStatus?.recorded ? "🎙️ Voicemail drop: Recorded ✓" : "🎙️ Voicemail drop: not recorded yet"}
+                </p>
+                <p className="mb-2 text-[11px] leading-snug text-gray-400">
+                  This is <strong>one shared recording used on every lead</strong> — you record it once for your
+                  whole account, not per lead.{" "}
+                  {vmStatus?.recorded
+                    ? "Every auto-call voicemail already uses it."
+                    : "Until you record it, drops use a computer voice."}
+                </p>
+                <button className="btn-ghost w-full text-xs" disabled={busy === "Record voicemail"} onClick={recordVoicemail}>
+                  {busy === "Record voicemail"
+                    ? "Calling you…"
+                    : vmStatus?.recorded
+                      ? "🎙️ Re-record my voicemail"
+                      : "🎙️ Record my voicemail (one-time)"}
+                </button>
+              </div>
               <h3 className="mb-2 text-sm font-semibold text-gray-500">Log a call manually</h3>
               <select value={callOutcome} onChange={(e) => setCallOutcome(e.target.value)}
                 className="mb-2 w-full rounded-lg border border-gray-300 px-2 py-2 text-sm">
