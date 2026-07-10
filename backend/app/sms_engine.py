@@ -163,23 +163,24 @@ def _refresh_config(db: Session) -> None:
 
 def send_sms_drafts(db: Session, *, limit: int = 25, account: str | None = None,
                     enforce_hours: bool = True) -> dict:
-    """Send drafted texts, HOT LEADS FIRST (EverQuote leads before colder ones),
-    compliance-gated: opted-out numbers, out-of-hours and the daily cap are honored
-    and each skip reports its real reason. Shared by the manual 'Send drafts' button
-    AND the auto-outreach cron. Returns sent/failed/blocked counts + reasons."""
+    """Send drafted texts in the operator's priority order: new HOT & uncontacted →
+    HOT needing follow-up → WARM → COLD (dead last), oldest draft first within a
+    tier. Compliance-gated: opted-out numbers, out-of-hours and the daily cap are
+    honored and each skip reports its real reason. Shared by the manual 'Send
+    drafts' button AND the auto-outreach cron. Returns sent/failed/blocked counts."""
     _refresh_config(db)
     from sqlalchemy import and_
+
+    from . import lead_temperature
     from .integrations import sms
     from .models import Lead, Message
-    # Left-join the lead so hot/in-market leads (EverQuote) get texted first; within
-    # a tier the oldest draft goes first for fair pacing.
     q = (db.query(Message)
          .outerjoin(Lead, and_(Message.entity_type == "lead", Message.entity_id == Lead.id))
          .filter(Message.channel == "sms", Message.direction == "outbound",
                  Message.status == "Drafted", Message.to_email.isnot(None)))
     if account:
         q = q.filter(Message.from_account == account)
-    msgs = (q.order_by(func.coalesce(Lead.score, 0).desc(), Message.created_at.asc())
+    msgs = (q.order_by(*lead_temperature.send_priority_order(Lead, Message))
             .limit(max(1, min(limit, 50))).all())
 
     sent = failed = blocked = 0

@@ -143,18 +143,21 @@ def can_deliver(account: str = "insurance") -> bool:
 
 
 def send_email_drafts(db: Session, *, limit: int = 25, account: str | None = None) -> dict:
-    """Send drafted/approved outbound emails, HOT LEADS FIRST (paced). Shared by the
-    manual 'Send drafts' button AND the auto-outreach cron, so hot/in-market leads
-    (EverQuote) are emailed before any colder lead's — within a tier the oldest draft
-    goes first for fair pacing. Returns sent/failed counts + the real failure reasons."""
+    """Send drafted/approved outbound emails in the operator's priority order:
+    new HOT & uncontacted → HOT needing follow-up → WARM → COLD (dead last), and
+    within a tier the oldest draft first for fair pacing. Shared by the manual
+    'Send drafts' button AND the auto-outreach cron. Returns sent/failed counts +
+    the real failure reasons."""
     from sqlalchemy import and_
+
+    from . import lead_temperature
     q = (db.query(Message)
          .outerjoin(Lead, and_(Message.entity_type == "lead", Message.entity_id == Lead.id))
          .filter(Message.direction == "outbound", Message.to_email.isnot(None),
                  Message.status.in_(["Drafted", "Approved"])))
     if account:
         q = q.filter(Message.from_account == account)
-    msgs = (q.order_by(func.coalesce(Lead.score, 0).desc(), Message.created_at.asc())
+    msgs = (q.order_by(*lead_temperature.send_priority_order(Lead, Message))
             .limit(max(1, min(limit, 50))).all())
 
     sent = failed = 0
