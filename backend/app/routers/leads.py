@@ -379,8 +379,11 @@ def two_way_test(body: TwoWayTestIn, db: Session = Depends(get_db),
     your replies onto THIS profile, proving two-way works. Returns each channel's
     result (sent, or the real reason it couldn't) so a failure is self-diagnosing."""
     import re
+    from datetime import datetime, timezone
 
     from .. import sms_engine
+    from ..integrations import sms as sms_int
+    from ..models import Message
     email = (body.email or "").strip().lower() or None
     phone = (body.phone or "").strip() or None
     if not (email or phone):
@@ -425,14 +428,20 @@ def two_way_test(body: TwoWayTestIn, db: Session = Depends(get_db),
     if lead.phone:
         smsg = ("Bruno two-way test: please reply YES to this text. Your reply should show on "
                 "your test profile in the app — confirming inbound texting works.")
-        sid = sms_engine.send_text(db, entity_type="lead", entity_id=lead.id,
-                                   phone=lead.phone, body=smsg, account="insurance")
-        if sid:
-            result["sms"] = {"sent": True}
+        block = sms_engine.sms_block_reason(db, lead.phone, enforce_hours=False)
+        if block:
+            result["sms"] = {"sent": False, "reason": block}
         else:
-            reason = sms_engine.sms_block_reason(db, lead.phone) or (
-                "No texting channel configured — connect Twilio on Setup.")
-            result["sms"] = {"sent": False, "reason": reason}
+            # Use send_with_error so a real provider failure (e.g. Twilio 20003
+            # 'authenticate') surfaces here instead of being silently logged as sent.
+            sid, err = sms_int.send_with_error(lead.phone, smsg, account="insurance")
+            db.add(Message(channel="sms", direction="outbound", entity_type="lead",
+                           entity_id=lead.id, to_email=lead.phone, from_account="insurance",
+                           body=smsg, status="Sent" if sid else "Failed", provider_id=sid,
+                           sent_at=datetime.now(timezone.utc) if sid else None))
+            db.commit()
+            result["sms"] = {"sent": True} if sid else {
+                "sent": False, "reason": err or "No texting channel configured — connect a provider on Setup."}
 
     return {"ok": True, **result,
             "message": "Test profile ready. Reply to the email and the text — your replies "

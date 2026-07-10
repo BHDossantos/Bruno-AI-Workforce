@@ -1134,6 +1134,19 @@ def test_send_text_refreshes_saved_twilio_config(client, auth_headers, monkeypat
         db.close()
 
 
+def test_twilio_creds_are_whitespace_stripped(monkeypatch):
+    """A stray space/newline in the Account SID / Auth Token (from an env var or a
+    paste) is trimmed before we build the Twilio Basic-auth — otherwise Twilio
+    rejects it with a 20003 'Authenticate' 401 even though the characters are right."""
+    from app.config import settings
+    from app.integrations import sms as sms_int
+    from app.integrations import twilio_voice as voice
+    monkeypatch.setattr(settings, "twilio_account_sid", "AC123\n", raising=False)
+    monkeypatch.setattr(settings, "twilio_auth_token", "  tok456\n", raising=False)
+    assert sms_int._sid() == "AC123" and sms_int._token() == "tok456"
+    assert voice._sid() == "AC123" and voice._token() == "tok456"
+
+
 def test_twilio_voice_config_twiml_and_token():
     """Bridge calling is configured with creds + a number + a callback phone;
     browser softphone also needs an API key + TwiML App. TwiML bridges + records
