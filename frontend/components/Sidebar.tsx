@@ -260,8 +260,9 @@ function BuildStamp() {
   );
 }
 
-/** Always-visible global kill-switch. Pauses/resumes all autonomous posting,
- * sending and agent runs. */
+/** Always-visible master switch for the automation engine. The scheduler runs
+ * always-on in the cloud; this ON/OFF flips all autonomous sourcing, sending,
+ * calling and agent runs in-app (pause/resume) with no redeploy. */
 function EmergencyStop() {
   const [paused, setPaused] = useState<boolean | null>(null);
   const [mode, setMode] = useState<string>("semi");
@@ -349,16 +350,32 @@ function EmergencyStop() {
           </button>
         </div>
       </div>
-      <button
-        onClick={toggle}
-        disabled={busy}
-        className={`w-full rounded-lg px-3 py-2 text-sm font-semibold disabled:opacity-50 ${
-          paused ? "bg-amber-400 text-amber-950 hover:bg-amber-300"
-                 : "bg-red-600 text-white hover:bg-red-500"
-        }`}
-      >
-        {busy ? "…" : paused ? "▶ Agents PAUSED — Resume" : "⛔ Emergency Stop"}
-      </button>
+      {/* Master ON/OFF for the whole 24/7 schedule. The scheduler stays always-on
+          in the cloud; this flips everything on/off in-app with no redeploy. */}
+      <div className="rounded-lg bg-white/10 p-2">
+        <div className="mb-1 flex items-center justify-between">
+          <div className="text-[11px] uppercase tracking-wide text-brand-light">Automation engine</div>
+          <span className={`text-[11px] font-semibold ${paused ? "text-red-300" : "text-emerald-300"}`}>
+            {paused ? "OFF" : "ON"}
+          </span>
+        </div>
+        <div className="mb-2 text-[10px] text-brand-light/70">
+          {paused
+            ? "Off — nothing sources, sends, or calls on schedule."
+            : "On — running the 24/7 schedule: sourcing, outreach, calls, follow-ups."}
+        </div>
+        <button
+          onClick={toggle}
+          disabled={busy}
+          title="Master switch for all scheduled automation"
+          className={`w-full rounded-lg px-3 py-2 text-sm font-semibold disabled:opacity-50 ${
+            paused ? "bg-emerald-500 text-white hover:bg-emerald-400"
+                   : "bg-red-600 text-white hover:bg-red-500"
+          }`}
+        >
+          {busy ? "…" : paused ? "▶ Turn automation ON" : "⛔ Turn automation OFF"}
+        </button>
+      </div>
     </div>
   );
 }
