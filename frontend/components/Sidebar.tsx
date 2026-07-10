@@ -149,7 +149,7 @@ export default function Sidebar() {
 
   // Public pages (login + legal) render without the app chrome so they're
   // cleanly crawlable by TikTok/Meta app review without a login.
-  if (pathname === "/login" || pathname === "/terms" || pathname === "/privacy") return null;
+  if (pathname === "/login" || pathname === "/terms" || pathname === "/privacy" || pathname === "/data-deletion") return null;
 
   function search() {
     if (!q.trim()) return;
