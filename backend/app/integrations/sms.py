@@ -15,6 +15,17 @@ from ..config import settings
 log = logging.getLogger("bruno.sms")
 
 
+def _sid() -> str:
+    """Twilio Account SID, whitespace-stripped. A stray space/newline (from an env
+    var or a paste) in the SID or token makes Twilio reject the Basic-auth with a
+    20003 'Authenticate' 401 even though the characters are correct."""
+    return (settings.twilio_account_sid or "").strip()
+
+
+def _token() -> str:
+    return (settings.twilio_auth_token or "").strip()
+
+
 def is_configured() -> bool:
     # Ready to send once we have the account creds AND at least one Twilio number —
     # either the default sending number OR the insurance line. Requiring BOTH was a
@@ -43,7 +54,7 @@ def send_with_error(to: str, body: str, account: str = "personal") -> tuple[str 
         return None, "empty message"
     if not number_for(account):
         return None, "no Twilio 'from' number set"
-    url = f"https://api.twilio.com/2010-04-01/Accounts/{settings.twilio_account_sid}/Messages.json"
+    url = f"https://api.twilio.com/2010-04-01/Accounts/{_sid()}/Messages.json"
     data = {"To": to, "From": number_for(account), "Body": body}
     # Ask Twilio to report the REAL delivery outcome (delivered/undelivered/failed)
     # to our webhook, so the app can show whether the text actually landed — not just
@@ -55,7 +66,7 @@ def send_with_error(to: str, body: str, account: str = "personal") -> tuple[str 
         resp = httpx.post(
             url,
             data=data,
-            auth=(settings.twilio_account_sid, settings.twilio_auth_token),
+            auth=(_sid(), _token()),
             timeout=20,
         )
         if resp.status_code >= 400:
@@ -65,7 +76,10 @@ def send_with_error(to: str, body: str, account: str = "personal") -> tuple[str 
             except Exception:
                 code, msg = resp.status_code, (resp.text or "")[:160]
             hint = ""
-            if code == 21608:
+            if code == 20003:
+                hint = (" (authentication failed — Twilio is rejecting the Account SID / Auth "
+                        "Token. Re-check for a stray space or newline, or a mismatched/rotated token.)")
+            elif code == 21608:
                 hint = " (Twilio TRIAL account — you can only text numbers you've verified. Upgrade the Twilio account to text leads.)"
             elif code in (21211, 21214):
                 hint = " (invalid recipient number)"
@@ -108,11 +122,11 @@ def send_whatsapp(to: str, body: str) -> str | None:
         return None
     to_wa = to if to.startswith("whatsapp:") else f"whatsapp:{to}"
     from_wa = f"whatsapp:{settings.twilio_whatsapp_number}"
-    url = f"https://api.twilio.com/2010-04-01/Accounts/{settings.twilio_account_sid}/Messages.json"
+    url = f"https://api.twilio.com/2010-04-01/Accounts/{_sid()}/Messages.json"
     try:
         resp = httpx.post(
             url, data={"To": to_wa, "From": from_wa, "Body": body},
-            auth=(settings.twilio_account_sid, settings.twilio_auth_token), timeout=20,
+            auth=(_sid(), _token()), timeout=20,
         )
         resp.raise_for_status()
         return resp.json().get("sid")

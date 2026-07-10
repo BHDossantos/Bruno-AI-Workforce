@@ -46,6 +46,16 @@ def _voice_number() -> str:
             or settings.twilio_from_number or "")
 
 
+def _sid() -> str:
+    """Account SID, whitespace-stripped — a stray space/newline in the SID or token
+    (from an env var or paste) makes Twilio reject Basic-auth with a 20003 401."""
+    return (settings.twilio_account_sid or "").strip()
+
+
+def _token() -> str:
+    return (settings.twilio_auth_token or "").strip()
+
+
 def _transfer_number() -> str:
     """Where a live-answered auto-dial is transferred — the producer's CELL first,
     then the callback number as a fallback. So 'someone answers → my cell rings.'"""
@@ -127,7 +137,7 @@ def place_bridge_call(lead_phone: str, lead_id: str | None) -> tuple[str | None,
     # callback URL (code 21205 'Url is not a valid URL').
     bridge_q = urlencode({k: v for k, v in {"lead_phone": to_lead, "lead_id": lead_id}.items() if v})
     status_q = urlencode({"lead_id": lead_id}) if lead_id else ""
-    url = f"https://api.twilio.com/2010-04-01/Accounts/{settings.twilio_account_sid}/Calls.json"
+    url = f"https://api.twilio.com/2010-04-01/Accounts/{_sid()}/Calls.json"
     data = {
         "To": _e164(settings.producer_callback),   # ring YOU first
         "From": _voice_number(),
@@ -136,7 +146,7 @@ def place_bridge_call(lead_phone: str, lead_id: str | None) -> tuple[str | None,
         "StatusCallbackEvent": "completed",
     }
     try:
-        r = httpx.post(url, data=data, auth=(settings.twilio_account_sid, settings.twilio_auth_token), timeout=20)
+        r = httpx.post(url, data=data, auth=(_sid(), _token()), timeout=20)
         if r.status_code >= 400:
             return None, f"Twilio {r.status_code}: {(r.text or '')[:160]}"
         return r.json().get("sid"), None
@@ -205,7 +215,7 @@ def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, s
         return None, "lead has no valid phone number"
     q = urlencode({k: v for k, v in {"lead_phone": to_lead, "lead_id": lead_id}.items() if v})
     status_q = urlencode({"lead_id": lead_id}) if lead_id else ""
-    url = f"https://api.twilio.com/2010-04-01/Accounts/{settings.twilio_account_sid}/Calls.json"
+    url = f"https://api.twilio.com/2010-04-01/Accounts/{_sid()}/Calls.json"
     data = {
         "To": to_lead,                       # dial the LEAD directly (not you first)
         "From": _e164(_voice_number()),
@@ -216,7 +226,7 @@ def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, s
         "StatusCallbackEvent": "completed",
     }
     try:
-        r = httpx.post(url, data=data, auth=(settings.twilio_account_sid, settings.twilio_auth_token), timeout=20)
+        r = httpx.post(url, data=data, auth=(_sid(), _token()), timeout=20)
         if r.status_code >= 400:
             return None, f"Twilio {r.status_code}: {(r.text or '')[:160]}"
         return r.json().get("sid"), None
@@ -233,11 +243,11 @@ def record_voicemail_call() -> tuple[str | None, str | None]:
     base = _base_url()
     if not base:
         return None, "PUBLIC_BASE_URL is not set, so Twilio can't reach the record webhook."
-    url = f"https://api.twilio.com/2010-04-01/Accounts/{settings.twilio_account_sid}/Calls.json"
+    url = f"https://api.twilio.com/2010-04-01/Accounts/{_sid()}/Calls.json"
     data = {"To": _e164(settings.producer_callback), "From": _e164(_voice_number()),
             "Url": f"{base}/calls/twiml/record-vm"}
     try:
-        r = httpx.post(url, data=data, auth=(settings.twilio_account_sid, settings.twilio_auth_token), timeout=20)
+        r = httpx.post(url, data=data, auth=(_sid(), _token()), timeout=20)
         if r.status_code >= 400:
             return None, f"Twilio {r.status_code}: {(r.text or '')[:160]}"
         return r.json().get("sid"), None
