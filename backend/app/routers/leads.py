@@ -365,6 +365,82 @@ def send_lead_text(lead_id: str, body: SendNowIn, db: Session = Depends(get_db),
     return {"ok": True, "sent": True, "counts": _touch_counts(db, lead.id)}
 
 
+class TwoWayTestIn(BaseModel):
+    email: str | None = None
+    phone: str | None = None
+    name: str | None = None
+
+
+@router.post("/two-way-test")
+def two_way_test(body: TwoWayTestIn, db: Session = Depends(get_db),
+                 _=Depends(require_role("admin", "operator"))):
+    """Create (or reuse) a CRM profile for yourself and send it a REAL test email +
+    text. Reply to both — inbound email sync + the Twilio SMS webhook should save
+    your replies onto THIS profile, proving two-way works. Returns each channel's
+    result (sent, or the real reason it couldn't) so a failure is self-diagnosing."""
+    import re
+
+    from .. import sms_engine
+    email = (body.email or "").strip().lower() or None
+    phone = (body.phone or "").strip() or None
+    if not (email or phone):
+        raise HTTPException(400, "Give an email and/or phone to test")
+
+    # Upsert ONE profile so both channels' replies link back to the same lead.
+    lead = db.query(Lead).filter(Lead.email == email).first() if email else None
+    if not lead and phone:
+        key = re.sub(r"\D", "", phone)[-10:]
+        lead = next((l for l in db.query(Lead).filter(Lead.phone.isnot(None)).all()
+                     if re.sub(r"\D", "", l.phone or "")[-10:] == key), None)
+    if not lead:
+        lead = Lead(segment="personal", category="Two-Way Test",
+                    owner_name=body.name or "Two-Way Test", email=email, phone=phone,
+                    status="New", score=90,
+                    reason="Self-test profile — verifying two-way email + SMS")
+        db.add(lead)
+        db.flush()
+    else:  # fill in any missing channel so we can test both
+        lead.email = lead.email or email
+        lead.phone = lead.phone or phone
+    db.commit()
+
+    result: dict = {"lead_id": str(lead.id), "email": None, "sms": None}
+
+    if lead.email:
+        subject = "Bruno two-way test — please reply to this email"
+        emsg = ("This is an automated two-way test from your Bruno insurance app.\n\n"
+                "Please REPLY to this email. Once your reply syncs, it should appear on "
+                "this test profile in the app — confirming inbound email works.\n\n— Bruno AI")
+        try:
+            m = outreach.dispatch_email(db, entity_type="lead", entity_id=lead.id,
+                                        to_email=lead.email, subject=subject, body=emsg,
+                                        account="insurance", actor="two_way_test", autonomous=False)
+            result["email"] = ({"sent": True, "status": m.status} if m.status == "Sent"
+                               else {"sent": False, "status": m.status,
+                                     "reason": "Drafted, not sent — connect a Gmail mailbox or "
+                                               "SendGrid, and confirm auto-send is on."})
+        except Exception as exc:  # never 500 — report the reason
+            result["email"] = {"sent": False, "reason": str(exc)[:200]}
+
+    if lead.phone:
+        smsg = ("Bruno two-way test: please reply YES to this text. Your reply should show on "
+                "your test profile in the app — confirming inbound texting works.")
+        sid = sms_engine.send_text(db, entity_type="lead", entity_id=lead.id,
+                                   phone=lead.phone, body=smsg, account="insurance")
+        if sid:
+            result["sms"] = {"sent": True}
+        else:
+            reason = sms_engine.sms_block_reason(db, lead.phone) or (
+                "No texting channel configured — connect Twilio on Setup.")
+            result["sms"] = {"sent": False, "reason": reason}
+
+    return {"ok": True, **result,
+            "message": "Test profile ready. Reply to the email and the text — your replies "
+                       "should land on this profile. Inbound texts also need the Twilio "
+                       "number's webhook set to <app>/sms/inbound; inbound email needs Gmail "
+                       "connected via OAuth."}
+
+
 @router.get("/{lead_id}/call-coach")
 def call_coach(lead_id: str, db: Session = Depends(get_db),
                _=Depends(require_role("admin", "operator", "viewer"))):

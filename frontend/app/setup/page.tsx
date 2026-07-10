@@ -25,6 +25,11 @@ type MailboxHealth = {
     method: string | null; address: string | null; reason: string | null;
     sent_today: number; daily_cap: number; remaining_today: number }[];
 };
+type TwoWayResult = {
+  lead_id?: string; message?: string; error?: string;
+  email?: { sent: boolean; status?: string; reason?: string } | null;
+  sms?: { sent: boolean; reason?: string } | null;
+};
 
 function Badge({ ok }: { ok: boolean }) {
   return (
@@ -42,6 +47,18 @@ function Setup() {
   const [form, setForm] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const [tw, setTw] = useState({ email: "", phone: "" });
+  const [twRes, setTwRes] = useState<TwoWayResult | null>(null);
+  const [twBusy, setTwBusy] = useState(false);
+
+  async function runTwoWay() {
+    setTwBusy(true); setTwRes(null);
+    try {
+      setTwRes(await api.post<TwoWayResult>("/leads/two-way-test", tw));
+    } catch (e) {
+      setTwRes({ error: String(e) });
+    } finally { setTwBusy(false); }
+  }
 
   async function checkMailboxes() {
     setChecking(true);
@@ -103,6 +120,48 @@ function Setup() {
                 )}
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      {/* Two-way test — create a CRM profile for yourself and send a real test
+          email + text, then reply to confirm inbound saves back to the profile. */}
+      <div className="card mb-4">
+        <h2 className="font-semibold">🔁 Test two-way (email + text)</h2>
+        <p className="mt-1 text-xs text-gray-500">
+          Creates a CRM profile for you and sends it a real test email + text. Reply to both —
+          your replies should appear on that profile. (Inbound texts also need the Twilio number&apos;s
+          webhook set to <code>&lt;app&gt;/sms/inbound</code>; inbound email needs Gmail connected via OAuth.)
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <input placeholder="your email" value={tw.email}
+            onChange={(e) => setTw({ ...tw, email: e.target.value })}
+            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+          <input placeholder="your cell #" value={tw.phone}
+            onChange={(e) => setTw({ ...tw, phone: e.target.value })}
+            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+          <button className="btn" disabled={twBusy || (!tw.email && !tw.phone)} onClick={runTwoWay}>
+            {twBusy ? "Sending…" : "Create profile & send tests"}
+          </button>
+        </div>
+        {twRes && (
+          <div className="mt-3 space-y-1 text-xs">
+            {twRes.error && <div className="text-red-600">❌ {twRes.error}</div>}
+            {twRes.email && (
+              <div className={twRes.email.sent ? "text-green-700" : "text-red-600"}>
+                📧 Email: {twRes.email.sent ? "sent — reply to it" : `not sent — ${twRes.email.reason || twRes.email.status}`}
+              </div>
+            )}
+            {twRes.sms && (
+              <div className={twRes.sms.sent ? "text-green-700" : "text-red-600"}>
+                💬 Text: {twRes.sms.sent ? "sent — reply to it" : `not sent — ${twRes.sms.reason}`}
+              </div>
+            )}
+            {twRes.lead_id && (
+              <a href={`/leads/${twRes.lead_id}`} className="inline-block text-brand underline">
+                Open the test profile →
+              </a>
+            )}
           </div>
         )}
       </div>
