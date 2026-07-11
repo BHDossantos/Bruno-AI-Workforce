@@ -1232,6 +1232,47 @@ def test_sms_configured_accepts_either_number():
          settings.twilio_from_number, settings.twilio_insurance_number) = orig
 
 
+def test_plivo_backup_sms_provider_routing(monkeypatch):
+    """The Plivo backup: texting is 'configured' if EITHER provider is connected, and
+    send_with_error routes to Plivo when it's the selected provider (or, in 'auto',
+    when Twilio isn't connected) — so a deactivated Twilio doesn't kill SMS."""
+    from app.config import settings
+    from app.integrations import plivo, sms
+
+    # Twilio OFF, Plivo ON.
+    monkeypatch.setattr(settings, "twilio_account_sid", "", raising=False)
+    monkeypatch.setattr(settings, "twilio_auth_token", "", raising=False)
+    monkeypatch.setattr(settings, "twilio_from_number", "", raising=False)
+    monkeypatch.setattr(settings, "twilio_insurance_number", "", raising=False)
+    monkeypatch.setattr(settings, "plivo_auth_id", "MA123", raising=False)
+    monkeypatch.setattr(settings, "plivo_auth_token", "ptok", raising=False)
+    monkeypatch.setattr(settings, "plivo_from_number", "+16035550100", raising=False)
+
+    assert plivo.is_configured() is True
+    assert sms.is_configured() is True                      # available via Plivo alone
+
+    routed = {}
+    monkeypatch.setattr(plivo, "send_with_error",
+                        lambda to, body, account="insurance": (routed.update(to=to) or ("plivo-uuid", None)))
+
+    # auto mode + no Twilio → routes to Plivo.
+    monkeypatch.setattr(settings, "sms_provider", "auto", raising=False)
+    assert sms._use_plivo() is True
+    mid, err = sms.send_with_error("+16035551234", "hi", account="insurance")
+    assert mid == "plivo-uuid" and err is None and routed["to"] == "+16035551234"
+
+    # Explicit "plivo" always uses Plivo.
+    monkeypatch.setattr(settings, "sms_provider", "plivo", raising=False)
+    assert sms._use_plivo() is True
+
+    # With Twilio connected + auto → prefer Twilio (don't route to Plivo).
+    monkeypatch.setattr(settings, "twilio_account_sid", "AC1", raising=False)
+    monkeypatch.setattr(settings, "twilio_auth_token", "tok", raising=False)
+    monkeypatch.setattr(settings, "twilio_from_number", "+16175550111", raising=False)
+    monkeypatch.setattr(settings, "sms_provider", "auto", raising=False)
+    assert sms._use_plivo() is False
+
+
 @requires_db
 def test_client_whatsapp_send_gated_and_logged(client, auth_headers):
     """Sending a client WhatsApp message requires a phone number, a non-empty

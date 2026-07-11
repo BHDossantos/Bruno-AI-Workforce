@@ -26,12 +26,28 @@ def _token() -> str:
     return (settings.twilio_auth_token or "").strip()
 
 
-def is_configured() -> bool:
-    # Ready to send once we have the account creds AND at least one Twilio number —
-    # either the default sending number OR the insurance line. Requiring BOTH was a
-    # trap: filling only the insurance number left texting silently "not configured".
+def _twilio_configured() -> bool:
     return bool(settings.twilio_account_sid and settings.twilio_auth_token
                 and (settings.twilio_from_number or settings.twilio_insurance_number))
+
+
+def _use_plivo() -> bool:
+    """Route texts through the Plivo backup when it's the selected provider, or —
+    in 'auto' mode — whenever Plivo is connected and Twilio isn't."""
+    from . import plivo
+    provider = (settings.sms_provider or "auto").strip().lower()
+    if provider == "plivo":
+        return plivo.is_configured()
+    if provider == "twilio":
+        return False
+    return plivo.is_configured() and not _twilio_configured()  # auto: Plivo as fallback
+
+
+def is_configured() -> bool:
+    # Texting is available if EITHER provider is connected — Twilio (default) OR the
+    # Plivo backup. So a deactivated Twilio no longer silently disables SMS.
+    from . import plivo
+    return _twilio_configured() or plivo.is_configured()
 
 
 def number_for(account: str) -> str:
@@ -46,8 +62,11 @@ def send_with_error(to: str, body: str, account: str = "personal") -> tuple[str 
     """Send an SMS, returning (message_sid, error_reason). Surfaces the REAL Twilio
     error (e.g. trial-account 'unverified number', invalid recipient, non-SMS
     number) instead of a bare None, so failures aren't all mislabeled 'not connected'."""
-    if not is_configured():
-        return None, "Twilio isn't connected — add Account SID, Auth Token and a number in Setup."
+    if _use_plivo():
+        from . import plivo
+        return plivo.send_with_error(to, body, account)
+    if not _twilio_configured():
+        return None, "No SMS provider connected — add Twilio, or the Plivo backup, in Setup."
     if not to:
         return None, "no recipient phone"
     if not body:

@@ -210,6 +210,14 @@ class Settings(BaseSettings):
     twilio_auth_token: str = ""
     twilio_from_number: str = ""          # default sending number (E.164, e.g. +1617...)
     twilio_insurance_number: str = ""     # optional separate number for insurance
+    # Backup SMS provider (Plivo) — a Twilio-compatible carrier. When Twilio is down
+    # or your account is deactivated, connect Plivo and texting keeps working with no
+    # code change. sms_provider: "twilio" | "plivo" | "auto" (auto = whichever is
+    # connected, preferring Twilio). See app/integrations/plivo.py.
+    sms_provider: str = "auto"
+    plivo_auth_id: str = ""
+    plivo_auth_token: str = ""
+    plivo_from_number: str = ""           # Plivo sending number (E.164, e.g. +1617...)
     # Twilio WhatsApp Business API — a legitimate, official channel (unlike
     # LinkedIn/consumer WhatsApp automation). Number must be WhatsApp-enabled in
     # the Twilio console (sandbox for testing, or an approved Twilio Sender for

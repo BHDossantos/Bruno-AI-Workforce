@@ -51,6 +51,11 @@ FIELDS: dict[str, bool] = {
     "twilio_api_key_secret": True,     # browser softphone: API Key secret
     "twilio_twiml_app_sid": False,     # browser softphone: TwiML App SID
     "twilio_whatsapp_number": False,   # WhatsApp Business number (Twilio)
+    # Plivo — backup SMS provider (Twilio-compatible).
+    "sms_provider": False,             # twilio | plivo | auto
+    "plivo_auth_id": False,
+    "plivo_auth_token": True,          # secret
+    "plivo_from_number": False,
     "whatsapp_cloud_phone_number_id": False,  # Meta WhatsApp Cloud API (no Twilio)
     "whatsapp_cloud_token": True,
     # JSearch / RapidAPI key → live LinkedIn/Indeed/Glassdoor/ZipRecruiter jobs.

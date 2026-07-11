@@ -520,6 +520,28 @@ function Setup() {
           </div>
         </div>
 
+        {/* Plivo — backup SMS provider (Twilio-compatible) */}
+        <div className="card">
+          <h2 className="font-semibold">🔁 Plivo (backup SMS provider)</h2>
+          <p className="mb-3 text-xs text-gray-500">
+            A drop-in fallback if Twilio is down or deactivated — texting keeps working with no
+            code change. From plivo.com → Console: <b>Auth ID</b>, <b>Auth Token</b>, and a Plivo
+            number (E.164). In <b>auto</b> mode the app uses Twilio when connected and Plivo
+            otherwise; set the provider to <code>plivo</code> to force it. For inbound replies,
+            point your Plivo Application&apos;s <b>Message URL</b> at <code>&lt;app&gt;/sms/plivo-inbound</code>.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input className="input" placeholder="Provider: auto | twilio | plivo"
+              value={form.sms_provider || ""} onChange={(e) => set("sms_provider", e.target.value)} />
+            <input className="input" placeholder="Plivo number +1 555 123 4567"
+              value={form.plivo_from_number || ""} onChange={(e) => set("plivo_from_number", e.target.value)} />
+            <input className="input" type="password" placeholder="Plivo Auth ID"
+              value={form.plivo_auth_id || ""} onChange={(e) => set("plivo_auth_id", e.target.value)} />
+            <input className="input" type="password" placeholder="Plivo Auth Token"
+              value={form.plivo_auth_token || ""} onChange={(e) => set("plivo_auth_token", e.target.value)} />
+          </div>
+        </div>
+
         {/* Calling — Twilio Voice (bridge + browser softphone) */}
         <div className="card">
           <div className="mb-2 flex items-center justify-between">
