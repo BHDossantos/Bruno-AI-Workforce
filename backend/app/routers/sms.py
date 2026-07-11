@@ -157,3 +157,32 @@ async def inbound(request: Request, db: Session = Depends(get_db)):
     # Empty TwiML — we reply from the app, not auto.
     return Response(content="<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response></Response>",
                     media_type="application/xml")
+
+
+@router.post("/sms/plivo-inbound")
+async def plivo_inbound(request: Request, db: Session = Depends(get_db)):
+    """Plivo inbound-SMS webhook (public). Same as the Twilio one but Plivo posts
+    'From'/'Text' — point your Plivo Application's Message URL here so replies land
+    on the lead's profile just like Twilio."""
+    form = await request.form()
+    phone = form.get("From")
+    text = form.get("Text")
+    if phone and text:
+        sms_engine.record_inbound(db, phone=phone, body=text)
+    return Response(content="", media_type="text/plain")
+
+
+@router.post("/sms/plivo-status")
+async def plivo_status(request: Request, db: Session = Depends(get_db)):
+    """Plivo delivery-status callback (public) — records whether a text actually
+    landed (delivered/undelivered/failed) onto the Message, mirroring /sms/status."""
+    form = await request.form()
+    mid = form.get("MessageUUID") or form.get("message_uuid")
+    st = (form.get("Status") or form.get("status") or "").strip().lower()
+    if mid and st:
+        msg = (db.query(Message).filter(Message.provider_id == mid, Message.channel == "sms")
+               .first())
+        if msg:
+            msg.delivery_status = st
+            db.commit()
+    return Response(content="", media_type="text/plain")
