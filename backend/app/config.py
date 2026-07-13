@@ -451,6 +451,15 @@ class Settings(BaseSettings):
     # raise it after the upgrade.
     sendgrid_daily_cap: int = 90
 
+    # Resend — modern email API with great deliverability on your own domain.
+    # Preferred over SendGrid/Gmail when connected. Verify your domain in Resend
+    # (add its DNS records) so you can send AS b@dossantosinsurance.org. Replies go
+    # to resend_reply_to (a mailbox you actually read) if set, else the from-address.
+    resend_api_key: str = ""
+    resend_from_email: str = ""                 # default sender (verified-domain address)
+    resend_from_insurance: str = "b@dossantosinsurance.org"
+    resend_reply_to: str = ""                   # where replies land (a monitored inbox)
+
     # Outbound mode: "send" (auto-send now), "send_on_approve", or "draft".
     gmail_outbound_mode: str = "send"
     # Safety cap on auto-sent outreach per day, per account (protects the mailbox).

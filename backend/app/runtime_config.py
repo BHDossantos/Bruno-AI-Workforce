@@ -74,6 +74,11 @@ FIELDS: dict[str, bool] = {
     "sendgrid_replyto_insurance": False,
     "sendgrid_replyto_bnb": False,
     "sendgrid_replyto_savorymind": False,
+    # Resend — modern email API (preferred when connected).
+    "resend_api_key": True,
+    "resend_from_email": False,
+    "resend_from_insurance": False,
+    "resend_reply_to": False,
     # Meta (Facebook/Instagram) app — powers the one-click Connect button.
     "facebook_app_id": False,
     "facebook_app_secret": True,
@@ -153,8 +158,8 @@ def save(db, field: str, value: str) -> bool:
 
 def status(db) -> dict:
     """Connection status — booleans + non-secret addresses only, never secrets."""
-    from .integrations import (apollo, gmail, instantly, jobs_api, places, sendgrid,
-                               smartlead, sms, twilio_voice, whatsapp_cloud)
+    from .integrations import (apollo, gmail, instantly, jobs_api, places, resend,
+                               sendgrid, smartlead, sms, twilio_voice, whatsapp_cloud)
     apply_to_settings(db)  # make sure the live view reflects stored values
     bridge_on = bool(settings.bridge_token)
     from .ai import client as ai_client
@@ -168,6 +173,8 @@ def status(db) -> dict:
                       "has_key": smartlead.has_key()},
         "sendgrid": {"configured": sendgrid.is_configured(),
                      "has_key": sendgrid.has_key()},
+        "resend": {"configured": resend.is_configured(),
+                   "has_key": resend.has_key()},
         "gmail_personal": {
             "configured": gmail.is_configured(gmail.PERSONAL),
             "address": settings.gmail_address or "",

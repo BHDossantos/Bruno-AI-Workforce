@@ -12,7 +12,7 @@ type Status = {
   apollo: Area; google_places: Area;
   sms?: Area; whatsapp?: Area & { via?: string | null }; jobs_api?: Area;
   calling?: Area & { browser?: boolean; recording?: boolean; callback_set?: boolean };
-  instantly?: Area; smartlead?: Area; sendgrid?: Area;
+  instantly?: Area; smartlead?: Area; sendgrid?: Area; resend?: Area;
   meta_app?: { configured: boolean; app_id: string; redirect_uri: string };
   tiktok_app?: { configured: boolean; client_key: string; redirect_uri: string };
   booking?: { default: string; insurance: string; bnb: string; savorymind: string };
@@ -321,6 +321,29 @@ function Setup() {
               value={form.smartlead_api_key || ""} onChange={(e) => set("smartlead_api_key", e.target.value)} />
             <input className="input" placeholder="Smartlead campaign ID"
               value={form.smartlead_campaign_id || ""} onChange={(e) => set("smartlead_campaign_id", e.target.value)} />
+          </div>
+        </div>
+
+        {/* Resend — preferred modern email delivery */}
+        <div className="card">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">✉️ Resend (recommended email delivery)</h2>
+            <Badge ok={!!data.resend?.configured} />
+          </div>
+          <p className="mb-3 text-xs text-gray-500">
+            Modern email API with excellent deliverability on your own domain — <b>preferred over
+            SendGrid/Gmail</b> when connected. From resend.com: create an <b>API key</b>, then add
+            &amp; verify your domain (Resend → Domains → add the DNS records it shows) so you can send
+            AS <code>b@dossantosinsurance.org</code>. Set a <b>reply-to</b> inbox you actually read so
+            replies reach you.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input className="input" type="password" placeholder="Resend API key (re_…)"
+              value={form.resend_api_key || ""} onChange={(e) => set("resend_api_key", e.target.value)} />
+            <input className="input" placeholder="From (verified domain, e.g. b@dossantosinsurance.org)"
+              value={form.resend_from_insurance || ""} onChange={(e) => set("resend_from_insurance", e.target.value)} />
+            <input className="input" placeholder="Reply-to inbox (where replies land)"
+              value={form.resend_reply_to || ""} onChange={(e) => set("resend_reply_to", e.target.value)} />
           </div>
         </div>
 
