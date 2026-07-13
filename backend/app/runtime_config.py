@@ -79,6 +79,7 @@ FIELDS: dict[str, bool] = {
     "resend_from_email": False,
     "resend_from_insurance": False,
     "resend_reply_to": False,
+    "resend_webhook_secret": True,  # optional Svix secret for the inbound webhook
     # Meta (Facebook/Instagram) app — powers the one-click Connect button.
     "facebook_app_id": False,
     "facebook_app_secret": True,

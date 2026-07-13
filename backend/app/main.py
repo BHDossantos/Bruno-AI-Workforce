@@ -50,6 +50,7 @@ from .routers import (
     planning,
     profile,
     reports,
+    resend_webhook,
     restaurants,
     setup,
     sms,
@@ -170,6 +171,7 @@ app.include_router(campaigns.router)
 app.include_router(deliverability.router)
 app.include_router(book.router)
 app.include_router(webhooks.router)
+app.include_router(resend_webhook.router)
 
 
 @app.get("/health", tags=["system"])

@@ -459,6 +459,10 @@ class Settings(BaseSettings):
     resend_from_email: str = ""                 # default sender (verified-domain address)
     resend_from_insurance: str = "b@dossantosinsurance.org"
     resend_reply_to: str = ""                   # where replies land (a monitored inbox)
+    # Optional Svix signing secret ("whsec_…") for the Resend inbound/event webhook.
+    # When set, incoming webhook posts are signature-verified; when blank the endpoint
+    # accepts them unauthenticated (same as the Twilio/Plivo inbound webhooks).
+    resend_webhook_secret: str = ""
 
     # Outbound mode: "send" (auto-send now), "send_on_approve", or "draft".
     gmail_outbound_mode: str = "send"
