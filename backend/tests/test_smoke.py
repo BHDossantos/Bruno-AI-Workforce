@@ -1273,6 +1273,36 @@ def test_plivo_backup_sms_provider_routing(monkeypatch):
     assert sms._use_plivo() is False
 
 
+def test_resend_email_provider_and_deliver_preference(monkeypatch):
+    """Resend is 'configured' with a key + sender, and outreach.deliver PREFERS it
+    over SendGrid/Gmail when connected — so email flows through Resend."""
+    from app.config import settings
+    from app.integrations import resend
+    from app import outreach
+
+    monkeypatch.setattr(settings, "resend_api_key", "", raising=False)
+    assert resend.is_configured() is False
+    monkeypatch.setattr(settings, "resend_api_key", "re_test", raising=False)
+    monkeypatch.setattr(settings, "resend_from_insurance", "b@dossantosinsurance.org", raising=False)
+    assert resend.is_configured() is True
+    assert resend.from_for("insurance") == "b@dossantosinsurance.org"
+    # reply-to falls back to the from address unless a monitored inbox is set.
+    monkeypatch.setattr(settings, "resend_reply_to", "", raising=False)
+    assert resend.replyto_for("insurance", "b@dossantosinsurance.org") == "b@dossantosinsurance.org"
+    monkeypatch.setattr(settings, "resend_reply_to", "me@x.co", raising=False)
+    assert resend.replyto_for("insurance", "b@dossantosinsurance.org") == "me@x.co"
+
+    # deliver() prefers Resend when connected (SendGrid/Gmail not consulted).
+    sent = {}
+    monkeypatch.setattr(resend, "send_with_error",
+                        lambda to, subj, html, from_email=None, reply_to=None:
+                        (sent.update(to=to, frm=from_email, rt=reply_to) or ("re_123", None)))
+    mid, err = outreach.deliver("lead@x.co", "Hi", "body", account="insurance")
+    assert mid == "re_123" and err is None
+    assert sent["to"] == "lead@x.co" and sent["frm"] == "b@dossantosinsurance.org" and sent["rt"] == "me@x.co"
+    assert outreach.can_deliver("insurance") is True
+
+
 @requires_db
 def test_client_whatsapp_send_gated_and_logged(client, auth_headers):
     """Sending a client WhatsApp message requires a phone number, a non-empty
@@ -5245,7 +5275,7 @@ def test_setup_connect_status_and_save(client, auth_headers):
     assert set(s) == {"ai", "gmail_personal", "gmail_insurance", "gmail_insurance_backup",
                       "gmail_bnb", "gmail_savorymind",
                       "apollo", "google_places", "sms", "whatsapp", "calling", "jobs_api", "instantly",
-                      "smartlead", "sendgrid", "meta_app", "tiktok_app", "booking",
+                      "smartlead", "sendgrid", "resend", "meta_app", "tiktok_app", "booking",
                       "contacts_outreach_exclude", "newsletter_banners"}
     assert s["apollo"]["configured"] is False
     # SMS compliance guardrails are surfaced so the Texts UI shows the real window/cap.
