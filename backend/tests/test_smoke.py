@@ -1385,6 +1385,58 @@ def test_resend_inbound_webhook_two_way(client, monkeypatch):
         _purge()  # never leak rows into the session-scoped DB other tests share
 
 
+def test_email_daily_send_cap_ramp(monkeypatch):
+    """The email cap ramps up on a fresh domain (clear a backlog without spiking
+    into spam) then settles to the steady cap once the ramp is over."""
+    from datetime import datetime, timedelta, timezone
+
+    from app import outreach
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "email_daily_send_cap", 70, raising=False)
+    monkeypatch.setattr(settings, "email_rampup_schedule", "300,400,500,500,300", raising=False)
+    today = datetime.now(timezone.utc).date()
+    monkeypatch.setattr(settings, "email_rampup_start", today.isoformat(), raising=False)
+    assert outreach.daily_send_cap() == 300                       # day 0
+    monkeypatch.setattr(settings, "email_rampup_start",
+                        (today - timedelta(days=3)).isoformat(), raising=False)
+    assert outreach.daily_send_cap() == 500                       # day 3
+    monkeypatch.setattr(settings, "email_rampup_start",
+                        (today - timedelta(days=30)).isoformat(), raising=False)
+    assert outreach.daily_send_cap() == 70                        # past ramp → steady
+    monkeypatch.setattr(settings, "email_rampup_start", "", raising=False)
+    assert outreach.daily_send_cap() == 70                        # ramp disabled → steady
+
+
+@requires_db
+def test_send_email_drafts_honors_daily_cap(monkeypatch):
+    """Once the day's cap is hit, send_email_drafts sends nothing more and says why
+    — so neither the autopilot nor repeated manual clicks can spike the domain."""
+    from datetime import datetime, timezone
+
+    from app import outreach
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.models import Message
+
+    monkeypatch.setattr(settings, "email_rampup_start", "", raising=False)  # steady cap only
+    monkeypatch.setattr(settings, "email_daily_send_cap", 2, raising=False)
+    db = SessionLocal()
+    try:
+        for i in range(2):  # simulate 2 emails already sent today → cap reached
+            db.add(Message(channel="email", direction="outbound", status="Sent",
+                           to_email=f"capgate{i}@x.co", sent_at=datetime.now(timezone.utc)))
+        db.commit()
+        r = outreach.send_email_drafts(db, limit=50)
+        assert r["sent"] == 0 and r["daily_cap"] == 2
+        assert any("cap reached" in e.lower() for e in r["errors"])
+    finally:
+        db.query(Message).filter(Message.to_email.like("capgate%@x.co")).delete(
+            synchronize_session=False)
+        db.commit()
+        db.close()
+
+
 @requires_db
 def test_client_whatsapp_send_gated_and_logged(client, auth_headers):
     """Sending a client WhatsApp message requires a phone number, a non-empty

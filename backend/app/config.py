@@ -479,6 +479,21 @@ class Settings(BaseSettings):
     email_warmup_start: int = 12
     email_warmup_step: int = 4
 
+    # ── Domain-level send pacing (protects a NEW sending domain's reputation) ──
+    # Both the auto-send autopilot AND the manual "Send drafts" button honor these,
+    # so total emails/day from the domain never spike — spikes from a fresh domain
+    # get the whole domain flagged as spam by Gmail/Outlook.
+    #
+    # Steady-state cap once warmed:
+    email_daily_send_cap: int = 70
+    # One-off warm-up ramp to clear an initial backlog on a fresh domain WITHOUT
+    # getting flagged: a comma list of per-day caps counted from email_rampup_start
+    # (element 0 = the start date, element 1 = the next day, …). After the list is
+    # exhausted the steady email_daily_send_cap applies. Ramps ~1,900 over ~5 days.
+    # Set email_rampup_start blank to disable the ramp (just use the steady cap).
+    email_rampup_schedule: str = "300,400,500,500,300"
+    email_rampup_start: str = "2026-07-14"  # ISO date the ramp begins (blank = off)
+
     # Insurance outreach to your imported personal contacts (warm network). Each
     # contact is emailed once; small daily batches drip through the list within
     # the mailbox warmup cap. SMS is OFF by default — automated marketing texts
