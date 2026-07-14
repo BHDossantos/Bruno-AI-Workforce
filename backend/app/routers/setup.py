@@ -7,8 +7,7 @@ whether each is configured, never the secret itself.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from fastapi import APIRouter, Body, Depends
 from sqlalchemy.orm import Session
 
 from .. import runtime_config
@@ -16,67 +15,6 @@ from ..database import get_db
 from ..security import require_role
 
 router = APIRouter(prefix="/setup", tags=["setup"])
-
-
-class CredIn(BaseModel):
-    openai_api_key: str | None = None
-    openai_model: str | None = None
-    gmail_address: str | None = None
-    gmail_app_password: str | None = None
-    insurance_gmail_address: str | None = None
-    insurance_gmail_app_password: str | None = None
-    bnb_gmail_address: str | None = None
-    bnb_gmail_app_password: str | None = None
-    savorymind_gmail_address: str | None = None
-    savorymind_gmail_app_password: str | None = None
-    apollo_api_key: str | None = None
-    google_places_api_key: str | None = None
-    twilio_account_sid: str | None = None
-    twilio_auth_token: str | None = None
-    twilio_from_number: str | None = None
-    twilio_insurance_number: str | None = None
-    twilio_voice_number: str | None = None
-    producer_callback: str | None = None
-    twilio_api_key_sid: str | None = None
-    twilio_api_key_secret: str | None = None
-    twilio_twiml_app_sid: str | None = None
-    twilio_whatsapp_number: str | None = None
-    whatsapp_cloud_phone_number_id: str | None = None
-    whatsapp_cloud_token: str | None = None
-    jobs_api_key: str | None = None
-    instantly_api_key: str | None = None
-    instantly_campaign_id: str | None = None
-    smartlead_api_key: str | None = None
-    smartlead_campaign_id: str | None = None
-    sendgrid_api_key: str | None = None
-    sendgrid_from_email: str | None = None
-    sendgrid_from_insurance: str | None = None
-    sendgrid_from_bnb: str | None = None
-    sendgrid_from_savorymind: str | None = None
-    sendgrid_replyto_insurance: str | None = None
-    sendgrid_replyto_bnb: str | None = None
-    sendgrid_replyto_savorymind: str | None = None
-    calendar_link: str | None = None
-    calendar_link_insurance: str | None = None
-    calendar_link_bnb: str | None = None
-    calendar_link_savorymind: str | None = None
-    contacts_outreach_exclude: str | None = None
-    newsletter_banner_insurance: str | None = None
-    newsletter_banner_bnb: str | None = None
-    newsletter_banner_savorymind: str | None = None
-    newsletter_banner_music: str | None = None
-    facebook_app_id: str | None = None
-    facebook_app_secret: str | None = None
-    meta_redirect_uri: str | None = None
-    tiktok_client_key: str | None = None
-    tiktok_client_secret: str | None = None
-    tiktok_redirect_uri: str | None = None
-    elevenlabs_api_key: str | None = None
-    video_api_key: str | None = None
-    gcs_bucket: str | None = None
-    hubspot_api_key: str | None = None
-    plaid_client_id: str | None = None
-    plaid_secret: str | None = None
 
 
 @router.get("")
@@ -133,12 +71,18 @@ def mailbox_health(db: Session = Depends(get_db),
 
 
 @router.post("")
-def save(body: CredIn, db: Session = Depends(get_db),
+def save(body: dict = Body(...), db: Session = Depends(get_db),
          _=Depends(require_role("admin", "operator"))):
-    """Save any provided credentials (blank/None fields are ignored)."""
+    """Save any provided credentials (blank/None fields are ignored).
+
+    The body is a free-form {field: value} map validated against the single source
+    of truth — ``runtime_config.FIELDS`` (``save`` rejects unknown fields). This
+    replaced a hand-maintained pydantic allowlist that silently dropped any newer
+    field (Resend, Plivo, …) that hadn't been mirrored into it — so a connected key
+    looked saved but never persisted."""
     saved = []
-    for field, value in body.model_dump().items():
-        if value is not None and value.strip() != "":
+    for field, value in (body or {}).items():
+        if isinstance(value, str) and value.strip() != "":
             if runtime_config.save(db, field, value):
                 saved.append(field)
     return {"ok": True, "saved": saved, "status": runtime_config.status(db)}

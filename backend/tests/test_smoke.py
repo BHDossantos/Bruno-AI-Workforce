@@ -5366,12 +5366,46 @@ def test_setup_connect_status_and_save(client, auth_headers):
     # The AI-brain status block is present so the UI can warn when drafts are stubs.
     assert "configured" in s["ai"] and "model" in s["ai"]
     orig = settings.google_places_api_key
+    orig_resend = (settings.resend_api_key, settings.resend_from_insurance)
+
+    def _purge_cfg(*fields):
+        from app.database import SessionLocal
+        from app.models import Setting
+        d = SessionLocal()
+        try:
+            for f in fields:
+                row = d.get(Setting, "cfg:" + f)
+                if row:
+                    d.delete(row)
+            d.commit()
+        finally:
+            d.close()
+
     try:
         r = client.post("/setup", headers=auth_headers, json={"google_places_api_key": "test-key-123"})
         assert r.status_code == 200 and "google_places_api_key" in r.json()["saved"]
         assert client.get("/setup", headers=auth_headers).json()["google_places"]["configured"] is True
+
+        # Regression: newer credential fields (Resend, Plivo, …) must actually save
+        # through /setup. They previously fell out of a hand-maintained pydantic
+        # allowlist, so the key looked saved but never persisted. The body is now
+        # validated against runtime_config.FIELDS, so any known field saves.
+        r = client.post("/setup", headers=auth_headers,
+                        json={"resend_api_key": "re_test_123",
+                              "resend_from_insurance": "b@dossantosinsurance.org",
+                              "not_a_real_field": "ignored"})
+        saved = r.json()["saved"]
+        assert "resend_api_key" in saved and "resend_from_insurance" in saved
+        assert "not_a_real_field" not in saved  # unknown fields are rejected, not saved
+        assert client.get("/setup", headers=auth_headers).json()["resend"]["configured"] is True
     finally:
+        # Delete the stored rows too — leaving a Resend key in the shared session DB
+        # would make resend.is_configured() true for later tests and trigger real
+        # network sends. apply_to_settings reloads from the DB, so settings-only
+        # resets aren't enough.
+        _purge_cfg("google_places_api_key", "resend_api_key", "resend_from_insurance")
         settings.google_places_api_key = orig  # don't pollute other tests
+        settings.resend_api_key, settings.resend_from_insurance = orig_resend
 
     orig_exclude = settings.contacts_outreach_exclude
     try:
