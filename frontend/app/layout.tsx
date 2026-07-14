@@ -1,6 +1,7 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import Sidebar from "@/components/Sidebar";
+import TopBar from "@/components/TopBar";
 import ApiStatusBanner from "@/components/ApiStatusBanner";
 import VoiceCommand from "@/components/VoiceCommand";
 
@@ -16,6 +17,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <div className="flex min-h-screen flex-col md:flex-row">
           <Sidebar />
           <main className="flex-1 overflow-x-hidden">
+            <TopBar />
             <ApiStatusBanner />
             <div className="p-4 md:p-6 lg:p-8">{children}</div>
           </main>
