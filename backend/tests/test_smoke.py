@@ -1153,6 +1153,40 @@ def test_twilio_creds_are_whitespace_stripped(monkeypatch):
     assert telco.account_sid() == "AC123"
 
 
+def test_bridge_call_from_number_is_e164(monkeypatch):
+    """The bridge call's 'From' must be sent in E.164 — SignalWire rejects anything
+    else with '21212: From must be an E.164 number'. Even a number stored with
+    formatting (or missing the +) is normalized before the REST call."""
+    from app.config import settings
+    from app.integrations import twilio_voice as v
+
+    # Connect SignalWire and store a messy from-number (no +, with formatting).
+    monkeypatch.setattr(settings, "signalwire_space_url", "example.signalwire.com", raising=False)
+    monkeypatch.setattr(settings, "signalwire_project_id", "proj-1", raising=False)
+    monkeypatch.setattr(settings, "signalwire_api_token", "PT_x", raising=False)
+    monkeypatch.setattr(settings, "signalwire_from_number", "(978) 824-4228", raising=False)
+    monkeypatch.setattr(settings, "producer_callback", "1 603 557 2462", raising=False)
+    monkeypatch.setattr(settings, "public_base_url", "https://api.example.com", raising=False)
+
+    captured = {}
+
+    class _Resp:
+        status_code = 201
+        def json(self):
+            return {"sid": "CA_test"}
+
+    def _fake_post(url, data=None, auth=None, timeout=None):
+        captured["url"], captured["data"], captured["auth"] = url, data, auth
+        return _Resp()
+
+    monkeypatch.setattr(v.httpx, "post", _fake_post)
+    sid, err = v.place_bridge_call("(978) 254-1435", "lead-1")
+    assert sid == "CA_test" and err is None
+    assert captured["data"]["From"] == "+19788244228"     # normalized, not "(978) 824-4228"
+    assert captured["data"]["To"] == "+16035572462"       # callback normalized too
+    assert captured["url"].startswith("https://example.signalwire.com/")  # routed to SignalWire
+
+
 def test_twilio_voice_config_twiml_and_token():
     """Bridge calling is configured with creds + a number + a callback phone;
     browser softphone also needs an API key + TwiML App. TwiML bridges + records
