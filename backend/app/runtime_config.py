@@ -52,10 +52,17 @@ FIELDS: dict[str, bool] = {
     "twilio_twiml_app_sid": False,     # browser softphone: TwiML App SID
     "twilio_whatsapp_number": False,   # WhatsApp Business number (Twilio)
     # Plivo — backup SMS provider (Twilio-compatible).
-    "sms_provider": False,             # twilio | plivo | auto
+    "sms_provider": False,             # twilio | plivo | signalwire | auto
     "plivo_auth_id": False,
     "plivo_auth_token": True,          # secret
     "plivo_from_number": False,
+    # SignalWire — Twilio-compatible carrier (drop-in) for BOTH voice + SMS.
+    "signalwire_space_url": False,
+    "signalwire_project_id": False,
+    "signalwire_api_token": True,      # secret
+    "signalwire_from_number": False,
+    "signalwire_insurance_number": False,
+    "signalwire_voice_number": False,
     "whatsapp_cloud_phone_number_id": False,  # Meta WhatsApp Cloud API (no Twilio)
     "whatsapp_cloud_token": True,
     # JSearch / RapidAPI key → live LinkedIn/Indeed/Glassdoor/ZipRecruiter jobs.
@@ -160,7 +167,7 @@ def save(db, field: str, value: str) -> bool:
 def status(db) -> dict:
     """Connection status — booleans + non-secret addresses only, never secrets."""
     from .integrations import (apollo, gmail, instantly, jobs_api, places, resend,
-                               sendgrid, smartlead, sms, twilio_voice, whatsapp_cloud)
+                               sendgrid, smartlead, sms, telco, twilio_voice, whatsapp_cloud)
     apply_to_settings(db)  # make sure the live view reflects stored values
     bridge_on = bool(settings.bridge_token)
     from .ai import client as ai_client
@@ -199,7 +206,7 @@ def status(db) -> dict:
         "apollo": {"configured": apollo.is_configured()},
         "google_places": {"configured": places.is_configured()},
         "sms": {"configured": sms.is_configured() or bridge_on,
-                "via": "twilio" if sms.is_configured() else ("bridge" if bridge_on else None),
+                "via": sms.active_provider() or ("bridge" if bridge_on else None),
                 # Surface the compliance guardrails so the Texts UI can show the
                 # real window/cap instead of a hardcoded note.
                 "daily_cap": settings.sms_daily_send_cap,
@@ -210,6 +217,7 @@ def status(db) -> dict:
                     "via": "meta_cloud" if whatsapp_cloud.is_configured()
                     else ("twilio" if sms.whatsapp_configured() else None)},
         "calling": {"configured": twilio_voice.is_configured(),      # bridge (ring my phone)
+                    "via": telco.provider(),                         # signalwire | twilio | None
                     "browser": twilio_voice.browser_configured(),    # softphone
                     "recording": settings.call_recording_enabled,
                     "callback_set": bool(settings.producer_callback)},

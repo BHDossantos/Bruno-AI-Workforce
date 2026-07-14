@@ -42,18 +42,12 @@ _CONSENT = ("This call is with a licensed insurance producer and may be "
 
 
 def _voice_number() -> str:
+    from . import telco
+    if telco.provider() == "signalwire":
+        return (settings.signalwire_voice_number or settings.signalwire_insurance_number
+                or settings.signalwire_from_number or "")
     return (settings.twilio_voice_number or settings.twilio_insurance_number
             or settings.twilio_from_number or "")
-
-
-def _sid() -> str:
-    """Account SID, whitespace-stripped — a stray space/newline in the SID or token
-    (from an env var or paste) makes Twilio reject Basic-auth with a 20003 401."""
-    return (settings.twilio_account_sid or "").strip()
-
-
-def _token() -> str:
-    return (settings.twilio_auth_token or "").strip()
 
 
 def _transfer_number() -> str:
@@ -63,9 +57,10 @@ def _transfer_number() -> str:
 
 
 def is_configured() -> bool:
-    """Bridge calling: account creds + a caller-ID number + your callback phone."""
-    return bool(settings.twilio_account_sid and settings.twilio_auth_token
-                and _voice_number() and settings.producer_callback)
+    """Bridge calling: a Twilio-compatible carrier (Twilio or SignalWire) + a
+    caller-ID number + your callback phone."""
+    from . import telco
+    return bool(telco.configured() and _voice_number() and settings.producer_callback)
 
 
 def browser_configured() -> bool:
@@ -137,7 +132,8 @@ def place_bridge_call(lead_phone: str, lead_id: str | None) -> tuple[str | None,
     # callback URL (code 21205 'Url is not a valid URL').
     bridge_q = urlencode({k: v for k, v in {"lead_phone": to_lead, "lead_id": lead_id}.items() if v})
     status_q = urlencode({"lead_id": lead_id}) if lead_id else ""
-    url = f"https://api.twilio.com/2010-04-01/Accounts/{_sid()}/Calls.json"
+    from . import telco
+    url = telco.api_url("Calls.json")
     data = {
         "To": _e164(settings.producer_callback),   # ring YOU first
         "From": _voice_number(),
@@ -146,9 +142,9 @@ def place_bridge_call(lead_phone: str, lead_id: str | None) -> tuple[str | None,
         "StatusCallbackEvent": "completed",
     }
     try:
-        r = httpx.post(url, data=data, auth=(_sid(), _token()), timeout=20)
+        r = httpx.post(url, data=data, auth=telco.auth(), timeout=20)
         if r.status_code >= 400:
-            return None, f"Twilio {r.status_code}: {(r.text or '')[:160]}"
+            return None, f"{telco.label()} {r.status_code}: {(r.text or '')[:160]}"
         return r.json().get("sid"), None
     except Exception as exc:  # pragma: no cover - network guard
         return None, f"Call failed: {str(exc)[:160]}"
@@ -215,7 +211,8 @@ def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, s
         return None, "lead has no valid phone number"
     q = urlencode({k: v for k, v in {"lead_phone": to_lead, "lead_id": lead_id}.items() if v})
     status_q = urlencode({"lead_id": lead_id}) if lead_id else ""
-    url = f"https://api.twilio.com/2010-04-01/Accounts/{_sid()}/Calls.json"
+    from . import telco
+    url = telco.api_url("Calls.json")
     data = {
         "To": to_lead,                       # dial the LEAD directly (not you first)
         "From": _e164(_voice_number()),
@@ -226,9 +223,9 @@ def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, s
         "StatusCallbackEvent": "completed",
     }
     try:
-        r = httpx.post(url, data=data, auth=(_sid(), _token()), timeout=20)
+        r = httpx.post(url, data=data, auth=telco.auth(), timeout=20)
         if r.status_code >= 400:
-            return None, f"Twilio {r.status_code}: {(r.text or '')[:160]}"
+            return None, f"{telco.label()} {r.status_code}: {(r.text or '')[:160]}"
         return r.json().get("sid"), None
     except Exception as exc:  # pragma: no cover - network guard
         return None, f"Auto-call failed: {str(exc)[:160]}"
@@ -237,19 +234,19 @@ def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, s
 def record_voicemail_call() -> tuple[str | None, str | None]:
     """Ring the producer's phone so they can record the voicemail drop in their own
     voice. The recording is saved via the /calls/vm-saved webhook."""
-    if not (settings.twilio_account_sid and settings.twilio_auth_token
-            and _voice_number() and settings.producer_callback):
-        return None, "Add Twilio + your callback number on Setup first."
+    from . import telco
+    if not (telco.configured() and _voice_number() and settings.producer_callback):
+        return None, "Add SignalWire or Twilio + your callback number on Setup first."
     base = _base_url()
     if not base:
-        return None, "PUBLIC_BASE_URL is not set, so Twilio can't reach the record webhook."
-    url = f"https://api.twilio.com/2010-04-01/Accounts/{_sid()}/Calls.json"
+        return None, "PUBLIC_BASE_URL is not set, so the carrier can't reach the record webhook."
+    url = telco.api_url("Calls.json")
     data = {"To": _e164(settings.producer_callback), "From": _e164(_voice_number()),
             "Url": f"{base}/calls/twiml/record-vm"}
     try:
-        r = httpx.post(url, data=data, auth=(_sid(), _token()), timeout=20)
+        r = httpx.post(url, data=data, auth=telco.auth(), timeout=20)
         if r.status_code >= 400:
-            return None, f"Twilio {r.status_code}: {(r.text or '')[:160]}"
+            return None, f"{telco.label()} {r.status_code}: {(r.text or '')[:160]}"
         return r.json().get("sid"), None
     except Exception as exc:  # pragma: no cover - network guard
         return None, f"Record call failed: {str(exc)[:160]}"

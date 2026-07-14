@@ -1140,11 +1140,17 @@ def test_twilio_creds_are_whitespace_stripped(monkeypatch):
     rejects it with a 20003 'Authenticate' 401 even though the characters are right."""
     from app.config import settings
     from app.integrations import sms as sms_int
-    from app.integrations import twilio_voice as voice
+    from app.integrations import telco
     monkeypatch.setattr(settings, "twilio_account_sid", "AC123\n", raising=False)
     monkeypatch.setattr(settings, "twilio_auth_token", "  tok456\n", raising=False)
-    assert sms_int._sid() == "AC123" and sms_int._token() == "tok456"
-    assert voice._sid() == "AC123" and voice._token() == "tok456"
+    # SignalWire off → Twilio is the active transport; its creds are the auth pair.
+    for f in ("signalwire_space_url", "signalwire_project_id", "signalwire_api_token"):
+        monkeypatch.setattr(settings, f, "", raising=False)
+    monkeypatch.setattr(settings, "sms_provider", "auto", raising=False)
+    assert sms_int._sid() == "AC123" and sms_int._token() == "tok456"  # WhatsApp path
+    # The shared Twilio-compatible transport strips the same way for voice + SMS REST.
+    assert telco.auth() == ("AC123", "tok456")
+    assert telco.account_sid() == "AC123"
 
 
 def test_twilio_voice_config_twiml_and_token():
@@ -1301,6 +1307,43 @@ def test_resend_email_provider_and_deliver_preference(monkeypatch):
     assert mid == "re_123" and err is None
     assert sent["to"] == "lead@x.co" and sent["frm"] == "b@dossantosinsurance.org" and sent["rt"] == "me@x.co"
     assert outreach.can_deliver("insurance") is True
+
+
+def test_signalwire_telco_routing(monkeypatch):
+    """SignalWire is a drop-in Twilio-compatible transport: when connected it's the
+    active provider for BOTH the SMS and voice REST calls, hitting SignalWire's
+    Compatibility API host with the Project ID/token — no change to the call logic."""
+    from app.config import settings
+    from app.integrations import sms, telco, twilio_voice
+
+    # Neither connected → nothing configured.
+    for f in ("twilio_account_sid", "twilio_auth_token", "signalwire_space_url",
+              "signalwire_project_id", "signalwire_api_token"):
+        monkeypatch.setattr(settings, f, "", raising=False)
+    assert telco.provider() is None and telco.configured() is False
+
+    # Connect SignalWire → it becomes the active Twilio-compatible transport.
+    monkeypatch.setattr(settings, "signalwire_space_url", "example.signalwire.com", raising=False)
+    monkeypatch.setattr(settings, "signalwire_project_id", "proj-123", raising=False)
+    monkeypatch.setattr(settings, "signalwire_api_token", "PT_secret", raising=False)
+    monkeypatch.setattr(settings, "signalwire_from_number", "+19788244228", raising=False)
+    assert telco.provider() == "signalwire"
+    assert telco.auth() == ("proj-123", "PT_secret")
+    assert telco.api_url("Messages.json") == \
+        "https://example.signalwire.com/api/laml/2010-04-01/Accounts/proj-123/Messages.json"
+    assert telco.api_url("Calls.json").endswith("/Accounts/proj-123/Calls.json")
+    # SMS + voice both see SignalWire's number and report it as the active provider.
+    assert sms.number_for("insurance") == "+19788244228"
+    assert sms.active_provider() == "signalwire"
+    monkeypatch.setattr(settings, "producer_callback", "+16035551212", raising=False)
+    assert twilio_voice.is_configured() is True   # voice works off SignalWire too
+
+    # sms_provider='twilio' forces Twilio when its creds exist (escape hatch).
+    monkeypatch.setattr(settings, "twilio_account_sid", "AC123", raising=False)
+    monkeypatch.setattr(settings, "twilio_auth_token", "tok", raising=False)
+    monkeypatch.setattr(settings, "sms_provider", "twilio", raising=False)
+    assert telco.provider() == "twilio"
+    assert telco.api_url("Messages.json").startswith("https://api.twilio.com/")
 
 
 @requires_db

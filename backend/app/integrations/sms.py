@@ -26,35 +26,52 @@ def _token() -> str:
     return (settings.twilio_auth_token or "").strip()
 
 
-def _twilio_configured() -> bool:
-    return bool(settings.twilio_account_sid and settings.twilio_auth_token
-                and (settings.twilio_from_number or settings.twilio_insurance_number))
+def _compat_configured() -> bool:
+    """A Twilio-COMPATIBLE SMS transport (Twilio or SignalWire) with a from-number."""
+    from . import telco
+    return bool(telco.configured() and number_for("personal"))
 
 
 def _use_plivo() -> bool:
     """Route texts through the Plivo backup when it's the selected provider, or —
-    in 'auto' mode — whenever Plivo is connected and Twilio isn't."""
+    in 'auto' mode — whenever Plivo is connected and no Twilio-compatible carrier is."""
     from . import plivo
     provider = (settings.sms_provider or "auto").strip().lower()
     if provider == "plivo":
         return plivo.is_configured()
-    if provider == "twilio":
+    if provider in ("twilio", "signalwire"):
         return False
-    return plivo.is_configured() and not _twilio_configured()  # auto: Plivo as fallback
+    return plivo.is_configured() and not _compat_configured()  # auto: Plivo as fallback
 
 
 def is_configured() -> bool:
-    # Texting is available if EITHER provider is connected — Twilio (default) OR the
-    # Plivo backup. So a deactivated Twilio no longer silently disables SMS.
+    # Texting is available if ANY provider is connected — SignalWire or Twilio (the
+    # Twilio-compatible transports) OR the Plivo backup. So a deactivated Twilio no
+    # longer silently disables SMS.
     from . import plivo
-    return _twilio_configured() or plivo.is_configured()
+    return _compat_configured() or plivo.is_configured()
+
+
+def active_provider() -> str | None:
+    """Which SMS provider a send would use right now — for status/UI."""
+    from . import plivo, telco
+    if _use_plivo():
+        return "plivo"
+    if telco.configured():
+        return telco.provider()   # "signalwire" | "twilio"
+    return "plivo" if plivo.is_configured() else None
 
 
 def number_for(account: str) -> str:
+    from . import telco
+    if telco.provider() == "signalwire":
+        if account == "insurance" and settings.signalwire_insurance_number:
+            return settings.signalwire_insurance_number
+        return settings.signalwire_from_number or settings.signalwire_insurance_number
     if account == "insurance" and settings.twilio_insurance_number:
         return settings.twilio_insurance_number
     # Fall back to whichever number IS set, so a send never goes out with an empty
-    # From (which Twilio rejects) just because one field was left blank.
+    # From (which the carrier rejects) just because one field was left blank.
     return settings.twilio_from_number or settings.twilio_insurance_number
 
 
@@ -62,32 +79,28 @@ def send_with_error(to: str, body: str, account: str = "personal") -> tuple[str 
     """Send an SMS, returning (message_sid, error_reason). Surfaces the REAL Twilio
     error (e.g. trial-account 'unverified number', invalid recipient, non-SMS
     number) instead of a bare None, so failures aren't all mislabeled 'not connected'."""
+    from . import telco
     if _use_plivo():
         from . import plivo
         return plivo.send_with_error(to, body, account)
-    if not _twilio_configured():
-        return None, "No SMS provider connected — add Twilio, or the Plivo backup, in Setup."
+    if not telco.configured():
+        return None, "No SMS provider connected — add SignalWire or Twilio, or the Plivo backup, in Setup."
     if not to:
         return None, "no recipient phone"
     if not body:
         return None, "empty message"
     if not number_for(account):
-        return None, "no Twilio 'from' number set"
-    url = f"https://api.twilio.com/2010-04-01/Accounts/{_sid()}/Messages.json"
+        return None, f"no {telco.label()} 'from' number set"
+    url = telco.api_url("Messages.json")
     data = {"To": to, "From": number_for(account), "Body": body}
-    # Ask Twilio to report the REAL delivery outcome (delivered/undelivered/failed)
-    # to our webhook, so the app can show whether the text actually landed — not just
-    # that Twilio accepted it. No callback set → we'd only ever know "handed off".
+    # Ask the carrier to report the REAL delivery outcome (delivered/undelivered/
+    # failed) to our webhook, so the app can show whether the text actually landed —
+    # not just that it was accepted. No callback set → we'd only ever know "handed off".
     base = (settings.public_base_url or "").rstrip("/")
     if base:
         data["StatusCallback"] = f"{base}/sms/status"
     try:
-        resp = httpx.post(
-            url,
-            data=data,
-            auth=(_sid(), _token()),
-            timeout=20,
-        )
+        resp = httpx.post(url, data=data, auth=telco.auth(), timeout=20)
         if resp.status_code >= 400:
             try:
                 j = resp.json()
@@ -96,19 +109,19 @@ def send_with_error(to: str, body: str, account: str = "personal") -> tuple[str 
                 code, msg = resp.status_code, (resp.text or "")[:160]
             hint = ""
             if code == 20003:
-                hint = (" (authentication failed — Twilio is rejecting the Account SID / Auth "
-                        "Token. Re-check for a stray space or newline, or a mismatched/rotated token.)")
+                hint = (f" (authentication failed — {telco.label()} is rejecting the credentials. "
+                        "Re-check for a stray space/newline, or a mismatched/rotated token.)")
             elif code == 21608:
-                hint = " (Twilio TRIAL account — you can only text numbers you've verified. Upgrade the Twilio account to text leads.)"
+                hint = " (Twilio TRIAL account — you can only text numbers you've verified. Upgrade the account to text leads.)"
             elif code in (21211, 21214):
                 hint = " (invalid recipient number)"
             elif code == 21606:
-                hint = " (your 'from' number can't send SMS — use an SMS-capable Twilio number)"
-            return None, f"Twilio {code}: {msg}{hint}"
+                hint = " (your 'from' number can't send SMS — use an SMS-capable number)"
+            return None, f"{telco.label()} {code}: {msg}{hint}"
         return resp.json().get("sid"), None
     except Exception as exc:  # pragma: no cover - network guard
-        log.warning("Twilio send failed (%s): %s", to, exc)
-        return None, f"Twilio error: {str(exc)[:160]}"
+        log.warning("SMS send failed (%s): %s", to, exc)
+        return None, f"{telco.label()} error: {str(exc)[:160]}"
 
 
 def send_sms(to: str, body: str, account: str = "personal") -> str | None:

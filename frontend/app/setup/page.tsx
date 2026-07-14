@@ -10,8 +10,8 @@ type Status = {
   gmail_personal: Area; gmail_insurance: Area; gmail_insurance_backup?: Area;
   gmail_bnb?: Area; gmail_savorymind?: Area;
   apollo: Area; google_places: Area;
-  sms?: Area; whatsapp?: Area & { via?: string | null }; jobs_api?: Area;
-  calling?: Area & { browser?: boolean; recording?: boolean; callback_set?: boolean };
+  sms?: Area & { via?: string | null }; whatsapp?: Area & { via?: string | null }; jobs_api?: Area;
+  calling?: Area & { via?: string | null; browser?: boolean; recording?: boolean; callback_set?: boolean };
   instantly?: Area; smartlead?: Area; sendgrid?: Area; resend?: Area;
   meta_app?: { configured: boolean; app_id: string; redirect_uri: string };
   tiktok_app?: { configured: boolean; client_key: string; redirect_uri: string };
@@ -572,6 +572,34 @@ function Setup() {
               value={form.plivo_auth_id || ""} onChange={(e) => set("plivo_auth_id", e.target.value)} />
             <input className="input" type="password" placeholder="Plivo Auth Token"
               value={form.plivo_auth_token || ""} onChange={(e) => set("plivo_auth_token", e.target.value)} />
+          </div>
+        </div>
+
+        {/* SignalWire — Twilio-compatible carrier (drop-in) for BOTH voice + SMS */}
+        <div className="card">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">📡 SignalWire (voice + SMS — Twilio replacement)</h2>
+            <Badge ok={!!data.calling?.configured || data.sms?.via === "signalwire"} />
+          </div>
+          <p className="mb-3 text-xs text-gray-500">
+            A drop-in Twilio replacement that powers <b>both calling and texting</b> with your
+            existing voicemail-drop / transfer logic. From your SignalWire Space → <b>API</b>:
+            the <b>Space URL</b>, a <b>Project ID</b>, and an <b>API token</b> (starts with
+            <code>PT…</code>); buy at least one SMS+Voice <b>number</b> in the Space. When connected
+            it&apos;s used automatically for voice + SMS. Point your number&apos;s webhooks at{" "}
+            <code>&lt;app&gt;/sms/inbound</code> (SMS) and the call TwiML at <code>&lt;app&gt;/calls/…</code>.
+            <b> SMS also needs A2P 10DLC registration in SignalWire</b> before high-volume texting;
+            voice/calling has no such gate and works immediately.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input className="input" placeholder="Space URL (e.g. yourname.signalwire.com)"
+              value={form.signalwire_space_url || ""} onChange={(e) => set("signalwire_space_url", e.target.value)} />
+            <input className="input" placeholder="Project ID (UUID)"
+              value={form.signalwire_project_id || ""} onChange={(e) => set("signalwire_project_id", e.target.value)} />
+            <input className="input" type="password" placeholder="API token (PT…)"
+              value={form.signalwire_api_token || ""} onChange={(e) => set("signalwire_api_token", e.target.value)} />
+            <input className="input" placeholder="Number +1 978 824 4228 (SMS + Voice)"
+              value={form.signalwire_from_number || ""} onChange={(e) => set("signalwire_from_number", e.target.value)} />
           </div>
         </div>
 
