@@ -80,14 +80,14 @@ function Outbox() {
               <option value="personal">Personal</option>
               <option value="insurance">Insurance</option>
             </select>
-            <button className="btn" disabled={busy === "bulk"} onClick={() => sendNext(20)}>
-              {busy === "bulk" ? "Sending…" : "Send next 20"}
+            <button className="btn" disabled={busy === "bulk"} onClick={() => sendNext(70)}>
+              {busy === "bulk" ? "Sending…" : "Send next 70"}
             </button>
             <button className="btn-ghost" onClick={syncInbound}>Sync replies</button>
           </div>
         }
       />
-      <p className="mb-3 text-xs text-gray-500">“Send next 20” sends your oldest 20 drafts now (paced to protect a new mailbox). Pick an account above to send only that mailbox&apos;s drafts. If a send fails, the exact reason shows below.</p>
+      <p className="mb-3 text-xs text-gray-500">“Send next 70” sends your highest-priority drafts now — new hot &amp; uncontacted first, then hot follow-ups, warm, cold. Total emails/day are held under a daily cap that ramps up on a new domain (so you clear a backlog without getting spam-flagged), then settles to a steady pace. Pick an account above to send only that mailbox&apos;s drafts. If a send fails, the exact reason shows below.</p>
       {note && <p className="mb-4 rounded bg-brand/10 p-3 text-sm text-brand-dark">{note}</p>}
       {(loading || error) && <LoadState loading={loading} error={error} onRetry={reload} />}
       <div className="card overflow-x-auto">

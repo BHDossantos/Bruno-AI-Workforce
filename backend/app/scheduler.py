@@ -144,8 +144,11 @@ def _flush_hot_drafts(db):
         return {"skipped": "paused"}
     if control.get_mode(db) != "auto" and not control.outreach_autopilot(db):
         return {"skipped": "auto-send off (turn on Outreach Autopilot to enable)"}
+    # Email: 50/run × 13 hourly runs (8am–8pm) = up to 650/day of capacity, held
+    # under the ramp-aware daily cap by send_email_drafts — so the day's volume
+    # spreads across the day (good for deliverability) and never exceeds the cap.
     return {
-        "email": outreach.send_email_drafts(db, limit=25),
+        "email": outreach.send_email_drafts(db, limit=50),
         "sms": sms_engine.send_sms_drafts(db, limit=25),
     }
 

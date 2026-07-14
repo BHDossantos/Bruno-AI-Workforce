@@ -158,15 +158,63 @@ def can_deliver(account: str = "insurance") -> bool:
     return resend.is_configured() or sendgrid.is_configured() or gmail.is_configured(account)
 
 
+def _email_sent_today(db: Session) -> int:
+    """How many emails the domain has already sent today (all accounts). Used to
+    hold total daily volume under the send cap — Gmail/Outlook flag a domain on the
+    day's TOTAL, so this counts everything, not just one account's drafts."""
+    from datetime import time as _time
+    start = datetime.combine(datetime.now(timezone.utc).date(), _time.min, tzinfo=timezone.utc)
+    try:
+        return (db.query(Message)
+                .filter(Message.direction == "outbound", Message.status == "Sent",
+                        Message.sent_at >= start, Message.to_email.like("%@%"))
+                .count())
+    except Exception:  # pragma: no cover - defensive
+        return 0
+
+
+def daily_send_cap() -> int:
+    """The email cap for TODAY. During the initial warm-up ramp
+    (``email_rampup_schedule`` from ``email_rampup_start``) it follows that day's
+    number so a fresh domain clears a backlog without spiking; once the ramp is
+    over it settles to the steady ``email_daily_send_cap``."""
+    start = (settings.email_rampup_start or "").strip()
+    sched = [int(x) for x in (settings.email_rampup_schedule or "").split(",") if x.strip()]
+    if start and sched:
+        try:
+            days = (datetime.now(timezone.utc).date() - date.fromisoformat(start)).days
+        except ValueError:
+            days = -1
+        if 0 <= days < len(sched):
+            return max(0, sched[days])
+    return max(0, settings.email_daily_send_cap)
+
+
 def send_email_drafts(db: Session, *, limit: int = 25, account: str | None = None) -> dict:
     """Send drafted/approved outbound emails in the operator's priority order:
     new HOT & uncontacted → HOT needing follow-up → WARM → COLD (dead last), and
     within a tier the oldest draft first for fair pacing. Shared by the manual
     'Send drafts' button AND the auto-outreach cron. Returns sent/failed counts +
-    the real failure reasons."""
+    the real failure reasons.
+
+    Total emails/day are held under ``daily_send_cap()`` (ramp-aware) so a new
+    sending domain never spikes and gets spam-flagged — both the autopilot and the
+    manual button pass through here, so the cap holds regardless of how it's sent."""
     from sqlalchemy import and_
 
     from . import lead_temperature
+
+    # Cap the batch to whatever daily headroom is left, so the day's TOTAL stays
+    # under the (ramp-aware) send cap no matter how many times this runs.
+    cap = daily_send_cap()
+    remaining = max(0, cap - _email_sent_today(db))
+    if remaining <= 0:
+        return {"sent": 0, "failed": 0, "considered": 0, "daily_cap": cap,
+                "sent_today": _email_sent_today(db),
+                "errors": [f"Daily send cap reached ({cap}/day) — protects your domain's "
+                           "reputation. More will send tomorrow."]}
+    batch = max(1, min(limit, remaining, 300))
+
     q = (db.query(Message)
          .outerjoin(Lead, and_(Message.entity_type == "lead", Message.entity_id == Lead.id))
          .filter(Message.direction == "outbound", Message.to_email.isnot(None),
@@ -174,7 +222,7 @@ def send_email_drafts(db: Session, *, limit: int = 25, account: str | None = Non
     if account:
         q = q.filter(Message.from_account == account)
     msgs = (q.order_by(*lead_temperature.send_priority_order(Lead, Message))
-            .limit(max(1, min(limit, 50))).all())
+            .limit(batch).all())
 
     sent = failed = 0
     errors: list[str] = []
@@ -197,7 +245,8 @@ def send_email_drafts(db: Session, *, limit: int = 25, account: str | None = Non
             if err and err not in errors:
                 errors.append(err)
     db.commit()
-    return {"sent": sent, "failed": failed, "considered": len(msgs), "errors": errors[:3]}
+    return {"sent": sent, "failed": failed, "considered": len(msgs), "errors": errors[:3],
+            "daily_cap": cap, "sent_today": _email_sent_today(db)}
 
 
 def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | None,
