@@ -112,6 +112,16 @@ const GROUPS: NavGroup[] = [
   },
 ];
 
+// Pinned at the very top of the menu — the handful of pages worked every day, so
+// they're always one click away without expanding a group.
+const QUICK_LINKS: NavItem[] = [
+  { href: "/worklist", label: "Call List", icon: "📞" },
+  { href: "/insurance", label: "Insurance Leads", icon: "🎯" },
+  { href: "/texts", label: "Texts", icon: "💬" },
+  { href: "/outbox", label: "Email Outbox", icon: "📧" },
+  { href: "/crm", label: "Universal CRM", icon: "👥" },
+];
+
 function groupForPath(pathname: string): string | null {
   for (const g of GROUPS) {
     if (g.items.some((i) => i.href === pathname)) return g.title;
@@ -127,7 +137,10 @@ export default function Sidebar() {
   // Per-browser memory of which sections are expanded. Starts with just the
   // Work Leads group open; the section containing the current page is always
   // shown regardless (see `sectionOpen`).
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ "🛡️ Work Leads": true });
+  // All groups start collapsed — the pinned Daily links cover everyday work, and
+  // the group containing the current page auto-expands (see sectionOpen), so the
+  // menu reads as a short list instead of ~60 items.
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     try {
@@ -187,6 +200,29 @@ export default function Sidebar() {
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-2">
+          {/* Pinned daily-use links — always visible, no group to expand. */}
+          <div className="mb-2">
+            <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-brand-light/60">Daily</div>
+            <div className="space-y-0.5">
+              {QUICK_LINKS.map((item) => {
+                const active = pathname === item.href;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setOpen(false)}
+                    className={`flex items-center gap-3 rounded-lg py-2 pl-3 pr-3 text-sm transition ${
+                      active ? "bg-white/15 font-semibold" : "text-brand-light hover:bg-white/10"
+                    }`}
+                  >
+                    <span>{item.icon}</span>
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+            <div className="mt-2 mb-1 px-3 text-[10px] font-semibold uppercase tracking-wide text-brand-light/40">All sections</div>
+          </div>
           {GROUPS.map((group) => {
             const expanded = sectionOpen(group.title);
             return (
