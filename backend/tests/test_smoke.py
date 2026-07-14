@@ -1304,6 +1304,88 @@ def test_resend_email_provider_and_deliver_preference(monkeypatch):
 
 
 @requires_db
+def test_resend_inbound_webhook_two_way(client, monkeypatch):
+    """The Resend webhook makes email two-way: an inbound reply is linked to its
+    lead, advances the lead's status, and is saved onto the CRM thread; a delivery
+    event records the real outcome on the sent message; and when a signing secret
+    is configured an unsigned post is rejected."""
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.models import Lead, Message
+
+    # Use an @x.co address so any leftover rows are ignored by the shared-session
+    # outbound test's cold-outreach filter, and clean up fully at the end regardless.
+    sender = "resend-reply@x.co"
+
+    def _purge():
+        d = SessionLocal()
+        try:
+            d.query(Message).filter(Message.to_email == sender).delete(synchronize_session=False)
+            d.query(Message).filter(Message.provider_id == "re_deliver_1").delete(
+                synchronize_session=False)
+            d.query(Lead).filter(Lead.email == sender).delete(synchronize_session=False)
+            d.commit()
+        finally:
+            d.close()
+
+    _purge()
+    db = SessionLocal()
+    try:
+        lead = Lead(segment="insurance", owner_name="Reply Co", email=sender, status="New")
+        db.add(lead)
+        db.commit()
+        lead_id = lead.id
+    finally:
+        db.close()
+
+    try:
+        # No secret configured → public endpoint accepts the inbound reply.
+        monkeypatch.setattr(settings, "resend_webhook_secret", "", raising=False)
+        r = client.post("/resend/inbound", json={
+            "type": "inbound.email.received",
+            "data": {"from": f"Reply Co <{sender}>", "to": "b@dossantosinsurance.org",
+                     "subject": "Re: your quote", "text": "Yes, I'm interested — please call me."}})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["ok"] is True and body["matched"] is True
+
+        db = SessionLocal()
+        try:
+            inbound_msg = (db.query(Message).filter(Message.to_email == sender,
+                           Message.direction == "inbound", Message.channel == "email").first())
+            assert inbound_msg is not None
+            assert inbound_msg.entity_type == "lead" and inbound_msg.entity_id == lead_id
+            # The reply advanced the lead off "New".
+            assert db.get(Lead, lead_id).status != "New"
+
+            # A delivery event records the real outcome on the matching sent message.
+            sent = Message(channel="email", direction="outbound", to_email=sender,
+                           provider_id="re_deliver_1", status="Sent")
+            db.add(sent)
+            db.commit()
+        finally:
+            db.close()
+
+        r = client.post("/resend/inbound", json={
+            "type": "email.bounced", "data": {"email_id": "re_deliver_1"}})
+        assert r.status_code == 200 and r.json()["handled"] == "email.bounced"
+        db = SessionLocal()
+        try:
+            sent = db.query(Message).filter(Message.provider_id == "re_deliver_1").first()
+            assert sent.delivery_status == "bounced"
+        finally:
+            db.close()
+
+        # With a signing secret set, an unsigned post is rejected (not processed).
+        monkeypatch.setattr(settings, "resend_webhook_secret", "whsec_dGVzdHNlY3JldA==", raising=False)
+        r = client.post("/resend/inbound", json={"type": "inbound.email.received",
+                                                  "data": {"from": sender, "text": "hi"}})
+        assert r.status_code == 200 and r.json()["ok"] is False
+    finally:
+        _purge()  # never leak rows into the session-scoped DB other tests share
+
+
+@requires_db
 def test_client_whatsapp_send_gated_and_logged(client, auth_headers):
     """Sending a client WhatsApp message requires a phone number, a non-empty
     body, and a configured provider — and it's rejected cleanly otherwise."""

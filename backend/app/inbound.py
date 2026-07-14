@@ -50,6 +50,104 @@ def _draft_reply(db: Session, sender: str, reply: dict, cls: dict, account: str)
                             body=body, account=account, actor="inbound", force_draft=True)
 
 
+def process_reply(db: Session, *, sender: str, subject: str | None, snippet: str,
+                  account: str, store_message: bool = False) -> dict:
+    """Process one inbound email reply end-to-end: classify it, link it to the
+    matching lead / restaurant / message, advance their status, warm-text, opt them
+    into the funnel newsletter, log it, notify external webhooks, and AI-draft a
+    one-click reply. Shared by the Gmail poll (``sync_replies``) and the Resend
+    inbound webhook so both paths behave identically.
+
+    ``store_message`` (webhook path) also persists the inbound email itself as a
+    Message row so it shows on the contact's CRM thread — the Gmail poll leaves it
+    False since it only flags the existing outbound thread as Replied.
+
+    Does NOT commit — the caller owns the transaction. Returns ``{"hit", "cls"}``.
+    """
+    reply = {"snippet": snippet, "subject": subject}
+    cls = classify.classify_reply(snippet or "")
+    hit = False
+    _auto_entity = (None, None)  # (entity_type, entity_id) for automation branching
+    linked = (None, None)        # entity to attach the stored inbound message to
+
+    for lead in db.query(Lead).filter(Lead.email == sender).all():
+        _auto_entity = linked = ("lead", lead.id)
+        if lead.status not in _TERMINAL:
+            lead.status = cls["status"]
+        # Warm → auto-text from the insurance number.
+        sms_engine.maybe_warm_text(
+            db, entity_type="lead", entity_id=lead.id,
+            name=lead.company_name or lead.owner_name, phone=lead.phone,
+            context=lead.reason or "insurance", account="insurance")
+        # Warm reply → subscribe to that funnel's newsletter (CAN-SPAM: opt-in).
+        f = newsletters.funnel_for_segment(lead.segment)
+        if f:
+            newsletters.subscribe(db, f, sender, lead.company_name or lead.owner_name)
+        hit = True
+    for rest in db.query(Restaurant).filter(Restaurant.email == sender).all():
+        _auto_entity = linked = ("restaurant", rest.id)
+        if rest.status not in _TERMINAL:
+            rest.status = cls["status"]
+        sms_engine.maybe_warm_text(
+            db, entity_type="restaurant", entity_id=rest.id, name=rest.name,
+            phone=rest.phone, context=rest.pain_points or "SavoryMind", account="personal")
+        newsletters.subscribe(db, "savorymind", sender, rest.name)
+        hit = True
+    for msg in db.query(Message).filter(Message.to_email == sender).all():
+        msg.status = "Replied"
+        hit = True
+
+    # Persist the actual inbound email onto the CRM thread (webhook path). Worth
+    # recording even from an unknown sender, so it forces a "hit" (log + draft).
+    if store_message:
+        db.add(Message(channel="email", direction="inbound", to_email=sender,
+                       subject=subject, body=snippet, status=cls["status"],
+                       entity_type=linked[0], entity_id=linked[1], from_account=account))
+        hit = True
+
+    if hit:
+        db.add(ActionLog(actor="inbound", action="reply_classified", entity="email",
+                         entity_id=sender, detail={"account": account, "intent": cls["intent"],
+                                                   "summary": cls["summary"],
+                                                   "subject": subject}))
+        # Remember the interaction in the knowledge graph.
+        try:
+            from . import memory
+            memory.add(db, f"{sender} replied ({cls['intent']}): {cls.get('summary') or snippet}",
+                       kind="event", subject=sender, source="inbound")
+        except Exception:  # never let memory break the sync
+            log.debug("memory capture skipped", exc_info=True)
+
+        # Automation rules: branch on the reply intent (task / suppress /
+        # nurture / stop drip) per the user's enabled rules.
+        try:
+            from . import automation
+            automation.on_reply(db, intent=cls["intent"], sender=sender,
+                                entity_type=_auto_entity[0], entity_id=_auto_entity[1],
+                                summary=cls.get("summary"))
+        except Exception:
+            log.debug("automation rules skipped", exc_info=True)
+
+        # Notify any subscribed external automation (n8n/Make/etc.).
+        try:
+            from . import webhooks
+            webhooks.dispatch(db, "lead.replied", {
+                "sender": sender, "account": account, "intent": cls["intent"],
+                "summary": cls.get("summary"), "subject": subject})
+        except Exception:
+            log.debug("webhook dispatch skipped", exc_info=True)
+
+        # AI-draft a reply (kept as a draft for one-click review/send).
+        # Skipped for unsubscribes (we're suppressing, not replying).
+        try:
+            if cls["intent"] != "unsubscribe":
+                _draft_reply(db, sender, reply, cls, account)
+        except Exception:
+            log.debug("reply draft skipped", exc_info=True)
+
+    return {"hit": hit, "cls": cls}
+
+
 def sync_replies(db: Session, newer_than_days: int = 3) -> dict:
     # Pick up Gmail credentials connected via the in-app Setup page on any instance.
     try:
@@ -67,77 +165,10 @@ def sync_replies(db: Session, newer_than_days: int = 3) -> dict:
             sender = reply.get("from_email")
             if not sender:
                 continue
-            hit = False
-            cls = classify.classify_reply(reply.get("snippet", ""))
-            _auto_entity = (None, None)  # (entity_type, entity_id) for automation branching
-
-            for lead in db.query(Lead).filter(Lead.email == sender).all():
-                _auto_entity = ("lead", lead.id)
-                if lead.status not in _TERMINAL:
-                    lead.status = cls["status"]
-                # Warm → auto-text from the insurance number.
-                sms_engine.maybe_warm_text(
-                    db, entity_type="lead", entity_id=lead.id,
-                    name=lead.company_name or lead.owner_name, phone=lead.phone,
-                    context=lead.reason or "insurance", account="insurance")
-                # Warm reply → subscribe to that funnel's newsletter (CAN-SPAM: opt-in).
-                f = newsletters.funnel_for_segment(lead.segment)
-                if f:
-                    newsletters.subscribe(db, f, sender, lead.company_name or lead.owner_name)
-                hit = True
-            for rest in db.query(Restaurant).filter(Restaurant.email == sender).all():
-                _auto_entity = ("restaurant", rest.id)
-                if rest.status not in _TERMINAL:
-                    rest.status = cls["status"]
-                sms_engine.maybe_warm_text(
-                    db, entity_type="restaurant", entity_id=rest.id, name=rest.name,
-                    phone=rest.phone, context=rest.pain_points or "SavoryMind", account="personal")
-                newsletters.subscribe(db, "savorymind", sender, rest.name)
-                hit = True
-            for msg in db.query(Message).filter(Message.to_email == sender).all():
-                msg.status = "Replied"
-                hit = True
-
-            if hit:
+            res = process_reply(db, sender=sender, subject=reply.get("subject"),
+                                snippet=reply.get("snippet", ""), account=account)
+            if res["hit"]:
                 matched += 1
-                db.add(ActionLog(actor="inbound", action="reply_classified", entity="email",
-                                 entity_id=sender, detail={"account": account, "intent": cls["intent"],
-                                                           "summary": cls["summary"],
-                                                           "subject": reply.get("subject")}))
-                # Remember the interaction in the knowledge graph.
-                try:
-                    from . import memory
-                    memory.add(db, f"{sender} replied ({cls['intent']}): {cls.get('summary') or reply.get('snippet','')}",
-                               kind="event", subject=sender, source="inbound")
-                except Exception:  # never let memory break the sync
-                    log.debug("memory capture skipped", exc_info=True)
-
-                # Automation rules: branch on the reply intent (task / suppress /
-                # nurture / stop drip) per the user's enabled rules.
-                try:
-                    from . import automation
-                    automation.on_reply(db, intent=cls["intent"], sender=sender,
-                                        entity_type=_auto_entity[0], entity_id=_auto_entity[1],
-                                        summary=cls.get("summary"))
-                except Exception:
-                    log.debug("automation rules skipped", exc_info=True)
-
-                # Notify any subscribed external automation (n8n/Make/etc.).
-                try:
-                    from . import webhooks
-                    webhooks.dispatch(db, "lead.replied", {
-                        "sender": sender, "account": account, "intent": cls["intent"],
-                        "summary": cls.get("summary"), "subject": reply.get("subject")})
-                except Exception:
-                    log.debug("webhook dispatch skipped", exc_info=True)
-
-                # AI-draft a reply (kept as a draft for one-click review/send).
-                # Skipped for unsubscribes (we're suppressing, not replying).
-                try:
-                    if cls["intent"] != "unsubscribe":
-                        _draft_reply(db, sender, reply, cls, account)
-                except Exception:
-                    log.debug("reply draft skipped", exc_info=True)
 
     db.commit()
     log.info("Inbound sync: scanned %d, matched %d", scanned, matched)

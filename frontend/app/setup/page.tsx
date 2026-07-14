@@ -344,7 +344,17 @@ function Setup() {
               value={form.resend_from_insurance || ""} onChange={(e) => set("resend_from_insurance", e.target.value)} />
             <input className="input" placeholder="Reply-to inbox (where replies land)"
               value={form.resend_reply_to || ""} onChange={(e) => set("resend_reply_to", e.target.value)} />
+            <input className="input" type="password" placeholder="Webhook signing secret (whsec_… — optional)"
+              value={form.resend_webhook_secret || ""} onChange={(e) => set("resend_webhook_secret", e.target.value)} />
           </div>
+          <p className="mt-2 text-xs text-gray-500">
+            <b>Two-way email (auto-save replies to the CRM):</b> in Resend → <b>Webhooks</b>, add an
+            endpoint pointing at <code>{`{API}/resend/inbound`}</code> and select the delivery events
+            (delivered / bounced / complained); to also capture inbound replies, enable inbound
+            receiving on your domain and point it at the same URL. Paste the webhook’s{" "}
+            <b>signing secret</b> above to verify posts (optional but recommended). Replies then land
+            on the contact’s profile automatically, with an AI-drafted response ready to send.
+          </p>
         </div>
 
         {/* SendGrid — reliable delivery */}
