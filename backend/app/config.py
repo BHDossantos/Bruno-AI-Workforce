@@ -28,7 +28,9 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     # Autonomy scope. "all" runs every business's agents; "insurance" runs ONLY the
     # insurance agents/jobs (cost cut — skips music/bnb/savorymind/instagram/etc.).
-    autonomy_profile: str = "all"
+    # Defaults to insurance-only so nothing off-brand (e.g. restaurant/consulting
+    # cold emails) sends from the insurance domain. Flip to "all" to re-enable them.
+    autonomy_profile: str = "insurance"
     embedding_model: str = "text-embedding-3-small"  # for the memory/knowledge layer
     image_model: str = "gpt-image-1"  # for auto-generated social post images
     # Jennifer voice assistant — real neural TTS so she sounds natural, not robotic.

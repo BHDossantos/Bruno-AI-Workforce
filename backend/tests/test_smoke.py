@@ -5361,6 +5361,25 @@ def test_insurance_only_scheduler_registers_insurance_jobs_only(monkeypatch):
     assert "music" in agents_all and "publish_content" in jobs_all
 
 
+def test_insurance_only_pauses_other_business_outreach(monkeypatch):
+    """In insurance-only mode the scheduled auto-outreach short-circuits — so the
+    other funnels' generic cold email (restaurants/consulting) never sends from the
+    insurance domain. It's the default profile now."""
+    from app import scheduler
+    from app.config import settings
+
+    # Ships insurance-only by default.
+    assert settings.autonomy_profile == "insurance"
+
+    monkeypatch.setattr(settings, "autonomy_profile", "insurance", raising=False)
+    # Guard runs before any DB access, so None is a safe stand-in for the session.
+    out = scheduler._auto_outreach(None)
+    assert "skipped" in out and "insurance-only" in out["skipped"]
+
+    monkeypatch.setattr(settings, "autonomy_profile", "all", raising=False)
+    assert scheduler._insurance_only() is False   # 'all' re-enables the other funnels
+
+
 def test_consulting_wedge_is_industry_specific():
     """BnB Global outreach leads with the right wedge per industry, not generic."""
     from app import consulting_value as c

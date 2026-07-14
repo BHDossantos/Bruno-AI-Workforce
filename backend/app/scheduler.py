@@ -116,6 +116,12 @@ def _run_leads(db):
 
 def _auto_outreach(db):
     from . import bulk_outreach, contacts_outreach
+    # Insurance-only: skip the other funnels' generic cold email (restaurants /
+    # consulting "A quick idea for…"), which would otherwise send from the insurance
+    # domain and hurt its reputation. Insurance openers go out via the everquote →
+    # flush_drafts path instead, so no insurance lead is missed.
+    if _insurance_only():
+        return {"skipped": "insurance-only mode — other-business outreach paused"}
     return {
         "leads": bulk_outreach.dispatch_leads(db),
         "restaurants": bulk_outreach.dispatch_restaurants(db),
@@ -147,9 +153,12 @@ def _flush_hot_drafts(db):
     # Email: 50/run × 13 hourly runs (8am–8pm) = up to 650/day of capacity, held
     # under the ramp-aware daily cap by send_email_drafts — so the day's volume
     # spreads across the day (good for deliverability) and never exceeds the cap.
+    # Insurance-only: send ONLY insurance drafts so any leftover other-business
+    # drafts in the queue never go out from the insurance domain.
+    acct = "insurance" if _insurance_only() else None
     return {
-        "email": outreach.send_email_drafts(db, limit=50),
-        "sms": sms_engine.send_sms_drafts(db, limit=25),
+        "email": outreach.send_email_drafts(db, limit=50, account=acct),
+        "sms": sms_engine.send_sms_drafts(db, limit=25, account=acct),
     }
 
 
