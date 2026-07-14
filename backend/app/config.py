@@ -212,12 +212,23 @@ class Settings(BaseSettings):
     twilio_insurance_number: str = ""     # optional separate number for insurance
     # Backup SMS provider (Plivo) — a Twilio-compatible carrier. When Twilio is down
     # or your account is deactivated, connect Plivo and texting keeps working with no
-    # code change. sms_provider: "twilio" | "plivo" | "auto" (auto = whichever is
-    # connected, preferring Twilio). See app/integrations/plivo.py.
+    # code change. sms_provider: "twilio" | "plivo" | "signalwire" | "auto" (auto =
+    # whichever is connected; SignalWire preferred, then Twilio). "twilio" forces
+    # Twilio. See app/integrations/plivo.py and app/integrations/telco.py.
     sms_provider: str = "auto"
     plivo_auth_id: str = ""
     plivo_auth_token: str = ""
     plivo_from_number: str = ""           # Plivo sending number (E.164, e.g. +1617...)
+    # SignalWire — a Twilio-compatible carrier (same TwiML/REST) used as the drop-in
+    # replacement when Twilio is unavailable. Powers BOTH voice + SMS through the
+    # existing call/text logic. From your SignalWire Space: the Space URL, a Project
+    # ID, and an API token; buy at least one SMS+Voice number in the Space.
+    signalwire_space_url: str = "dossantosinsurance-org.signalwire.com"
+    signalwire_project_id: str = "9909fc0c-553c-442d-bbf8-64ac8efe9b21"
+    signalwire_api_token: str = ""        # secret (PT…) — paste in Setup, never commit
+    signalwire_from_number: str = "+19788244228"   # default SMS+Voice number (E.164)
+    signalwire_insurance_number: str = ""          # optional separate insurance SMS number
+    signalwire_voice_number: str = ""              # optional separate caller-ID for calls
     # Twilio WhatsApp Business API — a legitimate, official channel (unlike
     # LinkedIn/consumer WhatsApp automation). Number must be WhatsApp-enabled in
     # the Twilio console (sandbox for testing, or an approved Twilio Sender for
