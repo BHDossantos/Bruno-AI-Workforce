@@ -136,7 +136,7 @@ def place_bridge_call(lead_phone: str, lead_id: str | None) -> tuple[str | None,
     url = telco.api_url("Calls.json")
     data = {
         "To": _e164(settings.producer_callback),   # ring YOU first
-        "From": _voice_number(),
+        "From": _e164(_voice_number()),            # E.164 required — SignalWire 21212 otherwise
         "Url": f"{base}/calls/twiml/bridge?{bridge_q}",
         "StatusCallback": f"{base}/calls/status" + (f"?{status_q}" if status_q else ""),
         "StatusCallbackEvent": "completed",
