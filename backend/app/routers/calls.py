@@ -14,9 +14,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..integrations import plivo_voice, vonage_voice
+from ..integrations import plivo_voice, sip_voice, vonage_voice
 from ..integrations import twilio_voice as voice
-from ..integrations import voice as vdispatch  # provider dispatcher (Plivo/Vonage/Twilio)
+from ..integrations import voice as vdispatch  # provider dispatcher (Plivo/Vonage/SIP/Twilio)
 from ..models import Lead, Message
 from ..security import require_role
 
@@ -370,3 +370,65 @@ async def vonage_event(request: Request, lead_id: str = "", db: Session = Depend
             msg.status = "Sent" if status in ("completed", "answered") else "Missed"
             db.commit()
     return {}
+
+
+# ── Public self-hosted SIP softswitch webhooks (FreeSWITCH HTTAPI / XML) ───────
+# Served when voice_provider routes to our own FreeSWITCH. Same fetch-instructions
+# shape as TwiML/NCCO, but FreeSWITCH's HTTAPI XML dialect. See integrations/sip_voice.py.
+@router.post("/sip/amd")
+def sip_amd(lead_id: str = "", db: Session = Depends(get_db)):
+    """Auto-dial answer → transfer to your cell (if enabled) else leave the drop."""
+    _refresh(db)
+    return Response(sip_voice._httapi(sip_voice.amd_work(lead_id or None)), media_type=_XML)
+
+
+@router.post("/sip/bridge")
+def sip_bridge(lead_phone: str = "", lead_id: str = "", db: Session = Depends(get_db)):
+    """Returned after YOU answer a bridge call — consent, then dial the lead."""
+    _refresh(db)
+    return Response(sip_voice._httapi(sip_voice.bridge_work(lead_phone, lead_id or None)),
+                    media_type=_XML)
+
+
+@router.post("/sip/record-vm")
+def sip_record_vm(db: Session = Depends(get_db)):
+    """Played when we call you to record your voicemail drop (FreeSWITCH)."""
+    _refresh(db)
+    return Response(sip_voice._httapi(sip_voice.record_vm_work()), media_type=_XML)
+
+
+@router.post("/sip/vm-saved")
+async def sip_vm_saved(request: Request, db: Session = Depends(get_db)):
+    """FreeSWITCH POSTs the recorded greeting here (multipart). Store it and point
+    the voicemail drop at the hosted URL. Best-effort; always returns a valid doc."""
+    try:
+        form = await request.form()
+        rec = form.get("vm-greeting.wav") or form.get("recording") or form.get("file")
+        data = await rec.read() if hasattr(rec, "read") else None
+        if data:
+            from ..integrations import storage
+            url = storage.upload_public(data, "voicemail/sip-greeting.wav", "audio/wav")
+            if url:
+                from .. import runtime_config
+                runtime_config.save(db, "producer_voicemail_url", url)
+    except Exception:
+        db.rollback()
+    return Response(sip_voice._httapi("<hangup/>"), media_type=_XML)
+
+
+@router.post("/sip/event")
+async def sip_event(request: Request, lead_id: str = "", db: Session = Depends(get_db)):
+    """FreeSWITCH call-status callback — mark the call row done when it completes."""
+    try:
+        form = await request.form()
+    except Exception:
+        form = {}
+    uuid_ = (form.get("uuid") or form.get("Unique-ID") or "") if form else ""
+    status = (form.get("status") or form.get("hangup_cause") or "").strip().lower() if form else ""
+    if uuid_ and status:
+        msg = db.query(Message).filter(Message.provider_id == uuid_,
+                                       Message.channel == "call").first()
+        if msg and msg.status == "Dialing":
+            msg.status = "Sent" if status in ("completed", "answered", "normal_clearing") else "Missed"
+            db.commit()
+    return Response("", media_type=_XML)

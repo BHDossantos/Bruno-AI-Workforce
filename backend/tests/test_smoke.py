@@ -1484,6 +1484,57 @@ def test_vonage_voice_provider_and_dispatch(monkeypatch):
                for a in ncco)
 
 
+def test_sip_softswitch_provider_and_dispatch(monkeypatch):
+    """Our own FreeSWITCH softswitch is a voice provider too: it originates over the
+    Event Socket through a BYOC gateway and returns HTTAPI (XML) call control that
+    leaves the recorded voicemail (transfer off) or bridges to the cell (transfer on)."""
+    from app.config import settings
+    from app.integrations import sip_voice, voice
+
+    monkeypatch.setattr(settings, "sip_esl_host", "10.0.0.5", raising=False)
+    monkeypatch.setattr(settings, "sip_esl_port", 8021, raising=False)
+    monkeypatch.setattr(settings, "sip_esl_password", "secret", raising=False)
+    monkeypatch.setattr(settings, "sip_gateway", "bruno_trunk", raising=False)
+    monkeypatch.setattr(settings, "sip_from_number", "+19786798009", raising=False)
+    monkeypatch.setattr(settings, "sip_voice_number", "", raising=False)
+    monkeypatch.setattr(settings, "producer_callback", "+16039308272", raising=False)
+    monkeypatch.setattr(settings, "producer_cell", "+16039308272", raising=False)
+    monkeypatch.setattr(settings, "public_base_url", "https://api.example.com", raising=False)
+    monkeypatch.setattr(settings, "producer_voicemail_url", "https://cdn/vm.wav", raising=False)
+    assert sip_voice.is_configured() is True
+
+    # Explicit sip selection routes the dispatcher to the softswitch.
+    monkeypatch.setattr(settings, "voice_provider", "sip", raising=False)
+    assert voice.active() == "sip"
+
+    # Capture the ESL command instead of opening a real socket.
+    captured = {}
+
+    def _fake_esl(command):
+        captured["cmd"] = command
+        return "job-uuid", None
+
+    monkeypatch.setattr(sip_voice, "_esl", _fake_esl)
+    sid, err = voice.place_auto_call("(978) 254-1435", "lead-1")
+    assert sid == "job-uuid" and err is None
+    assert captured["cmd"].startswith("bgapi originate ")
+    assert "sofia/gateway/bruno_trunk/19782541435" in captured["cmd"]      # E.164 without '+'
+    assert "origination_caller_id_number=19786798009" in captured["cmd"]
+    assert "url=https://api.example.com/calls/sip/amd?lead_id=lead-1" in captured["cmd"]
+
+    # HTTAPI: transfer OFF (default) → play the recorded voicemail, no bridge.
+    monkeypatch.setattr(settings, "auto_dial_transfer_enabled", False, raising=False)
+    amd = sip_voice.amd_work("lead-1")
+    assert '<playback file="https://cdn/vm.wav"/>' in amd and "bridge" not in amd
+    # transfer ON → bridge the answered call to the producer's cell through the trunk.
+    monkeypatch.setattr(settings, "auto_dial_transfer_enabled", True, raising=False)
+    amd_on = sip_voice.amd_work("lead-1")
+    assert 'application="bridge"' in amd_on and "sofia/gateway/bruno_trunk/16039308272" in amd_on
+    # Bridge flow dials the lead after consent.
+    bridge = sip_voice.bridge_work("(978) 254-1435", "lead-1")
+    assert "sofia/gateway/bruno_trunk/19782541435" in bridge
+
+
 @requires_db
 def test_resend_inbound_webhook_two_way(client, monkeypatch):
     """The Resend webhook makes email two-way: an inbound reply is linked to its

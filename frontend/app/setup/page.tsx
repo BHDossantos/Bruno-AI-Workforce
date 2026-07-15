@@ -653,7 +653,7 @@ function Setup() {
             <b>freecallerregistry.com</b> so it isn&apos;t filtered.
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
-            <input className="input" placeholder="Voice provider: auto | vonage | plivo | twilio"
+            <input className="input" placeholder="Voice provider: auto | vonage | plivo | twilio | sip"
               value={form.voice_provider || ""} onChange={(e) => set("voice_provider", e.target.value)} />
             <input className="input" placeholder="Vonage number +1 555 123 4567"
               value={form.vonage_from_number || ""} onChange={(e) => set("vonage_from_number", e.target.value)} />
@@ -661,6 +661,35 @@ function Setup() {
               value={form.vonage_application_id || ""} onChange={(e) => set("vonage_application_id", e.target.value)} />
             <textarea className="input sm:col-span-2" rows={3} placeholder="Vonage private key (paste the full -----BEGIN PRIVATE KEY----- … PEM)"
               value={form.vonage_private_key || ""} onChange={(e) => set("vonage_private_key", e.target.value)} />
+          </div>
+        </div>
+
+        {/* Self-hosted SIP softswitch — our own FreeSWITCH + BYOC trunk */}
+        <div className="card border-l-4 border-brand">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">🛠️ Our own softswitch (self-hosted SIP)</h2>
+            <Badge ok={data.calling?.via === "sip"} />
+          </div>
+          <p className="mb-3 text-xs text-gray-500">
+            Run our <b>own</b> FreeSWITCH server + a <b>bring-your-own-carrier SIP trunk</b> —
+            full control, lowest per-minute cost, no provider account to get shut off. Stand up
+            the server first: see <code>deploy/softswitch/README.md</code>. Then set{" "}
+            <b>Voice provider</b> to <code>sip</code> and fill these in.{" "}
+            <b>Heads-up:</b> a brand-new trunk number is still filtered to voicemail until you
+            register it at <b>freecallerregistry.com</b> and pick an A-attestation carrier — the
+            softswitch controls the call, not the carrier&apos;s reputation.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input className="input" placeholder="ESL host (server's private IP)"
+              value={form.sip_esl_host || ""} onChange={(e) => set("sip_esl_host", e.target.value)} />
+            <input className="input" placeholder="ESL port (default 8021)"
+              value={form.sip_esl_port || ""} onChange={(e) => set("sip_esl_port", e.target.value)} />
+            <input className="input" type="password" placeholder="ESL password (from event_socket.conf)"
+              value={form.sip_esl_password || ""} onChange={(e) => set("sip_esl_password", e.target.value)} />
+            <input className="input" placeholder="Gateway name (bruno_trunk)"
+              value={form.sip_gateway || ""} onChange={(e) => set("sip_gateway", e.target.value)} />
+            <input className="input sm:col-span-2" placeholder="Caller-ID / trunk number +1 978 679 8009"
+              value={form.sip_from_number || ""} onChange={(e) => set("sip_from_number", e.target.value)} />
           </div>
         </div>
 

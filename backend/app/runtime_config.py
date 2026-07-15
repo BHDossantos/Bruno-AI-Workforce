@@ -57,7 +57,14 @@ FIELDS: dict[str, bool] = {
     "plivo_auth_token": True,          # secret
     "plivo_from_number": False,
     "plivo_voice_number": False,       # optional separate Plivo caller-ID for calls
-    "voice_provider": False,           # auto | plivo | vonage | twilio | signalwire (calling)
+    "voice_provider": False,           # auto | plivo | vonage | twilio | signalwire | sip (calling)
+    # Self-hosted SIP softswitch (FreeSWITCH + BYOC trunk) — "build our own" calling.
+    "sip_esl_host": False,
+    "sip_esl_port": False,
+    "sip_esl_password": True,          # secret — the ESL password
+    "sip_gateway": False,              # sofia gateway name for the BYOC trunk
+    "sip_from_number": False,
+    "sip_voice_number": False,
     # Vonage (Nexmo) Voice — third voice provider (JWT auth via an Application key).
     "vonage_application_id": False,
     "vonage_private_key": True,        # secret — full PEM private key

@@ -223,9 +223,21 @@ class Settings(BaseSettings):
     plivo_from_number: str = ""           # Plivo sending number (E.164, e.g. +1617...)
     plivo_voice_number: str = ""          # optional separate Plivo caller-ID for calls
     # Voice provider for calling: "auto" (Plivo if connected, else Twilio/SignalWire),
-    # "plivo", "twilio", or "signalwire". Lets calling move to Plivo when a
-    # Twilio-compatible number's carrier reputation is filtering calls to voicemail.
+    # "plivo", "vonage", "twilio", "signalwire", or "sip". Lets calling move between
+    # carriers when a number's carrier reputation is filtering calls to voicemail.
     voice_provider: str = "auto"
+    # Self-hosted SIP softswitch (FreeSWITCH) — "build our own" origination. Instead
+    # of a CPaaS HTTP API, we run FreeSWITCH ourselves and bring our own carrier (a
+    # SIP trunk). The backend originates calls over the Event Socket (ESL) and serves
+    # call control as FreeSWITCH HTTAPI from /calls/sip/*. See deploy/softswitch/.
+    # NOTE: attestation/caller-reputation is still set by the SIP trunk carrier, so a
+    # new trunk number must still be registered (freecallerregistry.com) to ring.
+    sip_esl_host: str = "127.0.0.1"    # where FreeSWITCH's Event Socket listens
+    sip_esl_port: int = 8021
+    sip_esl_password: str = "ClueCon"  # secret — the ESL password from event_socket.conf
+    sip_gateway: str = ""              # sofia gateway name for your BYOC trunk (e.g. "bruno_trunk")
+    sip_from_number: str = ""          # caller ID presented on outbound calls (E.164)
+    sip_voice_number: str = ""         # optional separate caller-ID for calls (falls back to sip_from_number)
     # Vonage (Nexmo) Voice — a third voice provider. Auth is a JWT signed with an
     # Application private key: create a Voice application in the Vonage dashboard,
     # link a number, and paste the Application ID + the downloaded private.key here.

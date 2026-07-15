@@ -1,0 +1,23 @@
+<configuration name="httapi.conf" description="HT-TAPI Hunt">
+  <settings>
+    <param name="debug" value="0"/>
+    <!-- Cache fetched audio (voicemail drop) briefly so we don't re-download it. -->
+    <param name="file-cache-ttl" value="300"/>
+  </settings>
+  <profiles>
+    <!-- The "default" profile. Bruno's originate command overrides the URL per call
+         via &httapi({url=https://<backend>/calls/sip/amd}) — this gateway-url is
+         only the fallback. permissions=all lets the returned document run speak,
+         playback, record, and execute(bridge). -->
+    <profile name="default">
+      <params>
+        <param name="gateway-url" value="http://127.0.0.1/calls/sip/amd"/>
+        <param name="method" value="POST"/>
+        <param name="timeout" value="10"/>
+      </params>
+      <permissions>
+        <permission name="all" value="true"/>
+      </permissions>
+    </profile>
+  </profiles>
+</configuration>

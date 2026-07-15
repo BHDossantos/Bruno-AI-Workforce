@@ -1,0 +1,21 @@
+<include>
+  <!-- Your bring-your-own-carrier SIP trunk. Copy this to bruno_trunk.xml and fill
+       in the values your wholesale carrier (Bandwidth, Telnyx, a DID vendor, …)
+       gave you. The gateway name MUST match sip_gateway in the app (bruno_trunk).
+
+       Two common auth styles:
+         • Registration auth (username/password) — set register="true".
+         • IP auth (carrier whitelists this server's IP) — set register="false"
+           and you can leave username/password blank.
+  -->
+  <gateway name="bruno_trunk">
+    <param name="username" value="YOUR_TRUNK_USERNAME"/>
+    <param name="password" value="YOUR_TRUNK_PASSWORD"/>
+    <param name="realm" value="sip.yourcarrier.example"/>
+    <param name="proxy" value="sip.yourcarrier.example"/>
+    <param name="register" value="true"/>
+    <param name="caller-id-in-from" value="true"/>
+    <param name="ping" value="30"/>
+    <param name="retry-seconds" value="30"/>
+  </gateway>
+</include>
