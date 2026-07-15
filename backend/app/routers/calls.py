@@ -14,7 +14,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..integrations import plivo_voice
 from ..integrations import twilio_voice as voice
+from ..integrations import voice as vdispatch  # provider dispatcher (Plivo or Twilio/SignalWire)
 from ..models import Lead, Message
 from ..security import require_role
 
@@ -42,7 +44,7 @@ def call_lead(lead_id: str, db: Session = Depends(get_db), _=Depends(_write)):
         raise HTTPException(404, "Lead not found")
     if not lead.phone:
         raise HTTPException(400, "This lead has no phone on file")
-    sid, err = voice.place_bridge_call(lead.phone, str(lead.id))
+    sid, err = vdispatch.place_bridge_call(lead.phone, str(lead.id))
     if not sid:
         raise HTTPException(400, f"Couldn't start the call — {err}")
     db.add(Message(channel="call", direction="outbound", entity_type="lead",
@@ -64,7 +66,7 @@ def auto_call_lead(lead_id: str, db: Session = Depends(get_db), _=Depends(_write
         raise HTTPException(404, "Lead not found")
     if not lead.phone:
         raise HTTPException(400, "This lead has no phone on file")
-    sid, err = voice.place_auto_call(lead.phone, str(lead.id))
+    sid, err = vdispatch.place_auto_call(lead.phone, str(lead.id))
     if not sid:
         raise HTTPException(400, f"Couldn't start the call — {err}")
     vm = "your recorded voicemail" if voice.voicemail_configured() else "a spoken message"
@@ -101,7 +103,7 @@ def auto_dial_run(db: Session = Depends(get_db), _=Depends(_write)):
 def record_voicemail(db: Session = Depends(get_db), _=Depends(_write)):
     """Ring your phone so you can record the voicemail drop in your own voice."""
     _refresh(db)
-    sid, err = voice.record_voicemail_call()
+    sid, err = vdispatch.record_voicemail_call()
     if not sid:
         raise HTTPException(400, f"Couldn't start the recording call — {err}")
     return {"ok": True, "message": "Calling your phone now — record your voicemail after the beep, "
@@ -244,4 +246,61 @@ async def call_recording(request: Request, lead_id: str = "", db: Session = Depe
             duration=int(duration) if (duration or "").isdigit() else None, call_sid=sid)
     except Exception:  # never 500 a Twilio webhook
         db.rollback()
+    return Response("", media_type=_XML)
+
+
+# ── Public Plivo webhooks (Plivo XML) — used when voice_provider routes to Plivo ─
+@router.post("/plivo/amd")
+async def plivo_amd(request: Request, lead_id: str = "", db: Session = Depends(get_db)):
+    """Plivo auto-dial answer webhook. Plivo's machine detection reports the result;
+    human → transfer to your phone (if enabled), machine → leave your recorded drop.
+    Reads several possible param names so it's robust to Plivo's AMD payload."""
+    _refresh(db)
+    form = await request.form()
+    raw = (form.get("Machine") or form.get("AnsweredBy") or form.get("MachineDetection")
+           or form.get("CallStatus") or "").strip().lower()
+    answered_by = "machine" if raw in ("true", "machine", "machine_start", "machine_end") else "human"
+    return Response(plivo_voice.amd_xml(answered_by, lead_id or None), media_type=_XML)
+
+
+@router.post("/plivo/bridge")
+def plivo_bridge(lead_phone: str = "", lead_id: str = "", db: Session = Depends(get_db)):
+    """Returned to Plivo after YOU answer a bridge call — dials + records the lead."""
+    _refresh(db)
+    return Response(plivo_voice.bridge_xml(lead_phone, lead_id or None), media_type=_XML)
+
+
+@router.post("/plivo/record-vm")
+def plivo_record_vm(db: Session = Depends(get_db)):
+    """Played when we call you to record your voicemail drop (Plivo)."""
+    _refresh(db)
+    return Response(plivo_voice.record_vm_xml(), media_type=_XML)
+
+
+@router.post("/plivo/vm-saved")
+async def plivo_vm_saved(request: Request, db: Session = Depends(get_db)):
+    """Save the producer's recorded voicemail (Plivo posts RecordUrl)."""
+    form = await request.form()
+    rec_url = form.get("RecordUrl") or form.get("RecordingUrl")
+    if rec_url:
+        try:
+            from .. import runtime_config
+            runtime_config.save(db, "producer_voicemail_url", rec_url)
+        except Exception:
+            db.rollback()
+    return Response("", media_type=_XML)
+
+
+@router.post("/plivo/status")
+async def plivo_status(request: Request, lead_id: str = "", db: Session = Depends(get_db)):
+    """Plivo hangup callback — mark the call row done when it completes."""
+    form = await request.form()
+    uuid = form.get("CallUUID") or form.get("RequestUUID")
+    status = (form.get("CallStatus") or form.get("HangupCause") or "").strip().lower()
+    if uuid:
+        msg = db.query(Message).filter(Message.provider_id == uuid,
+                                       Message.channel == "call").first()
+        if msg and msg.status == "Dialing":
+            msg.status = "Sent" if status in ("completed", "normal_hangup") else "Missed"
+            db.commit()
     return Response("", media_type=_XML)

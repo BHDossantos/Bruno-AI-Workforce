@@ -56,6 +56,8 @@ FIELDS: dict[str, bool] = {
     "plivo_auth_id": False,
     "plivo_auth_token": True,          # secret
     "plivo_from_number": False,
+    "plivo_voice_number": False,       # optional separate Plivo caller-ID for calls
+    "voice_provider": False,           # auto | plivo | twilio | signalwire (calling)
     # SignalWire — Twilio-compatible carrier (drop-in) for BOTH voice + SMS.
     "signalwire_space_url": False,
     "signalwire_project_id": False,
@@ -167,7 +169,8 @@ def save(db, field: str, value: str) -> bool:
 def status(db) -> dict:
     """Connection status — booleans + non-secret addresses only, never secrets."""
     from .integrations import (apollo, gmail, instantly, jobs_api, places, resend,
-                               sendgrid, smartlead, sms, telco, twilio_voice, whatsapp_cloud)
+                               sendgrid, smartlead, sms, twilio_voice, voice,
+                               whatsapp_cloud)
     apply_to_settings(db)  # make sure the live view reflects stored values
     bridge_on = bool(settings.bridge_token)
     from .ai import client as ai_client
@@ -216,8 +219,8 @@ def status(db) -> dict:
         "whatsapp": {"configured": sms.whatsapp_configured(),
                     "via": "meta_cloud" if whatsapp_cloud.is_configured()
                     else ("twilio" if sms.whatsapp_configured() else None)},
-        "calling": {"configured": twilio_voice.is_configured(),      # bridge (ring my phone)
-                    "via": telco.provider(),                         # signalwire | twilio | None
+        "calling": {"configured": voice.is_configured(),            # bridge (ring my phone)
+                    "via": voice.active(),                           # plivo | signalwire | twilio | None
                     "browser": twilio_voice.browser_configured(),    # softphone
                     "recording": settings.call_recording_enabled,
                     "callback_set": bool(settings.producer_callback)},
