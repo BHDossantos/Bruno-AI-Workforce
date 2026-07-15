@@ -226,6 +226,13 @@ class Settings(BaseSettings):
     # "plivo", "twilio", or "signalwire". Lets calling move to Plivo when a
     # Twilio-compatible number's carrier reputation is filtering calls to voicemail.
     voice_provider: str = "auto"
+    # Vonage (Nexmo) Voice — a third voice provider. Auth is a JWT signed with an
+    # Application private key: create a Voice application in the Vonage dashboard,
+    # link a number, and paste the Application ID + the downloaded private.key here.
+    vonage_application_id: str = ""
+    vonage_private_key: str = ""       # secret — the full PEM private key
+    vonage_from_number: str = ""       # Vonage voice number (E.164)
+    vonage_voice_number: str = ""      # optional separate caller-ID for calls
     # SignalWire — a Twilio-compatible carrier (same TwiML/REST) used as the drop-in
     # replacement when Twilio is unavailable. Powers BOTH voice + SMS through the
     # existing call/text logic. From your SignalWire Space: the Space URL, a Project

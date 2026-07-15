@@ -1431,6 +1431,59 @@ def test_plivo_voice_provider_and_dispatch(monkeypatch):
     assert "<Play>https://cdn/vm.mp3</Play>" in plivo_voice.amd_xml("machine", "lead-1")
 
 
+def test_vonage_voice_provider_and_dispatch(monkeypatch):
+    """Vonage is a third voice provider: JWT-authed calls to Vonage's API with
+    E.164-without-plus numbers, and NCCO (JSON) that streams the recorded voicemail
+    (transfer off) or connects a live answer to the cell (transfer on)."""
+    from app.config import settings
+    from app.integrations import voice, vonage_voice
+
+    monkeypatch.setattr(settings, "vonage_application_id", "app-123", raising=False)
+    monkeypatch.setattr(settings, "vonage_private_key",
+                        "-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----", raising=False)
+    monkeypatch.setattr(settings, "vonage_from_number", "+16035551234", raising=False)
+    monkeypatch.setattr(settings, "vonage_voice_number", "", raising=False)
+    monkeypatch.setattr(settings, "producer_callback", "+16039308272", raising=False)
+    monkeypatch.setattr(settings, "producer_cell", "+16039308272", raising=False)
+    monkeypatch.setattr(settings, "public_base_url", "https://api.example.com", raising=False)
+    monkeypatch.setattr(settings, "producer_voicemail_url", "https://cdn/vm.mp3", raising=False)
+    assert vonage_voice.is_configured() is True
+
+    monkeypatch.setattr(settings, "voice_provider", "vonage", raising=False)
+    assert voice.active() == "vonage"
+
+    # Mock JWT signing (no real RSA key needed) and the HTTP call.
+    monkeypatch.setattr(vonage_voice.jwt, "encode", lambda *a, **k: "testjwt")
+    captured = {}
+
+    class _Resp:
+        status_code = 201
+        def json(self):
+            return {"uuid": "vg-uuid"}
+
+    def _fake_post(url, json=None, headers=None, timeout=None):
+        captured["url"], captured["json"], captured["headers"] = url, json, headers
+        return _Resp()
+
+    monkeypatch.setattr(vonage_voice.httpx, "post", _fake_post)
+    sid, err = voice.place_auto_call("(978) 254-1435", "lead-1")
+    assert sid == "vg-uuid" and err is None
+    assert captured["url"] == "https://api.nexmo.com/v1/calls"
+    assert captured["headers"]["Authorization"] == "Bearer testjwt"
+    assert captured["json"]["to"][0]["number"] == "19782541435"   # E.164 without '+'
+    assert captured["json"]["from"]["number"] == "16035551234"
+
+    # NCCO: transfer OFF (default) → stream the recorded voicemail, no connect.
+    monkeypatch.setattr(settings, "auto_dial_transfer_enabled", False, raising=False)
+    assert vonage_voice.amd_ncco(None, "lead-1") == [
+        {"action": "stream", "streamUrl": ["https://cdn/vm.mp3"]}]
+    # transfer ON + human → connect to the producer's cell.
+    monkeypatch.setattr(settings, "auto_dial_transfer_enabled", True, raising=False)
+    ncco = vonage_voice.amd_ncco("human", "lead-1")
+    assert any(a.get("action") == "connect" and a["endpoint"][0]["number"] == "16039308272"
+               for a in ncco)
+
+
 @requires_db
 def test_resend_inbound_webhook_two_way(client, monkeypatch):
     """The Resend webhook makes email two-way: an inbound reply is linked to its
