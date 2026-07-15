@@ -14,9 +14,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..integrations import plivo_voice
+from ..integrations import plivo_voice, vonage_voice
 from ..integrations import twilio_voice as voice
-from ..integrations import voice as vdispatch  # provider dispatcher (Plivo or Twilio/SignalWire)
+from ..integrations import voice as vdispatch  # provider dispatcher (Plivo/Vonage/Twilio)
 from ..models import Lead, Message
 from ..security import require_role
 
@@ -304,3 +304,69 @@ async def plivo_status(request: Request, lead_id: str = "", db: Session = Depend
             msg.status = "Sent" if status in ("completed", "normal_hangup") else "Missed"
             db.commit()
     return Response("", media_type=_XML)
+
+
+# ── Public Vonage webhooks (NCCO / JSON) — used when voice_provider routes to Vonage ─
+@router.post("/vonage/amd")
+async def vonage_amd(request: Request, lead_id: str = "", db: Session = Depends(get_db)):
+    """Vonage auto-dial answer webhook → returns the NCCO (JSON). Transfer-off default
+    leaves the recorded voicemail; transfer-on connects a live answer to your cell."""
+    _refresh(db)
+    answered = ""
+    try:
+        body = await request.json()
+        answered = (body.get("machine") and "machine") or ""
+    except Exception:
+        pass
+    return vonage_voice.amd_ncco(answered or None, lead_id or None)
+
+
+@router.post("/vonage/bridge")
+async def vonage_bridge(request: Request, lead_phone: str = "", lead_id: str = "",
+                        db: Session = Depends(get_db)):
+    """Returned to Vonage after YOU answer a bridge call — dials the lead."""
+    _refresh(db)
+    return vonage_voice.bridge_ncco(lead_phone, lead_id or None)
+
+
+@router.post("/vonage/record-vm")
+async def vonage_record_vm(db: Session = Depends(get_db)):
+    """Played when we call you to record your voicemail drop (Vonage)."""
+    _refresh(db)
+    return vonage_voice.record_vm_ncco()
+
+
+@router.post("/vonage/vm-saved")
+async def vonage_vm_saved(request: Request, db: Session = Depends(get_db)):
+    """Save the producer's recorded voicemail (Vonage posts recording_url)."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    rec_url = body.get("recording_url") if isinstance(body, dict) else None
+    if rec_url:
+        try:
+            from .. import runtime_config
+            runtime_config.save(db, "producer_voicemail_url", rec_url)
+        except Exception:
+            db.rollback()
+    return {}
+
+
+@router.post("/vonage/event")
+async def vonage_event(request: Request, lead_id: str = "", db: Session = Depends(get_db)):
+    """Vonage call-status events — mark the call row done when it completes."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    uuid_ = body.get("uuid") if isinstance(body, dict) else None
+    status = (body.get("status") or "").strip().lower() if isinstance(body, dict) else ""
+    if uuid_ and status:
+        msg = db.query(Message).filter(Message.provider_id == uuid_,
+                                       Message.channel == "call").first()
+        if msg and msg.status == "Dialing" and status in ("completed", "answered", "failed",
+                                                           "timeout", "rejected", "busy", "unanswered"):
+            msg.status = "Sent" if status in ("completed", "answered") else "Missed"
+            db.commit()
+    return {}

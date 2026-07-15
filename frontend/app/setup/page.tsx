@@ -580,6 +580,31 @@ function Setup() {
           </div>
         </div>
 
+        {/* Vonage (Nexmo) — third voice provider */}
+        <div className="card">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">📞 Vonage (voice provider)</h2>
+            <Badge ok={data.calling?.via === "vonage"} />
+          </div>
+          <p className="mb-3 text-xs text-gray-500">
+            Another carrier for calling. In the Vonage dashboard: create a <b>Voice application</b>,
+            link a <b>number</b>, and copy the <b>Application ID</b> + download the{" "}
+            <b>private.key</b> (paste the whole PEM). Set <b>Voice provider</b> to <code>vonage</code>
+            {" "}(or leave <code>auto</code>) to route calls here. New number → register at{" "}
+            <b>freecallerregistry.com</b> so it isn&apos;t filtered.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input className="input" placeholder="Voice provider: auto | vonage | plivo | twilio"
+              value={form.voice_provider || ""} onChange={(e) => set("voice_provider", e.target.value)} />
+            <input className="input" placeholder="Vonage number +1 555 123 4567"
+              value={form.vonage_from_number || ""} onChange={(e) => set("vonage_from_number", e.target.value)} />
+            <input className="input" placeholder="Vonage Application ID"
+              value={form.vonage_application_id || ""} onChange={(e) => set("vonage_application_id", e.target.value)} />
+            <textarea className="input sm:col-span-2" rows={3} placeholder="Vonage private key (paste the full -----BEGIN PRIVATE KEY----- … PEM)"
+              value={form.vonage_private_key || ""} onChange={(e) => set("vonage_private_key", e.target.value)} />
+          </div>
+        </div>
+
         {/* SignalWire — Twilio-compatible carrier (drop-in) for BOTH voice + SMS */}
         <div className="card">
           <div className="mb-2 flex items-center justify-between">

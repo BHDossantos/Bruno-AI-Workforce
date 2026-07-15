@@ -57,7 +57,12 @@ FIELDS: dict[str, bool] = {
     "plivo_auth_token": True,          # secret
     "plivo_from_number": False,
     "plivo_voice_number": False,       # optional separate Plivo caller-ID for calls
-    "voice_provider": False,           # auto | plivo | twilio | signalwire (calling)
+    "voice_provider": False,           # auto | plivo | vonage | twilio | signalwire (calling)
+    # Vonage (Nexmo) Voice — third voice provider (JWT auth via an Application key).
+    "vonage_application_id": False,
+    "vonage_private_key": True,        # secret — full PEM private key
+    "vonage_from_number": False,
+    "vonage_voice_number": False,
     # SignalWire — Twilio-compatible carrier (drop-in) for BOTH voice + SMS.
     "signalwire_space_url": False,
     "signalwire_project_id": False,
