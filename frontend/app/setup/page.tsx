@@ -30,6 +30,7 @@ type TwoWayResult = {
   email?: { sent: boolean; status?: string; reason?: string } | null;
   sms?: { sent: boolean; reason?: string } | null;
 };
+type DncList = { entries: { id: string; value: string; kind: string; reason?: string | null }[] };
 
 function Badge({ ok }: { ok: boolean }) {
   return (
@@ -50,6 +51,27 @@ function Setup() {
   const [tw, setTw] = useState({ email: "", phone: "" });
   const [twRes, setTwRes] = useState<TwoWayResult | null>(null);
   const [twBusy, setTwBusy] = useState(false);
+  const [dnc, setDnc] = useState({ email: "", phone: "" });
+  const [dncMsg, setDncMsg] = useState("");
+  const [dncBusy, setDncBusy] = useState(false);
+  const { data: dncList, reload: reloadDnc } = useFetch<DncList>(() => api.get<DncList>("/compliance/dnc"));
+
+  async function addDnc() {
+    const email = dnc.email.trim();
+    const phone = dnc.phone.trim();
+    if (!email && !phone) { setDncMsg("Enter an email or phone to suppress."); return; }
+    setDncBusy(true); setDncMsg("");
+    try {
+      const reqs = [];
+      if (email) reqs.push(api.post("/compliance/dnc", { value: email, kind: "email", reason: "opt-out request" }));
+      if (phone) reqs.push(api.post("/compliance/dnc", { value: phone, kind: "phone", reason: "opt-out request" }));
+      await Promise.all(reqs);
+      setDncMsg("✅ Added to Do Not Contact. They're blocked on email, text, and calls immediately.");
+      setDnc({ email: "", phone: "" });
+      reloadDnc();
+    } catch (e) { setDncMsg(`❌ ${e}`); }
+    finally { setDncBusy(false); }
+  }
 
   async function runTwoWay() {
     setTwBusy(true); setTwRes(null);
@@ -92,6 +114,43 @@ function Setup() {
       <PageHeader title="Connect Email & Data"
         subtitle="The agents need a mailbox to send outreach and read replies, and a data source for high-quality leads. Connect them here — it takes effect immediately, no redeploy." />
       {msg && <p className="mb-3 text-sm text-gray-700">{msg}</p>}
+
+      {/* Do Not Contact — honor opt-out requests instantly (blocks email/text/calls) */}
+      <div className="card mb-4 border-l-4 border-red-500">
+        <h2 className="font-semibold">🚫 Do Not Contact (opt-out)</h2>
+        <p className="mt-1 mb-3 text-xs text-gray-500">
+          Someone asked not to be contacted? Add their email and/or phone here. The compliance
+          gate blocks them on <strong>email, text, and calls</strong> immediately — no redeploy.
+        </p>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <input className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            placeholder="Email (e.g. person@example.com)" value={dnc.email}
+            onChange={(e) => setDnc((d) => ({ ...d, email: e.target.value }))} />
+          <input className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            placeholder="Phone (e.g. 6178772608)" value={dnc.phone}
+            onChange={(e) => setDnc((d) => ({ ...d, phone: e.target.value }))} />
+        </div>
+        <button className="btn mt-3 bg-red-600 hover:bg-red-700" onClick={addDnc} disabled={dncBusy}>
+          {dncBusy ? "Adding…" : "🚫 Add to Do Not Contact"}
+        </button>
+        {dncMsg && <p className="mt-2 text-sm text-gray-700">{dncMsg}</p>}
+        {dncList && dncList.entries.length > 0 && (
+          <div className="mt-3 border-t border-gray-100 pt-3">
+            <p className="mb-1 text-xs font-medium text-gray-500">
+              Suppressed ({dncList.entries.length})
+            </p>
+            <ul className="max-h-40 overflow-y-auto text-xs text-gray-600">
+              {dncList.entries.map((d) => (
+                <li key={d.id} className="flex gap-2 py-0.5">
+                  <span className="badge bg-red-100 text-red-700">{d.kind}</span>
+                  <span className="font-mono">{d.value}</span>
+                  {d.reason && <span className="text-gray-400">— {d.reason}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
 
       {/* Mailbox send diagnostic — confirm outreach can ACTUALLY go out */}
       <div className="card mb-4">
