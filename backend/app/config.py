@@ -221,6 +221,11 @@ class Settings(BaseSettings):
     plivo_auth_id: str = ""
     plivo_auth_token: str = ""
     plivo_from_number: str = ""           # Plivo sending number (E.164, e.g. +1617...)
+    plivo_voice_number: str = ""          # optional separate Plivo caller-ID for calls
+    # Voice provider for calling: "auto" (Plivo if connected, else Twilio/SignalWire),
+    # "plivo", "twilio", or "signalwire". Lets calling move to Plivo when a
+    # Twilio-compatible number's carrier reputation is filtering calls to voicemail.
+    voice_provider: str = "auto"
     # SignalWire — a Twilio-compatible carrier (same TwiML/REST) used as the drop-in
     # replacement when Twilio is unavailable. Powers BOTH voice + SMS through the
     # existing call/text logic. From your SignalWire Space: the Space URL, a Project
@@ -278,6 +283,12 @@ class Settings(BaseSettings):
     auto_dial_enabled: bool = True         # master switch for the daily 8am auto-dial pass
     auto_dial_daily_cap: int = 80          # max leads auto-dialed per day (protects your line)
     auto_dial_cooldown_days: int = 7       # don't auto-dial the same lead within N days
+    # Transfer a LIVE answer to the producer's cell? Default OFF on a fresh number
+    # whose reputation may filter calls to voicemail (a transfer would just hit the
+    # producer's voicemail and waste the call). When off, the auto-dialer leaves the
+    # recorded voicemail for everyone and the producer calls interested leads back.
+    # Flip on once the number reliably rings.
+    auto_dial_transfer_enabled: bool = False
 
     # Gmail (outbound + inbound). Two accounts: "personal" (default, used by all
     # agents) and "insurance" (used by the Insurance agent). Each authenticates

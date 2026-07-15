@@ -553,20 +553,25 @@ function Setup() {
           </div>
         </div>
 
-        {/* Plivo — backup SMS provider (Twilio-compatible) */}
+        {/* Plivo — voice + SMS provider (Twilio alternative) */}
         <div className="card">
-          <h2 className="font-semibold">🔁 Plivo (backup SMS provider)</h2>
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">🔁 Plivo (voice + SMS)</h2>
+            <Badge ok={data.sms?.via === "plivo" || data.calling?.via === "plivo"} />
+          </div>
           <p className="mb-3 text-xs text-gray-500">
-            A drop-in fallback if Twilio is down or deactivated — texting keeps working with no
-            code change. From plivo.com → Console: <b>Auth ID</b>, <b>Auth Token</b>, and a Plivo
-            number (E.164). In <b>auto</b> mode the app uses Twilio when connected and Plivo
-            otherwise; set the provider to <code>plivo</code> to force it. For inbound replies,
-            point your Plivo Application&apos;s <b>Message URL</b> at <code>&lt;app&gt;/sms/plivo-inbound</code>.
+            A full Twilio/SignalWire alternative that powers <b>both calling and texting</b> —
+            useful when another carrier&apos;s number is being filtered to voicemail. From plivo.com →
+            Console: <b>Auth ID</b>, <b>Auth Token</b>, and a <b>Voice + SMS</b> number (E.164). Once
+            connected it&apos;s used automatically for calls (auto-dial, voicemail drop, transfer) and
+            texts. For inbound replies point your Plivo app&apos;s <b>Message URL</b> at{" "}
+            <code>&lt;app&gt;/sms/plivo-inbound</code>. New number → register at{" "}
+            <b>freecallerregistry.com</b> so it isn&apos;t flagged.
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
             <input className="input" placeholder="Provider: auto | twilio | plivo"
               value={form.sms_provider || ""} onChange={(e) => set("sms_provider", e.target.value)} />
-            <input className="input" placeholder="Plivo number +1 555 123 4567"
+            <input className="input" placeholder="Plivo number +1 555 123 4567 (Voice + SMS)"
               value={form.plivo_from_number || ""} onChange={(e) => set("plivo_from_number", e.target.value)} />
             <input className="input" type="password" placeholder="Plivo Auth ID"
               value={form.plivo_auth_id || ""} onChange={(e) => set("plivo_auth_id", e.target.value)} />

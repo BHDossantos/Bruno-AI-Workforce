@@ -25,7 +25,7 @@ from sqlalchemy import func
 
 from . import compliance, control, lead_temperature, sms_engine
 from .config import settings
-from .integrations import twilio_voice as voice
+from .integrations import voice  # dispatcher → Plivo or Twilio/SignalWire
 from .models import Lead, Message
 
 log = logging.getLogger("bruno.autodial")

@@ -1380,6 +1380,57 @@ def test_signalwire_telco_routing(monkeypatch):
     assert telco.api_url("Messages.json").startswith("https://api.twilio.com/")
 
 
+def test_plivo_voice_provider_and_dispatch(monkeypatch):
+    """Plivo is a second voice provider: when voice_provider routes to Plivo, the
+    dispatcher places calls via Plivo's Call API, and its XML drops the recorded
+    voicemail (transfer off by default) or connects a live answer when enabled."""
+    from app.config import settings
+    from app.integrations import plivo_voice, voice
+
+    monkeypatch.setattr(settings, "plivo_auth_id", "MA123", raising=False)
+    monkeypatch.setattr(settings, "plivo_auth_token", "tok", raising=False)
+    monkeypatch.setattr(settings, "plivo_from_number", "+16035551234", raising=False)
+    monkeypatch.setattr(settings, "plivo_voice_number", "", raising=False)
+    monkeypatch.setattr(settings, "producer_callback", "+16039308272", raising=False)
+    monkeypatch.setattr(settings, "producer_cell", "+16039308272", raising=False)
+    monkeypatch.setattr(settings, "public_base_url", "https://api.example.com", raising=False)
+    monkeypatch.setattr(settings, "producer_voicemail_url", "https://cdn/vm.mp3", raising=False)
+    assert plivo_voice.is_configured() is True
+
+    # Dispatcher routes calling to Plivo when selected.
+    monkeypatch.setattr(settings, "voice_provider", "plivo", raising=False)
+    assert voice.active() == "plivo"
+
+    captured = {}
+
+    class _Resp:
+        status_code = 201
+        def json(self):
+            return {"request_uuid": "pl-uuid"}
+
+    def _fake_post(url, json=None, auth=None, timeout=None):
+        captured["url"], captured["json"], captured["auth"] = url, json, auth
+        return _Resp()
+
+    monkeypatch.setattr(plivo_voice.httpx, "post", _fake_post)
+    sid, err = voice.place_auto_call("(978) 254-1435", "lead-1")
+    assert sid == "pl-uuid" and err is None
+    assert captured["url"] == "https://api.plivo.com/v1/Account/MA123/Call/"
+    assert captured["json"]["to"] == "+19782541435" and captured["json"]["from"] == "+16035551234"
+    assert captured["json"]["machine_detection"] == "true" and captured["auth"] == ("MA123", "tok")
+
+    # AMD XML: transfer OFF (default) → recorded drop, no Dial — even a live human.
+    monkeypatch.setattr(settings, "auto_dial_transfer_enabled", False, raising=False)
+    xml = plivo_voice.amd_xml("human", "lead-1")
+    assert "<Play>https://cdn/vm.mp3</Play>" in xml and "<Dial" not in xml
+    # transfer ON + human → connect to the producer's cell.
+    monkeypatch.setattr(settings, "auto_dial_transfer_enabled", True, raising=False)
+    xml2 = plivo_voice.amd_xml("human", "lead-1")
+    assert "<Dial" in xml2 and "+16039308272" in xml2
+    # machine → always the recorded drop, no transfer.
+    assert "<Play>https://cdn/vm.mp3</Play>" in plivo_voice.amd_xml("machine", "lead-1")
+
+
 @requires_db
 def test_resend_inbound_webhook_two_way(client, monkeypatch):
     """The Resend webhook makes email two-way: an inbound reply is linked to its
