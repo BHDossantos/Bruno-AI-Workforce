@@ -41,7 +41,7 @@ function Importer() {
 
   return (
     <div>
-      <PageHeader title="Import Contacts" subtitle="Upload a real CSV list — the agents write & send personalized outreach" />
+      <PageHeader title="Import Options" subtitle="Upload a real CSV list — the agents write & send personalized outreach" />
       <div className="card max-w-xl space-y-4">
         <div>
           <label className="text-sm font-medium text-gray-700">List type</label>
