@@ -1556,14 +1556,20 @@ def test_sip_softswitch_provider_and_dispatch(monkeypatch):
     assert "origination_caller_id_number=19786798009" in captured["cmd"]
     assert "url=https://api.example.com/calls/sip/amd?lead_id=lead-1" in captured["cmd"]
 
+    # Auto-call runs answering-machine detection on the answered leg.
+    assert "execute_on_answer=amd" in captured["cmd"]
+
     # HTTAPI: transfer OFF (default) → play the recorded voicemail, no bridge.
     monkeypatch.setattr(settings, "auto_dial_transfer_enabled", False, raising=False)
-    amd = sip_voice.amd_work("lead-1")
+    amd = sip_voice.amd_work("human", "lead-1")
     assert '<playback file="https://cdn/vm.wav"/>' in amd and "bridge" not in amd
-    # transfer ON → bridge the answered call to the producer's cell through the trunk.
+    # transfer ON + human → bridge the answered call to the producer's cell.
     monkeypatch.setattr(settings, "auto_dial_transfer_enabled", True, raising=False)
-    amd_on = sip_voice.amd_work("lead-1")
+    amd_on = sip_voice.amd_work("human", "lead-1")
     assert 'application="bridge"' in amd_on and "sofia/gateway/bruno_trunk/16039308272" in amd_on
+    # transfer ON but a MACHINE answered → leave the drop, never bridge into voicemail.
+    amd_machine = sip_voice.amd_work("machine", "lead-1")
+    assert '<playback file="https://cdn/vm.wav"/>' in amd_machine and "bridge" not in amd_machine
     # Bridge flow dials the lead after consent.
     bridge = sip_voice.bridge_work("(978) 254-1435", "lead-1")
     assert "sofia/gateway/bruno_trunk/19782541435" in bridge

@@ -384,10 +384,20 @@ def sip_health(db: Session = Depends(get_db), _=Depends(_read)):
 # Served when voice_provider routes to our own FreeSWITCH. Same fetch-instructions
 # shape as TwiML/NCCO, but FreeSWITCH's HTTAPI XML dialect. See integrations/sip_voice.py.
 @router.post("/sip/amd")
-def sip_amd(lead_id: str = "", db: Session = Depends(get_db)):
-    """Auto-dial answer → transfer to your cell (if enabled) else leave the drop."""
+async def sip_amd(request: Request, lead_id: str = "", db: Session = Depends(get_db)):
+    """Auto-dial answer → machine gets the recorded drop; a live human transfers to
+    your cell (when enabled). Reads mod_amd's result, which FreeSWITCH HTTAPI posts
+    as the amd_result channel variable."""
     _refresh(db)
-    return Response(sip_voice._httapi(sip_voice.amd_work(lead_id or None)), media_type=_XML)
+    raw = ""
+    try:
+        form = await request.form()
+        raw = (form.get("amd_result") or form.get("variable_amd_result") or "").strip().lower()
+    except Exception:
+        pass
+    answered_by = "machine" if "machine" in raw else ("human" if raw else "")
+    return Response(sip_voice._httapi(sip_voice.amd_work(answered_by or None, lead_id or None)),
+                    media_type=_XML)
 
 
 @router.post("/sip/bridge")

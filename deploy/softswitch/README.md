@@ -107,12 +107,19 @@ auto-dialer / Call button
 `bridge` and `record-vm` work the same way, on `/calls/sip/bridge` and
 `/calls/sip/record-vm`.
 
-## Notes / limitations
+## TTS + answering-machine detection
 
-- **TTS (`speak`)** needs `mod_flite` in the FreeSWITCH image. If your image lacks
-  it, the spoken lines are skipped but the call still bridges. The reliable path is
-  to **record a voicemail greeting** (Setup → record voicemail) so the drop uses a
-  hosted audio file (`playback`) instead of TTS.
-- **Per-call answering-machine detection** isn't wired yet — the auto-dial path
-  uses the same transfer-off-leaves-voicemail default as the other providers. Real
-  AMD can be layered on later with `mod_avmd`.
+The `Dockerfile` bakes in two optional modules and the backend uses them:
+
+- **`mod_flite` (TTS)** — powers the spoken consent line and the fallback voicemail
+  text. If your base image's apt repo doesn't have the package, the build step skips
+  it gracefully; just **record a voicemail greeting** (Setup → record voicemail) so
+  the drop plays a hosted audio file (`playback`) and needs no TTS.
+- **`mod_amd` (answering-machine detection)** — the auto-dialer runs AMD on the
+  answered leg (`execute_on_answer=amd`). A **machine** always gets the recorded
+  drop; only a **live human** is bridged to your cell (when transfer is enabled), so
+  transfer-on never connects you to a voicemail greeting. If `mod_amd` isn't loaded,
+  FreeSWITCH simply skips it and the call falls back to the transfer default — no
+  breakage.
+
+Both degrade gracefully, so a missing package never blocks calling.

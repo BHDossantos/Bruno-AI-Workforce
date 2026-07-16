@@ -18,7 +18,12 @@
 #      and voice_provider = sip.
 services:
   freeswitch:
-    image: safarov/freeswitch:latest
+    # Build the local image so mod_flite (TTS) + mod_amd (answering-machine
+    # detection) are baked in. See Dockerfile — missing packages degrade gracefully.
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: bruno-softswitch:latest
     container_name: bruno-softswitch
     # SIP + RTP use a wide UDP range; host networking is by far the simplest way
     # to get media flowing. On a dedicated VPS this is fine.

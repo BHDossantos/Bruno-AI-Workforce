@@ -218,7 +218,11 @@ def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, s
     if not to:
         return None, "lead has no valid phone number"
     q = urlencode({"lead_id": lead_id}) if lead_id else ""
-    return _originate(to, f"/calls/sip/amd{('?' + q) if q else ''}")
+    # Run answering-machine detection on the answered leg; mod_amd sets amd_result,
+    # which the /calls/sip/amd webhook reads to branch human-vs-machine. If mod_amd
+    # isn't loaded FreeSWITCH just skips it → we fall back to the transfer default.
+    return _originate(to, f"/calls/sip/amd{('?' + q) if q else ''}",
+                      extra_vars="execute_on_answer=amd")
 
 
 def place_bridge_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, str | None]:
@@ -263,11 +267,18 @@ def _voicemail_work() -> str:
     return body + "<hangup/>"
 
 
-def amd_work(lead_id: str | None) -> str:
-    """Auto-dial answer. Transfer-on connects to the producer's cell; the default
-    (transfer off) leaves the recorded voicemail drop — matching every other provider.
-    Real per-call machine detection can be layered on later via mod_avmd."""
-    if settings.auto_dial_transfer_enabled and _transfer_number():
+def _amd_is_human(answered_by: str | None) -> bool:
+    """Default to human when detection is absent/unsure — better to connect a real
+    person than to drop them into voicemail. Only an explicit 'machine' is a machine."""
+    return (answered_by or "").strip().lower() in ("human", "", "unknown", "person", "notsure")
+
+
+def amd_work(answered_by: str | None, lead_id: str | None) -> str:
+    """Auto-dial answer, now with real answering-machine detection (mod_amd runs on
+    the answered leg and reports the result). A machine ALWAYS gets the recorded drop;
+    a live human is bridged to the producer's cell when transfer is enabled, else the
+    drop. So transfer-on no longer risks bridging the producer to a voicemail greeting."""
+    if _amd_is_human(answered_by) and settings.auto_dial_transfer_enabled and _transfer_number():
         return (_speak("Please hold — connecting you with a licensed insurance producer. "
                        "This call may be recorded for quality.")
                 + _bridge_to(_transfer_number()) + "<hangup/>")
