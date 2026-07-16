@@ -18,12 +18,14 @@ _PENDING = (None, "New", "Drafted")
 
 def dispatch_leads(db: Session, segment: str | None = None, limit: int = 1000,
                    autonomous: bool = True) -> dict:
-    from . import importer
+    from . import importer, lead_temperature
     from .integrations import gmail
     q = db.query(Lead).filter(Lead.status.in_(_PENDING), Lead.email.isnot(None))
     if segment:
         q = q.filter(Lead.segment == segment)
-    rows = q.order_by(Lead.score.desc()).limit(limit).all()
+    # Send in the operator's priority order: hot → warm → cold (dead last), then
+    # uncontacted-first and hottest score within each tier.
+    rows = q.order_by(*lead_temperature.dispatch_order(Lead)).limit(limit).all()
     sent = failed = retired = drafted = 0
     # Pace to each mailbox's remaining daily headroom (the ramp cap). We consume one
     # unit of budget per lead we WORK — so a fresh 2,000-lead import doesn't trigger
@@ -88,11 +90,12 @@ def dispatch_leads(db: Session, segment: str | None = None, limit: int = 1000,
 
 
 def dispatch_restaurants(db: Session, limit: int = 1000, autonomous: bool = True) -> dict:
-    from . import importer
+    from . import importer, lead_temperature
     from .integrations import gmail
     rows = (db.query(Restaurant).filter(
         Restaurant.kind == "prospect", Restaurant.status.in_(_PENDING),
-        Restaurant.email.isnot(None)).limit(limit).all())
+        Restaurant.email.isnot(None))
+        .order_by(*lead_temperature.dispatch_order(Restaurant)).limit(limit).all())
     account = gmail.restaurant_account()
     headroom = max(0, outreach.effective_cap(db, account) - outreach.sent_today_count(db, account))
     sent = failed = retired = drafted = 0

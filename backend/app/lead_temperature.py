@@ -60,6 +60,42 @@ def all_classified_statuses() -> set[str]:
     return _HOT | _WARM | _DEAD
 
 
+def temperature_band(status_col, score_col=None):
+    """A CASE expression mapping a row to its temperature rank for ORDER BY:
+    0 hot, 1 warm, 2 cold, 4 dead-last. Score (when the model has one) floors an
+    in-market lead to hot, matching classify()."""
+    from sqlalchemy import case, func
+    status = func.lower(func.coalesce(status_col, ""))
+    hot_cond = status.in_(list(_HOT))
+    if score_col is not None:
+        hot_cond = hot_cond | (func.coalesce(score_col, 0) >= HOT_SCORE)
+    return case(
+        (status.in_(list(_DEAD)), 4),   # dead / closed lost → last
+        (hot_cond, 0),                  # hot (status, or in-market score)
+        (status.in_(list(_WARM)), 1),   # warm (engaged / replied)
+        else_=2,                        # cold / new / unknown
+    )
+
+
+def dispatch_order(model):
+    """ORDER BY clauses for a 'send all pending' pass over Lead/Restaurant rows
+    directly (no Message join) — the operator's stated priority:
+
+        hot → warm → cold  (dead last)
+
+    Within a tier: uncontacted first, then hottest score (when the model has one),
+    then the oldest row (fair pacing). Splat into a query:
+    ``.order_by(*dispatch_order(Lead))``."""
+    from sqlalchemy import func
+    score_col = getattr(model, "score", None)
+    order = [temperature_band(model.status, score_col).asc(),
+             func.coalesce(model.times_contacted, 0).asc()]
+    if score_col is not None:
+        order.append(score_col.desc())
+    order.append(model.created_at.asc())
+    return order
+
+
 def send_priority_order(Lead, Message):
     """ORDER BY clauses for the auto-send queue — the operator's stated priority:
 

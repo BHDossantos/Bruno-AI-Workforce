@@ -4950,6 +4950,45 @@ def test_import_bnb_consulting_leads_defer_and_draft(client, auth_headers, monke
 
 
 @requires_db
+def test_dispatch_order_hot_warm_cold(client):
+    """'Send all pending' works leads in the operator's priority: hot → warm → cold
+    (dead last), and within a tier uncontacted-first then hottest score."""
+    from app import lead_temperature
+    from app.database import SessionLocal
+    from app.models import Lead
+
+    rows = {
+        "ord_hotstatus@t.co": dict(status="interested", score=50, times_contacted=0),  # hot by status
+        "ord_hotscore@t.co":  dict(status="New", score=95, times_contacted=0),          # hot by score
+        "ord_warm@t.co":      dict(status="replied", score=50, times_contacted=0),      # warm
+        "ord_coldfresh@t.co": dict(status="New", score=50, times_contacted=0),          # cold, uncontacted
+        "ord_coldold@t.co":   dict(status="New", score=50, times_contacted=5),          # cold, contacted
+        "ord_dead@t.co":      dict(status="closed lost", score=95, times_contacted=0),  # dead → last
+    }
+    db = SessionLocal()
+    try:
+        db.query(Lead).filter(Lead.email.in_(list(rows))).delete(synchronize_session=False)
+        db.commit()
+        for email, f in rows.items():
+            db.add(Lead(segment="commercial", email=email, **f))
+        db.commit()
+        ordered = (db.query(Lead).filter(Lead.email.in_(list(rows)))
+                   .order_by(*lead_temperature.dispatch_order(Lead)).all())
+        rank = [ld.email for ld in ordered]
+        # hot (status OR score) before warm before cold before dead.
+        assert rank.index("ord_hotstatus@t.co") < rank.index("ord_warm@t.co")
+        assert rank.index("ord_hotscore@t.co") < rank.index("ord_warm@t.co")
+        assert rank.index("ord_warm@t.co") < rank.index("ord_coldfresh@t.co")
+        assert rank.index("ord_coldfresh@t.co") < rank.index("ord_dead@t.co")
+        # within the cold tier, the uncontacted lead is worked before the re-contacted one.
+        assert rank.index("ord_coldfresh@t.co") < rank.index("ord_coldold@t.co")
+    finally:
+        db.query(Lead).filter(Lead.email.in_(list(rows))).delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
+
+@requires_db
 def test_csv_export(client, auth_headers):
     r = client.get("/export/leads.csv", headers=auth_headers)
     assert r.status_code == 200
