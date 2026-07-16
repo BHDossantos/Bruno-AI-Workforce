@@ -372,6 +372,14 @@ async def vonage_event(request: Request, lead_id: str = "", db: Session = Depend
     return {}
 
 
+@router.get("/sip/health")
+def sip_health(db: Session = Depends(get_db), _=Depends(_read)):
+    """Test the app → self-hosted FreeSWITCH link (Setup 'Test connection' button):
+    ESL auth + whether the BYOC trunk gateway is registered, before any real call."""
+    _refresh(db)
+    return sip_voice.health()
+
+
 # ── Public self-hosted SIP softswitch webhooks (FreeSWITCH HTTAPI / XML) ───────
 # Served when voice_provider routes to our own FreeSWITCH. Same fetch-instructions
 # shape as TwiML/NCCO, but FreeSWITCH's HTTAPI XML dialect. See integrations/sip_voice.py.

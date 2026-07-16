@@ -55,6 +55,17 @@ function Setup() {
   const [dncMsg, setDncMsg] = useState("");
   const [dncBusy, setDncBusy] = useState(false);
   const { data: dncList, reload: reloadDnc } = useFetch<DncList>(() => api.get<DncList>("/compliance/dnc"));
+  const [sipMsg, setSipMsg] = useState("");
+  const [sipBusy, setSipBusy] = useState(false);
+
+  async function testSip() {
+    setSipBusy(true); setSipMsg("Testing the softswitch connection…");
+    try {
+      const r = await api.get<{ ok: boolean; registered?: boolean; reason?: string }>("/calls/sip/health");
+      setSipMsg(`${r.ok && r.registered ? "✅" : r.ok ? "⚠️" : "❌"} ${r.reason || (r.ok ? "Connected." : "Not reachable.")}`);
+    } catch (e) { setSipMsg(`❌ ${e}`); }
+    finally { setSipBusy(false); }
+  }
 
   async function addDnc() {
     const email = dnc.email.trim();
@@ -691,6 +702,13 @@ function Setup() {
             <input className="input sm:col-span-2" placeholder="Caller-ID / trunk number +1 978 679 8009"
               value={form.sip_from_number || ""} onChange={(e) => set("sip_from_number", e.target.value)} />
           </div>
+          <div className="mt-3 flex items-center gap-3">
+            <button type="button" className="btn-ghost" onClick={testSip} disabled={sipBusy}>
+              {sipBusy ? "Testing…" : "Test connection"}
+            </button>
+            <span className="text-xs text-gray-500">Save first, then test — checks the app can reach FreeSWITCH and the trunk is registered.</span>
+          </div>
+          {sipMsg && <p className="mt-2 text-sm text-gray-700">{sipMsg}</p>}
         </div>
 
         {/* SignalWire — Twilio-compatible carrier (drop-in) for BOTH voice + SMS */}

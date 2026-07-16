@@ -145,6 +145,57 @@ def _esl(command: str) -> tuple[str | None, str | None]:
                       f"running and reachable? ({str(exc)[:120]})")
 
 
+def _esl_api(command: str) -> tuple[str | None, str | None]:
+    """Run a blocking ESL ``api`` command and return its output text (not a job id).
+    Used for status checks like ``sofia status gateway <name>``."""
+    host = (settings.sip_esl_host or "127.0.0.1").strip()
+    try:
+        port = int(settings.sip_esl_port or 8021)
+    except (TypeError, ValueError):
+        port = 8021
+    password = settings.sip_esl_password or "ClueCon"
+    try:
+        with socket.create_connection((host, port), timeout=8) as sock:
+            sock.settimeout(8)
+            _read_block(sock)                       # server: auth/request
+            sock.sendall(f"auth {password}\n\n".encode())
+            reply = _read_block(sock)
+            if "+OK" not in (reply.get("Reply-Text", "") + reply.get("_body", "")):
+                return None, "FreeSWITCH ESL auth failed — check sip_esl_password."
+            sock.sendall(f"api {command}\n\n".encode())
+            resp = _read_block(sock)
+            return (resp.get("_body", "") or "").strip(), None
+    except OSError as exc:  # pragma: no cover - network guard
+        return None, (f"Can't reach FreeSWITCH ESL at {host}:{port} — is the softswitch "
+                      f"running and reachable? ({str(exc)[:120]})")
+
+
+def health() -> dict:
+    """Test the app → FreeSWITCH link for the Setup 'Test connection' button. Verifies
+    ESL auth and reports whether the BYOC trunk gateway is registered — so a bad host,
+    password, or an unregistered trunk is caught BEFORE a real call silently fails."""
+    if not (settings.sip_esl_host and _gateway()):
+        return {"ok": False, "reason": "Set the softswitch fields first (ESL host + gateway name)."}
+    out, err = _esl_api(f"sofia status gateway {_gateway()}")
+    if err:
+        return {"ok": False, "reason": err}
+    text = out or ""
+    if "Invalid" in text:            # FreeSWITCH: "Invalid Gateway!" when the name is unknown
+        return {"ok": True, "reachable": True, "registered": False,
+                "reason": f"Connected to FreeSWITCH, but no gateway named '{_gateway()}' — "
+                          "check sip_gateway matches the sofia gateway name.",
+                "detail": text[:400]}
+    # REGED = registered; "UP" with NOREG = IP-auth trunk that's reachable.
+    registered = ("REGED" in text) or ("NOREG" in text and "UP" in text)
+    return {"ok": True, "reachable": True, "registered": registered,
+            "gateway": _gateway(),
+            "reason": (f"Connected — trunk '{_gateway()}' is registered and ready."
+                       if registered else
+                       f"Connected to FreeSWITCH, but trunk '{_gateway()}' isn't registered yet "
+                       "— check the trunk credentials in bruno_trunk.xml."),
+            "detail": text[:400]}
+
+
 def _originate(to: str, answer_path: str, extra_vars: str = "") -> tuple[str | None, str | None]:
     gw = _gateway()
     base = _base_url()

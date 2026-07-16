@@ -1484,6 +1484,40 @@ def test_vonage_voice_provider_and_dispatch(monkeypatch):
                for a in ncco)
 
 
+def test_sip_softswitch_health_check(monkeypatch):
+    """The Setup 'Test connection' button checks ESL reachability + trunk registration
+    before a real call, so a bad host/password or unregistered trunk is caught early."""
+    from app.config import settings
+    from app.integrations import sip_voice
+
+    # Unconfigured → clear guidance, no crash.
+    monkeypatch.setattr(settings, "sip_esl_host", "", raising=False)
+    monkeypatch.setattr(settings, "sip_gateway", "", raising=False)
+    assert sip_voice.health()["ok"] is False
+
+    monkeypatch.setattr(settings, "sip_esl_host", "10.0.0.5", raising=False)
+    monkeypatch.setattr(settings, "sip_gateway", "bruno_trunk", raising=False)
+
+    # Registered trunk → ok + registered.
+    monkeypatch.setattr(sip_voice, "_esl_api", lambda cmd: ("Name    bruno_trunk\nState   REGED", None))
+    h = sip_voice.health()
+    assert h["ok"] is True and h["registered"] is True
+
+    # Reachable but trunk not registered → ok, not registered, actionable reason.
+    monkeypatch.setattr(sip_voice, "_esl_api", lambda cmd: ("State   NOREG", None))
+    h = sip_voice.health()
+    assert h["ok"] is True and h["registered"] is False
+
+    # Unknown gateway name → flagged.
+    monkeypatch.setattr(sip_voice, "_esl_api", lambda cmd: ("Invalid Gateway!", None))
+    h = sip_voice.health()
+    assert h["registered"] is False and "no gateway named 'bruno_trunk'" in h["reason"]
+
+    # Can't reach the switch → ok False with the ESL error.
+    monkeypatch.setattr(sip_voice, "_esl_api", lambda cmd: (None, "Can't reach FreeSWITCH ESL at 10.0.0.5:8021"))
+    assert sip_voice.health()["ok"] is False
+
+
 def test_sip_softswitch_provider_and_dispatch(monkeypatch):
     """Our own FreeSWITCH softswitch is a voice provider too: it originates over the
     Event Socket through a BYOC gateway and returns HTTAPI (XML) call control that

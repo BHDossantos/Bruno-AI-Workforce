@@ -73,8 +73,12 @@ about control and cost. To make the number *ring* you still must:
    Also make sure `public_base_url` (where FreeSWITCH fetches call instructions) and
    `producer_callback` (your cell, for bridge calls) are already set.
 
-5. **Test.** Use the **Call lead** button, or Setup's two-way test. The backend will
-   `originate` through your trunk and hand the answered call to `/calls/sip/*`.
+5. **Test the link first.** On the softswitch card in Setup, click **Test connection**.
+   It confirms the app can reach FreeSWITCH over ESL and that the `bruno_trunk` gateway
+   is **registered** — so a wrong host/password or an unregistered trunk is caught here
+   instead of a call silently failing. Green ✅ means you're ready.
+6. **Place a call.** Use the **Call lead** button, or Setup's two-way test. The backend
+   will `originate` through your trunk and hand the answered call to `/calls/sip/*`.
 
 ## Security notes
 
