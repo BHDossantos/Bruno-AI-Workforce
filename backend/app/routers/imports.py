@@ -47,6 +47,12 @@ async def import_leads(file: UploadFile = File(...), db: Session = Depends(get_d
     return importer.process_leads_csv(db, await _rows(file))
 
 
+@router.post("/bnb")
+async def import_bnb(file: UploadFile = File(...), db: Session = Depends(get_db), _=Depends(_write)):
+    """Import B&B Global (tech consulting) leads — sent from the BnB mailbox."""
+    return importer.process_bnb_csv(db, await _rows(file))
+
+
 @router.post("/restaurants")
 async def import_restaurants(file: UploadFile = File(...), db: Session = Depends(get_db), _=Depends(_write)):
     return importer.process_restaurants_csv(db, await _rows(file))
@@ -63,6 +69,12 @@ async def import_contacts(file: UploadFile = File(...), db: Session = Depends(ge
 def leads_template(_=Depends(require_role("admin", "operator", "viewer"))):
     return ("email,company_name,owner_name,phone,website,linkedin,industry,segment,category\n"
             "owner@acme.com,Acme Plumbing,Jane Doe,+16175551212,https://acme.com,,Contractor,commercial,Contractor\n")
+
+
+@router.get("/template/bnb.csv", response_class=PlainTextResponse)
+def bnb_template(_=Depends(require_role("admin", "operator", "viewer"))):
+    return ("email,company_name,owner_name,phone,website,linkedin,industry,category\n"
+            "cto@saasco.com,SaaSCo,Alex Kim,+16175551212,https://saasco.com,,SaaS,Technology\n")
 
 
 @router.get("/template/restaurants.csv", response_class=PlainTextResponse)

@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from . import outreach
 from .agents.base import FOLLOW_UP_OFFSETS
 from .ai import client, skills
-from .ai.prompts import INSURANCE_OUTREACH, SAVORYMIND_PITCH
+from .ai.prompts import CANDIDATE_PROFILE, CONSULTING_OUTREACH, INSURANCE_OUTREACH, SAVORYMIND_PITCH
 from .models import FollowUp, Lead, ManualContact, Restaurant
 
 log = logging.getLogger("bruno.importer")
@@ -238,62 +238,101 @@ def process_leads_csv(db: Session, rows: list[dict]) -> dict:
 def draft_lead_email(db: Session, lead: Lead) -> str:
     """Write the AI cold email + call script for one lead, in place, and return the
     subject line. Shared by the paced sender so the expensive AI call happens on the
-    background/send path (capped per day) — never during the CSV upload request."""
-    sysp = skills.system_prompt("cold-email", "marketing-psychology")
+    background/send path (capped per day) — never during the CSV upload request.
+
+    Segment-aware: 'consulting' leads (B&B Global) get the founder-led consulting
+    pitch; everything else gets the insurance producer's outreach."""
     segment = (lead.segment or "commercial").lower()
-    category = lead.category or lead.industry or "Commercial"
     company = lead.company_name
-    reason = lead.reason or (
-        f"{category} businesses typically need liability, property and professional coverage."
-        if segment == "commercial" else f"{category} prospects often need home/auto/life coverage.")
-    art = client.complete_json(INSURANCE_OUTREACH.format(
-        company_name=company or lead.email, category=category, segment=segment,
-        industry=lead.industry or "", city="", reason=reason), system=sysp)
+    if segment == "consulting":
+        sysp = skills.system_prompt("cold-email", "copywriting")
+        art = client.complete_json(CONSULTING_OUTREACH.format(
+            profile=CANDIDATE_PROFILE, company_name=company or lead.email,
+            category=lead.category or "", industry=lead.industry or "", city=""), system=sysp)
+        fallback = f"A quick idea for {company or 'your team'}"
+    else:
+        sysp = skills.system_prompt("cold-email", "marketing-psychology")
+        category = lead.category or lead.industry or "Commercial"
+        reason = lead.reason or (
+            f"{category} businesses typically need liability, property and professional coverage."
+            if segment == "commercial" else f"{category} prospects often need home/auto/life coverage.")
+        art = client.complete_json(INSURANCE_OUTREACH.format(
+            company_name=company or lead.email, category=category, segment=segment,
+            industry=lead.industry or "", city="", reason=reason), system=sysp)
+        fallback = f"Insurance options for {company or 'your business'}"
     subject = None
     if isinstance(art, dict):
         lead.cold_email = art.get("cold_email_body") or lead.cold_email
         lead.call_script = _text(art.get("call_script")) or lead.call_script
         lead.linkedin_msg = art.get("linkedin_msg") or lead.linkedin_msg
         subject = art.get("cold_email_subject")
-    return subject or f"Insurance options for {company or 'your business'}"
+    return subject or fallback
+
+
+def process_bnb_csv(db: Session, rows: list[dict]) -> dict:
+    """Import B&B Global (tech consulting) leads FAST — insert only. The paced sender
+    writes the founder-led consulting email and sends it via the BnB mailbox. Expected
+    columns: email (required), company_name, owner_name, phone, website, linkedin,
+    industry, category."""
+    imported = skipped = 0
+    for row in rows:
+        email = _g(row, "email", "email_address", *_EMAIL_KEYS)
+        if not email:
+            skipped += 1
+            continue
+        company = _g(row, "company_name", "company", "business", "business_name", *_COMPANY_KEYS)
+        lead = Lead(segment="consulting", category=_g(row, "category", "industry") or "Technology",
+                    company_name=company,
+                    owner_name=_g(row, "owner_name", "owner", "name", *_FULLNAME_KEYS, *_FIRST_KEYS),
+                    email=email, phone=_g(row, "phone", *_PHONE_KEYS), website=_g(row, "website"),
+                    linkedin=_g(row, "linkedin"), industry=_g(row, "industry"),
+                    score=80, status="New")
+        db.add(lead)
+        db.flush()
+        _schedule_followups(db, "lead", lead.id)
+        imported += 1
+    db.commit()
+    log.info("Imported %d BnB (consulting) leads (queued for paced outreach, %d skipped)",
+             imported, skipped)
+    return {"imported": imported, "sent": 0, "queued": imported, "skipped_no_email": skipped}
 
 
 def process_restaurants_csv(db: Session, rows: list[dict]) -> dict:
-    """Import restaurants. Expected columns: email (required), name, owner_manager,
-    phone, website, instagram, cuisine, city."""
-    sysp = skills.system_prompt("copywriting", "cold-email")
-    imported = sent = skipped = 0
+    """Import SavoryMind restaurant prospects FAST — insert only. The paced sender
+    writes the SavoryMind pitch and sends it. Expected columns: email (required),
+    name, owner_manager, phone, website, instagram, cuisine, city."""
+    imported = skipped = 0
     for row in rows:
         email = _g(row, "email", "email_address", *_EMAIL_KEYS)
         if not email:
             skipped += 1
             continue
         name = _g(row, "name", "restaurant", "restaurant_name", "company_name", *_FULLNAME_KEYS, *_COMPANY_KEYS) or email
-        art = client.complete_json(SAVORYMIND_PITCH.format(
-            name=name, cuisine=_g(row, "cuisine") or "restaurant", city=_g(row, "city") or "",
-            owner=_g(row, "owner_manager", "owner", "manager") or "", insight="grow revenue with menu intelligence"),
-            system=sysp)
-        subject = (art.get("pitch_subject") if isinstance(art, dict) else None) or \
-            f"Growing revenue at {name} with SavoryMind"
-        body = art.get("pitch_body") if isinstance(art, dict) else None
-
         r = Restaurant(kind="prospect", name=name, owner_manager=_g(row, "owner_manager", "owner", "manager"),
                        website=_g(row, "website"), instagram=_g(row, "instagram"), email=email,
                        phone=_g(row, "phone"), cuisine=_g(row, "cuisine"), city=_g(row, "city"),
-                       status="Drafted", pitch_email=body,
-                       linkedin_msg=art.get("linkedin_msg") if isinstance(art, dict) else None,
-                       follow_up=art.get("demo_invite") if isinstance(art, dict) else None)
+                       status="New")
         db.add(r)
         db.flush()
-        # Only dispatch with a real AI body — never send an empty pitch.
-        if body:
-            msg = outreach.dispatch_email(db, entity_type="restaurant", entity_id=r.id, to_email=email,
-                                          subject=subject, body=body, account="personal", actor="import")
-            if msg.status == "Sent":
-                r.status = "Sent"
-                sent += 1
         _schedule_followups(db, "restaurant", r.id)
         imported += 1
     db.commit()
-    log.info("Imported %d restaurants (%d sent, %d skipped)", imported, sent, skipped)
-    return {"imported": imported, "sent": sent, "skipped_no_email": skipped}
+    log.info("Imported %d SavoryMind prospects (queued for paced outreach, %d skipped)",
+             imported, skipped)
+    return {"imported": imported, "sent": 0, "queued": imported, "skipped_no_email": skipped}
+
+
+def draft_restaurant_email(db: Session, r: Restaurant) -> str:
+    """Write the AI SavoryMind pitch for one restaurant, in place, and return the
+    subject. Runs on the paced sender, not during the CSV upload."""
+    sysp = skills.system_prompt("copywriting", "cold-email")
+    art = client.complete_json(SAVORYMIND_PITCH.format(
+        name=r.name, cuisine=r.cuisine or "restaurant", city=r.city or "",
+        owner=r.owner_manager or "", insight="grow revenue with menu intelligence"), system=sysp)
+    subject = None
+    if isinstance(art, dict):
+        r.pitch_email = art.get("pitch_body") or r.pitch_email
+        r.linkedin_msg = art.get("linkedin_msg") or r.linkedin_msg
+        r.follow_up = art.get("demo_invite") or r.follow_up
+        subject = art.get("pitch_subject")
+    return subject or f"Growing revenue at {r.name} with SavoryMind"

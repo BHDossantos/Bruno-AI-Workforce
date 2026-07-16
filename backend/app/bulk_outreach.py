@@ -88,29 +88,53 @@ def dispatch_leads(db: Session, segment: str | None = None, limit: int = 1000,
 
 
 def dispatch_restaurants(db: Session, limit: int = 1000, autonomous: bool = True) -> dict:
+    from . import importer
+    from .integrations import gmail
     rows = (db.query(Restaurant).filter(
         Restaurant.kind == "prospect", Restaurant.status.in_(_PENDING),
         Restaurant.email.isnot(None)).limit(limit).all())
-    sent = failed = retired = 0
+    account = gmail.restaurant_account()
+    headroom = max(0, outreach.effective_cap(db, account) - outreach.sent_today_count(db, account))
+    sent = failed = retired = drafted = 0
     for r in rows:
         if not outreach.is_real_email(r.email):
             r.status = "Skipped"  # retire un-sendable synthetic/placeholder rows
             retired += 1
             continue
-        subject = f"Growing revenue at {r.name} with SavoryMind"
+        needs_draft = not (r.pitch_email or "").strip()
+        if needs_draft:
+            # Skip restaurants whose pitch already lives in their own Drafted Message
+            # (personalized elsewhere) — never blank-send or double-send.
+            if db.query(Message.id).filter(
+                    Message.entity_type == "restaurant", Message.entity_id == r.id,
+                    Message.channel == "email").first():
+                continue
+        if headroom <= 0:
+            continue  # mailbox hit its daily cap — leave pending for the next window
+        headroom -= 1
+        subject = None
+        if needs_draft:
+            try:
+                subject = importer.draft_restaurant_email(db, r)
+            except Exception:
+                failed += 1
+                continue
+        subject = subject or f"Growing revenue at {r.name} with SavoryMind"
         try:
-            from .integrations import gmail
             msg = outreach.dispatch_email(db, entity_type="restaurant", entity_id=r.id,
                                           to_email=r.email, subject=subject,
-                                          body=r.pitch_email, account=gmail.restaurant_account(), actor="bulk",
+                                          body=r.pitch_email, account=account, actor="bulk",
                                           autonomous=autonomous)
-            if msg.status in ("Sent", "Drafted"):
-                if msg.status == "Sent" and r.status in (None, "New", "Drafted"):
+            if msg.status == "Sent":
+                if r.status in (None, "New", "Drafted"):
                     r.status = "Sent"
                 sent += 1
+            elif msg.status == "Drafted":
+                drafted += 1
             else:
                 failed += 1
         except Exception:
             failed += 1
     db.commit()
-    return {"pending": len(rows), "dispatched": sent, "failed": failed, "retired": retired}
+    return {"pending": len(rows), "dispatched": sent, "drafted": drafted,
+            "failed": failed, "retired": retired}

@@ -4902,6 +4902,54 @@ def test_import_defers_ai_and_paced_sender_drafts_lazily(client, auth_headers, m
 
 
 @requires_db
+def test_import_bnb_consulting_leads_defer_and_draft(client, auth_headers, monkeypatch):
+    """B&B Global import inserts consulting leads FAST (no AI on upload), and the
+    paced sender writes them with the consulting pitch — not the insurance one."""
+    from app import importer
+    from app.database import SessionLocal
+    from app.models import Lead
+
+    # Persistent local test DBs accumulate rows across runs — start clean for this email.
+    db0 = SessionLocal()
+    try:
+        db0.query(Lead).filter(Lead.email == "cto@saasco-bnb.com").delete(synchronize_session=False)
+        db0.commit()
+    finally:
+        db0.close()
+
+    r = client.post("/import/bnb", headers=auth_headers,
+                    files={"file": ("bnb.csv",
+                                    "email,company_name,industry\ncto@saasco-bnb.com,SaaSCo,SaaS\n",
+                                    "text/csv")}).json()
+    assert r["imported"] == 1 and r["sent"] == 0
+
+    db = SessionLocal()
+    try:
+        lead = db.query(Lead).filter(Lead.email == "cto@saasco-bnb.com").first()
+        assert lead is not None
+        assert lead.segment == "consulting" and lead.status == "New" and not lead.cold_email
+
+        captured = {}
+
+        def _fake_complete_json(prompt, system=None):
+            captured["prompt"] = prompt
+            return {"cold_email_subject": "Cut your cloud spend",
+                    "cold_email_body": "Quick idea for SaaSCo.", "call_script": "Hi."}
+
+        monkeypatch.setattr(importer.client, "complete_json", _fake_complete_json)
+        subject = importer.draft_lead_email(db, lead)
+        # Uses the consulting prompt (B&B Global), NOT the insurance producer prompt.
+        assert "B&B Global" in captured["prompt"]
+        assert "insurance producer" not in captured["prompt"].lower()
+        assert subject == "Cut your cloud spend" and lead.cold_email == "Quick idea for SaaSCo."
+    finally:
+        db.rollback()  # discard the in-memory draft edits so the cleanup delete is clean
+        db.query(Lead).filter(Lead.email == "cto@saasco-bnb.com").delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
+
+@requires_db
 def test_csv_export(client, auth_headers):
     r = client.get("/export/leads.csv", headers=auth_headers)
     assert r.status_code == 200

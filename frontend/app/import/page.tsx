@@ -28,9 +28,10 @@ function Importer() {
         // Don't show a green check for a total no-op — surface why nothing imported.
         setResult(`❌ Imported 0. ${data.reason || "Check the file format — it should be a Google/Outlook/LinkedIn CSV or an iCloud .vcf with email/phone columns."}`);
       } else {
+        const page = type === "bnb" ? "BnB Global" : type === "restaurants" ? "SavoryMind" : "Insurance Leads";
         setResult(type === "contacts"
           ? `✅ Imported ${data.imported} contacts (${data.leads_added ?? 0} now show as Personal leads), skipped ${data.skipped}. They'll get a warm insurance intro automatically.`
-          : `✅ Imported ${data.imported} lead${data.imported === 1 ? "" : "s"} (skipped ${data.skipped_no_email} with no email). The AI writes & sends the outreach automatically, paced under your daily cap — no waiting on this screen. To start a batch now, click “Send all pending” on the Insurance Leads page.`);
+          : `✅ Imported ${data.imported} lead${data.imported === 1 ? "" : "s"} (skipped ${data.skipped_no_email} with no email). The AI writes & sends the outreach automatically, paced under your daily cap — no waiting on this screen. To start a batch now, click “Send all pending” on the ${page} page.`);
       }
     } catch (e) {
       setResult(`❌ ${e}`);
@@ -46,9 +47,10 @@ function Importer() {
         <div>
           <label className="text-sm font-medium text-gray-700">List type</label>
           <select value={type} onChange={(e) => setType(e.target.value)} className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2">
-            <option value="leads">Insurance leads (sent from Thrust Insurance)</option>
-            <option value="restaurants">Restaurants / SavoryMind (sent from personal)</option>
-            <option value="contacts">Personal contacts → leads + warm insurance intro (Google/iPhone export)</option>
+            <option value="leads">Import insurance leads (Thrust Insurance)</option>
+            <option value="bnb">Import BNB leads (B&amp;B Global — consulting)</option>
+            <option value="restaurants">Import SavoryMind leads (restaurants)</option>
+            <option value="contacts">Import contacts (Google/iPhone → warm insurance intro)</option>
           </select>
         </div>
         <div>
