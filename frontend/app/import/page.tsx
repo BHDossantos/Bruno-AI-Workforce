@@ -30,7 +30,7 @@ function Importer() {
       } else {
         setResult(type === "contacts"
           ? `✅ Imported ${data.imported} contacts (${data.leads_added ?? 0} now show as Personal leads), skipped ${data.skipped}. They'll get a warm insurance intro automatically.`
-          : `✅ Imported ${data.imported}, sent ${data.sent}, skipped (no email) ${data.skipped_no_email}.`);
+          : `✅ Imported ${data.imported} lead${data.imported === 1 ? "" : "s"} (skipped ${data.skipped_no_email} with no email). The AI writes & sends the outreach automatically, paced under your daily cap — no waiting on this screen. To start a batch now, click “Send all pending” on the Insurance Leads page.`);
       }
     } catch (e) {
       setResult(`❌ ${e}`);
@@ -64,7 +64,7 @@ function Importer() {
           </p>
         </div>
         <button className="btn" onClick={upload} disabled={!file || busy}>
-          {busy ? (type === "contacts" ? "Importing…" : "Importing & sending…") : (type === "contacts" ? "Import to CRM" : "Import & send")}
+          {busy ? "Importing…" : (type === "contacts" ? "Import to CRM" : "Import leads")}
         </button>
         {result && <p className="rounded bg-gray-50 p-3 text-sm">{result}</p>}
         <p className="text-xs text-gray-400">

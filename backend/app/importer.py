@@ -197,10 +197,16 @@ def _text(v) -> str | None:
 
 
 def process_leads_csv(db: Session, rows: list[dict]) -> dict:
-    """Import insurance leads. Expected columns: email (required), company_name,
-    owner_name, phone, website, linkedin, industry, segment, category."""
-    sysp = skills.system_prompt("cold-email", "marketing-psychology")
-    imported = sent = skipped = 0
+    """Import insurance leads FAST. Expected columns: email (required), company_name,
+    owner_name, phone, website, linkedin, industry, segment, category.
+
+    This only parses + inserts the leads (a quick DB write) and returns immediately —
+    it does NOT write the AI email or send during the upload. Writing the cold email
+    is expensive (one AI call per lead) and sending is paced by the daily ramp cap,
+    so both are deferred to the paced sender (bulk_outreach.dispatch_leads, run by the
+    9:30am/3:30pm cron and the manual 'Send pending' action). A 2,000-row list now
+    imports in a second instead of timing out the request."""
+    imported = skipped = 0
     for row in rows:
         # Match ANY email-column naming (not just a literal "email" header), so a
         # file exported from Google/Outlook/etc. and imported as "leads" doesn't
@@ -214,35 +220,42 @@ def process_leads_csv(db: Session, rows: list[dict]) -> dict:
         company = _g(row, "company_name", "company", "business", "business_name", *_COMPANY_KEYS)
         reason = (f"{category} businesses typically need liability, property and professional coverage."
                   if segment == "commercial" else f"{category} prospects often need home/auto/life coverage.")
-        art = client.complete_json(INSURANCE_OUTREACH.format(
-            company_name=company or email, category=category, segment=segment,
-            industry=_g(row, "industry"), city=_g(row, "city"), reason=reason), system=sysp)
-        subject = (art.get("cold_email_subject") if isinstance(art, dict) else None) or \
-            f"Insurance options for {company or 'your business'}"
-        body = art.get("cold_email_body") if isinstance(art, dict) else None
-
         lead = Lead(segment=segment, category=category, company_name=company,
                     owner_name=_g(row, "owner_name", "owner", "name", *_FULLNAME_KEYS, *_FIRST_KEYS), email=email,
                     phone=_g(row, "phone", *_PHONE_KEYS), website=_g(row, "website"),
                     linkedin=_g(row, "linkedin"), industry=_g(row, "industry"),
-                    reason=reason, score=80, status="Drafted", cold_email=body,
-                    call_script=_text(art.get("call_script") if isinstance(art, dict) else None),
-                    linkedin_msg=art.get("linkedin_msg") if isinstance(art, dict) else None)
+                    reason=reason, score=80, status="New")
         db.add(lead)
         db.flush()
-        # Only dispatch when AI produced a real body — never send an empty email
-        # (e.g. when OpenAI is unconfigured). Keep it as a draft otherwise.
-        if body:
-            msg = outreach.dispatch_email(db, entity_type="lead", entity_id=lead.id, to_email=email,
-                                          subject=subject, body=body, account="insurance", actor="import")
-            if msg.status == "Sent":
-                lead.status = "Sent"
-                sent += 1
         _schedule_followups(db, "lead", lead.id)
         imported += 1
     db.commit()
-    log.info("Imported %d leads (%d sent, %d skipped)", imported, sent, skipped)
-    return {"imported": imported, "sent": sent, "skipped_no_email": skipped}
+    log.info("Imported %d leads (queued for paced outreach, %d skipped)", imported, skipped)
+    # sent is always 0 here — outreach goes out on the paced sender, not the upload.
+    return {"imported": imported, "sent": 0, "queued": imported, "skipped_no_email": skipped}
+
+
+def draft_lead_email(db: Session, lead: Lead) -> str:
+    """Write the AI cold email + call script for one lead, in place, and return the
+    subject line. Shared by the paced sender so the expensive AI call happens on the
+    background/send path (capped per day) — never during the CSV upload request."""
+    sysp = skills.system_prompt("cold-email", "marketing-psychology")
+    segment = (lead.segment or "commercial").lower()
+    category = lead.category or lead.industry or "Commercial"
+    company = lead.company_name
+    reason = lead.reason or (
+        f"{category} businesses typically need liability, property and professional coverage."
+        if segment == "commercial" else f"{category} prospects often need home/auto/life coverage.")
+    art = client.complete_json(INSURANCE_OUTREACH.format(
+        company_name=company or lead.email, category=category, segment=segment,
+        industry=lead.industry or "", city="", reason=reason), system=sysp)
+    subject = None
+    if isinstance(art, dict):
+        lead.cold_email = art.get("cold_email_body") or lead.cold_email
+        lead.call_script = _text(art.get("call_script")) or lead.call_script
+        lead.linkedin_msg = art.get("linkedin_msg") or lead.linkedin_msg
+        subject = art.get("cold_email_subject")
+    return subject or f"Insurance options for {company or 'your business'}"
 
 
 def process_restaurants_csv(db: Session, rows: list[dict]) -> dict:

@@ -4829,6 +4829,79 @@ def test_csv_import_leads_recognizes_google_export_headers(client, auth_headers)
 
 
 @requires_db
+def test_import_defers_ai_and_paced_sender_drafts_lazily(client, auth_headers, monkeypatch):
+    """Import must be FAST: it inserts leads WITHOUT writing the AI email or sending
+    (that used to run one AI call per row inline and time out big lists). The paced
+    sender then writes the AI copy lazily and only up to the mailbox's daily cap."""
+    from app import bulk_outreach, importer, outreach
+    from app.database import SessionLocal
+    from app.models import Lead
+
+    calls = {"n": 0}
+
+    def _fake_complete_json(prompt, system=None):
+        calls["n"] += 1
+        return {"cold_email_subject": "Your coverage options",
+                "cold_email_body": "Hi there, quick note about insurance.",
+                "call_script": "Call script.", "linkedin_msg": "Hi!"}
+
+    monkeypatch.setattr(importer.client, "complete_json", _fake_complete_json)
+
+    emails = ["defer_a@realbiz1.com", "defer_b@realbiz2.com"]
+    # Clear any pending leads left by earlier tests so the cap-of-1 pass below acts
+    # only on our two rows (deterministic).
+    db0 = SessionLocal()
+    try:
+        db0.query(Lead).filter(Lead.status.in_([None, "New", "Drafted"])).update(
+            {Lead.status: "Sent"}, synchronize_session=False)
+        db0.query(Lead).filter(Lead.email.in_(emails)).delete(synchronize_session=False)
+        db0.commit()
+    finally:
+        db0.close()
+
+    csv_data = (f"email,company_name,phone\n{emails[0]},Real Biz One,6035550111\n"
+                f"{emails[1]},Real Biz Two,6035550112\n")
+    r = client.post("/import/leads", headers=auth_headers,
+                    files={"file": ("leads.csv", csv_data, "text/csv")}).json()
+    assert r["imported"] == 2 and r["sent"] == 0        # nothing sent during upload
+    assert calls["n"] == 0                              # and NO AI call during upload
+
+    db = SessionLocal()
+    try:
+        leads = db.query(Lead).filter(Lead.email.in_(emails)).all()
+        assert len(leads) == 2
+        assert all(ld.status == "New" and not ld.cold_email for ld in leads)
+
+        # Cap the mailbox to 1 send/day → exactly one lead is drafted + sent this run;
+        # the other stays pending for the next window.
+        monkeypatch.setattr(outreach, "effective_cap", lambda db, account: 1)
+        monkeypatch.setattr(outreach, "sent_today_count", lambda db, account=None: 0)
+        captured = []
+
+        class _Msg:
+            status = "Sent"
+            id = "m1"
+
+        def _fake_dispatch(db, **kw):
+            captured.append(kw)
+            return _Msg()
+
+        monkeypatch.setattr(outreach, "dispatch_email", _fake_dispatch)
+
+        res = bulk_outreach.dispatch_leads(db)
+        assert res["dispatched"] == 1                   # paced to the cap of 1
+        assert calls["n"] == 1                          # AI ran ONCE, on the send path
+        assert len(captured) == 1
+        # The sent lead used the AI-written subject + body (not the generic fallback).
+        assert captured[0]["subject"] == "Your coverage options"
+        assert captured[0]["body"] == "Hi there, quick note about insurance."
+    finally:
+        db.query(Lead).filter(Lead.email.in_(emails)).delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
+
+@requires_db
 def test_csv_export(client, auth_headers):
     r = client.get("/export/leads.csv", headers=auth_headers)
     assert r.status_code == 200
