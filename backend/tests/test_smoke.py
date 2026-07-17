@@ -5180,6 +5180,55 @@ def test_import_dedupes_by_email_and_cleanup(client, auth_headers):
 
 
 @requires_db
+def test_leads_test_send_previews_to_own_inbox(client, auth_headers, monkeypatch):
+    """'Test to my inbox' writes the AI email for the hottest pending lead and sends
+    that copy to the operator's own address (not the lead), with a [TEST] subject."""
+    from app import importer, outreach
+    from app.database import SessionLocal
+    from app.models import Lead
+
+    db = SessionLocal()
+    try:
+        db.query(Lead).filter(Lead.email == "preview_lead@realbiz.com").delete(synchronize_session=False)
+        db.add(Lead(segment="commercial", company_name="Preview Co",
+                    email="preview_lead@realbiz.com", status="New", score=95))
+        db.commit()
+    finally:
+        db.close()
+
+    def _fake_draft(db, lead):
+        lead.cold_email = "Hi, quick note about coverage."
+        return "Your coverage options"
+
+    captured = {}
+
+    def _fake_deliver(to, subject, body, account="insurance"):
+        captured.update(to=to, subject=subject, body=body, account=account)
+        return "msg-test-1", None
+
+    monkeypatch.setattr(importer, "draft_lead_email", _fake_draft)
+    monkeypatch.setattr(outreach, "deliver", _fake_deliver)
+
+    r = client.post("/leads/test-send", headers=auth_headers,
+                    json={"to": "bruno@thrustmail.com"}).json()
+    assert r["ok"] is True and r["to"] == "bruno@thrustmail.com"
+    assert captured["to"] == "bruno@thrustmail.com"       # to ME, never the lead
+    assert captured["subject"].startswith("[TEST]") and "Your coverage options" in captured["subject"]
+    assert captured["body"] == "Hi, quick note about coverage."
+
+    # A junk 'to' address is rejected before anything is sent.
+    bad = client.post("/leads/test-send", headers=auth_headers, json={"to": "not-an-email"})
+    assert bad.status_code == 400
+
+    db = SessionLocal()
+    try:
+        db.query(Lead).filter(Lead.email == "preview_lead@realbiz.com").delete(synchronize_session=False)
+        db.commit()
+    finally:
+        db.close()
+
+
+@requires_db
 def test_csv_export(client, auth_headers):
     r = client.get("/export/leads.csv", headers=auth_headers)
     assert r.status_code == 200

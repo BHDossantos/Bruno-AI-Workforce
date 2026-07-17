@@ -734,6 +734,43 @@ def dedupe(db: Session = Depends(get_db), _=Depends(require_role("admin", "opera
     return importer.dedupe_leads(db)
 
 
+class TestSendIn(BaseModel):
+    to: str
+    lead_id: str | None = None
+
+
+@router.post("/test-send")
+def test_send(body: TestSendIn, db: Session = Depends(get_db),
+              _=Depends(require_role("admin", "operator"))):
+    """Preview the real outreach: write the AI email for your hottest pending lead
+    (or a specific one) and send that exact copy to YOUR inbox — so you can eyeball
+    what the AI produces before firing a whole batch. Goes to the address you give,
+    NOT the lead; doesn't touch the lead's contact history or the daily cap."""
+    from .. import importer, lead_temperature
+    from ..integrations import gmail
+    to = (body.to or "").strip()
+    if not outreach.is_real_email(to):
+        raise HTTPException(400, "Enter a real email address to send the test to.")
+    if body.lead_id:
+        lead = db.query(Lead).filter(Lead.id == body.lead_id).first()
+    else:
+        lead = (db.query(Lead).filter(Lead.status.in_((None, "New", "Drafted")),
+                                      Lead.email.isnot(None))
+                .order_by(*lead_temperature.dispatch_order(Lead)).first())
+    if not lead:
+        raise HTTPException(400, "No pending lead to preview — import some leads first.")
+    subject = importer.draft_lead_email(db, lead)  # writes the AI copy onto the lead
+    db.commit()
+    if not (lead.cold_email or "").strip():
+        raise HTTPException(400, "Couldn't write the email — is the AI (OpenAI) connected on Setup?")
+    account = gmail.account_for_segment(lead.segment)
+    mid, err = outreach.deliver(to, f"[TEST] {subject}", lead.cold_email, account=account)
+    if not mid:
+        raise HTTPException(400, f"Couldn't send the test — {err}")
+    return {"ok": True, "to": to, "subject": subject,
+            "lead": lead.company_name or lead.owner_name or lead.email}
+
+
 @router.post("/sync-replies")
 def sync_replies(db: Session = Depends(get_db),
                  _=Depends(require_role("admin", "operator"))):

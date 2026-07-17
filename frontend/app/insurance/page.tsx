@@ -178,6 +178,17 @@ function Insurance() {
     finally { setBusy(null); }
   }
 
+  async function testToInbox() {
+    const to = prompt("Send a test copy of your hottest lead's email to which inbox?");
+    if (!to) return;
+    setBusy("test"); setMsg("Writing and sending a test email to your inbox…");
+    try {
+      const r = await api.post<{ to: string; subject: string; lead: string }>("/leads/test-send", { to });
+      setMsg(`✅ Test sent to ${r.to} — the email the AI wrote for ${r.lead} ("${r.subject}"). Check your inbox to see exactly what leads receive.`);
+    } catch (e) { setMsg(`❌ ${e}`); }
+    finally { setBusy(null); }
+  }
+
   return (
     <div>
       <PageHeader
@@ -211,6 +222,7 @@ function Insurance() {
             <button className="btn" onClick={dispatchAll} disabled={busy === "all"}>{busy === "all" ? "Sending…" : "Send all pending"}</button>
             <button className="btn-ghost" onClick={syncReplies} disabled={busy === "sync"} title="Pull inbox replies — turns repliers into warm/hot leads">{busy === "sync" ? "Syncing…" : "Sync replies now"}</button>
             <button className="btn-ghost" onClick={dedupe} disabled={busy === "dedupe"} title="Remove duplicate leads (same email) — keeps the most-worked copy">{busy === "dedupe" ? "Cleaning…" : "Remove duplicates"}</button>
+            <button className="btn-ghost" onClick={testToInbox} disabled={busy === "test"} title="Send a test copy of your hottest lead's AI email to your own inbox">{busy === "test" ? "Sending…" : "Test to my inbox"}</button>
           </div>
         }
       />
