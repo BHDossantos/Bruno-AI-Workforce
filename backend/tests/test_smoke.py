@@ -437,6 +437,55 @@ def test_deliverability_dashboard(client, auth_headers):
     assert body["ok"] is True
     assert "dispatched" in body and "leads" in body and "restaurants" in body
 
+    # Reputation block (bounce/complaint health) is present with the shape the UI needs.
+    rep = d["reputation"]
+    for key in ("tracked", "bounced", "complained", "bounce_rate", "complaint_rate",
+                "suppressed", "tone", "note"):
+        assert key in rep, key
+    assert rep["tone"] in ("good", "warn", "bad", "info")
+
+
+@requires_db
+def test_deliverability_reputation_counts_bounces_and_suppressions():
+    """The reputation block tallies real bounce/complaint delivery events and the
+    suppressed-address count. Asserted as deltas since the metric is DB-global."""
+    from datetime import datetime, timezone
+
+    from app import deliverability
+    from app.database import SessionLocal
+    from app.models import DoNotContact, Message
+
+    db = SessionLocal()
+    now = datetime.now(timezone.utc)
+    since = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    tags = []
+    try:
+        base = deliverability._reputation(db, since)
+        for i in range(3):
+            db.add(Message(channel="email", direction="outbound", to_email=f"rep_b{i}@x.co",
+                           status="Sent", delivery_status="bounced", sent_at=now))
+        db.add(Message(channel="email", direction="outbound", to_email="rep_c@x.co",
+                       status="Sent", delivery_status="complained", sent_at=now))
+        for i in range(5):
+            db.add(Message(channel="email", direction="outbound", to_email=f"rep_d{i}@x.co",
+                           status="Sent", delivery_status="delivered", sent_at=now))
+        val = f"rep_supp@x.co"
+        db.add(DoNotContact(kind="email", value=val, reason="hard bounce", source="resend"))
+        tags = [f"rep_b{i}@x.co" for i in range(3)] + ["rep_c@x.co"] + [f"rep_d{i}@x.co" for i in range(5)]
+        db.commit()
+
+        now2 = deliverability._reputation(db, since)
+        assert now2["bounced"] == base["bounced"] + 3
+        assert now2["complained"] == base["complained"] + 1
+        assert now2["delivered"] == base["delivered"] + 5
+        assert now2["suppressed"] == base["suppressed"] + 1
+        assert isinstance(now2["bounce_rate"], float) and isinstance(now2["complaint_rate"], float)
+    finally:
+        db.query(Message).filter(Message.to_email.in_(tags)).delete(synchronize_session=False)
+        db.query(DoNotContact).filter(DoNotContact.value == "rep_supp@x.co").delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
 
 def test_instagram_dm_deeplink():
     """The IG assist queue links straight to the DM thread (ig.me/m/<handle>)."""

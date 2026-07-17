@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from . import outreach
 from .config import settings
 from .integrations import gmail, sender, sendgrid
-from .models import ActionLog, Lead, Message, Restaurant
+from .models import ActionLog, DoNotContact, Lead, Message, Restaurant
 
 _ACCOUNTS = [
     (gmail.PERSONAL, "Personal"),
@@ -52,6 +52,42 @@ def _active_channel() -> dict:
                     "paced_externally": False}
     return {"channel": None, "label": "No sender connected", "kind": "none",
             "paced_externally": False}
+
+
+def _reputation(db: Session, since: datetime) -> dict:
+    """Sender-reputation health from the delivery events the Resend webhook records:
+    bounce rate + complaint rate over the window, plus how many addresses are already
+    suppressed. Thresholds are the ones that keep you OUT of spam jail — bounce rate
+    under ~2% and complaint rate under ~0.1%."""
+    rows = dict(db.query(Message.delivery_status, func.count())
+                .filter(Message.direction == "outbound", Message.channel == "email",
+                        Message.sent_at >= since, Message.delivery_status.isnot(None))
+                .group_by(Message.delivery_status).all())
+    delivered = sum(int(rows.get(k, 0)) for k in ("delivered", "opened", "clicked"))
+    bounced = int(rows.get("bounced", 0))
+    complained = int(rows.get("complained", 0))
+    tracked = delivered + bounced + complained + int(rows.get("sent", 0)) + int(rows.get("delayed", 0))
+
+    def _rate(n: int) -> float:
+        return round(100.0 * n / tracked, 2) if tracked else 0.0
+
+    bounce_rate, complaint_rate = _rate(bounced), _rate(complained)
+    suppressed = int(db.query(func.count()).select_from(DoNotContact)
+                     .filter(DoNotContact.kind == "email").scalar() or 0)
+
+    if tracked < 20:
+        tone, note = "info", "Not enough delivery data yet to judge reputation."
+    elif bounce_rate > 5 or complaint_rate > 0.3:
+        tone, note = "bad", ("Bounce/complaint rate is high — slow the send, clean the list. "
+                             "Bad addresses are auto-suppressed, but keep volume low until this drops.")
+    elif bounce_rate > 2 or complaint_rate > 0.1:
+        tone, note = "warn", "Watch it — bounce/complaint rate is trending toward spam-filter territory."
+    else:
+        tone, note = "good", "Healthy — bounce and complaint rates are in the safe zone."
+    return {"tracked": tracked, "delivered": delivered, "bounced": bounced,
+            "complained": complained, "bounce_rate": bounce_rate,
+            "complaint_rate": complaint_rate, "suppressed": suppressed,
+            "tone": tone, "note": note}
 
 
 def snapshot(db: Session) -> dict:
@@ -129,6 +165,7 @@ def snapshot(db: Session) -> dict:
         "restaurant_backlog": rest_backlog,
         "accounts": accounts,
         "failures": failures,
+        "reputation": _reputation(db, week_start),
         "paused": paused, "autopilot": autopilot, "can_send": can_send,
     }
 
