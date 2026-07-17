@@ -47,6 +47,18 @@ _DELIVERY = {
 }
 
 
+def _is_hard_bounce(data: dict) -> bool:
+    """True only for a PERMANENT/hard bounce (dead address) — not a transient one
+    (mailbox full, greylisting), so we don't suppress an address that can recover.
+    Resend puts the classification under ``bounce.type``/``subType``; we scan a few
+    likely spots and treat 'permanent'/'hard'/'suppress' as fatal."""
+    bounce = data.get("bounce") if isinstance(data.get("bounce"), dict) else {}
+    blob = " ".join(str(v) for v in (
+        bounce.get("type"), bounce.get("subType"), bounce.get("subtype"),
+        data.get("bounce_type"), data.get("type"), data.get("reason"))).lower()
+    return any(w in blob for w in ("permanent", "hard", "suppress"))
+
+
 def _extract_email(value) -> str | None:
     """Pull a bare address out of ``from``, which Resend may send as a plain
     string, ``"Name <email>"``, a ``{email, name}`` object, or a 1-element list."""
@@ -105,12 +117,29 @@ async def resend_inbound(request: Request, db: Session = Depends(get_db)):
     # 1) Delivery / engagement event on a message we sent → record the outcome.
     if etype in _DELIVERY:
         email_id = data.get("email_id") or data.get("id")
+        to_addr = None
         if email_id:
             msg = (db.query(Message).filter(Message.provider_id == email_id,
                                              Message.channel == "email").first())
             if msg:
                 msg.delivery_status = _DELIVERY[etype]
+                to_addr = msg.to_email
                 db.commit()
+        # Reputation guard: a spam COMPLAINT or a HARD (permanent) bounce means we
+        # must never email this address again — suppress it on the Do-Not-Contact
+        # list so every future send + follow-up + re-import skips it. Soft/transient
+        # bounces (mailbox full, greylisting) are left alone so they can retry.
+        if etype == "email.complained" or (etype == "email.bounced" and _is_hard_bounce(data)):
+            addr = _extract_email(to_addr) or _extract_email(data.get("to")) \
+                or _extract_email(data.get("email")) or _extract_email(data.get("recipient"))
+            if addr:
+                try:
+                    from .. import compliance
+                    compliance.add_dnc(db, value=addr, kind="email", source="resend",
+                                       reason=("spam complaint" if etype == "email.complained"
+                                               else "hard bounce"))
+                except Exception:
+                    db.rollback()
         return {"ok": True, "handled": etype}
 
     # 2) Inbound reply received → run the full two-way pipeline.

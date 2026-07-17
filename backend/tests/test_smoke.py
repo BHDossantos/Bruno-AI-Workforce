@@ -1657,6 +1657,58 @@ def test_resend_inbound_webhook_two_way(client, monkeypatch):
         _purge()  # never leak rows into the session-scoped DB other tests share
 
 
+@requires_db
+def test_resend_hard_bounce_and_complaint_suppress_address(client, monkeypatch):
+    """Reputation guard: a spam complaint or a PERMANENT bounce auto-adds the address
+    to Do-Not-Contact so we never email it again; a transient bounce does not."""
+    from app import compliance
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.models import DoNotContact, Message
+
+    monkeypatch.setattr(settings, "resend_webhook_secret", "", raising=False)
+    hard = "deadbox@nowhere-permanent.com"
+    soft = "busybox@temp-full.com"
+    complained = "angry@prospect.com"
+    db = SessionLocal()
+    try:
+        db.query(DoNotContact).filter(DoNotContact.value.in_([hard, soft, complained])).delete(
+            synchronize_session=False)
+        db.add_all([
+            Message(channel="email", direction="outbound", to_email=hard,
+                    provider_id="re_hard", status="Sent"),
+            Message(channel="email", direction="outbound", to_email=soft,
+                    provider_id="re_soft", status="Sent"),
+            Message(channel="email", direction="outbound", to_email=complained,
+                    provider_id="re_spam", status="Sent"),
+        ])
+        db.commit()
+    finally:
+        db.close()
+
+    # Permanent bounce → suppressed.
+    client.post("/resend/inbound", json={"type": "email.bounced",
+                "data": {"email_id": "re_hard", "bounce": {"type": "Permanent", "subType": "General"}}})
+    # Spam complaint → suppressed.
+    client.post("/resend/inbound", json={"type": "email.complained", "data": {"email_id": "re_spam"}})
+    # Transient bounce → NOT suppressed (mailbox full, can recover).
+    client.post("/resend/inbound", json={"type": "email.bounced",
+                "data": {"email_id": "re_soft", "bounce": {"type": "Transient", "subType": "MailboxFull"}}})
+
+    db = SessionLocal()
+    try:
+        assert compliance.is_dnc(db, email=hard) is True
+        assert compliance.is_dnc(db, email=complained) is True
+        assert compliance.is_dnc(db, email=soft) is False
+    finally:
+        db.query(DoNotContact).filter(DoNotContact.value.in_([hard, soft, complained])).delete(
+            synchronize_session=False)
+        db.query(Message).filter(Message.provider_id.in_(["re_hard", "re_soft", "re_spam"])).delete(
+            synchronize_session=False)
+        db.commit()
+        db.close()
+
+
 def test_email_daily_send_cap_ramp(monkeypatch):
     """The email cap ramps up on a fresh domain (clear a backlog without spiking
     into spam) then settles to the steady cap once the ramp is over."""
