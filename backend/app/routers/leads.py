@@ -725,6 +725,15 @@ def dispatch_pending(segment: str | None = None, db: Session = Depends(get_db),
     return {"ok": True, **bulk_outreach.dispatch_leads(db, segment=segment, autonomous=False)}
 
 
+@router.post("/dedupe")
+def dedupe(db: Session = Depends(get_db), _=Depends(require_role("admin", "operator"))):
+    """Remove duplicate leads (same email), keeping the most-worked one — cleanup for a
+    list that got imported more than once. Import now de-dupes automatically; this
+    fixes copies made before that."""
+    from .. import importer
+    return importer.dedupe_leads(db)
+
+
 @router.post("/sync-replies")
 def sync_replies(db: Session = Depends(get_db),
                  _=Depends(require_role("admin", "operator"))):

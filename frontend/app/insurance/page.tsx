@@ -165,6 +165,19 @@ function Insurance() {
     finally { setBusy(null); }
   }
 
+  async function dedupe() {
+    if (!confirm("Remove duplicate leads (same email)? Keeps the most-worked copy of each.")) return;
+    setBusy("dedupe"); setMsg("Removing duplicate leads…");
+    try {
+      const r = await api.post<{ groups_deduped: number; removed: number }>("/leads/dedupe", {});
+      setMsg(r.removed
+        ? `✅ Removed ${r.removed} duplicate lead(s) across ${r.groups_deduped} email(s).`
+        : "✅ No duplicates found — your leads are clean.");
+      setRefresh((n) => n + 1);
+    } catch (e) { setMsg(`❌ ${e}`); }
+    finally { setBusy(null); }
+  }
+
   return (
     <div>
       <PageHeader
@@ -197,6 +210,7 @@ function Insurance() {
             <button className="btn" onClick={sourceNow} disabled={sourcing}>{sourcing ? "Sourcing…" : "Source leads now"}</button>
             <button className="btn" onClick={dispatchAll} disabled={busy === "all"}>{busy === "all" ? "Sending…" : "Send all pending"}</button>
             <button className="btn-ghost" onClick={syncReplies} disabled={busy === "sync"} title="Pull inbox replies — turns repliers into warm/hot leads">{busy === "sync" ? "Syncing…" : "Sync replies now"}</button>
+            <button className="btn-ghost" onClick={dedupe} disabled={busy === "dedupe"} title="Remove duplicate leads (same email) — keeps the most-worked copy">{busy === "dedupe" ? "Cleaning…" : "Remove duplicates"}</button>
           </div>
         }
       />

@@ -5029,6 +5029,56 @@ def test_dispatch_order_hot_warm_cold(client):
 
 
 @requires_db
+def test_import_dedupes_by_email_and_cleanup(client, auth_headers):
+    """Re-importing the same list UPDATES existing leads instead of creating copies,
+    and the /leads/dedupe cleanup removes duplicates made before that, keeping the
+    most-worked copy."""
+    from app import importer
+    from app.database import SessionLocal
+    from app.models import Lead
+
+    email = "dedupe_target@realbiz.com"
+    db0 = SessionLocal()
+    try:
+        db0.query(Lead).filter(Lead.email == email).delete(synchronize_session=False)
+        db0.commit()
+    finally:
+        db0.close()
+
+    csv1 = f"email,company_name,phone\n{email},Acme,6035550101\n"
+    r1 = client.post("/import/leads", headers=auth_headers,
+                     files={"file": ("l.csv", csv1, "text/csv")}).json()
+    assert r1["imported"] == 1 and r1.get("updated", 0) == 0
+    # Re-import: no new lead, the existing one is updated (phone refreshed).
+    csv2 = f"email,company_name,phone\n{email},Acme Plumbing,6035550999\n"
+    r2 = client.post("/import/leads", headers=auth_headers,
+                     files={"file": ("l.csv", csv2, "text/csv")}).json()
+    assert r2["imported"] == 0 and r2["updated"] == 1
+
+    db = SessionLocal()
+    try:
+        leads = db.query(Lead).filter(Lead.email == email).all()
+        assert len(leads) == 1                       # never duplicated
+        assert leads[0].company_name == "Acme Plumbing" and leads[0].phone == "6035550999"
+
+        # Simulate a pre-dedupe mess: two more raw duplicates (as the old import made).
+        db.add_all([Lead(segment="commercial", email=email, status="New"),
+                    Lead(segment="commercial", email=email, status="New")])
+        db.commit()
+        assert db.query(Lead).filter(Lead.email == email).count() == 3
+
+        # dedupe_leads is global (other tests may leave their own dupes), so assert
+        # our group specifically: our 3 collapse to 1, and it removed at least our 2.
+        out = importer.dedupe_leads(db)
+        assert out["removed"] >= 2 and out["groups_deduped"] >= 1
+        assert db.query(Lead).filter(Lead.email == email).count() == 1
+    finally:
+        db.query(Lead).filter(Lead.email == email).delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
+
+@requires_db
 def test_csv_export(client, auth_headers):
     r = client.get("/export/leads.csv", headers=auth_headers)
     assert r.status_code == 200

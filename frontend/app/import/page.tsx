@@ -24,14 +24,17 @@ function Importer() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(JSON.stringify(data));
-      if ((data.imported ?? 0) === 0) {
+      const imported = data.imported ?? 0;
+      const updated = data.updated ?? 0;
+      if (imported === 0 && updated === 0 && type !== "contacts") {
         // Don't show a green check for a total no-op — surface why nothing imported.
         setResult(`❌ Imported 0. ${data.reason || "Check the file format — it should be a Google/Outlook/LinkedIn CSV or an iCloud .vcf with email/phone columns."}`);
+      } else if (type === "contacts") {
+        setResult(`✅ Imported ${imported} contacts (${data.leads_added ?? 0} now show as Personal leads), skipped ${data.skipped}. They'll get a warm insurance intro automatically.`);
       } else {
         const page = type === "bnb" ? "BnB Global" : type === "restaurants" ? "SavoryMind" : "Insurance Leads";
-        setResult(type === "contacts"
-          ? `✅ Imported ${data.imported} contacts (${data.leads_added ?? 0} now show as Personal leads), skipped ${data.skipped}. They'll get a warm insurance intro automatically.`
-          : `✅ Imported ${data.imported} lead${data.imported === 1 ? "" : "s"} (skipped ${data.skipped_no_email} with no email). The AI writes & sends the outreach automatically, paced under your daily cap — no waiting on this screen. To start a batch now, click “Send all pending” on the ${page} page.`);
+        const dupPart = updated ? ` (${updated} already on file were updated, not duplicated)` : "";
+        setResult(`✅ Imported ${imported} new lead${imported === 1 ? "" : "s"}${dupPart}, skipped ${data.skipped_no_email} with no email. The AI writes & sends the outreach automatically, paced under your daily cap — no waiting on this screen. To start a batch now, click “Send all pending” on the ${page} page.`);
       }
     } catch (e) {
       setResult(`❌ ${e}`);
