@@ -1296,6 +1296,39 @@ def test_call_lead_offline_returns_reason(client, auth_headers):
         db.close()
 
 
+@requires_db
+def test_calls_health_reports_connect_rate(client, auth_headers):
+    """The Call List calling-health endpoint splits today's calls into connected vs
+    voicemail/missed and computes the connect rate. Asserted as deltas (DB-global)."""
+    from datetime import datetime, timezone
+
+    from app.database import SessionLocal
+    from app.models import Message
+
+    db = SessionLocal()
+    now = datetime.now(timezone.utc)
+    made = []
+    try:
+        base = client.get("/calls/health", headers=auth_headers).json()["today"]
+        for st in ("Sent", "Sent", "Sent", "Missed"):   # 3 connected, 1 missed
+            m = Message(channel="call", direction="outbound", to_email=None,
+                        status=st, provider_id=f"hc_{st}_{len(made)}", sent_at=now)
+            db.add(m); made.append(m)
+        db.commit()
+
+        d = client.get("/calls/health", headers=auth_headers).json()
+        assert d["today"]["connected"] == base["connected"] + 3
+        assert d["today"]["missed"] == base["missed"] + 1
+        assert 0.0 <= d["today"]["connect_rate"] <= 100.0
+        for key in ("provider", "configured", "voicemail_ready", "daily_cap", "today", "week"):
+            assert key in d, key
+    finally:
+        for m in made:
+            db.delete(m)
+        db.commit()
+        db.close()
+
+
 def test_sms_configured_accepts_either_number():
     """Twilio SMS is 'configured' with the creds + EITHER number field (default or
     insurance) — requiring both was a trap that silently blocked texting. And the

@@ -118,6 +118,47 @@ def voicemail_status(db: Session = Depends(get_db), _=Depends(_read)):
     return {"recorded": voice.voicemail_configured(), "url": settings.producer_voicemail_url or None}
 
 
+@router.get("/health")
+def calling_health(db: Session = Depends(get_db), _=Depends(_read)):
+    """Calling health for the Call List dashboard: which provider places calls, how
+    many went out today / this week, the connect vs voicemail-or-missed split, and
+    the connect rate — the calling equivalent of the email deliverability screen."""
+    _refresh(db)
+    from datetime import date, timedelta
+    from sqlalchemy import func
+
+    from ..config import settings
+    start = datetime.combine(date.today(), datetime.min.time(), tzinfo=timezone.utc)
+    week = start - timedelta(days=6)
+
+    def _counts(since):
+        rows = dict(db.query(Message.status, func.count()).filter(
+            Message.channel == "call", Message.direction == "outbound",
+            Message.sent_at >= since).group_by(Message.status).all())
+        connected = int(rows.get("Sent", 0))
+        missed = int(rows.get("Missed", 0))
+        dialing = int(rows.get("Dialing", 0))
+        finished = connected + missed
+        rate = round(100.0 * connected / finished, 1) if finished else 0.0
+        return {"placed": connected + missed + dialing, "connected": connected,
+                "missed": missed, "dialing": dialing, "connect_rate": rate}
+
+    today = _counts(start)
+    week_stats = _counts(week)
+    provider = vdispatch.active()
+    cap = int(settings.auto_dial_daily_cap or 0)
+    return {
+        "provider": provider,
+        "configured": vdispatch.is_configured(),
+        "voicemail_ready": voice.voicemail_configured(),
+        "transfer_enabled": bool(settings.auto_dial_transfer_enabled),
+        "daily_cap": cap,
+        "remaining_today": max(0, cap - today["placed"]) if cap else None,
+        "today": today,
+        "week": week_stats,
+    }
+
+
 @router.get("/token")
 def browser_token(db: Session = Depends(get_db), _=Depends(_read)):
     """Short-lived Twilio Voice token for the in-browser softphone."""

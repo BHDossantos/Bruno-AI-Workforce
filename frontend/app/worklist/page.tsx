@@ -29,6 +29,13 @@ type Coverage = {
   not_emailed: { id: string; name: string; email?: string | null; state?: string | null }[];
 };
 
+type CallHealth = {
+  provider: string | null; configured: boolean; voicemail_ready: boolean;
+  transfer_enabled: boolean; daily_cap: number; remaining_today: number | null;
+  today: { placed: number; connected: number; missed: number; dialing: number; connect_rate: number };
+  week: { placed: number; connected: number; missed: number; dialing: number; connect_rate: number };
+};
+
 const STATUSES = ["New", "Contacted", "Quoted", "Closed Won", "Closed Lost"];
 const FILTERS: { key: string; label: string }[] = [
   { key: "", label: "All" },
@@ -78,6 +85,7 @@ export default function WorkListPage() {
     [temp, stateF, sortBy, tick]
   );
   const { data: coverage } = useFetch<Coverage>(() => api.get<Coverage>("/leads/coverage"), [tick]);
+  const { data: callHealth } = useFetch<CallHealth>(() => api.get<CallHealth>("/calls/health"), [tick]);
   const [showGaps, setShowGaps] = useState(false);
 
   // Per-lead action state: a status message + a busy flag, keyed by lead id.
@@ -127,6 +135,26 @@ export default function WorkListPage() {
           </Link>
         }
       />
+
+      {/* Calling health — provider, today's calls, connect rate. */}
+      {callHealth && (callHealth.configured || callHealth.today.placed > 0) && (
+        <div className="mb-4 rounded-xl border border-gray-200 bg-white p-4">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+            <span className="font-semibold text-gray-700">📞 Calling</span>
+            <span className="text-gray-500">via <b className="text-gray-700">{callHealth.provider || "not connected"}</b></span>
+            <span>Today: <b>{callHealth.today.placed}</b> placed</span>
+            <span>✅ <b>{callHealth.today.connected}</b> connected</span>
+            <span>📴 <b>{callHealth.today.missed}</b> voicemail/missed</span>
+            <span>Connect rate: <b>{callHealth.today.connect_rate}%</b></span>
+            {callHealth.daily_cap > 0 && (
+              <span className="text-gray-400">{callHealth.remaining_today ?? 0} of {callHealth.daily_cap} left today</span>
+            )}
+            {!callHealth.voicemail_ready && (
+              <span className="ml-auto rounded-lg bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">No voicemail drop recorded</span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Coverage: did every EverQuote lead actually get worked? At a glance. */}
       {coverage && coverage.total > 0 && (
