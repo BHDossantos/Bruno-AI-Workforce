@@ -189,6 +189,19 @@ function Insurance() {
     finally { setBusy(null); }
   }
 
+  async function smsFollowup() {
+    if (!confirm("Text every lead who was emailed but hasn't replied? (Hottest first, within your daily SMS cap and legal hours. Needs a texting provider + A2P.)")) return;
+    setBusy("sms"); setMsg("Texting emailed-but-silent leads…");
+    try {
+      const r = await api.post<{ eligible: number; sent: number; skipped: number }>("/leads/sms-followup-run", {});
+      setMsg(r.sent
+        ? `✅ Texted ${r.sent} of ${r.eligible} non-repliers${r.skipped ? ` (${r.skipped} skipped — opted out, off-hours, cap, or no texting provider)` : ""}.`
+        : `No texts sent — ${r.eligible} eligible but all skipped (opted out, off-hours, daily cap, or no texting provider connected).`);
+      setRefresh((n) => n + 1);
+    } catch (e) { setMsg(`❌ ${e}`); }
+    finally { setBusy(null); }
+  }
+
   return (
     <div>
       <PageHeader
@@ -223,6 +236,7 @@ function Insurance() {
             <button className="btn-ghost" onClick={syncReplies} disabled={busy === "sync"} title="Pull inbox replies — turns repliers into warm/hot leads">{busy === "sync" ? "Syncing…" : "Sync replies now"}</button>
             <button className="btn-ghost" onClick={dedupe} disabled={busy === "dedupe"} title="Remove duplicate leads (same email) — keeps the most-worked copy">{busy === "dedupe" ? "Cleaning…" : "Remove duplicates"}</button>
             <button className="btn-ghost" onClick={testToInbox} disabled={busy === "test"} title="Send a test copy of your hottest lead's AI email to your own inbox">{busy === "test" ? "Sending…" : "Test to my inbox"}</button>
+            <button className="btn-ghost" onClick={smsFollowup} disabled={busy === "sms"} title="Text leads who were emailed but never replied (hottest first, within your daily cap & legal hours)">{busy === "sms" ? "Texting…" : "Text non-repliers"}</button>
           </div>
         }
       />

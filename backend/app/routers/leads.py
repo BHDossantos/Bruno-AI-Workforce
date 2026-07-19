@@ -734,6 +734,17 @@ def dedupe(db: Session = Depends(get_db), _=Depends(require_role("admin", "opera
     return importer.dedupe_leads(db)
 
 
+@router.post("/sms-followup-run")
+def sms_followup_run(db: Session = Depends(get_db),
+                     _=Depends(require_role("admin", "operator"))):
+    """Text every lead that was emailed but hasn't replied (hottest first, within the
+    daily SMS cap and TCPA hours). Manual trigger — runs even if the auto follow-up
+    is toggled off. Needs a texting provider + A2P; skips are reported."""
+    from .. import runtime_config, sms_followups
+    runtime_config.apply_to_settings(db)
+    return {"ok": True, **sms_followups.run(db)}
+
+
 class TestSendIn(BaseModel):
     to: str
     lead_id: str | None = None

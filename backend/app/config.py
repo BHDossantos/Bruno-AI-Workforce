@@ -295,6 +295,13 @@ class Settings(BaseSettings):
     sms_send_window_start: int = 8         # earliest local hour to text (TCPA: 8am)
     sms_send_window_end: int = 21          # latest local hour to text (TCPA: 9pm)
     sms_timezone: str = "America/New_York"  # recipient tz (NH/MA/FL are all Eastern)
+    # SMS follow-up: text leads who were emailed but never replied, N days later —
+    # a second, higher-response channel. OFF by default (needs A2P 10DLC first);
+    # flip on in Setup once texting is approved. The manual 'Text non-repliers'
+    # button runs regardless. Every send still passes the compliance gate
+    # (opt-out/hours/daily cap), so it can't text someone who opted out.
+    sms_followup_enabled: bool = False
+    sms_followup_delay_days: int = 2       # wait this long after the email before texting
 
     # Daily auto-dial: at 8am the scheduler auto-calls the Call List (hottest first),
     # transferring live answers to the producer and dropping the recorded voicemail

@@ -5261,6 +5261,88 @@ def test_leads_test_send_previews_to_own_inbox(client, auth_headers, monkeypatch
         db.close()
 
 
+def test_sms_followup_enabled_tolerates_bool_and_string():
+    """The enable flag may be a real bool (default) or a string from runtime config."""
+    from app import sms_followups
+    from app.config import settings
+    import pytest as _pytest
+    with _pytest.MonkeyPatch.context() as mp:
+        mp.setattr(settings, "sms_followup_enabled", False, raising=False)
+        assert sms_followups.is_enabled() is False
+        mp.setattr(settings, "sms_followup_enabled", "true", raising=False)
+        assert sms_followups.is_enabled() is True
+        mp.setattr(settings, "sms_followup_enabled", True, raising=False)
+        assert sms_followups.is_enabled() is True
+        mp.setattr(settings, "sms_followup_enabled", "off", raising=False)
+        assert sms_followups.is_enabled() is False
+
+
+@requires_db
+def test_sms_followup_targets_emailed_non_repliers(monkeypatch):
+    """SMS follow-up texts leads emailed >= delay days ago with no reply and no prior
+    text — and skips ones already texted, ones who replied, and recently-emailed ones."""
+    from datetime import datetime, timedelta, timezone
+
+    from app import sms_engine, sms_followups
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.models import Lead, Message
+
+    old = datetime.now(timezone.utc) - timedelta(days=5)
+    now = datetime.now(timezone.utc)
+    tags = ["fu_elig@x.co", "fu_texted@x.co", "fu_replied@x.co", "fu_recent@x.co"]
+    db = SessionLocal()
+    ids = {}
+    try:
+        db.query(Lead).filter(Lead.email.in_(tags)).delete(synchronize_session=False)
+        db.commit()
+
+        def mk(email, phone):
+            ld = Lead(segment="commercial", email=email, phone=phone, status="Sent", score=80)
+            db.add(ld); db.flush()
+            return ld
+
+        elig, texted, replied, recent = (mk("fu_elig@x.co", "6035550001"),
+                                         mk("fu_texted@x.co", "6035550002"),
+                                         mk("fu_replied@x.co", "6035550003"),
+                                         mk("fu_recent@x.co", "6035550004"))
+        for ld, when in [(elig, old), (texted, old), (replied, old), (recent, now)]:
+            db.add(Message(channel="email", direction="outbound", entity_type="lead",
+                           entity_id=ld.id, status="Sent", sent_at=when))
+        db.add(Message(channel="sms", direction="outbound", entity_type="lead",
+                       entity_id=texted.id, status="Sent", sent_at=old))       # already texted
+        db.add(Message(channel="email", direction="inbound", entity_type="lead",
+                       entity_id=replied.id, status="Received", sent_at=old))   # replied
+        db.commit()
+        ids = {t: db.query(Lead).filter(Lead.email == t).first().id for t in tags}
+
+        # Huge cap so other tests' leads in the shared DB can't crowd ours out of the
+        # headroom-limited batch (the query is global, ordered hottest-first).
+        monkeypatch.setattr(settings, "sms_daily_send_cap", 100000, raising=False)
+        monkeypatch.setattr(settings, "sms_followup_delay_days", 2, raising=False)
+        monkeypatch.setattr(sms_engine, "sms_sent_today", lambda db: 0)
+        hit = []
+
+        def _fake_send(db, *, entity_type, entity_id, phone, body, account="insurance", **k):
+            hit.append(entity_id)
+            return "sid-1"
+
+        monkeypatch.setattr(sms_engine, "send_text", _fake_send)
+
+        sms_followups.run(db)
+        assert ids["fu_elig@x.co"] in hit            # emailed, silent → texted
+        assert ids["fu_texted@x.co"] not in hit      # already texted
+        assert ids["fu_replied@x.co"] not in hit     # replied
+        assert ids["fu_recent@x.co"] not in hit      # email too recent
+    finally:
+        if ids:
+            db.query(Message).filter(Message.entity_id.in_(list(ids.values()))).delete(
+                synchronize_session=False)
+        db.query(Lead).filter(Lead.email.in_(tags)).delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
+
 @requires_db
 def test_csv_export(client, auth_headers):
     r = client.get("/export/leads.csv", headers=auth_headers)
