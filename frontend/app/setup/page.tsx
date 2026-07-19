@@ -84,6 +84,16 @@ function Setup() {
     finally { setDncBusy(false); }
   }
 
+  async function removeDnc(id: string, value: string) {
+    if (!confirm(`Un-suppress ${value}? They can be contacted again.`)) return;
+    setDncMsg("");
+    try {
+      await api.del(`/compliance/dnc/${id}`);
+      setDncMsg(`✅ Removed ${value} from Do Not Contact.`);
+      reloadDnc();
+    } catch (e) { setDncMsg(`❌ ${e}`); }
+  }
+
   async function runTwoWay() {
     setTwBusy(true); setTwRes(null);
     try {
@@ -152,10 +162,12 @@ function Setup() {
             </p>
             <ul className="max-h-40 overflow-y-auto text-xs text-gray-600">
               {dncList.entries.map((d) => (
-                <li key={d.id} className="flex gap-2 py-0.5">
+                <li key={d.id} className="flex items-center gap-2 py-0.5">
                   <span className="badge bg-red-100 text-red-700">{d.kind}</span>
                   <span className="font-mono">{d.value}</span>
                   {d.reason && <span className="text-gray-400">— {d.reason}</span>}
+                  <button onClick={() => removeDnc(d.id, d.value)}
+                    className="ml-auto text-gray-400 hover:text-red-600" title="Un-suppress (allow contact again)">✕</button>
                 </li>
               ))}
             </ul>
