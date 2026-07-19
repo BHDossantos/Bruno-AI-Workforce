@@ -82,6 +82,8 @@ FIELDS: dict[str, bool] = {
     # SMS follow-up to emailed-but-silent leads (opt-in; needs A2P 10DLC).
     "sms_followup_enabled": False,
     "sms_followup_delay_days": False,
+    # Auto-send the AI reply to clearly-interested email replies (opt-in).
+    "auto_reply_enabled": False,
     # JSearch / RapidAPI key → live LinkedIn/Indeed/Glassdoor/ZipRecruiter jobs.
     "jobs_api_key": True,
     # Instantly.ai / Smartlead.ai — dedicated cold-email sending engines.

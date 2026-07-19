@@ -302,6 +302,11 @@ class Settings(BaseSettings):
     # (opt-out/hours/daily cap), so it can't text someone who opted out.
     sms_followup_enabled: bool = False
     sms_followup_delay_days: int = 2       # wait this long after the email before texting
+    # Auto-reply to clearly-interested email replies: instead of only drafting the
+    # AI response, SEND it immediately (with the booking link) so a hot lead gets an
+    # answer in seconds — speed wins. OFF by default (keeps every reply human-reviewed);
+    # only ever auto-sends to 'interested'/'question' replies, never ambiguous ones.
+    auto_reply_enabled: bool = False
 
     # Daily auto-dial: at 8am the scheduler auto-calls the Call List (hottest first),
     # transferring live answers to the producer and dropping the recorded voicemail

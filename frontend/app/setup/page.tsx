@@ -175,6 +175,30 @@ function Setup() {
         )}
       </div>
 
+      {/* Outreach automation toggles (opt-in) */}
+      <div className="card mb-4">
+        <h2 className="font-semibold">⚡ Outreach automation</h2>
+        <p className="mt-1 mb-3 text-xs text-gray-500">
+          Optional hands-off boosters. Both are OFF until you turn them on here and hit Save.
+        </p>
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-1"
+            checked={(form.auto_reply_enabled ?? "") === "true"}
+            onChange={(e) => set("auto_reply_enabled", e.target.checked ? "true" : "false")} />
+          <span><strong>Auto-reply to interested leads.</strong> When a lead replies that they&apos;re
+            interested, instantly send the AI reply with your booking link (instead of only drafting it).
+            Only fires on clearly-interested replies; still respects opt-outs and the daily cap.</span>
+        </label>
+        <label className="mt-3 flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-1"
+            checked={(form.sms_followup_enabled ?? "") === "true"}
+            onChange={(e) => set("sms_followup_enabled", e.target.checked ? "true" : "false")} />
+          <span><strong>SMS follow-up to non-repliers.</strong> Text leads who were emailed but never
+            replied, a couple days later. <em>Requires A2P&nbsp;10DLC registration with your texting
+            provider first</em>, or carriers block the texts.</span>
+        </label>
+      </div>
+
       {/* Mailbox send diagnostic — confirm outreach can ACTUALLY go out */}
       <div className="card mb-4">
         <div className="flex items-center justify-between">

@@ -20,10 +20,18 @@ log = logging.getLogger("bruno.inbound")
 ACCOUNTS = [gmail.PERSONAL, gmail.INSURANCE]
 
 
+def _auto_reply_on() -> bool:
+    """Opt-in flag to SEND (not just draft) the reply to hot leads. Tolerates a real
+    bool (default) or a runtime-config string ('true'/'1'/'on')."""
+    from .config import settings
+    v = getattr(settings, "auto_reply_enabled", False)
+    return v is True or str(v).strip().lower() in ("1", "true", "yes", "on")
+
+
 def _draft_reply(db: Session, sender: str, reply: dict, cls: dict, account: str) -> None:
-    """Generate a concise reply with AI and save it as a draft for one-click send.
-    When the prospect is interested/asking, the reply drives straight to the
-    calendar (the booking link is added by the email template automatically)."""
+    """Generate a concise reply with AI. Normally saved as a draft for one-click send;
+    when auto_reply_enabled is on AND the prospect is clearly interested/asking, it's
+    SENT immediately (with the booking link) so a hot lead gets an answer in seconds."""
     from . import email_template, outreach
     from .ai import client, skills
     intent = cls.get("intent")
@@ -45,9 +53,15 @@ def _draft_reply(db: Session, sender: str, reply: dict, cls: dict, account: str)
         system=skills.system_prompt("cold-email"))
     if not body or body.startswith("["):
         return  # offline stub — skip
+    # Send now only for a clearly-interested reply when the operator opted in;
+    # otherwise keep it a draft for one-click human review. dispatch_email still
+    # runs the compliance gate + daily cap, so auto-send can't reach an opted-out
+    # address or blow the cap.
+    auto_send = wants_call and _auto_reply_on()
     outreach.dispatch_email(db, entity_type="reply", entity_id=None, to_email=sender,
                             subject=f"Re: {reply.get('subject') or 'your note'}",
-                            body=body, account=account, actor="inbound", force_draft=True)
+                            body=body, account=account, actor="inbound",
+                            force_draft=not auto_send)
 
 
 def process_reply(db: Session, *, sender: str, subject: str | None, snippet: str,

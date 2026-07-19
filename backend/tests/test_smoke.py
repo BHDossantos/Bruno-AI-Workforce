@@ -5343,6 +5343,39 @@ def test_sms_followup_targets_emailed_non_repliers(monkeypatch):
         db.close()
 
 
+def test_auto_reply_sends_only_when_enabled_and_interested(monkeypatch):
+    """The interested-reply is DRAFTED by default; with auto_reply_enabled on it's
+    SENT immediately — but only for clearly interested/question replies, never others."""
+    from app import inbound, outreach
+    from app.ai import client
+    from app.config import settings
+
+    monkeypatch.setattr(client, "complete", lambda *a, **k: "Thanks! Grab a time here.")
+    captured = {}
+
+    def _fake_dispatch(db, **kw):
+        captured.clear()
+        captured.update(kw)
+
+        class _M:
+            status = "Drafted"
+            id = "m"
+        return _M()
+
+    monkeypatch.setattr(outreach, "dispatch_email", _fake_dispatch)
+
+    def _force_draft(intent, enabled):
+        monkeypatch.setattr(settings, "auto_reply_enabled", enabled, raising=False)
+        inbound._draft_reply(None, "p@x.co", {"snippet": "yes interested", "subject": "hi"},
+                             {"intent": intent}, "insurance")
+        return captured.get("force_draft")
+
+    assert _force_draft("interested", False) is True    # off → draft for review
+    assert _force_draft("interested", True) is False    # on + hot → send now
+    assert _force_draft("question", True) is False       # on + question → send now
+    assert _force_draft("objection", True) is True       # on + not-hot → still draft
+
+
 @requires_db
 def test_csv_export(client, auth_headers):
     r = client.get("/export/leads.csv", headers=auth_headers)
