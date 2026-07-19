@@ -14,6 +14,11 @@ type Snapshot = {
   backlog: number; lead_backlog: number; restaurant_backlog: number;
   accounts: Account[];
   failures: Record<string, number>;
+  reputation: {
+    tracked: number; delivered: number; bounced: number; complained: number;
+    bounce_rate: number; complaint_rate: number; suppressed: number;
+    tone: "good" | "warn" | "bad" | "info"; note: string;
+  };
   paused: boolean; autopilot: boolean; can_send: boolean;
 };
 type SgTotals = {
@@ -100,6 +105,25 @@ function Deliverability() {
               <div className="h-2 overflow-hidden rounded bg-gray-100">
                 <div className={`h-full rounded ${capPct >= 100 ? "bg-amber-500" : "bg-brand"}`} style={{ width: `${capPct}%` }} />
               </div>
+            </div>
+          )}
+
+          {/* Sender reputation (bounce / complaint health, last 7 days) */}
+          {data.reputation && (
+            <div className="card mb-6">
+              <div className="mb-2 flex items-center justify-between">
+                <h2 className="font-semibold">🛡️ Sender reputation (7 days)</h2>
+                <span className="text-xs text-gray-400">{data.reputation.tracked} tracked deliveries</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <KpiCard label="Delivered" value={data.reputation.delivered.toLocaleString()} />
+                <KpiCard label="Bounce rate" value={`${data.reputation.bounce_rate}%`} hint={`${data.reputation.bounced} bounced · keep < 2%`} />
+                <KpiCard label="Complaint rate" value={`${data.reputation.complaint_rate}%`} hint={`${data.reputation.complained} spam · keep < 0.1%`} />
+                <KpiCard label="Suppressed" value={data.reputation.suppressed.toLocaleString()} hint="auto-blocked bad addresses" />
+              </div>
+              <p className={`mt-3 rounded border px-3 py-2 text-sm ${TONE[data.reputation.tone] || "border-gray-200 bg-gray-50 text-gray-600"}`}>
+                {data.reputation.note}
+              </p>
             </div>
           )}
 

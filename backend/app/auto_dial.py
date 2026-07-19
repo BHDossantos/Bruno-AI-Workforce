@@ -93,12 +93,13 @@ def run(db, per_run_limit: int | None = None) -> dict:
     recent = _recently_called_ids(db, datetime.now(timezone.utc) - cooldown)
     dead = lead_temperature.statuses_for(lead_temperature.DEAD) or set()
 
-    # Hottest first; only leads with a phone and not in a dead/closed status.
-    # Unscored leads sort last (nullslast) so real hot leads are dialed first.
+    # Work the Call List in the SAME priority as email/SMS: hot → warm → cold
+    # (dead last), uncontacted-first then hottest score within a tier. Keeps every
+    # channel dialing/emailing the same lead order. Dead/closed are already excluded.
     q = (db.query(Lead)
          .filter(Lead.phone.isnot(None), Lead.phone != "")
          .filter(~func.lower(func.coalesce(Lead.status, "")).in_(dead))
-         .order_by(Lead.score.desc().nullslast(), Lead.created_at.desc()))
+         .order_by(*lead_temperature.dispatch_order(Lead)))
 
     placed: list[str] = []
     errors = skipped_recent = skipped_optout = skipped_blocked = 0

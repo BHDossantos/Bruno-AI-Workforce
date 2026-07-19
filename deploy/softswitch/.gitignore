@@ -1,0 +1,3 @@
+# The real trunk config carries your carrier username/password — never commit it.
+freeswitch/conf/sip_profiles/external/bruno_trunk.xml
+.env

@@ -16,16 +16,20 @@ from ..config import settings
 
 
 def active() -> str | None:
-    """Which provider a call would use right now — 'plivo' | 'vonage' | 'twilio',
-    or None if nothing is connected. An explicit ``voice_provider`` wins when that
-    provider is configured; otherwise auto prefers a dedicated alternative carrier
-    (Vonage, then Plivo) over the Twilio-compatible stack."""
-    from . import plivo_voice, twilio_voice, vonage_voice
+    """Which provider a call would use right now — 'plivo' | 'vonage' | 'sip' |
+    'twilio', or None if nothing is connected. An explicit ``voice_provider`` wins
+    when that provider is configured; otherwise auto prefers a dedicated alternative
+    carrier (Vonage, then Plivo) over the Twilio-compatible stack, and only falls to
+    the self-hosted SIP softswitch when it's the sole thing connected (it needs its
+    own server, so it shouldn't hijack a working CPaaS unless explicitly chosen)."""
+    from . import plivo_voice, sip_voice, twilio_voice, vonage_voice
     pref = (settings.voice_provider or "auto").strip().lower()
     if pref == "plivo" and plivo_voice.is_configured():
         return "plivo"
     if pref == "vonage" and vonage_voice.is_configured():
         return "vonage"
+    if pref == "sip" and sip_voice.is_configured():
+        return "sip"
     if pref in ("twilio", "signalwire") and twilio_voice.is_configured():
         return "twilio"
     # auto (or the preferred one isn't configured): pick what's connected.
@@ -35,19 +39,21 @@ def active() -> str | None:
         return "plivo"
     if twilio_voice.is_configured():
         return "twilio"
+    if sip_voice.is_configured():
+        return "sip"
     return None
 
 
 def _mod():
-    from . import plivo_voice, twilio_voice, vonage_voice
-    return {"plivo": plivo_voice, "vonage": vonage_voice, "twilio": twilio_voice}.get(
-        active(), twilio_voice)
+    from . import plivo_voice, sip_voice, twilio_voice, vonage_voice
+    return {"plivo": plivo_voice, "vonage": vonage_voice, "sip": sip_voice,
+            "twilio": twilio_voice}.get(active(), twilio_voice)
 
 
 def is_configured() -> bool:
-    from . import plivo_voice, twilio_voice, vonage_voice
+    from . import plivo_voice, sip_voice, twilio_voice, vonage_voice
     return (plivo_voice.is_configured() or vonage_voice.is_configured()
-            or twilio_voice.is_configured())
+            or sip_voice.is_configured() or twilio_voice.is_configured())
 
 
 def voicemail_configured() -> bool:

@@ -11,13 +11,14 @@ import logging
 import re
 from datetime import date, timedelta
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from . import outreach
 from .agents.base import FOLLOW_UP_OFFSETS
 from .ai import client, skills
-from .ai.prompts import INSURANCE_OUTREACH, SAVORYMIND_PITCH
-from .models import FollowUp, Lead, ManualContact, Restaurant
+from .ai.prompts import CANDIDATE_PROFILE, CONSULTING_OUTREACH, INSURANCE_OUTREACH, SAVORYMIND_PITCH
+from .models import FollowUp, Lead, ManualContact, Message, Restaurant
 
 log = logging.getLogger("bruno.importer")
 
@@ -196,11 +197,29 @@ def _text(v) -> str | None:
     return str(v)
 
 
+def _existing_lead(db: Session, email: str, *, consulting: bool):
+    """Find a lead already in the book with this email, within the same business
+    family (consulting = B&B Global; everything else = insurance) so re-importing a
+    list updates rows instead of creating duplicates. Case-insensitive."""
+    q = db.query(Lead).filter(func.lower(Lead.email) == email.strip().lower())
+    q = q.filter(Lead.segment == "consulting") if consulting else q.filter(Lead.segment != "consulting")
+    return q.order_by(Lead.created_at.asc()).first()
+
+
 def process_leads_csv(db: Session, rows: list[dict]) -> dict:
-    """Import insurance leads. Expected columns: email (required), company_name,
-    owner_name, phone, website, linkedin, industry, segment, category."""
-    sysp = skills.system_prompt("cold-email", "marketing-psychology")
-    imported = sent = skipped = 0
+    """Import insurance leads FAST. Expected columns: email (required), company_name,
+    owner_name, phone, website, linkedin, industry, segment, category.
+
+    This only parses + inserts the leads (a quick DB write) and returns immediately —
+    it does NOT write the AI email or send during the upload. Writing the cold email
+    is expensive (one AI call per lead) and sending is paced by the daily ramp cap,
+    so both are deferred to the paced sender (bulk_outreach.dispatch_leads, run by the
+    9:30am/3:30pm cron and the manual 'Send pending' action). A 2,000-row list now
+    imports in a second instead of timing out the request.
+
+    Re-importing the same list is safe: a row whose email already exists UPDATES that
+    lead (refreshing any newly-provided fields) instead of creating a duplicate."""
+    imported = updated = skipped = 0
     for row in rows:
         # Match ANY email-column naming (not just a literal "email" header), so a
         # file exported from Google/Outlook/etc. and imported as "leads" doesn't
@@ -212,75 +231,200 @@ def process_leads_csv(db: Session, rows: list[dict]) -> dict:
         segment = (_g(row, "segment") or "commercial").lower()
         category = _g(row, "category", "industry") or "Commercial"
         company = _g(row, "company_name", "company", "business", "business_name", *_COMPANY_KEYS)
+        owner = _g(row, "owner_name", "owner", "name", *_FULLNAME_KEYS, *_FIRST_KEYS)
+        phone = _g(row, "phone", *_PHONE_KEYS)
+        existing = _existing_lead(db, email, consulting=False)
+        if existing:
+            # Refresh newly-provided fields; never clobber existing data with blanks.
+            existing.company_name = company or existing.company_name
+            existing.owner_name = owner or existing.owner_name
+            existing.phone = phone or existing.phone
+            existing.website = _g(row, "website") or existing.website
+            existing.linkedin = _g(row, "linkedin") or existing.linkedin
+            existing.industry = _g(row, "industry") or existing.industry
+            updated += 1
+            continue
         reason = (f"{category} businesses typically need liability, property and professional coverage."
                   if segment == "commercial" else f"{category} prospects often need home/auto/life coverage.")
-        art = client.complete_json(INSURANCE_OUTREACH.format(
-            company_name=company or email, category=category, segment=segment,
-            industry=_g(row, "industry"), city=_g(row, "city"), reason=reason), system=sysp)
-        subject = (art.get("cold_email_subject") if isinstance(art, dict) else None) or \
-            f"Insurance options for {company or 'your business'}"
-        body = art.get("cold_email_body") if isinstance(art, dict) else None
-
         lead = Lead(segment=segment, category=category, company_name=company,
-                    owner_name=_g(row, "owner_name", "owner", "name", *_FULLNAME_KEYS, *_FIRST_KEYS), email=email,
-                    phone=_g(row, "phone", *_PHONE_KEYS), website=_g(row, "website"),
+                    owner_name=owner, email=email,
+                    phone=phone, website=_g(row, "website"),
                     linkedin=_g(row, "linkedin"), industry=_g(row, "industry"),
-                    reason=reason, score=80, status="Drafted", cold_email=body,
-                    call_script=_text(art.get("call_script") if isinstance(art, dict) else None),
-                    linkedin_msg=art.get("linkedin_msg") if isinstance(art, dict) else None)
+                    reason=reason, score=80, status="New")
         db.add(lead)
         db.flush()
-        # Only dispatch when AI produced a real body — never send an empty email
-        # (e.g. when OpenAI is unconfigured). Keep it as a draft otherwise.
-        if body:
-            msg = outreach.dispatch_email(db, entity_type="lead", entity_id=lead.id, to_email=email,
-                                          subject=subject, body=body, account="insurance", actor="import")
-            if msg.status == "Sent":
-                lead.status = "Sent"
-                sent += 1
         _schedule_followups(db, "lead", lead.id)
         imported += 1
     db.commit()
-    log.info("Imported %d leads (%d sent, %d skipped)", imported, sent, skipped)
-    return {"imported": imported, "sent": sent, "skipped_no_email": skipped}
+    log.info("Imported %d leads, updated %d (queued for paced outreach, %d skipped)",
+             imported, updated, skipped)
+    # sent is always 0 here — outreach goes out on the paced sender, not the upload.
+    return {"imported": imported, "updated": updated, "sent": 0, "queued": imported,
+            "skipped_no_email": skipped}
+
+
+def draft_lead_email(db: Session, lead: Lead) -> str:
+    """Write the AI cold email + call script for one lead, in place, and return the
+    subject line. Shared by the paced sender so the expensive AI call happens on the
+    background/send path (capped per day) — never during the CSV upload request.
+
+    Segment-aware: 'consulting' leads (B&B Global) get the founder-led consulting
+    pitch; everything else gets the insurance producer's outreach."""
+    segment = (lead.segment or "commercial").lower()
+    company = lead.company_name
+    if segment == "consulting":
+        sysp = skills.system_prompt("cold-email", "copywriting")
+        art = client.complete_json(CONSULTING_OUTREACH.format(
+            profile=CANDIDATE_PROFILE, company_name=company or lead.email,
+            category=lead.category or "", industry=lead.industry or "", city=""), system=sysp)
+        fallback = f"A quick idea for {company or 'your team'}"
+    else:
+        sysp = skills.system_prompt("cold-email", "marketing-psychology")
+        category = lead.category or lead.industry or "Commercial"
+        reason = lead.reason or (
+            f"{category} businesses typically need liability, property and professional coverage."
+            if segment == "commercial" else f"{category} prospects often need home/auto/life coverage.")
+        art = client.complete_json(INSURANCE_OUTREACH.format(
+            company_name=company or lead.email, category=category, segment=segment,
+            industry=lead.industry or "", city="", reason=reason), system=sysp)
+        fallback = f"Insurance options for {company or 'your business'}"
+    subject = None
+    if isinstance(art, dict):
+        lead.cold_email = art.get("cold_email_body") or lead.cold_email
+        lead.call_script = _text(art.get("call_script")) or lead.call_script
+        lead.linkedin_msg = art.get("linkedin_msg") or lead.linkedin_msg
+        subject = art.get("cold_email_subject")
+    return subject or fallback
+
+
+def process_bnb_csv(db: Session, rows: list[dict]) -> dict:
+    """Import B&B Global (tech consulting) leads FAST — insert only. The paced sender
+    writes the founder-led consulting email and sends it via the BnB mailbox. Expected
+    columns: email (required), company_name, owner_name, phone, website, linkedin,
+    industry, category. Re-importing updates existing consulting leads by email."""
+    imported = updated = skipped = 0
+    for row in rows:
+        email = _g(row, "email", "email_address", *_EMAIL_KEYS)
+        if not email:
+            skipped += 1
+            continue
+        company = _g(row, "company_name", "company", "business", "business_name", *_COMPANY_KEYS)
+        owner = _g(row, "owner_name", "owner", "name", *_FULLNAME_KEYS, *_FIRST_KEYS)
+        phone = _g(row, "phone", *_PHONE_KEYS)
+        existing = _existing_lead(db, email, consulting=True)
+        if existing:
+            existing.company_name = company or existing.company_name
+            existing.owner_name = owner or existing.owner_name
+            existing.phone = phone or existing.phone
+            existing.website = _g(row, "website") or existing.website
+            existing.linkedin = _g(row, "linkedin") or existing.linkedin
+            existing.industry = _g(row, "industry") or existing.industry
+            updated += 1
+            continue
+        lead = Lead(segment="consulting", category=_g(row, "category", "industry") or "Technology",
+                    company_name=company, owner_name=owner,
+                    email=email, phone=phone, website=_g(row, "website"),
+                    linkedin=_g(row, "linkedin"), industry=_g(row, "industry"),
+                    score=80, status="New")
+        db.add(lead)
+        db.flush()
+        _schedule_followups(db, "lead", lead.id)
+        imported += 1
+    db.commit()
+    log.info("Imported %d BnB leads, updated %d (queued, %d skipped)", imported, updated, skipped)
+    return {"imported": imported, "updated": updated, "sent": 0, "queued": imported,
+            "skipped_no_email": skipped}
 
 
 def process_restaurants_csv(db: Session, rows: list[dict]) -> dict:
-    """Import restaurants. Expected columns: email (required), name, owner_manager,
-    phone, website, instagram, cuisine, city."""
-    sysp = skills.system_prompt("copywriting", "cold-email")
-    imported = sent = skipped = 0
+    """Import SavoryMind restaurant prospects FAST — insert only. The paced sender
+    writes the SavoryMind pitch and sends it. Expected columns: email (required),
+    name, owner_manager, phone, website, instagram, cuisine, city. Re-importing
+    updates an existing prospect by email instead of duplicating it."""
+    imported = updated = skipped = 0
     for row in rows:
         email = _g(row, "email", "email_address", *_EMAIL_KEYS)
         if not email:
             skipped += 1
             continue
         name = _g(row, "name", "restaurant", "restaurant_name", "company_name", *_FULLNAME_KEYS, *_COMPANY_KEYS) or email
-        art = client.complete_json(SAVORYMIND_PITCH.format(
-            name=name, cuisine=_g(row, "cuisine") or "restaurant", city=_g(row, "city") or "",
-            owner=_g(row, "owner_manager", "owner", "manager") or "", insight="grow revenue with menu intelligence"),
-            system=sysp)
-        subject = (art.get("pitch_subject") if isinstance(art, dict) else None) or \
-            f"Growing revenue at {name} with SavoryMind"
-        body = art.get("pitch_body") if isinstance(art, dict) else None
-
+        existing = (db.query(Restaurant).filter(Restaurant.kind == "prospect",
+                    func.lower(Restaurant.email) == email.strip().lower()).first())
+        if existing:
+            existing.owner_manager = _g(row, "owner_manager", "owner", "manager") or existing.owner_manager
+            existing.phone = _g(row, "phone") or existing.phone
+            existing.website = _g(row, "website") or existing.website
+            existing.instagram = _g(row, "instagram") or existing.instagram
+            existing.cuisine = _g(row, "cuisine") or existing.cuisine
+            existing.city = _g(row, "city") or existing.city
+            updated += 1
+            continue
         r = Restaurant(kind="prospect", name=name, owner_manager=_g(row, "owner_manager", "owner", "manager"),
                        website=_g(row, "website"), instagram=_g(row, "instagram"), email=email,
                        phone=_g(row, "phone"), cuisine=_g(row, "cuisine"), city=_g(row, "city"),
-                       status="Drafted", pitch_email=body,
-                       linkedin_msg=art.get("linkedin_msg") if isinstance(art, dict) else None,
-                       follow_up=art.get("demo_invite") if isinstance(art, dict) else None)
+                       status="New")
         db.add(r)
         db.flush()
-        # Only dispatch with a real AI body — never send an empty pitch.
-        if body:
-            msg = outreach.dispatch_email(db, entity_type="restaurant", entity_id=r.id, to_email=email,
-                                          subject=subject, body=body, account="personal", actor="import")
-            if msg.status == "Sent":
-                r.status = "Sent"
-                sent += 1
         _schedule_followups(db, "restaurant", r.id)
         imported += 1
     db.commit()
-    log.info("Imported %d restaurants (%d sent, %d skipped)", imported, sent, skipped)
-    return {"imported": imported, "sent": sent, "skipped_no_email": skipped}
+    log.info("Imported %d SavoryMind prospects, updated %d (queued, %d skipped)",
+             imported, updated, skipped)
+    return {"imported": imported, "updated": updated, "sent": 0, "queued": imported,
+            "skipped_no_email": skipped}
+
+
+def draft_restaurant_email(db: Session, r: Restaurant) -> str:
+    """Write the AI SavoryMind pitch for one restaurant, in place, and return the
+    subject. Runs on the paced sender, not during the CSV upload."""
+    sysp = skills.system_prompt("copywriting", "cold-email")
+    art = client.complete_json(SAVORYMIND_PITCH.format(
+        name=r.name, cuisine=r.cuisine or "restaurant", city=r.city or "",
+        owner=r.owner_manager or "", insight="grow revenue with menu intelligence"), system=sysp)
+    subject = None
+    if isinstance(art, dict):
+        r.pitch_email = art.get("pitch_body") or r.pitch_email
+        r.linkedin_msg = art.get("linkedin_msg") or r.linkedin_msg
+        r.follow_up = art.get("demo_invite") or r.follow_up
+        subject = art.get("pitch_subject")
+    return subject or f"Growing revenue at {r.name} with SavoryMind"
+
+
+def dedupe_leads(db: Session) -> dict:
+    """One-time cleanup for duplicate leads (e.g. a list re-imported several times).
+    Groups leads by email within a business family (consulting vs insurance) and keeps
+    ONE per group — preferring the most-worked row (engaged status › has a written
+    email › has sent/queued messages › most contacts › oldest) so no history is lost.
+    Merges the contact count onto the keeper, then deletes the extras and their
+    scheduled follow-ups. Returns how many groups were deduped and rows removed."""
+    from collections import defaultdict
+
+    groups: dict[tuple[str, str], list[Lead]] = defaultdict(list)
+    for lead in db.query(Lead).filter(Lead.email.isnot(None), Lead.email != "").all():
+        family = "consulting" if (lead.segment or "").lower() == "consulting" else "insurance"
+        groups[((lead.email or "").strip().lower(), family)].append(lead)
+
+    def _rank(l: Lead) -> tuple:
+        engaged = (l.status or "").strip().lower() not in ("", "new", "drafted", "skipped")
+        has_msg = db.query(Message.id).filter(
+            Message.entity_type == "lead", Message.entity_id == l.id).first() is not None
+        return (engaged, bool((l.cold_email or "").strip()), has_msg,
+                l.times_contacted or 0, -(l.score or 0))
+
+    deduped = removed = 0
+    for (_email, _family), rows in groups.items():
+        if len(rows) < 2:
+            continue
+        keeper = max(rows, key=_rank)
+        for l in rows:
+            if l.id == keeper.id:
+                continue
+            keeper.times_contacted = max(keeper.times_contacted or 0, l.times_contacted or 0)
+            db.query(FollowUp).filter(FollowUp.entity_type == "lead",
+                                      FollowUp.entity_id == l.id).delete(synchronize_session=False)
+            db.delete(l)
+            removed += 1
+        deduped += 1
+    db.commit()
+    log.info("Deduped %d lead groups, removed %d duplicate leads", deduped, removed)
+    return {"ok": True, "groups_deduped": deduped, "removed": removed}

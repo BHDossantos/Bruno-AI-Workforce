@@ -36,9 +36,9 @@ _scheduler: BackgroundScheduler | None = None
 _INSURANCE_AGENTS = {"insurance", "commercial_finder", "home_finder", "auto_finder",
                      "homeowner", "referral_partner", "follow_up_agent", "review_referral"}
 _INSURANCE_JOBS = {"client_autoscale", "leads", "auto_outreach", "flush_drafts",
-                   "followups", "booking_nudges", "lifecycle", "outreach_digest",
-                   "refresh_tokens", "selfcheck", "referrals", "auto_dial",
-                   "everquote_drafts"}
+                   "followups", "sms_followups", "booking_nudges", "lifecycle",
+                   "outreach_digest", "refresh_tokens", "selfcheck", "referrals",
+                   "auto_dial", "everquote_drafts"}
 
 
 def _insurance_only() -> bool:
@@ -207,6 +207,15 @@ def _run_followups(db):
     return {"enrolled": enrolled, **processed}
 
 
+def _run_sms_followups(db):
+    """Text emailed-but-silent leads — only when the operator has enabled it
+    (needs A2P). No-op otherwise, so it never texts unexpectedly on deploy."""
+    from . import sms_followups
+    if not sms_followups.is_enabled():
+        return {"skipped": "sms follow-up disabled"}
+    return sms_followups.run(db)
+
+
 def _run_lifecycle(db):
     from . import lead_lifecycle
     return lead_lifecycle.run(db)
@@ -294,6 +303,8 @@ _JOBS: dict[str, tuple] = {
     "lifecycle":        (_run_lifecycle, "20 */3 * * *"),
     # Send any due follow-ups, daily.
     "followups":        (_run_followups, "0 11 * * *"),
+    # Text emailed-but-silent leads a couple days later (only if enabled), daily.
+    "sms_followups":    (_run_sms_followups, "45 13 * * *"),
     # Nudge interested-but-not-booked prospects toward the calendar, daily.
     "booking_nudges":   (_run_booking_nudges, "30 12 * * *"),
     # Email the operator the day's outreach numbers + top actions, every morning.

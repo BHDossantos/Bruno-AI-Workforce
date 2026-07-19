@@ -14,9 +14,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..integrations import plivo_voice, vonage_voice
+from ..integrations import plivo_voice, sip_voice, vonage_voice
 from ..integrations import twilio_voice as voice
-from ..integrations import voice as vdispatch  # provider dispatcher (Plivo/Vonage/Twilio)
+from ..integrations import voice as vdispatch  # provider dispatcher (Plivo/Vonage/SIP/Twilio)
 from ..models import Lead, Message
 from ..security import require_role
 
@@ -116,6 +116,47 @@ def voicemail_status(db: Session = Depends(get_db), _=Depends(_read)):
     _refresh(db)
     from ..config import settings
     return {"recorded": voice.voicemail_configured(), "url": settings.producer_voicemail_url or None}
+
+
+@router.get("/health")
+def calling_health(db: Session = Depends(get_db), _=Depends(_read)):
+    """Calling health for the Call List dashboard: which provider places calls, how
+    many went out today / this week, the connect vs voicemail-or-missed split, and
+    the connect rate — the calling equivalent of the email deliverability screen."""
+    _refresh(db)
+    from datetime import date, timedelta
+    from sqlalchemy import func
+
+    from ..config import settings
+    start = datetime.combine(date.today(), datetime.min.time(), tzinfo=timezone.utc)
+    week = start - timedelta(days=6)
+
+    def _counts(since):
+        rows = dict(db.query(Message.status, func.count()).filter(
+            Message.channel == "call", Message.direction == "outbound",
+            Message.sent_at >= since).group_by(Message.status).all())
+        connected = int(rows.get("Sent", 0))
+        missed = int(rows.get("Missed", 0))
+        dialing = int(rows.get("Dialing", 0))
+        finished = connected + missed
+        rate = round(100.0 * connected / finished, 1) if finished else 0.0
+        return {"placed": connected + missed + dialing, "connected": connected,
+                "missed": missed, "dialing": dialing, "connect_rate": rate}
+
+    today = _counts(start)
+    week_stats = _counts(week)
+    provider = vdispatch.active()
+    cap = int(settings.auto_dial_daily_cap or 0)
+    return {
+        "provider": provider,
+        "configured": vdispatch.is_configured(),
+        "voicemail_ready": voice.voicemail_configured(),
+        "transfer_enabled": bool(settings.auto_dial_transfer_enabled),
+        "daily_cap": cap,
+        "remaining_today": max(0, cap - today["placed"]) if cap else None,
+        "today": today,
+        "week": week_stats,
+    }
 
 
 @router.get("/token")
@@ -370,3 +411,83 @@ async def vonage_event(request: Request, lead_id: str = "", db: Session = Depend
             msg.status = "Sent" if status in ("completed", "answered") else "Missed"
             db.commit()
     return {}
+
+
+@router.get("/sip/health")
+def sip_health(db: Session = Depends(get_db), _=Depends(_read)):
+    """Test the app → self-hosted FreeSWITCH link (Setup 'Test connection' button):
+    ESL auth + whether the BYOC trunk gateway is registered, before any real call."""
+    _refresh(db)
+    return sip_voice.health()
+
+
+# ── Public self-hosted SIP softswitch webhooks (FreeSWITCH HTTAPI / XML) ───────
+# Served when voice_provider routes to our own FreeSWITCH. Same fetch-instructions
+# shape as TwiML/NCCO, but FreeSWITCH's HTTAPI XML dialect. See integrations/sip_voice.py.
+@router.post("/sip/amd")
+async def sip_amd(request: Request, lead_id: str = "", db: Session = Depends(get_db)):
+    """Auto-dial answer → machine gets the recorded drop; a live human transfers to
+    your cell (when enabled). Reads mod_amd's result, which FreeSWITCH HTTAPI posts
+    as the amd_result channel variable."""
+    _refresh(db)
+    raw = ""
+    try:
+        form = await request.form()
+        raw = (form.get("amd_result") or form.get("variable_amd_result") or "").strip().lower()
+    except Exception:
+        pass
+    answered_by = "machine" if "machine" in raw else ("human" if raw else "")
+    return Response(sip_voice._httapi(sip_voice.amd_work(answered_by or None, lead_id or None)),
+                    media_type=_XML)
+
+
+@router.post("/sip/bridge")
+def sip_bridge(lead_phone: str = "", lead_id: str = "", db: Session = Depends(get_db)):
+    """Returned after YOU answer a bridge call — consent, then dial the lead."""
+    _refresh(db)
+    return Response(sip_voice._httapi(sip_voice.bridge_work(lead_phone, lead_id or None)),
+                    media_type=_XML)
+
+
+@router.post("/sip/record-vm")
+def sip_record_vm(db: Session = Depends(get_db)):
+    """Played when we call you to record your voicemail drop (FreeSWITCH)."""
+    _refresh(db)
+    return Response(sip_voice._httapi(sip_voice.record_vm_work()), media_type=_XML)
+
+
+@router.post("/sip/vm-saved")
+async def sip_vm_saved(request: Request, db: Session = Depends(get_db)):
+    """FreeSWITCH POSTs the recorded greeting here (multipart). Store it and point
+    the voicemail drop at the hosted URL. Best-effort; always returns a valid doc."""
+    try:
+        form = await request.form()
+        rec = form.get("vm-greeting.wav") or form.get("recording") or form.get("file")
+        data = await rec.read() if hasattr(rec, "read") else None
+        if data:
+            from ..integrations import storage
+            url = storage.upload_public(data, "voicemail/sip-greeting.wav", "audio/wav")
+            if url:
+                from .. import runtime_config
+                runtime_config.save(db, "producer_voicemail_url", url)
+    except Exception:
+        db.rollback()
+    return Response(sip_voice._httapi("<hangup/>"), media_type=_XML)
+
+
+@router.post("/sip/event")
+async def sip_event(request: Request, lead_id: str = "", db: Session = Depends(get_db)):
+    """FreeSWITCH call-status callback — mark the call row done when it completes."""
+    try:
+        form = await request.form()
+    except Exception:
+        form = {}
+    uuid_ = (form.get("uuid") or form.get("Unique-ID") or "") if form else ""
+    status = (form.get("status") or form.get("hangup_cause") or "").strip().lower() if form else ""
+    if uuid_ and status:
+        msg = db.query(Message).filter(Message.provider_id == uuid_,
+                                       Message.channel == "call").first()
+        if msg and msg.status == "Dialing":
+            msg.status = "Sent" if status in ("completed", "answered", "normal_clearing") else "Missed"
+            db.commit()
+    return Response("", media_type=_XML)

@@ -437,6 +437,55 @@ def test_deliverability_dashboard(client, auth_headers):
     assert body["ok"] is True
     assert "dispatched" in body and "leads" in body and "restaurants" in body
 
+    # Reputation block (bounce/complaint health) is present with the shape the UI needs.
+    rep = d["reputation"]
+    for key in ("tracked", "bounced", "complained", "bounce_rate", "complaint_rate",
+                "suppressed", "tone", "note"):
+        assert key in rep, key
+    assert rep["tone"] in ("good", "warn", "bad", "info")
+
+
+@requires_db
+def test_deliverability_reputation_counts_bounces_and_suppressions():
+    """The reputation block tallies real bounce/complaint delivery events and the
+    suppressed-address count. Asserted as deltas since the metric is DB-global."""
+    from datetime import datetime, timezone
+
+    from app import deliverability
+    from app.database import SessionLocal
+    from app.models import DoNotContact, Message
+
+    db = SessionLocal()
+    now = datetime.now(timezone.utc)
+    since = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    tags = []
+    try:
+        base = deliverability._reputation(db, since)
+        for i in range(3):
+            db.add(Message(channel="email", direction="outbound", to_email=f"rep_b{i}@x.co",
+                           status="Sent", delivery_status="bounced", sent_at=now))
+        db.add(Message(channel="email", direction="outbound", to_email="rep_c@x.co",
+                       status="Sent", delivery_status="complained", sent_at=now))
+        for i in range(5):
+            db.add(Message(channel="email", direction="outbound", to_email=f"rep_d{i}@x.co",
+                           status="Sent", delivery_status="delivered", sent_at=now))
+        val = f"rep_supp@x.co"
+        db.add(DoNotContact(kind="email", value=val, reason="hard bounce", source="resend"))
+        tags = [f"rep_b{i}@x.co" for i in range(3)] + ["rep_c@x.co"] + [f"rep_d{i}@x.co" for i in range(5)]
+        db.commit()
+
+        now2 = deliverability._reputation(db, since)
+        assert now2["bounced"] == base["bounced"] + 3
+        assert now2["complained"] == base["complained"] + 1
+        assert now2["delivered"] == base["delivered"] + 5
+        assert now2["suppressed"] == base["suppressed"] + 1
+        assert isinstance(now2["bounce_rate"], float) and isinstance(now2["complaint_rate"], float)
+    finally:
+        db.query(Message).filter(Message.to_email.in_(tags)).delete(synchronize_session=False)
+        db.query(DoNotContact).filter(DoNotContact.value == "rep_supp@x.co").delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
 
 def test_instagram_dm_deeplink():
     """The IG assist queue links straight to the DM thread (ig.me/m/<handle>)."""
@@ -1247,6 +1296,39 @@ def test_call_lead_offline_returns_reason(client, auth_headers):
         db.close()
 
 
+@requires_db
+def test_calls_health_reports_connect_rate(client, auth_headers):
+    """The Call List calling-health endpoint splits today's calls into connected vs
+    voicemail/missed and computes the connect rate. Asserted as deltas (DB-global)."""
+    from datetime import datetime, timezone
+
+    from app.database import SessionLocal
+    from app.models import Message
+
+    db = SessionLocal()
+    now = datetime.now(timezone.utc)
+    made = []
+    try:
+        base = client.get("/calls/health", headers=auth_headers).json()["today"]
+        for st in ("Sent", "Sent", "Sent", "Missed"):   # 3 connected, 1 missed
+            m = Message(channel="call", direction="outbound", to_email=None,
+                        status=st, provider_id=f"hc_{st}_{len(made)}", sent_at=now)
+            db.add(m); made.append(m)
+        db.commit()
+
+        d = client.get("/calls/health", headers=auth_headers).json()
+        assert d["today"]["connected"] == base["connected"] + 3
+        assert d["today"]["missed"] == base["missed"] + 1
+        assert 0.0 <= d["today"]["connect_rate"] <= 100.0
+        for key in ("provider", "configured", "voicemail_ready", "daily_cap", "today", "week"):
+            assert key in d, key
+    finally:
+        for m in made:
+            db.delete(m)
+        db.commit()
+        db.close()
+
+
 def test_sms_configured_accepts_either_number():
     """Twilio SMS is 'configured' with the creds + EITHER number field (default or
     insurance) — requiring both was a trap that silently blocked texting. And the
@@ -1484,6 +1566,97 @@ def test_vonage_voice_provider_and_dispatch(monkeypatch):
                for a in ncco)
 
 
+def test_sip_softswitch_health_check(monkeypatch):
+    """The Setup 'Test connection' button checks ESL reachability + trunk registration
+    before a real call, so a bad host/password or unregistered trunk is caught early."""
+    from app.config import settings
+    from app.integrations import sip_voice
+
+    # Unconfigured → clear guidance, no crash.
+    monkeypatch.setattr(settings, "sip_esl_host", "", raising=False)
+    monkeypatch.setattr(settings, "sip_gateway", "", raising=False)
+    assert sip_voice.health()["ok"] is False
+
+    monkeypatch.setattr(settings, "sip_esl_host", "10.0.0.5", raising=False)
+    monkeypatch.setattr(settings, "sip_gateway", "bruno_trunk", raising=False)
+
+    # Registered trunk → ok + registered.
+    monkeypatch.setattr(sip_voice, "_esl_api", lambda cmd: ("Name    bruno_trunk\nState   REGED", None))
+    h = sip_voice.health()
+    assert h["ok"] is True and h["registered"] is True
+
+    # Reachable but trunk not registered → ok, not registered, actionable reason.
+    monkeypatch.setattr(sip_voice, "_esl_api", lambda cmd: ("State   NOREG", None))
+    h = sip_voice.health()
+    assert h["ok"] is True and h["registered"] is False
+
+    # Unknown gateway name → flagged.
+    monkeypatch.setattr(sip_voice, "_esl_api", lambda cmd: ("Invalid Gateway!", None))
+    h = sip_voice.health()
+    assert h["registered"] is False and "no gateway named 'bruno_trunk'" in h["reason"]
+
+    # Can't reach the switch → ok False with the ESL error.
+    monkeypatch.setattr(sip_voice, "_esl_api", lambda cmd: (None, "Can't reach FreeSWITCH ESL at 10.0.0.5:8021"))
+    assert sip_voice.health()["ok"] is False
+
+
+def test_sip_softswitch_provider_and_dispatch(monkeypatch):
+    """Our own FreeSWITCH softswitch is a voice provider too: it originates over the
+    Event Socket through a BYOC gateway and returns HTTAPI (XML) call control that
+    leaves the recorded voicemail (transfer off) or bridges to the cell (transfer on)."""
+    from app.config import settings
+    from app.integrations import sip_voice, voice
+
+    monkeypatch.setattr(settings, "sip_esl_host", "10.0.0.5", raising=False)
+    monkeypatch.setattr(settings, "sip_esl_port", 8021, raising=False)
+    monkeypatch.setattr(settings, "sip_esl_password", "secret", raising=False)
+    monkeypatch.setattr(settings, "sip_gateway", "bruno_trunk", raising=False)
+    monkeypatch.setattr(settings, "sip_from_number", "+19786798009", raising=False)
+    monkeypatch.setattr(settings, "sip_voice_number", "", raising=False)
+    monkeypatch.setattr(settings, "producer_callback", "+16039308272", raising=False)
+    monkeypatch.setattr(settings, "producer_cell", "+16039308272", raising=False)
+    monkeypatch.setattr(settings, "public_base_url", "https://api.example.com", raising=False)
+    monkeypatch.setattr(settings, "producer_voicemail_url", "https://cdn/vm.wav", raising=False)
+    assert sip_voice.is_configured() is True
+
+    # Explicit sip selection routes the dispatcher to the softswitch.
+    monkeypatch.setattr(settings, "voice_provider", "sip", raising=False)
+    assert voice.active() == "sip"
+
+    # Capture the ESL command instead of opening a real socket.
+    captured = {}
+
+    def _fake_esl(command):
+        captured["cmd"] = command
+        return "job-uuid", None
+
+    monkeypatch.setattr(sip_voice, "_esl", _fake_esl)
+    sid, err = voice.place_auto_call("(978) 254-1435", "lead-1")
+    assert sid == "job-uuid" and err is None
+    assert captured["cmd"].startswith("bgapi originate ")
+    assert "sofia/gateway/bruno_trunk/19782541435" in captured["cmd"]      # E.164 without '+'
+    assert "origination_caller_id_number=19786798009" in captured["cmd"]
+    assert "url=https://api.example.com/calls/sip/amd?lead_id=lead-1" in captured["cmd"]
+
+    # Auto-call runs answering-machine detection on the answered leg.
+    assert "execute_on_answer=amd" in captured["cmd"]
+
+    # HTTAPI: transfer OFF (default) → play the recorded voicemail, no bridge.
+    monkeypatch.setattr(settings, "auto_dial_transfer_enabled", False, raising=False)
+    amd = sip_voice.amd_work("human", "lead-1")
+    assert '<playback file="https://cdn/vm.wav"/>' in amd and "bridge" not in amd
+    # transfer ON + human → bridge the answered call to the producer's cell.
+    monkeypatch.setattr(settings, "auto_dial_transfer_enabled", True, raising=False)
+    amd_on = sip_voice.amd_work("human", "lead-1")
+    assert 'application="bridge"' in amd_on and "sofia/gateway/bruno_trunk/16039308272" in amd_on
+    # transfer ON but a MACHINE answered → leave the drop, never bridge into voicemail.
+    amd_machine = sip_voice.amd_work("machine", "lead-1")
+    assert '<playback file="https://cdn/vm.wav"/>' in amd_machine and "bridge" not in amd_machine
+    # Bridge flow dials the lead after consent.
+    bridge = sip_voice.bridge_work("(978) 254-1435", "lead-1")
+    assert "sofia/gateway/bruno_trunk/19782541435" in bridge
+
+
 @requires_db
 def test_resend_inbound_webhook_two_way(client, monkeypatch):
     """The Resend webhook makes email two-way: an inbound reply is linked to its
@@ -1564,6 +1737,58 @@ def test_resend_inbound_webhook_two_way(client, monkeypatch):
         assert r.status_code == 200 and r.json()["ok"] is False
     finally:
         _purge()  # never leak rows into the session-scoped DB other tests share
+
+
+@requires_db
+def test_resend_hard_bounce_and_complaint_suppress_address(client, monkeypatch):
+    """Reputation guard: a spam complaint or a PERMANENT bounce auto-adds the address
+    to Do-Not-Contact so we never email it again; a transient bounce does not."""
+    from app import compliance
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.models import DoNotContact, Message
+
+    monkeypatch.setattr(settings, "resend_webhook_secret", "", raising=False)
+    hard = "deadbox@nowhere-permanent.com"
+    soft = "busybox@temp-full.com"
+    complained = "angry@prospect.com"
+    db = SessionLocal()
+    try:
+        db.query(DoNotContact).filter(DoNotContact.value.in_([hard, soft, complained])).delete(
+            synchronize_session=False)
+        db.add_all([
+            Message(channel="email", direction="outbound", to_email=hard,
+                    provider_id="re_hard", status="Sent"),
+            Message(channel="email", direction="outbound", to_email=soft,
+                    provider_id="re_soft", status="Sent"),
+            Message(channel="email", direction="outbound", to_email=complained,
+                    provider_id="re_spam", status="Sent"),
+        ])
+        db.commit()
+    finally:
+        db.close()
+
+    # Permanent bounce → suppressed.
+    client.post("/resend/inbound", json={"type": "email.bounced",
+                "data": {"email_id": "re_hard", "bounce": {"type": "Permanent", "subType": "General"}}})
+    # Spam complaint → suppressed.
+    client.post("/resend/inbound", json={"type": "email.complained", "data": {"email_id": "re_spam"}})
+    # Transient bounce → NOT suppressed (mailbox full, can recover).
+    client.post("/resend/inbound", json={"type": "email.bounced",
+                "data": {"email_id": "re_soft", "bounce": {"type": "Transient", "subType": "MailboxFull"}}})
+
+    db = SessionLocal()
+    try:
+        assert compliance.is_dnc(db, email=hard) is True
+        assert compliance.is_dnc(db, email=complained) is True
+        assert compliance.is_dnc(db, email=soft) is False
+    finally:
+        db.query(DoNotContact).filter(DoNotContact.value.in_([hard, soft, complained])).delete(
+            synchronize_session=False)
+        db.query(Message).filter(Message.provider_id.in_(["re_hard", "re_soft", "re_spam"])).delete(
+            synchronize_session=False)
+        db.commit()
+        db.close()
 
 
 def test_email_daily_send_cap_ramp(monkeypatch):
@@ -4775,6 +5000,380 @@ def test_csv_import_leads_recognizes_google_export_headers(client, auth_headers)
     assert r.status_code == 200
     body = r.json()
     assert body["imported"] == 1 and body["skipped_no_email"] == 0
+
+
+@requires_db
+def test_import_defers_ai_and_paced_sender_drafts_lazily(client, auth_headers, monkeypatch):
+    """Import must be FAST: it inserts leads WITHOUT writing the AI email or sending
+    (that used to run one AI call per row inline and time out big lists). The paced
+    sender then writes the AI copy lazily and only up to the mailbox's daily cap."""
+    from app import bulk_outreach, importer, outreach
+    from app.database import SessionLocal
+    from app.models import Lead
+
+    calls = {"n": 0}
+
+    def _fake_complete_json(prompt, system=None):
+        calls["n"] += 1
+        return {"cold_email_subject": "Your coverage options",
+                "cold_email_body": "Hi there, quick note about insurance.",
+                "call_script": "Call script.", "linkedin_msg": "Hi!"}
+
+    monkeypatch.setattr(importer.client, "complete_json", _fake_complete_json)
+
+    emails = ["defer_a@realbiz1.com", "defer_b@realbiz2.com"]
+    # Clear any pending leads left by earlier tests so the cap-of-1 pass below acts
+    # only on our two rows (deterministic).
+    db0 = SessionLocal()
+    try:
+        db0.query(Lead).filter(Lead.status.in_([None, "New", "Drafted"])).update(
+            {Lead.status: "Sent"}, synchronize_session=False)
+        db0.query(Lead).filter(Lead.email.in_(emails)).delete(synchronize_session=False)
+        db0.commit()
+    finally:
+        db0.close()
+
+    csv_data = (f"email,company_name,phone\n{emails[0]},Real Biz One,6035550111\n"
+                f"{emails[1]},Real Biz Two,6035550112\n")
+    r = client.post("/import/leads", headers=auth_headers,
+                    files={"file": ("leads.csv", csv_data, "text/csv")}).json()
+    assert r["imported"] == 2 and r["sent"] == 0        # nothing sent during upload
+    assert calls["n"] == 0                              # and NO AI call during upload
+
+    db = SessionLocal()
+    try:
+        leads = db.query(Lead).filter(Lead.email.in_(emails)).all()
+        assert len(leads) == 2
+        assert all(ld.status == "New" and not ld.cold_email for ld in leads)
+
+        # Cap the mailbox to 1 send/day → exactly one lead is drafted + sent this run;
+        # the other stays pending for the next window.
+        monkeypatch.setattr(outreach, "effective_cap", lambda db, account: 1)
+        monkeypatch.setattr(outreach, "sent_today_count", lambda db, account=None: 0)
+        captured = []
+
+        class _Msg:
+            status = "Sent"
+            id = "m1"
+
+        def _fake_dispatch(db, **kw):
+            captured.append(kw)
+            return _Msg()
+
+        monkeypatch.setattr(outreach, "dispatch_email", _fake_dispatch)
+
+        res = bulk_outreach.dispatch_leads(db)
+        assert res["dispatched"] == 1                   # paced to the cap of 1
+        assert calls["n"] == 1                          # AI ran ONCE, on the send path
+        assert len(captured) == 1
+        # The sent lead used the AI-written subject + body (not the generic fallback).
+        assert captured[0]["subject"] == "Your coverage options"
+        assert captured[0]["body"] == "Hi there, quick note about insurance."
+    finally:
+        db.query(Lead).filter(Lead.email.in_(emails)).delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
+
+@requires_db
+def test_import_bnb_consulting_leads_defer_and_draft(client, auth_headers, monkeypatch):
+    """B&B Global import inserts consulting leads FAST (no AI on upload), and the
+    paced sender writes them with the consulting pitch — not the insurance one."""
+    from app import importer
+    from app.database import SessionLocal
+    from app.models import Lead
+
+    # Persistent local test DBs accumulate rows across runs — start clean for this email.
+    db0 = SessionLocal()
+    try:
+        db0.query(Lead).filter(Lead.email == "cto@saasco-bnb.com").delete(synchronize_session=False)
+        db0.commit()
+    finally:
+        db0.close()
+
+    r = client.post("/import/bnb", headers=auth_headers,
+                    files={"file": ("bnb.csv",
+                                    "email,company_name,industry\ncto@saasco-bnb.com,SaaSCo,SaaS\n",
+                                    "text/csv")}).json()
+    assert r["imported"] == 1 and r["sent"] == 0
+
+    db = SessionLocal()
+    try:
+        lead = db.query(Lead).filter(Lead.email == "cto@saasco-bnb.com").first()
+        assert lead is not None
+        assert lead.segment == "consulting" and lead.status == "New" and not lead.cold_email
+
+        captured = {}
+
+        def _fake_complete_json(prompt, system=None):
+            captured["prompt"] = prompt
+            return {"cold_email_subject": "Cut your cloud spend",
+                    "cold_email_body": "Quick idea for SaaSCo.", "call_script": "Hi."}
+
+        monkeypatch.setattr(importer.client, "complete_json", _fake_complete_json)
+        subject = importer.draft_lead_email(db, lead)
+        # Uses the consulting prompt (B&B Global), NOT the insurance producer prompt.
+        assert "B&B Global" in captured["prompt"]
+        assert "insurance producer" not in captured["prompt"].lower()
+        assert subject == "Cut your cloud spend" and lead.cold_email == "Quick idea for SaaSCo."
+    finally:
+        db.rollback()  # discard the in-memory draft edits so the cleanup delete is clean
+        db.query(Lead).filter(Lead.email == "cto@saasco-bnb.com").delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
+
+@requires_db
+def test_dispatch_order_hot_warm_cold(client):
+    """'Send all pending' works leads in the operator's priority: hot → warm → cold
+    (dead last), and within a tier uncontacted-first then hottest score."""
+    from app import lead_temperature
+    from app.database import SessionLocal
+    from app.models import Lead
+
+    rows = {
+        "ord_hotstatus@t.co": dict(status="interested", score=50, times_contacted=0),  # hot by status
+        "ord_hotscore@t.co":  dict(status="New", score=95, times_contacted=0),          # hot by score
+        "ord_warm@t.co":      dict(status="replied", score=50, times_contacted=0),      # warm
+        "ord_coldfresh@t.co": dict(status="New", score=50, times_contacted=0),          # cold, uncontacted
+        "ord_coldold@t.co":   dict(status="New", score=50, times_contacted=5),          # cold, contacted
+        "ord_dead@t.co":      dict(status="closed lost", score=95, times_contacted=0),  # dead → last
+    }
+    db = SessionLocal()
+    try:
+        db.query(Lead).filter(Lead.email.in_(list(rows))).delete(synchronize_session=False)
+        db.commit()
+        for email, f in rows.items():
+            db.add(Lead(segment="commercial", email=email, **f))
+        db.commit()
+        ordered = (db.query(Lead).filter(Lead.email.in_(list(rows)))
+                   .order_by(*lead_temperature.dispatch_order(Lead)).all())
+        rank = [ld.email for ld in ordered]
+        # hot (status OR score) before warm before cold before dead.
+        assert rank.index("ord_hotstatus@t.co") < rank.index("ord_warm@t.co")
+        assert rank.index("ord_hotscore@t.co") < rank.index("ord_warm@t.co")
+        assert rank.index("ord_warm@t.co") < rank.index("ord_coldfresh@t.co")
+        assert rank.index("ord_coldfresh@t.co") < rank.index("ord_dead@t.co")
+        # within the cold tier, the uncontacted lead is worked before the re-contacted one.
+        assert rank.index("ord_coldfresh@t.co") < rank.index("ord_coldold@t.co")
+    finally:
+        db.query(Lead).filter(Lead.email.in_(list(rows))).delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
+
+@requires_db
+def test_import_dedupes_by_email_and_cleanup(client, auth_headers):
+    """Re-importing the same list UPDATES existing leads instead of creating copies,
+    and the /leads/dedupe cleanup removes duplicates made before that, keeping the
+    most-worked copy."""
+    from app import importer
+    from app.database import SessionLocal
+    from app.models import Lead
+
+    email = "dedupe_target@realbiz.com"
+    db0 = SessionLocal()
+    try:
+        db0.query(Lead).filter(Lead.email == email).delete(synchronize_session=False)
+        db0.commit()
+    finally:
+        db0.close()
+
+    csv1 = f"email,company_name,phone\n{email},Acme,6035550101\n"
+    r1 = client.post("/import/leads", headers=auth_headers,
+                     files={"file": ("l.csv", csv1, "text/csv")}).json()
+    assert r1["imported"] == 1 and r1.get("updated", 0) == 0
+    # Re-import: no new lead, the existing one is updated (phone refreshed).
+    csv2 = f"email,company_name,phone\n{email},Acme Plumbing,6035550999\n"
+    r2 = client.post("/import/leads", headers=auth_headers,
+                     files={"file": ("l.csv", csv2, "text/csv")}).json()
+    assert r2["imported"] == 0 and r2["updated"] == 1
+
+    db = SessionLocal()
+    try:
+        leads = db.query(Lead).filter(Lead.email == email).all()
+        assert len(leads) == 1                       # never duplicated
+        assert leads[0].company_name == "Acme Plumbing" and leads[0].phone == "6035550999"
+
+        # Simulate a pre-dedupe mess: two more raw duplicates (as the old import made).
+        db.add_all([Lead(segment="commercial", email=email, status="New"),
+                    Lead(segment="commercial", email=email, status="New")])
+        db.commit()
+        assert db.query(Lead).filter(Lead.email == email).count() == 3
+
+        # dedupe_leads is global (other tests may leave their own dupes), so assert
+        # our group specifically: our 3 collapse to 1, and it removed at least our 2.
+        out = importer.dedupe_leads(db)
+        assert out["removed"] >= 2 and out["groups_deduped"] >= 1
+        assert db.query(Lead).filter(Lead.email == email).count() == 1
+    finally:
+        db.query(Lead).filter(Lead.email == email).delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
+
+@requires_db
+def test_leads_test_send_previews_to_own_inbox(client, auth_headers, monkeypatch):
+    """'Test to my inbox' writes the AI email for the hottest pending lead and sends
+    that copy to the operator's own address (not the lead), with a [TEST] subject."""
+    from app import importer, outreach
+    from app.database import SessionLocal
+    from app.models import Lead
+
+    db = SessionLocal()
+    try:
+        db.query(Lead).filter(Lead.email == "preview_lead@realbiz.com").delete(synchronize_session=False)
+        db.add(Lead(segment="commercial", company_name="Preview Co",
+                    email="preview_lead@realbiz.com", status="New", score=95))
+        db.commit()
+    finally:
+        db.close()
+
+    def _fake_draft(db, lead):
+        lead.cold_email = "Hi, quick note about coverage."
+        return "Your coverage options"
+
+    captured = {}
+
+    def _fake_deliver(to, subject, body, account="insurance"):
+        captured.update(to=to, subject=subject, body=body, account=account)
+        return "msg-test-1", None
+
+    monkeypatch.setattr(importer, "draft_lead_email", _fake_draft)
+    monkeypatch.setattr(outreach, "deliver", _fake_deliver)
+
+    r = client.post("/leads/test-send", headers=auth_headers,
+                    json={"to": "bruno@thrustmail.com"}).json()
+    assert r["ok"] is True and r["to"] == "bruno@thrustmail.com"
+    assert captured["to"] == "bruno@thrustmail.com"       # to ME, never the lead
+    assert captured["subject"].startswith("[TEST]") and "Your coverage options" in captured["subject"]
+    assert captured["body"] == "Hi, quick note about coverage."
+
+    # A junk 'to' address is rejected before anything is sent.
+    bad = client.post("/leads/test-send", headers=auth_headers, json={"to": "not-an-email"})
+    assert bad.status_code == 400
+
+    db = SessionLocal()
+    try:
+        db.query(Lead).filter(Lead.email == "preview_lead@realbiz.com").delete(synchronize_session=False)
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_sms_followup_enabled_tolerates_bool_and_string():
+    """The enable flag may be a real bool (default) or a string from runtime config."""
+    from app import sms_followups
+    from app.config import settings
+    import pytest as _pytest
+    with _pytest.MonkeyPatch.context() as mp:
+        mp.setattr(settings, "sms_followup_enabled", False, raising=False)
+        assert sms_followups.is_enabled() is False
+        mp.setattr(settings, "sms_followup_enabled", "true", raising=False)
+        assert sms_followups.is_enabled() is True
+        mp.setattr(settings, "sms_followup_enabled", True, raising=False)
+        assert sms_followups.is_enabled() is True
+        mp.setattr(settings, "sms_followup_enabled", "off", raising=False)
+        assert sms_followups.is_enabled() is False
+
+
+@requires_db
+def test_sms_followup_targets_emailed_non_repliers(monkeypatch):
+    """SMS follow-up texts leads emailed >= delay days ago with no reply and no prior
+    text — and skips ones already texted, ones who replied, and recently-emailed ones."""
+    from datetime import datetime, timedelta, timezone
+
+    from app import sms_engine, sms_followups
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.models import Lead, Message
+
+    old = datetime.now(timezone.utc) - timedelta(days=5)
+    now = datetime.now(timezone.utc)
+    tags = ["fu_elig@x.co", "fu_texted@x.co", "fu_replied@x.co", "fu_recent@x.co"]
+    db = SessionLocal()
+    ids = {}
+    try:
+        db.query(Lead).filter(Lead.email.in_(tags)).delete(synchronize_session=False)
+        db.commit()
+
+        def mk(email, phone):
+            ld = Lead(segment="commercial", email=email, phone=phone, status="Sent", score=80)
+            db.add(ld); db.flush()
+            return ld
+
+        elig, texted, replied, recent = (mk("fu_elig@x.co", "6035550001"),
+                                         mk("fu_texted@x.co", "6035550002"),
+                                         mk("fu_replied@x.co", "6035550003"),
+                                         mk("fu_recent@x.co", "6035550004"))
+        for ld, when in [(elig, old), (texted, old), (replied, old), (recent, now)]:
+            db.add(Message(channel="email", direction="outbound", entity_type="lead",
+                           entity_id=ld.id, status="Sent", sent_at=when))
+        db.add(Message(channel="sms", direction="outbound", entity_type="lead",
+                       entity_id=texted.id, status="Sent", sent_at=old))       # already texted
+        db.add(Message(channel="email", direction="inbound", entity_type="lead",
+                       entity_id=replied.id, status="Received", sent_at=old))   # replied
+        db.commit()
+        ids = {t: db.query(Lead).filter(Lead.email == t).first().id for t in tags}
+
+        # Huge cap so other tests' leads in the shared DB can't crowd ours out of the
+        # headroom-limited batch (the query is global, ordered hottest-first).
+        monkeypatch.setattr(settings, "sms_daily_send_cap", 100000, raising=False)
+        monkeypatch.setattr(settings, "sms_followup_delay_days", 2, raising=False)
+        monkeypatch.setattr(sms_engine, "sms_sent_today", lambda db: 0)
+        hit = []
+
+        def _fake_send(db, *, entity_type, entity_id, phone, body, account="insurance", **k):
+            hit.append(entity_id)
+            return "sid-1"
+
+        monkeypatch.setattr(sms_engine, "send_text", _fake_send)
+
+        sms_followups.run(db)
+        assert ids["fu_elig@x.co"] in hit            # emailed, silent → texted
+        assert ids["fu_texted@x.co"] not in hit      # already texted
+        assert ids["fu_replied@x.co"] not in hit     # replied
+        assert ids["fu_recent@x.co"] not in hit      # email too recent
+    finally:
+        if ids:
+            db.query(Message).filter(Message.entity_id.in_(list(ids.values()))).delete(
+                synchronize_session=False)
+        db.query(Lead).filter(Lead.email.in_(tags)).delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
+
+def test_auto_reply_sends_only_when_enabled_and_interested(monkeypatch):
+    """The interested-reply is DRAFTED by default; with auto_reply_enabled on it's
+    SENT immediately — but only for clearly interested/question replies, never others."""
+    from app import inbound, outreach
+    from app.ai import client
+    from app.config import settings
+
+    monkeypatch.setattr(client, "complete", lambda *a, **k: "Thanks! Grab a time here.")
+    captured = {}
+
+    def _fake_dispatch(db, **kw):
+        captured.clear()
+        captured.update(kw)
+
+        class _M:
+            status = "Drafted"
+            id = "m"
+        return _M()
+
+    monkeypatch.setattr(outreach, "dispatch_email", _fake_dispatch)
+
+    def _force_draft(intent, enabled):
+        monkeypatch.setattr(settings, "auto_reply_enabled", enabled, raising=False)
+        inbound._draft_reply(None, "p@x.co", {"snippet": "yes interested", "subject": "hi"},
+                             {"intent": intent}, "insurance")
+        return captured.get("force_draft")
+
+    assert _force_draft("interested", False) is True    # off → draft for review
+    assert _force_draft("interested", True) is False    # on + hot → send now
+    assert _force_draft("question", True) is False       # on + question → send now
+    assert _force_draft("objection", True) is True       # on + not-hot → still draft
 
 
 @requires_db

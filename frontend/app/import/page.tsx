@@ -24,13 +24,17 @@ function Importer() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(JSON.stringify(data));
-      if ((data.imported ?? 0) === 0) {
+      const imported = data.imported ?? 0;
+      const updated = data.updated ?? 0;
+      if (imported === 0 && updated === 0 && type !== "contacts") {
         // Don't show a green check for a total no-op — surface why nothing imported.
         setResult(`❌ Imported 0. ${data.reason || "Check the file format — it should be a Google/Outlook/LinkedIn CSV or an iCloud .vcf with email/phone columns."}`);
+      } else if (type === "contacts") {
+        setResult(`✅ Imported ${imported} contacts (${data.leads_added ?? 0} now show as Personal leads), skipped ${data.skipped}. They'll get a warm insurance intro automatically.`);
       } else {
-        setResult(type === "contacts"
-          ? `✅ Imported ${data.imported} contacts (${data.leads_added ?? 0} now show as Personal leads), skipped ${data.skipped}. They'll get a warm insurance intro automatically.`
-          : `✅ Imported ${data.imported}, sent ${data.sent}, skipped (no email) ${data.skipped_no_email}.`);
+        const page = type === "bnb" ? "BnB Global" : type === "restaurants" ? "SavoryMind" : "Insurance Leads";
+        const dupPart = updated ? ` (${updated} already on file were updated, not duplicated)` : "";
+        setResult(`✅ Imported ${imported} new lead${imported === 1 ? "" : "s"}${dupPart}, skipped ${data.skipped_no_email} with no email. The AI writes & sends the outreach automatically, paced under your daily cap — no waiting on this screen. To start a batch now, click “Send all pending” on the ${page} page.`);
       }
     } catch (e) {
       setResult(`❌ ${e}`);
@@ -41,14 +45,15 @@ function Importer() {
 
   return (
     <div>
-      <PageHeader title="Import Contacts" subtitle="Upload a real CSV list — the agents write & send personalized outreach" />
+      <PageHeader title="Import Options" subtitle="Upload a real CSV list — the agents write & send personalized outreach" />
       <div className="card max-w-xl space-y-4">
         <div>
           <label className="text-sm font-medium text-gray-700">List type</label>
           <select value={type} onChange={(e) => setType(e.target.value)} className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2">
-            <option value="leads">Insurance leads (sent from Thrust Insurance)</option>
-            <option value="restaurants">Restaurants / SavoryMind (sent from personal)</option>
-            <option value="contacts">Personal contacts → leads + warm insurance intro (Google/iPhone export)</option>
+            <option value="leads">Import insurance leads (Thrust Insurance)</option>
+            <option value="bnb">Import BNB leads (B&amp;B Global — consulting)</option>
+            <option value="restaurants">Import SavoryMind leads (restaurants)</option>
+            <option value="contacts">Import contacts (Google/iPhone → warm insurance intro)</option>
           </select>
         </div>
         <div>
@@ -64,7 +69,7 @@ function Importer() {
           </p>
         </div>
         <button className="btn" onClick={upload} disabled={!file || busy}>
-          {busy ? (type === "contacts" ? "Importing…" : "Importing & sending…") : (type === "contacts" ? "Import to CRM" : "Import & send")}
+          {busy ? "Importing…" : (type === "contacts" ? "Import to CRM" : "Import leads")}
         </button>
         {result && <p className="rounded bg-gray-50 p-3 text-sm">{result}</p>}
         <p className="text-xs text-gray-400">

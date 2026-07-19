@@ -1,0 +1,42 @@
+# Our own voice softswitch — FreeSWITCH + a bring-your-own-carrier SIP trunk.
+#
+# Run this on a small VPS with a PUBLIC IP (SIP/RTP need reachable ports). The
+# Bruno backend originates calls into it over the Event Socket (ESL, port 8021)
+# and serves call control back as HTTAPI. Keep ESL on a PRIVATE network — never
+# expose 8021 to the public internet.
+#
+#   1. cp freeswitch/conf/sip_profiles/external/bruno_trunk.xml.example \
+#         freeswitch/conf/sip_profiles/external/bruno_trunk.xml
+#      …and fill in your SIP trunk username / password / proxy.
+#   2. Set ESL_PASSWORD below (and the same value in the app's sip_esl_password).
+#   3. docker compose up -d
+#   4. In the Bruno app → Setup → Self-hosted SIP softswitch, set:
+#         sip_esl_host   = <this server's private IP>
+#         sip_esl_password = <ESL_PASSWORD>
+#         sip_gateway    = bruno_trunk
+#         sip_from_number = <your trunk DID, E.164>
+#      and voice_provider = sip.
+services:
+  freeswitch:
+    # Build the local image so mod_flite (TTS) + mod_amd (answering-machine
+    # detection) are baked in. See Dockerfile — missing packages degrade gracefully.
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: bruno-softswitch:latest
+    container_name: bruno-softswitch
+    # SIP + RTP use a wide UDP range; host networking is by far the simplest way
+    # to get media flowing. On a dedicated VPS this is fine.
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      # Substituted into the mounted config by the image entrypoint / your edits.
+      - ESL_PASSWORD=${ESL_PASSWORD:-ChangeMe_LongRandomSecret}
+    volumes:
+      - ./freeswitch/conf/autoload_configs/event_socket.conf.xml:/etc/freeswitch/autoload_configs/event_socket.conf.xml:ro
+      - ./freeswitch/conf/autoload_configs/httapi.conf.xml:/etc/freeswitch/autoload_configs/httapi.conf.xml:ro
+      - ./freeswitch/conf/sip_profiles/external/bruno_trunk.xml:/etc/freeswitch/sip_profiles/external/bruno_trunk.xml:ro
+      - freeswitch-recordings:/var/lib/freeswitch/recordings
+
+volumes:
+  freeswitch-recordings:
