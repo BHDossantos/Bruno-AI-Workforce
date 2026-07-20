@@ -2491,6 +2491,85 @@ def test_app_password_whitespace_and_own_creds_win(monkeypatch):
     assert login == "bruno@dossantosinsurance.org" and pw == "abcdefghijklmnop" and frm == "bruno@dossantosinsurance.org"
 
 
+@requires_db
+def test_crm_profile_create_edit_and_core_sync(client, auth_headers):
+    """The editable CRM record: create a client from the form, read back the schema
+    + values, edit sections (incl. a repeatable vehicles list + a custom field), and
+    confirm the handful of synced fields land on the real Lead columns."""
+    from app.database import SessionLocal
+    from app.models import Lead
+
+    made_id = None
+    try:
+        # The blank schema endpoint (Add-client form) resolves without a lead and
+        # doesn't get shadowed by the /{lead_id}/crm route.
+        blank = client.get("/leads/crm/schema?module=insurance", headers=auth_headers).json()
+        assert blank["schema"]["module"] == "insurance" and blank["profile"] == {}
+        assert any(s["key"] == "identity" for s in blank["schema"]["core_sections"])
+
+        # CREATE from the form.
+        created = client.post("/leads/crm", headers=auth_headers, json={
+            "segment": "personal", "category": "EverQuote Auto",
+            "profile": {
+                "identity": {"first_name": "Robert", "last_name": "Kwan"},
+                "contact": {"email": "robert.kwan@example.com", "primary_phone": "6035551234"},
+                "customer_profile": {"current_carrier": "GEICO"},
+            },
+        }).json()
+        made_id = created["lead_id"]
+        assert made_id
+
+        # Core columns synced from the profile.
+        db = SessionLocal()
+        try:
+            lead = db.query(Lead).filter(Lead.id == made_id).first()
+            assert lead.owner_name == "Robert Kwan"
+            assert lead.email == "robert.kwan@example.com"
+            assert lead.phone == "6035551234"
+        finally:
+            db.close()
+
+        # GET returns the schema (core + insurance module + lists) and the values.
+        got = client.get(f"/leads/{made_id}/crm", headers=auth_headers).json()
+        assert got["module"] == "insurance"
+        section_keys = {s["key"] for s in got["schema"]["core_sections"]}
+        assert {"identity", "contact", "address", "source", "sales", "compliance"} <= section_keys
+        list_keys = {l["key"] for l in got["schema"]["lists"]}
+        assert {"vehicles", "drivers", "quotes", "policies", "claims"} <= list_keys
+        assert got["profile"]["customer_profile"]["current_carrier"] == "GEICO"
+
+        # EDIT: add a vehicle (repeatable list), a compliance flag, and a custom field.
+        client.patch(f"/leads/{made_id}/crm", headers=auth_headers, json={
+            "profile": {
+                "vehicles": [{"year": 2018, "make": "Lexus", "model": "RX350"}],
+                "compliance": {"consent_to_text": True},
+                "sales": {"status": "Quoted"},
+            },
+            "custom": {"garage_code": "4417"},
+        })
+        after = client.get(f"/leads/{made_id}/crm", headers=auth_headers).json()
+        assert after["profile"]["vehicles"][0]["make"] == "Lexus"
+        assert after["profile"]["compliance"]["consent_to_text"] is True
+        assert after["custom"]["garage_code"] == "4417"
+        # Editing status synced to the Lead column too.
+        db = SessionLocal()
+        try:
+            assert db.query(Lead).filter(Lead.id == made_id).first().status == "Quoted"
+        finally:
+            db.close()
+
+        # A partial edit must NOT wipe previously-saved sections.
+        assert after["profile"]["customer_profile"]["current_carrier"] == "GEICO"
+    finally:
+        if made_id:
+            db = SessionLocal()
+            try:
+                db.query(Lead).filter(Lead.id == made_id).delete(synchronize_session=False)
+                db.commit()
+            finally:
+                db.close()
+
+
 def test_everquote_model_casing():
     """Vehicle models read the way people write them: real words title-cased,
     model codes kept upper."""

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { AuthGate, PageHeader, useFetch, LoadState } from "@/components/ui";
+import { CrmEditor, type CrmData } from "@/components/CrmEditor";
 
 type Counts = { email: number; sms: number; call: number };
 type LeadInfo = {
@@ -56,6 +57,9 @@ function Profile() {
   const [callNotes, setCallNotes] = useState("");
   const [noteText, setNoteText] = useState("");
   const [callScript, setCallScript] = useState<CallTpl | null>(null);
+  const [editing, setEditing] = useState(false);
+  const { data: crm } = useFetch<CrmData>(
+    () => api.get<CrmData>(`/leads/${id}/crm`), [id, editing, tick]);
 
   const lead = data?.lead;
   const oe = data?.outreach?.email;
@@ -121,6 +125,12 @@ function Profile() {
       <PageHeader title={lead?.name || "Lead"} subtitle="CRM profile — email, text, log calls, and see every touch in one place" />
       {(loading || error) && <LoadState loading={loading} error={error} onRetry={reload} />}
       {note && <p className="mb-3 rounded bg-brand/10 p-3 text-sm text-brand-dark">{note}</p>}
+      {editing && crm && (
+        <div className="mb-4">
+          <h2 className="mb-2 font-semibold">Client Information</h2>
+          <CrmEditor data={crm} mode="edit" onSaved={() => setTick((t) => t + 1)} />
+        </div>
+      )}
       {lead && (
         <div className="grid gap-4 lg:grid-cols-3">
           {/* Left: identity + counters + actions */}
@@ -139,6 +149,9 @@ function Profile() {
                 <Row k="AI score" v={lead.score != null ? `${lead.score}/100 · ${lead.band || ""}` : "—"} />
                 <Row k="Received" v={fmt(lead.received_at)} />
               </dl>
+              <button className="btn-ghost mt-3 w-full text-sm" onClick={() => setEditing((e) => !e)}>
+                {editing ? "Close editor" : "✏️ Edit / Add client info"}
+              </button>
             </div>
 
             <div className="card">

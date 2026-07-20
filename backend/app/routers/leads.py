@@ -18,6 +18,63 @@ class IntakeIn(BaseModel):
     answers: dict[str, str] = {}
 
 
+class CrmUpdateIn(BaseModel):
+    # Section key -> field-group dict, or list-key -> list of row dicts. Partial:
+    # only the sections/lists provided are merged.
+    profile: dict = {}
+    custom: dict[str, str] | None = None
+
+
+class CrmCreateIn(BaseModel):
+    profile: dict = {}
+    custom: dict[str, str] | None = None
+    segment: str = "personal"
+    category: str | None = None
+
+
+@router.get("/crm/schema")
+def crm_blank_schema(module: str = "insurance",
+                     _=Depends(require_role("admin", "operator", "viewer"))):
+    """The empty CRM form schema for a module — for the 'Add client' page, which
+    has no lead yet. Returns the same shape as GET /leads/{id}/crm with no values."""
+    from .. import crm_profile
+    return {"schema": crm_profile.schema_for_module(module), "profile": {}, "custom": {}}
+
+
+@router.get("/{lead_id}/crm")
+def get_crm_profile(lead_id: str, db: Session = Depends(get_db),
+                    _=Depends(require_role("admin", "operator", "viewer"))):
+    """The lead's editable CRM record: the form schema (shared core sections + this
+    lead's industry module + repeatable lists) plus the saved values."""
+    from .. import crm_profile
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    return {"schema": crm_profile.schema_for(lead), **crm_profile.get_crm(lead)}
+
+
+@router.patch("/{lead_id}/crm")
+def update_crm_profile(lead_id: str, body: CrmUpdateIn, db: Session = Depends(get_db),
+                       _=Depends(require_role("admin", "operator"))):
+    """Save edits to any section(s) of the CRM record. Partial — only the sections
+    you send are merged; repeatable lists (vehicles/drivers/…) replace wholesale."""
+    from .. import crm_profile
+    result = crm_profile.update_crm(db, lead_id, body.profile, body.custom)
+    if result is None:
+        raise HTTPException(404, "Lead not found")
+    return result
+
+
+@router.post("/crm")
+def create_crm_profile(body: CrmCreateIn, db: Session = Depends(get_db),
+                       _=Depends(require_role("admin", "operator"))):
+    """Add a brand-new client from the CRM form (manual entry, not sourced)."""
+    from .. import crm_profile
+    lead = crm_profile.create_lead(db, body.profile, body.custom,
+                                   segment=body.segment, category=body.category)
+    return {"lead_id": str(lead.id), **crm_profile.get_crm(lead)}
+
+
 @router.get("/{lead_id}/intake")
 def get_intake(lead_id: str, db: Session = Depends(get_db),
                _=Depends(require_role("admin", "operator", "viewer"))):
