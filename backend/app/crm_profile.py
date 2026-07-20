@@ -150,101 +150,259 @@ _INSURANCE_LISTS: list[dict] = [
     ]},
 ]
 
+# ── SavoryMind restaurant module ──────────────────────────────────────────────
+_RESTAURANT_SECTIONS: list[dict] = [
+    {"key": "restaurant_profile", "label": "Restaurant", "fields": [
+        _f("name", "Restaurant Name"), _f("legal_name", "Legal Business Name"),
+        _f("business_type", "Business Type", "select",
+           ["", "Restaurant", "Cafe", "Bar", "Food Truck", "Bakery", "Pizzeria",
+            "Fast Food", "Fine Dining", "Ghost Kitchen"]),
+        _f("cuisine", "Cuisine Type"), _f("website", "Website"),
+        _f("phone", "Phone", "phone"), _f("email", "Email", "email"),
+        _f("instagram", "Instagram"), _f("facebook", "Facebook"), _f("tiktok", "TikTok"),
+        _f("google_business", "Google Business"),
+        _f("address", "Address"), _f("city", "City"), _f("state", "State"),
+        _f("zip", "ZIP"), _f("country", "Country"),
+        _f("opening_date", "Opening Date", "date"),
+        _f("locations_count", "Number of Locations", "number"),
+        _f("max_seating", "Maximum Seating", "number"),
+        _f("pos_provider", "POS Provider"), _f("reservation_system", "Reservation System"),
+        _f("delivery_partners", "Delivery Partners (Uber Eats, DoorDash, …)"),
+        _f("business_hours", "Business Hours"),
+        _f("parking", "Parking", "bool"), _f("wifi", "WiFi", "bool"),
+        _f("pet_friendly", "Pet Friendly", "bool"), _f("outdoor_seating", "Outdoor Seating", "bool"),
+    ]},
+    {"key": "owner_crm", "label": "Owner", "fields": [
+        _f("owner_name", "Owner Name"), _f("manager", "Manager"),
+        _f("chef", "Chef"), _f("birthday", "Birthday", "date"),
+        _f("preferred_contact", "Preferred Contact", "select", ["", "Call", "Text", "Email", "WhatsApp"]),
+        _f("phone", "Phone", "phone"), _f("email", "Email", "email"),
+        _f("whatsapp", "WhatsApp", "phone"), _f("linkedin", "LinkedIn"),
+        _f("investment_goals", "Investment Goals", "textarea"),
+        _f("expansion_plans", "Expansion Plans", "textarea"),
+        _f("last_meeting", "Last Meeting", "date"),
+        _f("relationship_score", "Relationship Score (0-100)", "number"),
+        _f("notes", "Notes", "textarea"),
+    ]},
+    {"key": "intelligence", "label": "Restaurant Intelligence", "fields": [
+        _f("revenue_estimate", "Revenue Estimate", "number"),
+        _f("google_rating", "Google Rating"), _f("review_count", "Review Count", "number"),
+        _f("review_sentiment", "Review Sentiment"), _f("busy_hours", "Busy Hours"),
+        _f("health_score", "Health Score (0-100)", "number"),
+        _f("growth_score", "Growth Score (0-100)", "number"),
+        _f("risk_score", "Risk Score (0-100)", "number"),
+    ]},
+    {"key": "finance", "label": "Finance", "fields": [
+        _f("monthly_revenue", "Monthly Revenue", "number"), _f("cogs", "COGS", "number"),
+        _f("labor_pct", "Labor %", "number"), _f("food_cost_pct", "Food Cost %", "number"),
+        _f("average_ticket", "Average Ticket", "number"),
+        _f("revenue_per_seat", "Revenue Per Seat", "number"),
+    ]},
+    {"key": "sales_pipeline", "label": "SavoryMind Sales", "fields": [
+        _f("stage", "Pipeline Stage", "select",
+           ["", "Restaurant Found", "Owner Identified", "First Contact", "Demo Scheduled",
+            "Demo Completed", "Proposal Sent", "Negotiation", "Contract Signed",
+            "Onboarding", "Go Live", "Customer Success", "Expansion", "Referral"]),
+        _f("assigned_rep", "Assigned Rep"), _f("deal_size", "Deal Size", "number"),
+        _f("close_probability", "Close Probability (0-100)", "number"),
+        _f("next_action", "Next Action"), _f("next_followup", "Next Follow-up", "date"),
+    ]},
+]
+_RESTAURANT_LISTS: list[dict] = [
+    {"key": "locations", "label": "Locations", "fields": [
+        _f("address", "Address"), _f("phone", "Phone", "phone"), _f("manager", "Manager"),
+        _f("seats", "Seats", "number"), _f("revenue", "Revenue", "number"),
+        _f("employees", "Employees", "number"), _f("pos", "POS"),
+    ]},
+    {"key": "employees", "label": "Employees", "fields": [
+        _f("name", "Name"),
+        _f("position", "Position", "select",
+           ["", "Manager", "Chef", "Cook", "Server", "Bartender", "Host", "Dishwasher", "Cleaner"]),
+        _f("phone", "Phone", "phone"), _f("email", "Email", "email"),
+        _f("hire_date", "Hire Date", "date"), _f("hourly_rate", "Hourly Rate", "number"),
+        _f("performance_score", "Performance Score", "number"),
+    ]},
+    {"key": "customers", "label": "Customers", "fields": [
+        _f("first_name", "First Name"), _f("last_name", "Last Name"),
+        _f("phone", "Phone", "phone"), _f("email", "Email", "email"),
+        _f("birthday", "Birthday", "date"), _f("allergies", "Allergies"),
+        _f("favorite_dishes", "Favorite Dishes"), _f("average_spend", "Average Spend", "number"),
+        _f("visit_count", "Visit Count", "number"), _f("lifetime_value", "Lifetime Value", "number"),
+        _f("vip", "VIP", "bool"), _f("loyalty_level", "Loyalty Level"),
+        _f("marketing_consent", "Marketing Consent", "bool"),
+    ]},
+    {"key": "reservations", "label": "Reservations", "fields": [
+        _f("customer", "Customer"), _f("party_size", "Party Size", "number"),
+        _f("date", "Date", "date"), _f("time", "Time"), _f("table", "Table"),
+        _f("occasion", "Special Occasion"),
+        _f("status", "Status", "select", ["", "Confirmed", "Cancelled", "No Show", "Completed"]),
+        _f("notes", "Notes"),
+    ]},
+    {"key": "menu", "label": "Menu", "fields": [
+        _f("category", "Category", "select", ["", "Appetizers", "Main", "Dessert", "Drinks", "Specials"]),
+        _f("item", "Item"), _f("description", "Description"), _f("price", "Price", "number"),
+        _f("food_cost", "Food Cost", "number"), _f("margin", "Margin", "number"),
+        _f("allergens", "Allergens"), _f("popularity_score", "Popularity Score", "number"),
+        _f("available", "Available", "bool"),
+    ]},
+    {"key": "inventory", "label": "Inventory", "fields": [
+        _f("ingredient", "Ingredient"), _f("supplier", "Supplier"),
+        _f("current_quantity", "Current Quantity", "number"),
+        _f("reorder_level", "Reorder Level", "number"), _f("unit", "Unit"),
+        _f("cost", "Cost", "number"), _f("expiration", "Expiration", "date"),
+    ]},
+    {"key": "suppliers", "label": "Suppliers", "fields": [
+        _f("name", "Supplier Name"), _f("contact", "Contact"),
+        _f("phone", "Phone", "phone"), _f("email", "Email", "email"),
+        _f("products", "Products"), _f("lead_time", "Lead Time"),
+        _f("payment_terms", "Payment Terms"), _f("performance_score", "Performance Score", "number"),
+    ]},
+    {"key": "reviews", "label": "Reviews", "fields": [
+        _f("platform", "Platform", "select", ["", "Google", "TripAdvisor", "Yelp", "Facebook", "OpenTable"]),
+        _f("rating", "Rating", "number"), _f("date", "Date", "date"),
+        _f("sentiment", "Sentiment", "select", ["", "Positive", "Neutral", "Negative"]),
+        _f("text", "Review", "textarea"),
+    ]},
+]
+
 MODULES: dict[str, dict] = {
-    "insurance": {"label": "Insurance", "sections": _INSURANCE_SECTIONS, "lists": _INSURANCE_LISTS},
-    # Future plug-ins (restaurant / consulting / real_estate / …) register here with
-    # the same shape — the core CRM + UI need no changes to support them.
-    "general": {"label": "General", "sections": [], "lists": []},
+    # ``core``: does this module use the shared PERSON-centric core sections
+    # (identity/contact/address/…)? Insurance does (the record is a person).
+    # Restaurant does not — its record is a business, fully described by its own
+    # sections — so it opts out and stays self-contained.
+    "insurance": {"label": "Insurance", "core": True,
+                  "sections": _INSURANCE_SECTIONS, "lists": _INSURANCE_LISTS},
+    "restaurant": {"label": "SavoryMind (Restaurant)", "core": False,
+                   "sections": _RESTAURANT_SECTIONS, "lists": _RESTAURANT_LISTS},
+    # Future plug-ins (consulting / real_estate / education / music / …) register
+    # here with the same shape — the core CRM + UI need no changes to support them.
+    "general": {"label": "General", "core": True, "sections": [], "lists": []},
 }
 
-# Which module a lead belongs to. Insurance leads are personal/EverQuote; everything
-# else uses the shared core only until its module is built.
-def module_for(lead: Lead) -> str:
-    seg = (lead.segment or "").lower()
-    cat = (lead.category or "").lower()
+# The CRM engine is entity-generic: it drives both Lead (insurance/general) and
+# Restaurant (SavoryMind) records, storing the profile in whichever JSONB column
+# that entity already has — no schema migration needed.
+_JSON_ATTR = {"lead": "intake", "restaurant": "menu_analysis"}
+
+
+def _kind(entity) -> str:
+    return "restaurant" if type(entity).__name__ == "Restaurant" else "lead"
+
+
+def _blob(entity) -> dict:
+    return dict(getattr(entity, _JSON_ATTR[_kind(entity)], None) or {})
+
+
+def module_for(entity) -> str:
+    """Which module an entity belongs to. Restaurants → restaurant; leads →
+    insurance (personal/EverQuote/commercial) else general."""
+    if _kind(entity) == "restaurant":
+        return "restaurant"
+    seg = (entity.segment or "").lower()
+    cat = (entity.category or "").lower()
     if seg == "personal" or "everquote" in cat or "insurance" in cat:
         return "insurance"
     return "insurance" if seg in ("", "commercial") and not cat else "general"
 
 
 def schema_for_module(module: str = "insurance") -> dict:
-    """The form schema for a module WITHOUT needing a lead — used by the 'Add
-    client' form, which has no lead yet."""
-    mod = MODULES.get(module, MODULES["general"])
-    return {
-        "module": module if module in MODULES else "general",
-        "module_label": mod["label"],
-        "core_sections": CORE_SECTIONS,
-        "module_sections": mod["sections"],
-        "lists": mod["lists"],
-        "modules_available": [{"key": k, "label": v["label"]} for k, v in MODULES.items()],
-    }
-
-
-def schema_for(lead: Lead) -> dict:
-    """The full form schema for this lead: shared core sections + its module's
-    sections + repeatable lists. The frontend renders inputs straight from this."""
-    module = module_for(lead)
-    mod = MODULES.get(module, MODULES["general"])
+    """The form schema for a module WITHOUT needing an entity — used by the 'Add'
+    forms, which have no record yet."""
+    module = module if module in MODULES else "general"
+    mod = MODULES[module]
     return {
         "module": module,
         "module_label": mod["label"],
-        "core_sections": CORE_SECTIONS,
+        "core_sections": CORE_SECTIONS if mod.get("core", True) else [],
         "module_sections": mod["sections"],
         "lists": mod["lists"],
         "modules_available": [{"key": k, "label": v["label"]} for k, v in MODULES.items()],
     }
 
 
-def get_crm(lead: Lead) -> dict:
-    """The stored CRM record (all sections + lists + custom fields). Core columns
-    are surfaced too so the form shows the live name/email/phone/status."""
-    crm = dict((lead.intake or {}).get("crm") or {})
-    # Seed the identity/contact/sales fields from the real columns when the CRM
-    # blob hasn't overridden them, so a never-edited lead still shows its data.
-    crm.setdefault("identity", {})
-    crm.setdefault("contact", {})
-    crm.setdefault("sales", {})
-    crm["contact"].setdefault("email", lead.email or "")
-    crm["contact"].setdefault("primary_phone", lead.phone or "")
-    crm["sales"].setdefault("status", lead.status or "New")
-    if lead.owner_name and not (crm["identity"].get("first_name") or crm["identity"].get("last_name")):
-        parts = lead.owner_name.split(None, 1)
-        crm["identity"]["first_name"] = parts[0]
-        crm["identity"]["last_name"] = parts[1] if len(parts) > 1 else ""
+def schema_for(entity) -> dict:
+    """The full form schema for this entity: (shared core if the module uses it) +
+    the module's sections + repeatable lists. Rendered generically by the UI."""
+    return schema_for_module(module_for(entity))
+
+
+def get_crm(entity) -> dict:
+    """The stored CRM record (all sections + lists + custom fields), seeded from the
+    entity's real columns so a never-edited record still shows its live data."""
+    kind = _kind(entity)
+    crm = dict(_blob(entity).get("crm") or {})
+    if kind == "lead":
+        crm.setdefault("identity", {})
+        crm.setdefault("contact", {})
+        crm.setdefault("sales", {})
+        crm["contact"].setdefault("email", entity.email or "")
+        crm["contact"].setdefault("primary_phone", entity.phone or "")
+        crm["sales"].setdefault("status", entity.status or "New")
+        if entity.owner_name and not (crm["identity"].get("first_name") or crm["identity"].get("last_name")):
+            parts = entity.owner_name.split(None, 1)
+            crm["identity"]["first_name"] = parts[0]
+            crm["identity"]["last_name"] = parts[1] if len(parts) > 1 else ""
+    else:  # restaurant
+        rp = crm.setdefault("restaurant_profile", {})
+        owner = crm.setdefault("owner_crm", {})
+        rp.setdefault("name", entity.name or "")
+        rp.setdefault("email", entity.email or "")
+        rp.setdefault("phone", entity.phone or "")
+        rp.setdefault("cuisine", entity.cuisine or "")
+        rp.setdefault("city", entity.city or "")
+        rp.setdefault("website", entity.website or "")
+        rp.setdefault("instagram", entity.instagram or "")
+        owner.setdefault("owner_name", entity.owner_manager or "")
+        crm.setdefault("sales_pipeline", {}).setdefault("stage", entity.status or "New")
     return {
-        "lead_id": str(lead.id),
-        "module": module_for(lead),
+        "lead_id": str(entity.id),
+        "module": module_for(entity),
         "profile": crm,
-        "custom": (lead.intake or {}).get("crm", {}).get("custom") or {},
-        "updated_at": (lead.intake or {}).get("crm_updated_at"),
+        "custom": _blob(entity).get("crm", {}).get("custom") or {},
+        "updated_at": _blob(entity).get("crm_updated_at"),
     }
 
 
-def _sync_core_columns(lead: Lead, crm: dict) -> None:
-    """Push the handful of fields the rest of the app reads back onto the real
-    Lead columns, so editing the CRM keeps name/email/phone/status consistent."""
-    ident, contact, sales = crm.get("identity") or {}, crm.get("contact") or {}, crm.get("sales") or {}
-    name = " ".join(p for p in [ident.get("first_name"), ident.get("last_name")] if p).strip()
-    if name:
-        lead.owner_name = name
-    if contact.get("email"):
-        lead.email = contact["email"].strip()
-    if contact.get("primary_phone"):
-        lead.phone = str(contact["primary_phone"]).strip()
-    if sales.get("status"):
-        lead.status = sales["status"]
+def _sync_core_columns(entity, crm: dict) -> None:
+    """Push the handful of fields the rest of the app reads back onto the entity's
+    real columns, so editing the CRM keeps name/email/phone/status consistent."""
+    if _kind(entity) == "lead":
+        ident, contact, sales = crm.get("identity") or {}, crm.get("contact") or {}, crm.get("sales") or {}
+        name = " ".join(p for p in [ident.get("first_name"), ident.get("last_name")] if p).strip()
+        if name:
+            entity.owner_name = name
+        if contact.get("email"):
+            entity.email = str(contact["email"]).strip()
+        if contact.get("primary_phone"):
+            entity.phone = str(contact["primary_phone"]).strip()
+        if sales.get("status"):
+            entity.status = sales["status"]
+    else:  # restaurant
+        rp, owner, sp = (crm.get("restaurant_profile") or {}, crm.get("owner_crm") or {},
+                         crm.get("sales_pipeline") or {})
+        if rp.get("name"):
+            entity.name = str(rp["name"]).strip()
+        if rp.get("email"):
+            entity.email = str(rp["email"]).strip()
+        if rp.get("phone"):
+            entity.phone = str(rp["phone"]).strip()
+        if rp.get("cuisine"):
+            entity.cuisine = str(rp["cuisine"]).strip()
+        if rp.get("city"):
+            entity.city = str(rp["city"]).strip()
+        if owner.get("owner_name"):
+            entity.owner_manager = str(owner["owner_name"]).strip()
+        if sp.get("stage"):
+            entity.status = sp["stage"]
 
 
-def update_crm(db: Session, lead_id: str, profile: dict, custom: dict | None = None) -> dict | None:
-    """Merge edited sections into the lead's CRM record (deep-merge per section;
-    repeatable lists are replaced wholesale). Returns None if the lead is missing.
-    Reassigns ``intake`` as a new dict so SQLAlchemy detects the JSONB change."""
-    lead = db.query(Lead).filter(Lead.id == lead_id).first()
-    if not lead:
-        return None
-    intake = dict(lead.intake or {})
-    crm = dict(intake.get("crm") or {})
+def update_crm_entity(db: Session, entity, profile: dict, custom: dict | None = None) -> dict:
+    """Merge edited sections into the entity's CRM record (deep-merge per section;
+    repeatable lists replace wholesale). Reassigns the JSONB column as a new dict so
+    SQLAlchemy detects the change, then syncs the handful of mirrored columns."""
+    attr = _JSON_ATTR[_kind(entity)]
+    blob = dict(getattr(entity, attr, None) or {})
+    crm = dict(blob.get("crm") or {})
     for section, value in (profile or {}).items():
         if isinstance(value, list):            # repeatable list → replace
             crm[section] = value
@@ -256,13 +414,21 @@ def update_crm(db: Session, lead_id: str, profile: dict, custom: dict | None = N
             crm[section] = value
     if custom is not None:
         crm["custom"] = dict(custom)
-    intake["crm"] = crm
-    intake["crm_updated_at"] = datetime.now(timezone.utc).isoformat()
-    lead.intake = intake                       # reassign so the ORM flushes it
-    _sync_core_columns(lead, crm)
+    blob["crm"] = crm
+    blob["crm_updated_at"] = datetime.now(timezone.utc).isoformat()
+    setattr(entity, attr, blob)                # reassign so the ORM flushes it
+    _sync_core_columns(entity, crm)
     db.commit()
-    db.refresh(lead)
-    return get_crm(lead)
+    db.refresh(entity)
+    return get_crm(entity)
+
+
+def update_crm(db: Session, lead_id: str, profile: dict, custom: dict | None = None) -> dict | None:
+    """Update a LEAD's CRM record by id (the insurance path)."""
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    if not lead:
+        return None
+    return update_crm_entity(db, lead, profile, custom)
 
 
 def create_lead(db: Session, profile: dict, custom: dict | None = None,
@@ -278,5 +444,22 @@ def create_lead(db: Session, profile: dict, custom: dict | None = None,
                 status="New", intake={})
     db.add(lead)
     db.flush()   # assign an id
-    updated = update_crm(db, str(lead.id), profile, custom)
-    return lead if updated else lead
+    update_crm_entity(db, lead, profile, custom)
+    return lead
+
+
+def create_restaurant(db: Session, profile: dict, custom: dict | None = None):
+    """Create a new SavoryMind restaurant prospect from the CRM form."""
+    from .models import Restaurant
+    rp = (profile or {}).get("restaurant_profile") or {}
+    owner = (profile or {}).get("owner_crm") or {}
+    rest = Restaurant(kind="prospect", name=(rp.get("name") or "New Restaurant"),
+                      owner_manager=(owner.get("owner_name") or None),
+                      email=(rp.get("email") or None), phone=(rp.get("phone") or None),
+                      cuisine=(rp.get("cuisine") or None), city=(rp.get("city") or None),
+                      website=(rp.get("website") or None), instagram=(rp.get("instagram") or None),
+                      status="New", menu_analysis={})
+    db.add(rest)
+    db.flush()
+    update_crm_entity(db, rest, profile, custom)
+    return rest

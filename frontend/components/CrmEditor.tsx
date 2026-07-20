@@ -99,9 +99,12 @@ function ListSection({ section, rows, setRows }: {
  * "create" mode it POSTs a new client. The whole form is rendered from the
  * backend schema, so new fields/modules appear here with no code change.
  */
-export function CrmEditor({ data, mode, onSaved }: {
-  data: CrmData; mode: "edit" | "create"; onSaved?: (leadId: string) => void;
+export function CrmEditor({ data, mode, onSaved, entity = "lead" }: {
+  data: CrmData; mode: "edit" | "create"; onSaved?: (id: string) => void;
+  entity?: "lead" | "restaurant";
 }) {
+  const base = entity === "restaurant" ? "/restaurants" : "/leads";
+  const idKey = entity === "restaurant" ? "restaurant_id" : "lead_id";
   const [values, setValues] = useState<Values>(() => JSON.parse(JSON.stringify(data.profile || {})));
   const [custom, setCustom] = useState<Record<string, string>>(data.custom || {});
   const [newKey, setNewKey] = useState("");
@@ -119,12 +122,13 @@ export function CrmEditor({ data, mode, onSaved }: {
     setBusy(true); setMsg("");
     try {
       if (mode === "create") {
-        const r = await api.post<{ lead_id: string }>("/leads/crm",
-          { profile: values, custom, segment: "personal" });
-        setMsg("Client created.");
-        onSaved?.(r.lead_id);
+        const body: Record<string, unknown> = { profile: values, custom };
+        if (entity === "lead") body.segment = "personal";
+        const r = await api.post<Record<string, string>>(`${base}/crm`, body);
+        setMsg(entity === "restaurant" ? "Restaurant created." : "Client created.");
+        onSaved?.(r[idKey]);
       } else {
-        await api.patch(`/leads/${data.lead_id}/crm`, { profile: values, custom });
+        await api.patch(`${base}/${data.lead_id}/crm`, { profile: values, custom });
         setMsg("Saved.");
         onSaved?.(data.lead_id || "");
       }

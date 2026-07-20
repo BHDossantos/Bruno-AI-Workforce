@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { AuthGate, Expandable, PageHeader, StatusBadge, TempBadge, TempFilter, useFetch, LoadState } from "@/components/ui";
 
@@ -68,6 +69,7 @@ function SavoryMind() {
     <div>
       <PageHeader title="SavoryMind Leads" subtitle="Restaurant prospects with AI menu analysis and pitch"
         action={<div className="flex gap-2">
+          <Link href="/restaurants/new" className="btn">+ Add Restaurant</Link>
           <button className="btn" onClick={sourceNow} disabled={sourcing}>{sourcing ? "Sourcing…" : "Source restaurants now"}</button>
           <button className="btn" onClick={dispatchAll} disabled={busy === "all"}>{busy === "all" ? "Sending…" : "Send all pending"}</button>
         </div>} />
@@ -94,7 +96,7 @@ function SavoryMind() {
             {(data || []).map((r) => (
               <tr key={r.id} className="border-t border-gray-100">
                 <td className="td"><span className="badge bg-brand/10 text-brand-dark">{r.fit_score}</span></td>
-                <td className="td"><div className="font-medium">{r.name}</div><div className="text-xs text-gray-400">{r.owner_manager}</div></td>
+                <td className="td"><Link href={`/restaurants/${r.id}`} className="font-medium text-brand hover:underline">{r.name}</Link><div className="text-xs text-gray-400">{r.owner_manager}</div></td>
                 <td className="td">{r.cuisine}<div className="text-xs text-gray-400">{r.city}</div></td>
                 <td className="td"><TempBadge t={r.temperature} /></td>
                 <td className="td text-xs">{r.email}<br />{r.instagram}</td>

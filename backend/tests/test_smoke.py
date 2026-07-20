@@ -2570,6 +2570,70 @@ def test_crm_profile_create_edit_and_core_sync(client, auth_headers):
                 db.close()
 
 
+@requires_db
+def test_restaurant_crm_module_create_edit_and_sync(client, auth_headers):
+    """The SavoryMind restaurant module: it's self-contained (no person-centric core
+    sections), creates a restaurant prospect from the form, edits sections + a
+    repeatable menu list, and syncs name/city back onto the Restaurant columns."""
+    from app.database import SessionLocal
+    from app.models import Restaurant
+
+    made_id = None
+    try:
+        # Blank restaurant schema: restaurant sections, NOT the person core.
+        blank = client.get("/restaurants/crm/schema", headers=auth_headers).json()
+        assert blank["schema"]["module"] == "restaurant"
+        assert blank["schema"]["core_sections"] == []   # self-contained module
+        sec = {s["key"] for s in blank["schema"]["module_sections"]}
+        assert {"restaurant_profile", "owner_crm", "intelligence", "finance", "sales_pipeline"} <= sec
+        lists = {l["key"] for l in blank["schema"]["lists"]}
+        assert {"menu", "employees", "customers", "reservations", "inventory"} <= lists
+
+        # CREATE a restaurant prospect from the form.
+        created = client.post("/restaurants/crm", headers=auth_headers, json={
+            "profile": {
+                "restaurant_profile": {"name": "Bibi Romeo", "cuisine": "Italian", "city": "Boston"},
+                "owner_crm": {"owner_name": "Romeo B."},
+                "finance": {"average_ticket": 34},
+            },
+        }).json()
+        made_id = created["restaurant_id"]
+        assert made_id and created["module"] == "restaurant"
+
+        # Synced to the real Restaurant columns.
+        db = SessionLocal()
+        try:
+            r = db.query(Restaurant).filter(Restaurant.id == made_id).first()
+            assert r.name == "Bibi Romeo" and r.city == "Boston" and r.owner_manager == "Romeo B."
+        finally:
+            db.close()
+
+        # EDIT: add menu items (repeatable) + a pipeline stage.
+        client.patch(f"/restaurants/{made_id}/crm", headers=auth_headers, json={
+            "profile": {
+                "menu": [{"item": "Carbonara", "price": 18, "category": "Main"}],
+                "sales_pipeline": {"stage": "Demo Scheduled"},
+            },
+        })
+        after = client.get(f"/restaurants/{made_id}/crm", headers=auth_headers).json()
+        assert after["profile"]["menu"][0]["item"] == "Carbonara"
+        # A partial edit didn't wipe the earlier finance section.
+        assert after["profile"]["finance"]["average_ticket"] == 34
+        db = SessionLocal()
+        try:
+            assert db.query(Restaurant).filter(Restaurant.id == made_id).first().status == "Demo Scheduled"
+        finally:
+            db.close()
+    finally:
+        if made_id:
+            db = SessionLocal()
+            try:
+                db.query(Restaurant).filter(Restaurant.id == made_id).delete(synchronize_session=False)
+                db.commit()
+            finally:
+                db.close()
+
+
 def test_everquote_model_casing():
     """Vehicle models read the way people write them: real words title-cased,
     model codes kept upper."""
