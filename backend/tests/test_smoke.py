@@ -5376,6 +5376,68 @@ def test_auto_reply_sends_only_when_enabled_and_interested(monkeypatch):
     assert _force_draft("objection", True) is True       # on + not-hot → still draft
 
 
+def test_business_toggles_gate_agents_and_jobs(monkeypatch):
+    """Per-business switches decide which agents + scheduled jobs run. Default
+    (insurance-only) matches the old behavior; flipping a business on adds its
+    agents/jobs; an explicit 'false' overrides even the 'all' profile."""
+    from app import businesses, scheduler
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "autonomy_profile", "insurance", raising=False)
+    for b in businesses.ALL:
+        monkeypatch.setattr(settings, f"biz_{b}_enabled", "", raising=False)
+
+    assert businesses.enabled() == {"insurance"}
+    a, j = scheduler.scheduled_plan()
+    assert "insurance" in a and "music" not in a and "bnbglobal" not in a
+    assert "auto_dial" in j and "music_releases" not in j and "auto_apply" not in j
+
+    # Turn on music + auto job-apply explicitly.
+    monkeypatch.setattr(settings, "biz_music_enabled", "true", raising=False)
+    monkeypatch.setattr(settings, "biz_jobs_enabled", "true", raising=False)
+    assert businesses.enabled() == {"insurance", "music", "jobs"}
+    a2, j2 = scheduler.scheduled_plan()
+    assert "music" in a2 and "job_hunter" in a2
+    assert "music_releases" in j2 and "auto_apply" in j2
+    assert "bnbglobal" not in a2                       # bnb still off
+
+    # Explicit 'false' wins even when the profile is 'all'.
+    monkeypatch.setattr(settings, "autonomy_profile", "all", raising=False)
+    monkeypatch.setattr(settings, "biz_bnb_enabled", "false", raising=False)
+    assert "bnb" not in businesses.enabled()
+
+
+@requires_db
+def test_businesses_control_endpoint(client, auth_headers):
+    """GET lists each business + on/off; POST toggles one (or all), persisted."""
+    from app import businesses
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.models import Setting
+
+    try:
+        r = client.get("/control/businesses", headers=auth_headers).json()
+        keys = {b["key"] for b in r["businesses"]}
+        assert {"insurance", "bnb", "savorymind", "music", "jobs", "content"} <= keys
+
+        r2 = client.post("/control/businesses", headers=auth_headers,
+                         json={"key": "savorymind", "on": True}).json()
+        assert next(b["on"] for b in r2["businesses"] if b["key"] == "savorymind") is True
+
+        r3 = client.post("/control/businesses", headers=auth_headers,
+                         json={"key": "all", "on": False}).json()
+        assert all(b["on"] is False for b in r3["businesses"])
+    finally:
+        # Reset to unset so this can't leak into the autonomy_profile-driven tests.
+        db = SessionLocal()
+        for b in businesses.ALL:
+            db.query(Setting).filter(Setting.key == f"cfg:biz_{b}_enabled").delete(
+                synchronize_session=False)
+            setattr(settings, f"biz_{b}_enabled", "")
+        db.commit()
+        db.close()
+
+
 @requires_db
 def test_csv_export(client, auth_headers):
     r = client.get("/export/leads.csv", headers=auth_headers)

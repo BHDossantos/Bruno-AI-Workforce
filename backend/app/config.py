@@ -31,6 +31,16 @@ class Settings(BaseSettings):
     # Defaults to insurance-only so nothing off-brand (e.g. restaurant/consulting
     # cold emails) sends from the insurance domain. Flip to "all" to re-enable them.
     autonomy_profile: str = "insurance"
+    # Per-business on/off (Setup → Businesses). Empty = follow autonomy_profile
+    # (insurance-only by default); "true"/"false" explicitly overrides that one
+    # business. Flip each on to run + test its agents & scheduled jobs. See
+    # app/businesses.py.
+    biz_insurance_enabled: str = ""
+    biz_bnb_enabled: str = ""
+    biz_savorymind_enabled: str = ""
+    biz_music_enabled: str = ""
+    biz_jobs_enabled: str = ""
+    biz_content_enabled: str = ""
     embedding_model: str = "text-embedding-3-small"  # for the memory/knowledge layer
     image_model: str = "gpt-image-1"  # for auto-generated social post images
     # Jennifer voice assistant — real neural TTS so she sounds natural, not robotic.

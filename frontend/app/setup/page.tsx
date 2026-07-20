@@ -55,6 +55,16 @@ function Setup() {
   const [dncMsg, setDncMsg] = useState("");
   const [dncBusy, setDncBusy] = useState(false);
   const { data: dncList, reload: reloadDnc } = useFetch<DncList>(() => api.get<DncList>("/compliance/dnc"));
+  const { data: bizData, reload: reloadBiz } = useFetch<{ businesses: { key: string; label: string; on: boolean }[] }>(
+    () => api.get("/control/businesses"));
+  const [bizBusy, setBizBusy] = useState<string | null>(null);
+
+  async function toggleBiz(key: string, on: boolean) {
+    setBizBusy(key);
+    try { await api.post("/control/businesses", { key, on }); reloadBiz(); }
+    catch (e) { setMsg(`❌ ${e}`); }
+    finally { setBizBusy(null); }
+  }
   const [sipMsg, setSipMsg] = useState("");
   const [sipBusy, setSipBusy] = useState(false);
 
@@ -173,6 +183,37 @@ function Setup() {
             </ul>
           </div>
         )}
+      </div>
+
+      {/* Businesses — turn each engine on/off */}
+      <div className="card mb-4">
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="font-semibold">🏢 Businesses</h2>
+          {bizData && (
+            <div className="flex gap-2">
+              <button className="btn-ghost text-xs" disabled={!!bizBusy} onClick={() => toggleBiz("all", true)}>Turn all on</button>
+              <button className="btn-ghost text-xs" disabled={!!bizBusy} onClick={() => toggleBiz("all", false)}>All off</button>
+            </div>
+          )}
+        </div>
+        <p className="mt-1 mb-3 text-xs text-gray-500">
+          Each engine runs its own agents &amp; scheduled jobs when ON. Insurance is on by default;
+          the rest are off to keep AI spend lean. Flip one on to test it end-to-end. Takes effect on
+          the next scheduled run — no redeploy.
+        </p>
+        <div className="grid gap-2">
+          {(bizData?.businesses || []).map((b) => (
+            <label key={b.key} className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+              <span>{b.label}</span>
+              <button
+                className={`badge ${b.on ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}
+                disabled={bizBusy === b.key || bizBusy === "all"}
+                onClick={() => toggleBiz(b.key, !b.on)}>
+                {bizBusy === b.key ? "…" : b.on ? "ON" : "OFF"}
+              </button>
+            </label>
+          ))}
+        </div>
       </div>
 
       {/* Outreach automation toggles (opt-in) */}

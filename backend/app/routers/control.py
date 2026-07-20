@@ -43,6 +43,35 @@ def set_outreach_autopilot(body: OutreachIn, db: Session = Depends(get_db), _=De
     return {"outreach_autopilot": control.set_outreach_autopilot(db, body.on)}
 
 
+@router.get("/businesses")
+def get_businesses(db: Session = Depends(get_db), _=Depends(_read)):
+    """Which businesses (insurance / B&B / SavoryMind / Music / job-apply / content)
+    are switched on — each runs its own agents + scheduled jobs when on."""
+    from .. import businesses, runtime_config
+    runtime_config.apply_to_settings(db)
+    return {"businesses": businesses.status()}
+
+
+class BusinessIn(BaseModel):
+    key: str
+    on: bool
+
+
+@router.post("/businesses")
+def set_business(body: BusinessIn, db: Session = Depends(get_db), _=Depends(_write)):
+    """Turn one business on or off. Takes effect on the next scheduled run — no
+    redeploy. Pass key='all' to flip every business at once."""
+    from .. import businesses, runtime_config
+    keys = businesses.ALL if body.key == "all" else [body.key]
+    if body.key != "all" and body.key not in businesses.ALL:
+        from fastapi import HTTPException
+        raise HTTPException(400, f"Unknown business '{body.key}'.")
+    for k in keys:
+        runtime_config.save(db, f"biz_{k}_enabled", "true" if body.on else "false")
+    runtime_config.apply_to_settings(db)
+    return {"businesses": businesses.status()}
+
+
 @router.post("/insurance-relay")
 def set_insurance_relay(body: OutreachIn, db: Session = Depends(get_db), _=Depends(_write)):
     """Toggle: send insurance outreach through your personal mailbox with the
