@@ -115,6 +115,13 @@ def send_priority_order(Lead, Message):
         else_=2,                                               # cold / new / unknown
     )
     contacted = func.coalesce(Lead.times_contacted, 0)
-    # band → uncontacted-first → hottest score → oldest draft.
-    return [band.asc(), contacted.asc(), score.desc(), Message.created_at.asc()]
+    # Within the same temperature band, EverQuote (in-market, paid quote requests)
+    # go FIRST — speed-to-lead is the whole point. EverQuote leads are stamped
+    # category "EverQuote Auto", so match that prefix. The day's send fires EverQuote
+    # before any other hot lead, then the normal hot→warm→cold order.
+    category = func.lower(func.coalesce(Lead.category, ""))
+    everquote_first = case((category.like("everquote%"), 0), else_=1)
+    # band → EverQuote-first → uncontacted-first → hottest score → oldest draft.
+    return [band.asc(), everquote_first.asc(), contacted.asc(), score.desc(),
+            Message.created_at.asc()]
 

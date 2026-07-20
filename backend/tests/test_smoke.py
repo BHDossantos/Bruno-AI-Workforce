@@ -5198,6 +5198,59 @@ def test_dispatch_order_hot_warm_cold(client):
 
 
 @requires_db
+def test_everquote_leads_fire_first_in_send_and_dispatch(client, auth_headers):
+    """EverQuote leads (category 'EverQuote Auto') send FIRST in the email queue —
+    ahead of an equally-hot, even higher-scored non-EverQuote lead. Speed-to-lead:
+    the paid in-market quote requests go before anything else in the day's 200."""
+    from datetime import datetime, timezone
+
+    from app import lead_temperature
+    from app.database import SessionLocal
+    from app.models import Lead, Message
+
+    eq_email = "eq_first@t.co"
+    other_email = "eq_other_hot@t.co"
+    db = SessionLocal()
+    made_msgs = []
+    try:
+        db.query(Lead).filter(Lead.email.in_([eq_email, other_email])).delete(synchronize_session=False)
+        db.commit()
+        # Both are HOT. The non-EverQuote one is even hotter by score + older draft,
+        # so ONLY the EverQuote-first rule can put the EverQuote lead ahead.
+        eq = Lead(segment="personal", email=eq_email, status="New", score=92,
+                  category="EverQuote Auto", times_contacted=0)
+        other = Lead(segment="commercial", email=other_email, status="New", score=99,
+                     category="Insurance", times_contacted=0)
+        db.add_all([eq, other]); db.commit()
+
+        # send queue (Message⋈Lead) → EverQuote draft sends first even though the
+        # other draft is older + higher-scored.
+        now = datetime.now(timezone.utc)
+        m_other = Message(direction="outbound", to_email=other_email, entity_type="lead",
+                          entity_id=other.id, status="Drafted", subject="o", body="o",
+                          created_at=now)
+        m_eq = Message(direction="outbound", to_email=eq_email, entity_type="lead",
+                       entity_id=eq.id, status="Drafted", subject="e", body="e", created_at=now)
+        db.add_all([m_other, m_eq]); db.commit(); made_msgs = [m_other, m_eq]
+
+        from sqlalchemy import and_
+        q = (db.query(Message)
+             .outerjoin(Lead, and_(Message.entity_type == "lead", Message.entity_id == Lead.id))
+             .filter(Message.to_email.in_([eq_email, other_email]),
+                     Message.status == "Drafted")
+             .order_by(*lead_temperature.send_priority_order(Lead, Message)))
+        send_rank = [m.to_email for m in q.all()]
+        assert send_rank.index(eq_email) < send_rank.index(other_email)
+    finally:
+        for m in made_msgs:
+            db.delete(m)
+        db.commit()
+        db.query(Lead).filter(Lead.email.in_([eq_email, other_email])).delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
+
+@requires_db
 def test_import_dedupes_by_email_and_cleanup(client, auth_headers):
     """Re-importing the same list UPDATES existing leads instead of creating copies,
     and the /leads/dedupe cleanup removes duplicates made before that, keeping the
