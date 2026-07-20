@@ -1322,6 +1322,15 @@ def test_calls_health_reports_connect_rate(client, auth_headers):
         assert 0.0 <= d["today"]["connect_rate"] <= 100.0
         for key in ("provider", "configured", "voicemail_ready", "daily_cap", "today", "week"):
             assert key in d, key
+        # The setup checklist names every remaining gap (carrier creds + callback +
+        # base URL) and a ready_to_dial flag — so the UI can show what's left.
+        setup = d["setup"]
+        assert "blockers" in setup and isinstance(setup["blockers"], list)
+        assert "ready_to_dial" in setup
+        # In the test env there are no live carrier creds, so it must NOT claim ready
+        # and must list at least one concrete blocker to fix.
+        assert setup["ready_to_dial"] is False
+        assert setup["blockers"], "should name what's missing, not be empty"
     finally:
         for m in made:
             db.delete(m)

@@ -148,12 +148,25 @@ def calling_health(db: Session = Depends(get_db), _=Depends(_read)):
     provider = vdispatch.active()
     cap = int(settings.auto_dial_daily_cap or 0)
     from ..integrations import telco
+
+    # Full "ready to dial" checklist — the CARRIER creds (telco.diagnose) PLUS the
+    # two things the Call button also needs: a callback cell to ring first, and a
+    # public base URL so the carrier can reach our call webhooks. Naming every gap
+    # here means pasting the API token doesn't just surface the NEXT missing field.
+    setup = telco.diagnose()
+    blockers = list(setup.get("missing") or [])
+    if not (settings.producer_callback or "").strip():
+        blockers.append("your cell / callback number (Setup → Calling)")
+    if not (settings.public_base_url or "").strip():
+        blockers.append("PUBLIC_BASE_URL (set in the deploy env)")
+    setup["blockers"] = blockers
+    setup["ready_to_dial"] = vdispatch.is_configured() and not blockers
     return {
         "provider": provider,
         "configured": vdispatch.is_configured(),
-        # Exactly what's still missing to make the number dial (e.g. the API Token),
-        # so "still not working" becomes an actionable checklist, not a mystery.
-        "setup": telco.diagnose(),
+        # Exactly what's still missing to make the number dial (API token, callback
+        # cell, base URL) — so "still not working" is an actionable checklist.
+        "setup": setup,
         "voicemail_ready": voice.voicemail_configured(),
         "transfer_enabled": bool(settings.auto_dial_transfer_enabled),
         "daily_cap": cap,
