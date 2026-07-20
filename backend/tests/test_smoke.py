@@ -6525,6 +6525,48 @@ def test_content_apply_hook_swaps_first_line(client, auth_headers):
     assert "Second line stays." in body["body"]
 
 
+def test_telco_diagnose_pinpoints_missing_signalwire_token():
+    """The calling self-diagnostic names the ONE missing field (the API Token) when
+    the Space + Project + number are set but the token is blank — instead of a bare
+    'not configured' — and reports ready once the token is added."""
+    from app.config import settings
+    from app.integrations import telco
+
+    saved = {k: getattr(settings, k) for k in (
+        "twilio_account_sid", "twilio_auth_token", "sms_provider",
+        "signalwire_space_url", "signalwire_project_id", "signalwire_api_token",
+        "signalwire_from_number", "signalwire_voice_number",
+        "signalwire_insurance_number")}
+    try:
+        # Force a clean baseline: no Twilio, SignalWire half-connected (token blank).
+        settings.twilio_account_sid = ""
+        settings.twilio_auth_token = ""
+        settings.sms_provider = "auto"
+        settings.signalwire_space_url = "dossantosinsurance-org.signalwire.com"
+        settings.signalwire_project_id = "9909fc0c-553c-442d-bbf8-64ac8efe9b21"
+        settings.signalwire_from_number = "+19788244228"
+        settings.signalwire_voice_number = ""
+        settings.signalwire_insurance_number = ""
+        settings.signalwire_api_token = ""
+
+        d = telco.diagnose()
+        assert d["ready"] is False
+        assert d["provider"] is None
+        assert "API Token" in d["missing"]
+        assert "Space URL" not in d["missing"] and "Project ID" not in d["missing"]
+        assert "API Token" in d["hint"]
+
+        # Paste the token → now usable, provider resolves to SignalWire, ready.
+        settings.signalwire_api_token = "PTfaketoken"
+        d2 = telco.diagnose()
+        assert d2["ready"] is True
+        assert d2["provider"] == "SignalWire"
+        assert d2["missing"] == []
+    finally:
+        for k, v in saved.items():
+            setattr(settings, k, v)
+
+
 def test_education_partners_target_schools_not_generic_businesses():
     """The foundation's school agent sources real education institutions, not
     generic commercial leads (synthetic fallback stays education-categorized)."""

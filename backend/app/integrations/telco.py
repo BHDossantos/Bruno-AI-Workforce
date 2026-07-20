@@ -80,3 +80,56 @@ def api_url(resource: str) -> str:
 def label() -> str:
     """Human name of the active provider — for error messages/status."""
     return "SignalWire" if provider() == "signalwire" else "Twilio"
+
+
+def diagnose() -> dict:
+    """Pinpoint WHY calling/texting isn't live yet — the specific missing field(s)
+    and a one-line fix — instead of a bare 'not configured'. Surfaced on the Call
+    List health screen so a half-connected carrier says what's left to do.
+
+    Never returns any secret value — only which fields are still blank.
+    """
+    def _set(name: str) -> bool:
+        return bool((getattr(settings, name, "") or "").strip())
+
+    # SignalWire is the intended carrier here (Space + Project are pre-filled).
+    sw_space = _set("signalwire_space_url")
+    sw_proj = _set("signalwire_project_id")
+    sw_token = _set("signalwire_api_token")
+    sw_number = (_set("signalwire_from_number") or _set("signalwire_voice_number")
+                 or _set("signalwire_insurance_number"))
+
+    if provider():  # a full, usable credential set exists
+        missing: list[str] = []
+        if not sw_number and provider() == "signalwire":
+            missing.append("a SignalWire voice/SMS number")
+        return {
+            "ready": not missing,
+            "provider": label(),
+            "missing": missing,
+            # Even with creds set, the number must be assigned a voice handler in the
+            # SignalWire Space, and registered, before carriers will let it ring.
+            "hint": (
+                f"{label()} is connected. In your SignalWire Space, open the number "
+                "and set 'Handle Calls Using' → a LaML/Voice webhook, then make sure "
+                "the number is verified/registered so carriers don't flag it."
+                if provider() == "signalwire" else f"{label()} is connected."),
+        }
+
+    # Not usable yet — say exactly which SignalWire field is blank (Space + Project
+    # are committed, so the token is almost always the one thing left).
+    missing = []
+    if not sw_space:
+        missing.append("Space URL")
+    if not sw_proj:
+        missing.append("Project ID")
+    if not sw_token:
+        missing.append("API Token")
+    if not sw_number:
+        missing.append("a voice/SMS number")
+    if sw_space and sw_proj and not sw_token:
+        hint = ("Paste your SignalWire API Token (starts with 'PT…') in Setup → it's "
+                "the only piece left. Your Space, Project ID and number are already saved.")
+    else:
+        hint = "Add your SignalWire credentials in Setup to turn on calling + texting."
+    return {"ready": False, "provider": None, "missing": missing, "hint": hint}

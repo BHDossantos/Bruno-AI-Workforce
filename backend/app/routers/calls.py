@@ -147,9 +147,13 @@ def calling_health(db: Session = Depends(get_db), _=Depends(_read)):
     week_stats = _counts(week)
     provider = vdispatch.active()
     cap = int(settings.auto_dial_daily_cap or 0)
+    from ..integrations import telco
     return {
         "provider": provider,
         "configured": vdispatch.is_configured(),
+        # Exactly what's still missing to make the number dial (e.g. the API Token),
+        # so "still not working" becomes an actionable checklist, not a mystery.
+        "setup": telco.diagnose(),
         "voicemail_ready": voice.voicemail_configured(),
         "transfer_enabled": bool(settings.auto_dial_transfer_enabled),
         "daily_cap": cap,
