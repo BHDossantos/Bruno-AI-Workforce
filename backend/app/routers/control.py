@@ -100,3 +100,87 @@ def pause(db: Session = Depends(get_db), _=Depends(_write)):
 def resume(db: Session = Depends(get_db), _=Depends(_write)):
     """Release the emergency stop — agents resume on their normal schedule."""
     return {"paused": control.set_paused(db, False)}
+
+
+def _autopilot_readiness(db: Session) -> dict:
+    """Is the daily machine actually set up to EMAIL, TEXT and CALL on its own?
+    For each channel: whether automation is switched on, whether a channel is
+    connected to send through, and — if not — exactly what's blocking. So 'set up
+    my daily outreach' becomes a green/blocked checklist, not a guess."""
+    from .. import outreach, runtime_config, sms_followups
+    from ..config import settings
+    from ..integrations import sms as sms_integ
+    from ..integrations import telco
+    from ..integrations import voice as vdispatch
+    runtime_config.apply_to_settings(db)
+
+    paused = control.is_paused_safe(db)
+    autosend_on = control.get_mode(db) == "auto" or control.outreach_autopilot(db)
+    acct = "insurance"
+
+    # EMAIL — auto-sends drafts hourly 8am-8pm when autopilot is on and a channel
+    # (Resend / SendGrid / Gmail) is connected.
+    email_conn = outreach.can_deliver(acct)
+    email_block = ([] if not paused else ["autopilot is paused (hit Resume)"])
+    if not autosend_on:
+        email_block.append("Outreach Autopilot is off")
+    if not email_conn:
+        email_block.append("connect an email channel (Resend / SendGrid / Gmail) in Setup")
+
+    # SMS — the warm/opt-in texting drafts auto-send in the same pass; the cold
+    # emailed-but-silent follow-up is a separate opt-in (needs A2P).
+    sms_conn = sms_integ.is_configured()
+    sms_block = list(email_block[:1])  # shares the pause gate
+    if not autosend_on:
+        sms_block.append("Outreach Autopilot is off")
+    if not sms_conn:
+        sms_block.append(f"connect a texting carrier ({telco.label('sms')}) in Setup")
+
+    # CALL — the auto-dialer works the Call List every minute 8am-8pm when enabled
+    # and a voice carrier + callback are set.
+    dial_on = bool(settings.auto_dial_enabled)
+    call_conn = vdispatch.is_configured()
+    call_diag = telco.diagnose("voice")
+    call_block = list(email_block[:1])
+    if not dial_on:
+        call_block.append("auto-dialer is off (auto_dial_enabled)")
+    if not call_conn:
+        call_block.extend(call_diag.get("missing") or ["connect a voice carrier in Setup"])
+    if call_conn and not (settings.producer_callback or "").strip():
+        call_block.append("your cell / callback number (Setup → Calling)")
+
+    def _row(enabled, connected, blockers, schedule):
+        return {"enabled": bool(enabled), "connected": bool(connected),
+                "ready": bool(enabled) and bool(connected) and not blockers,
+                "blockers": blockers, "schedule": schedule}
+
+    return {
+        "paused": paused,
+        "mode": control.get_mode(db),
+        "outreach_autopilot": control.outreach_autopilot(db),
+        "email": _row(autosend_on and not paused, email_conn, email_block,
+                      "hourly 8am–8pm"),
+        "sms": _row(autosend_on and not paused, sms_conn, sms_block,
+                    "with outreach + 1:45pm follow-ups"),
+        "call": _row(dial_on and not paused, call_conn, call_block,
+                     "every minute 8am–8pm"),
+        "sms_followup_optin": sms_followups.is_enabled(),
+    }
+
+
+@router.get("/autopilot")
+def autopilot_status(db: Session = Depends(get_db), _=Depends(_read)):
+    """Daily-automation readiness across all three channels (email / SMS / call)."""
+    return _autopilot_readiness(db)
+
+
+@router.post("/autopilot/on")
+def autopilot_on(db: Session = Depends(get_db), _=Depends(_write)):
+    """One click to arm the daily machine: release any pause and turn Outreach
+    Autopilot on (the two runtime gates on auto-sending). The auto-dialer is on by
+    default already. Reports back the readiness so any still-missing connection
+    (email channel, texting carrier, voice creds) is named — flipping the switches
+    can't invent credentials that aren't connected."""
+    control.set_paused(db, False)
+    control.set_outreach_autopilot(db, True)
+    return _autopilot_readiness(db)

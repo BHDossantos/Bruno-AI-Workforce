@@ -167,6 +167,32 @@ def test_outreach_autopilot_defaults_on_and_toggles(client, auth_headers):
 
 
 @requires_db
+def test_autopilot_readiness_reports_all_three_channels(client, auth_headers):
+    """The daily-automation readiness endpoint reports email / SMS / call each with
+    enabled + connected + a named blocker, and the one-click 'arm it' releases pause
+    and turns Outreach Autopilot on. In the test env no carriers are connected, so
+    each channel is enabled-but-not-ready and names what to connect."""
+    r = client.get("/control/autopilot", headers=auth_headers).json()
+    for ch in ("email", "sms", "call"):
+        assert ch in r, ch
+        row = r[ch]
+        assert set(("enabled", "connected", "ready", "blockers", "schedule")) <= set(row)
+        # Nothing is connected in tests → not ready, and it must SAY what's missing.
+        assert row["ready"] is False
+        assert row["connected"] is False
+        assert row["blockers"], f"{ch} should name a blocker"
+
+    # One-click arm: pause released, autopilot on. Channels stay 'enabled' (the
+    # switches are on) even though still not 'ready' (no creds in the test env).
+    armed = client.post("/control/autopilot/on", headers=auth_headers).json()
+    assert armed["paused"] is False
+    assert armed["outreach_autopilot"] is True
+    assert armed["email"]["enabled"] is True and armed["sms"]["enabled"] is True
+    # Restore default-on autopilot state for other tests (leave it on).
+    client.post("/control/outreach-autopilot", json={"on": True}, headers=auth_headers)
+
+
+@requires_db
 def test_insurance_relay_toggle_routes_through_personal(client, auth_headers):
     """One-click relay: when ON, insurance sends through the personal mailbox with
     a Thrust Reply-To (so it sends without separate Thrust credentials)."""

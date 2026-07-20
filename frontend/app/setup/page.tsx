@@ -58,6 +58,16 @@ function Setup() {
   const { data: bizData, reload: reloadBiz } = useFetch<{ businesses: { key: string; label: string; on: boolean }[] }>(
     () => api.get("/control/businesses"));
   const [bizBusy, setBizBusy] = useState<string | null>(null);
+  type ApRow = { enabled: boolean; connected: boolean; ready: boolean; blockers: string[]; schedule: string };
+  type Autopilot = { paused: boolean; mode: string; outreach_autopilot: boolean;
+    email: ApRow; sms: ApRow; call: ApRow };
+  const { data: ap, reload: reloadAp } = useFetch<Autopilot>(() => api.get<Autopilot>("/control/autopilot"));
+  const [apBusy, setApBusy] = useState(false);
+  const armAutopilot = async () => {
+    setApBusy(true);
+    try { await api.post("/control/autopilot/on", {}); await reloadAp(); }
+    finally { setApBusy(false); }
+  };
 
   async function toggleBiz(key: string, on: boolean) {
     setBizBusy(key);
@@ -145,6 +155,46 @@ function Setup() {
       <PageHeader title="Connect Email & Data"
         subtitle="The agents need a mailbox to send outreach and read replies, and a data source for high-quality leads. Connect them here — it takes effect immediately, no redeploy." />
       {msg && <p className="mb-3 text-sm text-gray-700">{msg}</p>}
+
+      {/* Daily Autopilot — is the machine set up to EMAIL, TEXT and CALL on its own? */}
+      {ap && (
+        <div className="card mb-4 border-l-4 border-brand">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">🟢 Daily Autopilot</h2>
+            <button className="btn text-xs" disabled={apBusy} onClick={armAutopilot}>
+              {apBusy ? "Arming…" : "Arm daily autopilot"}
+            </button>
+          </div>
+          <p className="mt-1 mb-3 text-xs text-gray-500">
+            Every day the agents source leads and automatically <b>email</b>, <b>text</b> and{" "}
+            <b>call</b> them — on a schedule, within the daily caps and quiet-hours rules. Each
+            channel needs its automation switched on <i>and</i> a carrier/mailbox connected. This
+            shows what&apos;s live and what&apos;s left. {ap.paused && (
+              <b className="text-red-600">Autopilot is PAUSED — click Arm to resume.</b>
+            )}
+          </p>
+          <div className="grid gap-2">
+            {([["email", "📧 Email"], ["sms", "💬 Texting"], ["call", "📞 Calling"]] as const).map(([k, label]) => {
+              const row = ap[k];
+              return (
+                <div key={k} className="flex items-start justify-between rounded-lg border border-gray-100 px-3 py-2">
+                  <div>
+                    <span className="text-sm font-medium">{label}</span>
+                    <span className="ml-2 text-xs text-gray-400">{row.schedule}</span>
+                    {!row.ready && row.blockers.length > 0 && (
+                      <p className="mt-0.5 text-xs text-amber-600">Needs: {row.blockers.join("; ")}</p>
+                    )}
+                  </div>
+                  <span className={`badge ${row.ready ? "bg-green-100 text-green-700"
+                    : row.enabled ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-500"}`}>
+                    {row.ready ? "Live" : row.enabled ? "Needs setup" : "Off"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Do Not Contact — honor opt-out requests instantly (blocks email/text/calls) */}
       <div className="card mb-4 border-l-4 border-red-500">
