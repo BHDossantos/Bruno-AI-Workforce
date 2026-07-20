@@ -679,6 +679,46 @@ function Setup() {
             value={form.google_places_api_key || ""} onChange={(e) => set("google_places_api_key", e.target.value)} />
         </div>
 
+        {/* Carrier routing — texting and calling choose their carrier INDEPENDENTLY */}
+        <div className="card border-l-4 border-brand">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">📶 Carrier routing (texting vs calling)</h2>
+            <span className="text-xs text-gray-500">
+              texts via <b>{data.sms?.via || "—"}</b> · calls via <b>{data.calling?.via || "—"}</b>
+            </span>
+          </div>
+          <p className="mb-3 text-xs text-gray-500">
+            Texting and calling pick their carrier <b>separately</b> — so you can keep <b>texting on
+            Twilio</b> (already A2P-registered and working) while <b>calling goes through SignalWire</b>
+            {" "}(if Twilio blocked your outbound calls). <b>Auto</b> uses SignalWire when it&apos;s
+            connected, otherwise Twilio. Fill in each carrier&apos;s credentials in the cards below.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="text-xs font-medium text-gray-600">
+              Texting (SMS) carrier
+              <select className="input mt-1" value={form.sms_provider || "auto"}
+                onChange={(e) => set("sms_provider", e.target.value)}>
+                <option value="auto">Auto (prefer SignalWire, else Twilio)</option>
+                <option value="twilio">Twilio</option>
+                <option value="signalwire">SignalWire</option>
+                <option value="plivo">Plivo</option>
+              </select>
+            </label>
+            <label className="text-xs font-medium text-gray-600">
+              Calling (Voice) carrier
+              <select className="input mt-1" value={form.voice_provider || "auto"}
+                onChange={(e) => set("voice_provider", e.target.value)}>
+                <option value="auto">Auto (prefer SignalWire, else Twilio)</option>
+                <option value="signalwire">SignalWire</option>
+                <option value="twilio">Twilio</option>
+                <option value="plivo">Plivo</option>
+                <option value="vonage">Vonage</option>
+                <option value="sip">Self-hosted SIP</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
         {/* Twilio (SMS) */}
         <div className="card">
           <div className="mb-2 flex items-center justify-between">
@@ -716,8 +756,6 @@ function Setup() {
             <b>freecallerregistry.com</b> so it isn&apos;t flagged.
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
-            <input className="input" placeholder="Provider: auto | twilio | plivo"
-              value={form.sms_provider || ""} onChange={(e) => set("sms_provider", e.target.value)} />
             <input className="input" placeholder="Plivo number +1 555 123 4567 (Voice + SMS)"
               value={form.plivo_from_number || ""} onChange={(e) => set("plivo_from_number", e.target.value)} />
             <input className="input" type="password" placeholder="Plivo Auth ID"
@@ -741,8 +779,6 @@ function Setup() {
             <b>freecallerregistry.com</b> so it isn&apos;t filtered.
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
-            <input className="input" placeholder="Voice provider: auto | vonage | plivo | twilio | sip"
-              value={form.voice_provider || ""} onChange={(e) => set("voice_provider", e.target.value)} />
             <input className="input" placeholder="Vonage number +1 555 123 4567"
               value={form.vonage_from_number || ""} onChange={(e) => set("vonage_from_number", e.target.value)} />
             <input className="input" placeholder="Vonage Application ID"

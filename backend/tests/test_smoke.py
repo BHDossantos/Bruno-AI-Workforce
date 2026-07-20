@@ -6542,7 +6542,8 @@ def test_telco_diagnose_pinpoints_missing_signalwire_token():
     from app.integrations import telco
 
     saved = {k: getattr(settings, k) for k in (
-        "twilio_account_sid", "twilio_auth_token", "sms_provider",
+        "twilio_account_sid", "twilio_auth_token", "twilio_from_number",
+        "sms_provider", "voice_provider",
         "signalwire_space_url", "signalwire_project_id", "signalwire_api_token",
         "signalwire_from_number", "signalwire_voice_number",
         "signalwire_insurance_number")}
@@ -6551,6 +6552,7 @@ def test_telco_diagnose_pinpoints_missing_signalwire_token():
         settings.twilio_account_sid = ""
         settings.twilio_auth_token = ""
         settings.sms_provider = "auto"
+        settings.voice_provider = "auto"
         settings.signalwire_space_url = "dossantosinsurance-org.signalwire.com"
         settings.signalwire_project_id = "9909fc0c-553c-442d-bbf8-64ac8efe9b21"
         settings.signalwire_from_number = "+19788244228"
@@ -6571,6 +6573,45 @@ def test_telco_diagnose_pinpoints_missing_signalwire_token():
         assert d2["ready"] is True
         assert d2["provider"] == "SignalWire"
         assert d2["missing"] == []
+    finally:
+        for k, v in saved.items():
+            setattr(settings, k, v)
+
+
+def test_telco_texting_and_calling_use_independent_carriers():
+    """Bruno's real setup: texting stays on an already-registered Twilio number while
+    calling routes through SignalWire. The per-channel switch (sms_provider vs
+    voice_provider) must let the two channels resolve to DIFFERENT carriers at once."""
+    from app.config import settings
+    from app.integrations import telco
+
+    keys = ("twilio_account_sid", "twilio_auth_token", "sms_provider", "voice_provider",
+            "signalwire_space_url", "signalwire_project_id", "signalwire_api_token")
+    saved = {k: getattr(settings, k) for k in keys}
+    try:
+        # Both carriers fully connected.
+        settings.twilio_account_sid = "ACxxx"
+        settings.twilio_auth_token = "twtok"
+        settings.signalwire_space_url = "dossantosinsurance-org.signalwire.com"
+        settings.signalwire_project_id = "9909fc0c-553c-442d-bbf8-64ac8efe9b21"
+        settings.signalwire_api_token = "PTtoken"
+
+        # The split: text on Twilio, call on SignalWire — simultaneously.
+        settings.sms_provider = "twilio"
+        settings.voice_provider = "signalwire"
+        assert telco.provider("sms") == "twilio"
+        assert telco.provider("voice") == "signalwire"
+        assert "api.twilio.com" in telco.api_url("Messages.json", "sms")
+        assert "signalwire.com" in telco.api_url("Calls.json", "voice")
+        assert telco.auth("sms") == ("ACxxx", "twtok")
+        assert telco.auth("voice") == ("9909fc0c-553c-442d-bbf8-64ac8efe9b21", "PTtoken")
+        assert telco.label("sms") == "Twilio" and telco.label("voice") == "SignalWire"
+
+        # 'auto' on both prefers SignalWire when it's connected (drop-in default).
+        settings.sms_provider = "auto"
+        settings.voice_provider = "auto"
+        assert telco.provider("sms") == "signalwire"
+        assert telco.provider("voice") == "signalwire"
     finally:
         for k, v in saved.items():
             setattr(settings, k, v)
