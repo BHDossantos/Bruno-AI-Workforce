@@ -323,7 +323,12 @@ class Settings(BaseSettings):
     # otherwise. Gated by the same Outreach Autopilot / full-auto switch as auto-send.
     auto_dial_enabled: bool = True         # master switch for the daily 8am auto-dial pass
     auto_dial_daily_cap: int = 80          # max leads auto-dialed per day (protects your line)
-    auto_dial_cooldown_days: int = 7       # don't auto-dial the same lead within N days
+    # Min whole days between auto-dials of the SAME lead, measured by calendar day.
+    # 1 = at most once per day, so the dialer round-robins the whole list: it never
+    # re-calls a lead already dialed today, and picks the least-recently-called
+    # (never-called first) each day — churning a 100-lead list at 80/day cycles every
+    # ~1.25 days. Raise it to space calls further apart.
+    auto_dial_cooldown_days: int = 1
     # Transfer a LIVE answer to the producer's cell? Default OFF on a fresh number
     # whose reputation may filter calls to voicemail (a transfer would just hit the
     # producer's voicemail and waste the call). When off, the auto-dialer leaves the

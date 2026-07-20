@@ -5374,6 +5374,50 @@ def test_dispatch_order_hot_warm_cold(client):
 
 
 @requires_db
+def test_auto_dial_everquote_round_robin_continues_next_day(client, auth_headers):
+    """The dialer round-robins the EverQuote list: day one calls the oldest N, day two
+    picks up at the NEXT lead (not restarting at #1) via the least-contacted-first
+    cursor, then wraps to the oldest. Proven on the ordering + times_contacted key."""
+    from datetime import datetime, timedelta, timezone
+
+    from app import lead_temperature
+    from app.database import SessionLocal
+    from app.models import Lead
+
+    ids = []
+    db = SessionLocal()
+    try:
+        base = datetime(2020, 1, 1, tzinfo=timezone.utc)
+        # 10 EverQuote leads, created oldest→newest.
+        for i in range(10):
+            l = Lead(segment="personal", category="EverQuote Auto", score=92, status="New",
+                     phone=f"555000{i:04d}", email=f"rr{i}@x.co", times_contacted=0,
+                     created_at=base + timedelta(minutes=i))
+            db.add(l); db.flush(); ids.append(l.id)
+        db.commit()
+
+        def ranked():
+            rows = (db.query(Lead).filter(Lead.id.in_(ids))
+                    .order_by(*lead_temperature.dispatch_order(Lead)).all())
+            return [ids.index(r.id) for r in rows]   # positions 0..9 = oldest..newest
+
+        # Day one: all at 0 calls → strict oldest→newest.
+        assert ranked() == list(range(10))
+        # "Call" the oldest 6 (cap=6): bump their contact counter, like the dialer does.
+        for i in range(6):
+            db.query(Lead).filter(Lead.id == ids[i]).update(
+                {"times_contacted": 1, "last_contacted_at": base + timedelta(days=1)})
+        db.commit()
+        # Day two: the never-called 6..9 sort FIRST (oldest-first), THEN the called
+        # 0..5 — so it continues at #7, finishes the list, and only then wraps to #1.
+        assert ranked() == [6, 7, 8, 9, 0, 1, 2, 3, 4, 5]
+    finally:
+        db.query(Lead).filter(Lead.id.in_(ids)).delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
+
+@requires_db
 def test_everquote_leads_fire_first_in_send_and_dispatch(client, auth_headers):
     """EverQuote leads (category 'EverQuote Auto') send FIRST in the email queue —
     ahead of an equally-hot, even higher-scored non-EverQuote lead. Speed-to-lead:
@@ -7242,6 +7286,8 @@ def test_send_priority_order_ranks_new_hot_first_then_followup_warm_cold():
 def test_auto_dial_daily_pass_calls_hottest_respects_cooldown_optout_and_dead(monkeypatch):
     """The daily auto-dial pass: hottest-first, capped, skips opted-out + dead/closed
     leads, and never re-dials a lead inside the cooldown window."""
+    from sqlalchemy import func
+
     from app import auto_dial, control, sms_engine
     from app.config import settings
     from app.database import SessionLocal
@@ -7255,6 +7301,10 @@ def test_auto_dial_daily_pass_calls_hottest_respects_cooldown_optout_and_dead(mo
         db.query(Message).filter(Message.channel == "call",
                                  Message.body.like("📞 Auto-dial%")).delete(synchronize_session=False)
         db.query(Lead).filter(Lead.email.like("ad-%@x.co")).delete(synchronize_session=False)
+        # EverQuote leads sort ahead of everything now; remove any dialable ones left
+        # by other tests so this pass sees only the hot leads we create here.
+        db.query(Lead).filter(func.lower(func.coalesce(Lead.category, "")).like("everquote%"),
+                              Lead.phone.isnot(None)).delete(synchronize_session=False)
         db.commit()
         # Three hot leads that will sort to the very top of the Call List, plus a
         # dead one and an opted-out one that must be skipped. Unrealistically high

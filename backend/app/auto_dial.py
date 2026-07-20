@@ -89,8 +89,12 @@ def run(db, per_run_limit: int | None = None) -> dict:
     if run_cap == 0:
         return {"skipped": "nothing to place this run"}
 
-    cooldown = timedelta(days=max(1, settings.auto_dial_cooldown_days))
-    recent = _recently_called_ids(db, datetime.now(timezone.utc) - cooldown)
+    # Cooldown measured by CALENDAR day (same boundary as the daily cap), so the
+    # dialer round-robins: a lead dialed today is skipped today, but eligible again
+    # tomorrow. cooldown_days=1 → once/day; N → skip the last N calendar days.
+    day_start = datetime.combine(date.today(), datetime.min.time(), tzinfo=timezone.utc)
+    cutoff = day_start - timedelta(days=max(0, settings.auto_dial_cooldown_days - 1))
+    recent = _recently_called_ids(db, cutoff)
     dead = lead_temperature.statuses_for(lead_temperature.DEAD) or set()
 
     # Work the Call List in the SAME priority as email/SMS: hot → warm → cold
