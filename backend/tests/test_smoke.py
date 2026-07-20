@@ -2570,6 +2570,39 @@ def test_crm_profile_create_edit_and_core_sync(client, auth_headers):
                 db.close()
 
 
+def test_place_test_call_reports_missing_pieces():
+    """The one-tap test call names the exact missing piece (carrier creds, caller-ID,
+    or callback cell) instead of failing silently — so setup is verifiable."""
+    from app.config import settings
+    from app.integrations import twilio_voice
+
+    saved = {k: getattr(settings, k) for k in (
+        "twilio_account_sid", "twilio_auth_token", "sms_provider", "voice_provider",
+        "signalwire_space_url", "signalwire_project_id", "signalwire_api_token",
+        "signalwire_from_number", "producer_callback", "public_base_url")}
+    try:
+        # No carrier at all → says to add credentials.
+        for k in ("twilio_account_sid", "twilio_auth_token", "signalwire_space_url",
+                  "signalwire_project_id", "signalwire_api_token", "producer_callback",
+                  "public_base_url"):
+            setattr(settings, k, "")
+        settings.sms_provider = "auto"; settings.voice_provider = "auto"
+        sid, err = twilio_voice.place_test_call()
+        assert sid is None and err and "carrier" in err.lower()
+
+        # Carrier + number set, but no callback cell → names the cell as missing.
+        settings.signalwire_space_url = "x.signalwire.com"
+        settings.signalwire_project_id = "proj"
+        settings.signalwire_api_token = "PTtoken"
+        settings.signalwire_from_number = "+19788244228"
+        settings.producer_callback = ""
+        sid, err = twilio_voice.place_test_call()
+        assert sid is None and err and "cell" in err.lower()
+    finally:
+        for k, v in saved.items():
+            setattr(settings, k, v)
+
+
 @requires_db
 def test_restaurant_crm_module_create_edit_and_sync(client, auth_headers):
     """The SavoryMind restaurant module: it's self-contained (no person-centric core

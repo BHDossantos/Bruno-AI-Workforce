@@ -87,6 +87,17 @@ function Setup() {
     finally { setSipBusy(false); }
   }
 
+  const [callTestMsg, setCallTestMsg] = useState("");
+  const [callTestBusy, setCallTestBusy] = useState(false);
+  async function testCall() {
+    setCallTestBusy(true); setCallTestMsg("Placing a test call to your phone…");
+    try {
+      const r = await api.post<{ ok: boolean; message: string }>("/calls/test", {});
+      setCallTestMsg(`✅ ${r.message}`);
+    } catch (e) { setCallTestMsg(`❌ ${e instanceof Error ? e.message : e}`); }
+    finally { setCallTestBusy(false); }
+  }
+
   async function addDnc() {
     const email = dnc.email.trim();
     const phone = dnc.phone.trim();
@@ -923,6 +934,13 @@ function Setup() {
             <input className="input" placeholder="TwiML App SID (browser calling)"
               value={form.twilio_twiml_app_sid || ""} onChange={(e) => set("twilio_twiml_app_sid", e.target.value)} />
           </div>
+          <div className="mt-3 flex items-center gap-3">
+            <button type="button" className="btn" onClick={testCall} disabled={callTestBusy}>
+              {callTestBusy ? "Calling…" : "📞 Test call to my phone"}
+            </button>
+            <span className="text-xs text-gray-500">Save first, then tap — your phone should ring within seconds. Proves your carrier + caller-ID + cell all work.</span>
+          </div>
+          {callTestMsg && <p className="mt-2 text-sm text-gray-700">{callTestMsg}</p>}
         </div>
 
         {/* WhatsApp — Meta Cloud API (preferred, no Twilio) or Twilio WhatsApp */}

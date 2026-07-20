@@ -35,6 +35,27 @@ def _refresh(db: Session) -> None:
         pass
 
 
+@router.post("/test")
+def test_call(db: Session = Depends(get_db), _=Depends(_write)):
+    """Place a one-tap TEST call to your own cell — proves the carrier creds +
+    caller-ID + callback number all work, without dialing a real lead. Surfaces the
+    exact carrier error if it fails, so setup is verifiable in seconds."""
+    _refresh(db)
+    from ..integrations import twilio_voice
+    sid, err = twilio_voice.place_test_call()
+    if not sid:
+        raise HTTPException(400, err or "Test call failed.")
+    return {"ok": True, "call_sid": sid,
+            "message": "Calling your phone now — pick up to hear the confirmation."}
+
+
+@router.post("/twiml/test")
+def twiml_test():
+    """TwiML the carrier fetches for the test call — a spoken confirmation."""
+    from ..integrations import twilio_voice
+    return Response(twilio_voice.test_twiml(), media_type=_XML)
+
+
 @router.post("/lead/{lead_id}")
 def call_lead(lead_id: str, db: Session = Depends(get_db), _=Depends(_write)):
     """Ring the producer's phone, then bridge to this lead (recorded)."""

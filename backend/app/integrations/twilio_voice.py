@@ -150,6 +150,41 @@ def place_bridge_call(lead_phone: str, lead_id: str | None) -> tuple[str | None,
         return None, f"Call failed: {str(exc)[:160]}"
 
 
+def test_twiml() -> str:
+    """What the test call plays when you answer — a plain confirmation."""
+    return _xml("<Say>Your Bruno A I calling is set up and working. "
+                "The auto dialer will call your leads and connect them to this phone. "
+                "Goodbye.</Say>")
+
+
+def place_test_call() -> tuple[str | None, str | None]:
+    """Ring the producer's own phone with a confirmation message — a one-tap way to
+    prove the carrier credentials + caller-ID + callback number all work end to end,
+    without touching a real lead. Returns (call_sid, error)."""
+    from . import telco
+    if not telco.configured("voice"):
+        return None, ("Calling carrier not connected — paste your SignalWire API Token "
+                      "(or Twilio creds) in Setup.")
+    if not _voice_number():
+        return None, "No caller-ID number set — add your SignalWire/Twilio number in Setup."
+    to = _e164(settings.producer_callback)
+    if not to:
+        return None, "No callback number — enter your cell in Setup → Calling ('Your cell to ring')."
+    base = _base_url()
+    if not base:
+        return None, f"PUBLIC_BASE_URL is not set, so {telco.label('voice')} can't reach the webhook."
+    data = {"To": to, "From": _e164(_voice_number()),
+            "Url": f"{base}/calls/twiml/test"}
+    try:
+        r = httpx.post(telco.api_url("Calls.json", "voice"), data=data,
+                       auth=telco.auth("voice"), timeout=20)
+        if r.status_code >= 400:
+            return None, f"{telco.label('voice')} {r.status_code}: {(r.text or '')[:200]}"
+        return r.json().get("sid"), None
+    except Exception as exc:  # pragma: no cover - network guard
+        return None, f"Call failed: {str(exc)[:160]}"
+
+
 # ── Auto-dial with answering-machine detection: leave a voicemail or transfer ──
 def voicemail_configured() -> bool:
     """True once the producer has recorded their voicemail drop."""
