@@ -1,5 +1,7 @@
 """SavoryMind restaurants + consumer growth routes."""
-from fastapi import APIRouter, Depends, HTTPException
+import logging
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -10,6 +12,7 @@ from ..models import Restaurant
 from ..schemas import RestaurantOut, StatusUpdate
 from ..security import require_role
 
+log = logging.getLogger("bruno.restaurants")
 router = APIRouter(prefix="/restaurants", tags=["savorymind"])
 
 
@@ -108,11 +111,33 @@ def send_pitch(restaurant_id: str, db: Session = Depends(get_db),
 
 
 @router.post("/dispatch")
-def dispatch_pending(db: Session = Depends(get_db),
+def dispatch_pending(background_tasks: BackgroundTasks, db: Session = Depends(get_db),
                      _=Depends(require_role("admin", "operator"))):
-    """Send the SavoryMind pitch to every pending restaurant prospect at once."""
+    """Send the SavoryMind pitch to every pending restaurant prospect. Runs the send
+    in the BACKGROUND and returns immediately: sending hundreds synchronously in the
+    request timed the browser out with 'Failed to fetch'. Still paced by the cap."""
     from .. import bulk_outreach
-    return {"ok": True, **bulk_outreach.dispatch_restaurants(db, autonomous=False)}
+    from ..database import SessionLocal
+
+    _PENDING = (None, "New", "Drafted")
+    pending = int(db.query(func.count(Restaurant.id)).filter(
+        Restaurant.kind == "prospect", Restaurant.status.in_(_PENDING),
+        Restaurant.email.isnot(None)).scalar() or 0)
+
+    def _run() -> None:
+        bg = SessionLocal()  # request session is closed by the time this runs
+        try:
+            bulk_outreach.dispatch_restaurants(bg, autonomous=False)
+        except Exception:  # never let a background send crash silently mid-batch
+            bg.rollback()
+            log.exception("background dispatch_restaurants failed")
+        finally:
+            bg.close()
+
+    background_tasks.add_task(_run)
+    return {"ok": True, "pending": pending, "started": True,
+            "message": (f"Sending up to {pending} pending prospect(s) in the background — "
+                        "paced by the daily send cap.")}
 
 
 @router.post("/{restaurant_id}/status")
