@@ -335,12 +335,11 @@ class Settings(BaseSettings):
     # (never-called first) each day — churning a 100-lead list at 80/day cycles every
     # ~1.25 days. Raise it to space calls further apart.
     auto_dial_cooldown_days: int = 1
-    # Transfer a LIVE answer to the producer's cell? Default OFF on a fresh number
-    # whose reputation may filter calls to voicemail (a transfer would just hit the
-    # producer's voicemail and waste the call). When off, the auto-dialer leaves the
-    # recorded voicemail for everyone and the producer calls interested leads back.
-    # Flip on once the number reliably rings.
-    auto_dial_transfer_enabled: bool = False
+    # Transfer a LIVE answer to the producer's cell? ON so a lead who picks up rings
+    # the producer's phone to talk live (what the operator expects). If a fresh
+    # number's reputation filters calls to voicemail, live answers are rare and the
+    # recorded voicemail drop still covers machine pickups — so leaving this on is safe.
+    auto_dial_transfer_enabled: bool = True
 
     # Gmail (outbound + inbound). Two accounts: "personal" (default, used by all
     # agents) and "insurance" (used by the Insurance agent). Each authenticates
