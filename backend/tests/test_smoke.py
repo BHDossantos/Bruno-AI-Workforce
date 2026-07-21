@@ -889,8 +889,8 @@ def test_email_template_wraps_body_with_signature_and_footer():
     assert "Hi there" in out
     assert "Thrust Insurance" in out  # signature/footer
     assert "Bruno Dossantos" in out and "insurance agent" in out
-    assert "tel:+18338547055" in out and "tel:+16039308272" in out  # office + cell click-to-call
-    assert "(833) 854-7055" in out and "16039308272" in out          # shown as configured
+    assert "tel:+19788244228" in out and "tel:+16039308272" in out  # office + cell click-to-call
+    assert "(978) 824-4228" in out and "16039308272" in out          # shown as configured
     assert "unsubscribe" in out.lower()  # CAN-SPAM footer
     assert email_template.render(None) is None
 
@@ -902,7 +902,7 @@ def test_email_template_wraps_body_with_signature_and_footer():
     # SavoryMind restaurant outreach gets its own tagline signature, not the IT one.
     savory = email_template.render("Hi chef", account="savorymind")
     assert "SavoryMind" in savory and "tastes better" in savory
-    assert "tel:+18338547055" in savory                 # same producer phones
+    assert "tel:+19788244228" in savory                 # same producer phones
     assert "MBA, MSIT" not in savory                     # not the consulting signature
 
     # AI placeholders + sign-off are stripped; only the real signature remains.
