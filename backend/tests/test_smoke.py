@@ -7274,11 +7274,14 @@ def test_auto_dial_transfers_human_and_drops_recorded_voicemail(monkeypatch):
 
 
 def test_auto_dial_in_scheduler_plan_and_insurance_mode(monkeypatch):
-    """Auto-dial is a registered business job, fires every minute from 8am (paced,
-    1 call/run), and survives the insurance-only autonomy profile."""
+    """Auto-dial is a registered business job that fires on a fast fixed interval
+    (default 45s, 1 call/run) and survives the insurance-only autonomy profile.
+    run() self-gates to the 8am-9pm legal window + the daily cap."""
     from app import scheduler
     from app.config import settings
-    assert scheduler._JOBS["auto_dial"][1] == "* 8-20 * * *"        # every minute 8am-8:59pm
+    assert scheduler._JOBS["auto_dial"][0] is scheduler._run_auto_dial
+    assert isinstance(settings.auto_dial_interval_seconds, int)
+    assert settings.auto_dial_interval_seconds == 45                # a call ~every 45s
     monkeypatch.setattr(settings, "autonomy_profile", "insurance", raising=False)
     _, jobs = scheduler.scheduled_plan()
     assert "auto_dial" in jobs                                       # kept in insurance mode
