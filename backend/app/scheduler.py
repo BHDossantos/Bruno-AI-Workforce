@@ -346,12 +346,20 @@ def start_scheduler() -> BackgroundScheduler | None:
 
     # The whole-business workers (content loops, publishing, leads, outreach, …).
     for job_id, (fn, cron) in jobs.items():
+        if job_id == "auto_dial":
+            # Fast fixed interval (not minute-cron) so a call goes out every ~45s.
+            # run() self-gates to the 8am-9pm legal window + the daily cap, so
+            # firing around the clock just no-ops at night.
+            secs = max(15, int(settings.auto_dial_interval_seconds or 45))
+            trigger, desc = IntervalTrigger(seconds=secs), f"every {secs}s"
+        else:
+            trigger = CronTrigger.from_crontab(cron, timezone=settings.timezone)
+            desc = f"cron '{cron}'"
         _scheduler.add_job(
             lambda fn=fn, job_id=job_id: _with_db(fn, job_id),
-            CronTrigger.from_crontab(cron, timezone=settings.timezone),
-            id=job_id, replace_existing=True,
+            trigger, id=job_id, replace_existing=True,
         )
-        log.info("Scheduled %s at cron '%s'", job_id, cron)
+        log.info("Scheduled %s at %s", job_id, desc)
 
     # Poll both mailboxes for replies every 2 hours (no-op if Gmail unconfigured).
     _scheduler.add_job(lambda: _with_db(_sync_inbound, "inbound_sync"),

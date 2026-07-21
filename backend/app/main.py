@@ -65,12 +65,17 @@ log = logging.getLogger("bruno")
 
 
 def _post_boot() -> None:
-    """Slower, network-touching boot work — run in a background thread so it never
-    delays the port from opening. Cloud Run marks the revision healthy once the app
-    is listening; doing OAuth token refresh (inside selfcheck) or a slow Cloud SQL
-    read here synchronously intermittently blew past the startup-probe window and
-    failed the deploy. None of this needs to finish before /health can answer, and
-    endpoints that need connected creds already call apply_to_settings themselves."""
+    """ALL boot work — schema+seed, connected creds, self-check, scheduler — kept off
+    the request-serving path so the port opens immediately and Cloud Run's startup
+    probe passes. A synchronous seed()/Cloud SQL connect at startup blocked the port
+    and timed the probe out ('container failed to become healthy'), taking the whole
+    service down. None of this needs to finish before /health answers, and endpoints
+    that need the schema/creds tolerate the brief warm-up (or call apply_to_settings
+    themselves)."""
+    try:
+        seed()  # create schema + seed admin/agents/objectives
+    except Exception:
+        log.exception("Startup seed() failed — check DATABASE_URL / Cloud SQL connection")
     try:
         from .database import SessionLocal
         from . import client_goal, runtime_config, selfcheck
@@ -92,22 +97,16 @@ def _post_boot() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Do the MINIMUM before serving so Cloud Run's startup health check passes fast
-    # and deploys stop flaking: create the schema, then hand the slow/network boot
-    # work to a background thread. Don't let a DB/seed hiccup crash startup — the
-    # container must listen on $PORT. Errors are logged so they're visible.
-    try:
-        seed()
-    except Exception:
-        log.exception("Startup seed() failed — check DATABASE_URL / Cloud SQL connection")
+    # Open the port with ZERO synchronous DB work so Cloud Run's startup probe passes
+    # fast and the deploy becomes healthy even when Cloud SQL is slow — a synchronous
+    # seed() here previously blocked the port and timed the probe out (deploy failed,
+    # backend down). All boot work now runs in the background.
     if settings.enable_scheduler:
-        # Production (Cloud Run): defer slow boot work so the port opens immediately
-        # and the deploy's startup probe passes without flaking.
         threading.Thread(target=_post_boot, name="post-boot", daemon=True).start()
         log.info("Bruno AI Workforce backend started (serving; background boot running).")
     else:
         # Tests / local without the scheduler: run synchronously so seeded state
-        # (objectives, knowledge base, applied creds) is deterministic before use.
+        # (schema, objectives, knowledge base, applied creds) is deterministic before use.
         _post_boot()
         log.info("Bruno AI Workforce backend started.")
     yield
