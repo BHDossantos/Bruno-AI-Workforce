@@ -1,5 +1,7 @@
 """Leads routes (insurance + BnB Global consulting)."""
-from fastapi import APIRouter, Depends, HTTPException
+import logging
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -10,6 +12,7 @@ from ..models import Lead
 from ..schemas import LeadOut, StatusUpdate
 from ..security import require_role
 
+log = logging.getLogger("bruno.leads")
 router = APIRouter(prefix="/leads", tags=["insurance"])
 
 
@@ -779,12 +782,36 @@ def send_outreach(lead_id: str, db: Session = Depends(get_db),
 
 
 @router.post("/dispatch")
-def dispatch_pending(segment: str | None = None, db: Session = Depends(get_db),
+def dispatch_pending(background_tasks: BackgroundTasks, segment: str | None = None,
+                     db: Session = Depends(get_db),
                      _=Depends(require_role("admin", "operator"))):
-    """Send the cold email to every pending lead at once (status New/Drafted with an
-    email). Optional ?segment= for insurance (commercial/personal) or consulting."""
+    """Send the cold email to every pending lead (status New/Drafted with an email).
+    Runs the send in the BACKGROUND and returns immediately: sending hundreds of
+    leads synchronously in the request took minutes and timed the browser out with
+    'Failed to fetch'. Sending is still paced by the daily cap. Optional ?segment=."""
     from .. import bulk_outreach
-    return {"ok": True, **bulk_outreach.dispatch_leads(db, segment=segment, autonomous=False)}
+    from ..database import SessionLocal
+
+    q = db.query(func.count(Lead.id)).filter(
+        Lead.status.in_((None, "New", "Drafted")), Lead.email.isnot(None))
+    if segment:
+        q = q.filter(Lead.segment == segment)
+    pending = int(q.scalar() or 0)
+
+    def _run() -> None:
+        bg = SessionLocal()  # request session is closed by the time this runs
+        try:
+            bulk_outreach.dispatch_leads(bg, segment=segment, autonomous=False)
+        except Exception:  # never let a background send crash silently mid-batch
+            bg.rollback()
+            log.exception("background dispatch_leads failed")
+        finally:
+            bg.close()
+
+    background_tasks.add_task(_run)
+    return {"ok": True, "pending": pending, "started": True,
+            "message": (f"Sending up to {pending} pending lead(s) in the background — "
+                        "paced by the daily send cap. Watch the Outbox for progress.")}
 
 
 @router.post("/dedupe")
