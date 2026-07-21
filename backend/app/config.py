@@ -144,9 +144,11 @@ class Settings(BaseSettings):
     # insurance_business_name). Shown as:
     #   Thrust Insurance
     #   Bruno Dossantos | insurance agent
-    #   phone# (833) 854-7055   Cell# 16039308272
+    #   phone# (978) 824-4228   Cell# 16039308272
     producer_title: str = "insurance agent"
-    producer_office_phone: str = "(833) 854-7055"
+    # Main line shown on outreach — the SignalWire number that greets callers and
+    # forwards to the cell (so a lead who calls the email's number reaches Bruno).
+    producer_office_phone: str = "(978) 824-4228"
     producer_cell: str = "16039308272"
     # Compliance & Governance — the single gate every autonomous outbound action
     # passes through (opt-out/DNC, contact-hour windows, per-state licensing,
