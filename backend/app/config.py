@@ -324,7 +324,7 @@ class Settings(BaseSettings):
     # transferring live answers to the producer and dropping the recorded voicemail
     # otherwise. Gated by the same Outreach Autopilot / full-auto switch as auto-send.
     auto_dial_enabled: bool = True         # master switch for the daily 8am auto-dial pass
-    auto_dial_daily_cap: int = 80          # max leads auto-dialed per day (protects your line)
+    auto_dial_daily_cap: int = 100         # max leads auto-dialed per day (protects your line)
     # How often the auto-dialer fires (one call per fire). 45s → a call roughly every
     # 45 seconds during the 8am-9pm window, until the daily cap is hit. The run()
     # self-gates to legal hours + cap, so a short interval never over-dials.
