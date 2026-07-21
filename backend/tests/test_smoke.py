@@ -1301,6 +1301,27 @@ def test_twilio_voice_config_twiml_and_token():
          settings.twilio_api_key_secret, settings.twilio_twiml_app_sid) = orig
 
 
+def test_twiml_webhooks_answer_get_and_post(client):
+    """The LaML call webhooks must return valid XML for BOTH GET and POST. A carrier
+    (SignalWire) configured for GET against a POST-only route gets a 405, which it
+    reports as error 11200 and the call drops. Regression guard for that fix — also
+    checks the handlers never 5xx (also an 11200)."""
+    for path in ("/calls/twiml/bridge", "/calls/twiml/announce",
+                 "/calls/twiml/amd", "/calls/twiml/record-vm"):
+        for method in ("get", "post"):
+            r = getattr(client, method)(path)
+            assert r.status_code == 200, f"{method.upper()} {path} -> {r.status_code}"
+            assert r.text.startswith("<?xml") and "<Response>" in r.text
+
+    # /twiml/outbound reads the dialed number from the query (GET) OR form (POST).
+    rg = client.get("/calls/twiml/outbound", params={"To": "+15551234567"})
+    assert rg.status_code == 200 and "+15551234567" in rg.text
+    rp = client.post("/calls/twiml/outbound", data={"To": "+15559876543"})
+    assert rp.status_code == 200 and "+15559876543" in rp.text
+    # No number → a spoken fallback, never a 4xx/5xx the carrier would see as 11200.
+    assert "<Say>" in client.post("/calls/twiml/outbound", data={}).text
+
+
 @requires_db
 def test_call_lead_offline_returns_reason(client, auth_headers):
     """Calling a lead with Twilio not connected returns a clear 400, not a crash."""
@@ -5123,6 +5144,53 @@ def test_everquote_batch_queues_sms_draft(client, auth_headers):
             db.query(Message).filter(Message.entity_id == lid).delete(synchronize_session=False)
             db.query(Lead).filter(Lead.id == lid).delete(synchronize_session=False)
             db.commit()
+        db.close()
+
+
+@requires_db
+def test_everquote_batch_limit_is_honored(client, auth_headers):
+    """The batch endpoint drafts the whole uncontacted EverQuote list by default,
+    but an explicit `limit` in the request caps how many are drafted in one click —
+    so a large file can be sent in one shot, or throttled if desired."""
+    from app.database import SessionLocal
+    from app.models import Lead, Message
+
+    emails = [f"eqlim{i}@x.co" for i in range(3)]
+    db = SessionLocal()
+    ids = []
+    try:
+        db.query(Lead).filter(Lead.email.in_(emails)).delete(synchronize_session=False)
+        db.commit()
+        for i, em in enumerate(emails):
+            lead = Lead(segment="personal", category="EverQuote Auto", owner_name=f"Lim {i}",
+                        email=em, phone=None,
+                        intake={"source": "everquote", "everquote": {
+                            "first_name": f"Lim{i}", "vehicle_year": "2021",
+                            "vehicle_make": "Ford", "vehicle_model": "Focus"}})
+            db.add(lead); db.flush(); ids.append(lead.id)
+        db.commit()
+
+        # limit=1 → only one of our three uncontacted leads gets an email draft.
+        r = client.post("/leads/everquote/personalize-batch",
+                        json={"lead_ids": [str(i) for i in ids], "limit": 1},
+                        headers=auth_headers).json()
+        assert r["considered"] == 1 and r["queued"] == 1
+        drafted = db.query(Message).filter(
+            Message.entity_id.in_(ids), Message.channel == "email").count()
+        assert drafted == 1
+
+        # No limit → the rest of the list drafts in one shot (idempotent on the first).
+        r2 = client.post("/leads/everquote/personalize-batch",
+                         json={"lead_ids": [str(i) for i in ids]},
+                         headers=auth_headers).json()
+        assert r2["queued"] == 2  # the two still-uncontacted leads
+        total = db.query(Message).filter(
+            Message.entity_id.in_(ids), Message.channel == "email").count()
+        assert total == 3
+    finally:
+        db.query(Message).filter(Message.entity_id.in_(ids)).delete(synchronize_session=False)
+        db.query(Lead).filter(Lead.id.in_(ids)).delete(synchronize_session=False)
+        db.commit()
         db.close()
 
 

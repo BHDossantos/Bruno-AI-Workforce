@@ -119,7 +119,7 @@ SMS_TEMPLATES = [
          "reaching you regarding the insurance quote you requested. I already have most of "
          "your information and may have found additional discounts for you. Whenever you "
          "have a few minutes, simply reply to this text or call me{callback}. Looking "
-         "forward to helping you.")},
+         "forward to helping you. Reply STOP to opt out.")},
     {"id": "after_quote", "name": "Text 2 — After quote",
      "body": (
          "Hi {first}, I finished reviewing your insurance options. I have your quote ready "

@@ -210,39 +210,59 @@ def browser_token(db: Session = Depends(get_db), _=Depends(_read)):
     return {"token": tok, "identity": "bruno-agent"}
 
 
-# ── Public Twilio webhooks ────────────────────────────────────────────────────
-@router.post("/twiml/bridge")
+# ── Public Twilio / SignalWire (LaML) webhooks ────────────────────────────────
+# Accept BOTH GET and POST: Twilio defaults to POST, but a SignalWire number/LaML
+# handler can be configured for GET — a method mismatch returns 405, which the
+# carrier reports as error 11200 ("HTTP retrieval failure") and the call drops.
+# Every handler also swallows exceptions and returns valid LaML, so the carrier
+# never gets a 5xx (also an 11200) even if a config refresh / DB read hiccups.
+@router.api_route("/twiml/bridge", methods=["GET", "POST"])
 def twiml_bridge(lead_phone: str = "", lead_id: str = "", db: Session = Depends(get_db)):
     """Returned to Twilio after YOU answer — dials + records the lead. Refreshes the
     connected Twilio config first: this webhook can land on a Cloud Run instance that
     never loaded the voice number from the DB, which left callerId empty and made
     Twilio reject the <Dial> — so the call dropped the moment you picked up."""
-    _refresh(db)
-    return Response(voice.bridge_twiml(lead_phone, lead_id or None), media_type=_XML)
+    try:
+        _refresh(db)
+        return Response(voice.bridge_twiml(lead_phone, lead_id or None), media_type=_XML)
+    except Exception:  # never hand the carrier a 5xx — that surfaces as 11200
+        return Response(voice.bridge_twiml(lead_phone, lead_id or None), media_type=_XML)
 
 
-@router.post("/twiml/announce")
+@router.api_route("/twiml/announce", methods=["GET", "POST"])
 def twiml_announce():
     """Played to the lead on answer — the recording-consent notice."""
-    return Response(voice.announce_twiml(), media_type=_XML)
+    try:
+        return Response(voice.announce_twiml(), media_type=_XML)
+    except Exception:
+        return Response(voice._xml('<Pause length="1"/>'), media_type=_XML)
 
 
-@router.post("/twiml/amd")
+@router.api_route("/twiml/amd", methods=["GET", "POST"])
 async def twiml_amd(request: Request, lead_id: str = "", db: Session = Depends(get_db)):
     """Auto-dial answer webhook: Twilio tells us who answered (AnsweredBy). Human →
     transfer to your phone; machine → leave your recorded voicemail. Refreshes config
     so the voice number / voicemail URL are loaded on any instance."""
-    _refresh(db)
-    form = await request.form()
-    answered_by = form.get("AnsweredBy")
-    return Response(voice.amd_twiml(answered_by, lead_id or None), media_type=_XML)
+    try:
+        _refresh(db)
+        answered_by = ""
+        if request.method == "POST":
+            form = await request.form()
+            answered_by = form.get("AnsweredBy") or ""
+        answered_by = answered_by or request.query_params.get("AnsweredBy") or ""
+        return Response(voice.amd_twiml(answered_by or None, lead_id or None), media_type=_XML)
+    except Exception:  # fall back to bridging YOU in rather than dropping the call
+        return Response(voice.amd_twiml(None, lead_id or None), media_type=_XML)
 
 
-@router.post("/twiml/record-vm")
+@router.api_route("/twiml/record-vm", methods=["GET", "POST"])
 def twiml_record_vm(db: Session = Depends(get_db)):
     """Played when we call you to record your voicemail drop."""
-    _refresh(db)
-    return Response(voice.record_vm_twiml(), media_type=_XML)
+    try:
+        _refresh(db)
+        return Response(voice.record_vm_twiml(), media_type=_XML)
+    except Exception:
+        return Response(voice.record_vm_twiml(), media_type=_XML)
 
 
 @router.post("/vm-saved")
@@ -260,17 +280,26 @@ async def vm_saved(request: Request, db: Session = Depends(get_db)):
     return Response(voice._xml("<Say>Got it — your voicemail is saved. Goodbye.</Say>"), media_type=_XML)
 
 
-@router.post("/twiml/outbound")
+@router.api_route("/twiml/outbound", methods=["GET", "POST"])
 async def twiml_outbound(request: Request, db: Session = Depends(get_db)):
     """TwiML App voiceUrl for the browser softphone — dials the number the SDK
-    passed as 'To'."""
-    _refresh(db)  # load the connected voice number so callerId isn't empty
-    form = await request.form()
-    to = (form.get("To") or "").strip()
-    lead_id = (form.get("lead_id") or "").strip()
-    if not to:
-        return Response(voice._xml("<Say>No number to call.</Say>"), media_type=_XML)
-    return Response(voice.outbound_twiml(to, lead_id or None), media_type=_XML)
+    passed as 'To'. Reads 'To'/'lead_id' from the POST form OR the query string
+    (GET), so it works whichever HTTP method the carrier is configured to use."""
+    try:
+        _refresh(db)  # load the connected voice number so callerId isn't empty
+        to = lead_id = ""
+        if request.method == "POST":
+            form = await request.form()
+            to = (form.get("To") or "").strip()
+            lead_id = (form.get("lead_id") or "").strip()
+        to = to or (request.query_params.get("To") or "").strip()
+        lead_id = lead_id or (request.query_params.get("lead_id") or "").strip()
+        if not to:
+            return Response(voice._xml("<Say>No number to call.</Say>"), media_type=_XML)
+        return Response(voice.outbound_twiml(to, lead_id or None), media_type=_XML)
+    except Exception:
+        return Response(voice._xml("<Say>Sorry, we hit a problem placing the call.</Say>"),
+                        media_type=_XML)
 
 
 @router.post("/dial-status")

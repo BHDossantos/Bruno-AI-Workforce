@@ -263,7 +263,8 @@ def personalize(lead: Lead, use_ai: bool = True) -> dict:
         f"Looking forward to helping you.\n\n{_signature()}")
 
     sms = (f"Hi {first}, it's {producer} with Thrust Insurance. I finished reviewing your {vehicle} "
-           "quote and found a few discounts to verify. Reply or call when you have 2 minutes — thanks!")
+           "quote and found a few discounts to verify. Reply or call when you have 2 minutes — thanks! "
+           "Reply STOP to opt out.")
 
     callback = f" at {settings.producer_callback}" if settings.producer_callback else ""
     voicemail = (f"Hi {first}, this is {producer} with Thrust Insurance. I just reviewed the quote you "
@@ -320,7 +321,7 @@ def _everquote_leads(db: Session):
     return db.query(Lead).filter(Lead.intake["source"].astext == "everquote")
 
 
-def personalize_batch(db: Session, lead_ids: list[str] | None = None, limit: int = 500,
+def personalize_batch(db: Session, lead_ids: list[str] | None = None, limit: int = 5000,
                       queue_sms: bool = True) -> dict:
     """Personalize + queue an email draft (and, by default, a matching SMS draft)
     for every EverQuote lead (or a given set) that hasn't been contacted on that
