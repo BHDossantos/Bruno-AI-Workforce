@@ -117,6 +117,27 @@ def outbound_twiml(to: str, lead_id: str | None) -> str:
     return _dial_lead(to, lead_id)
 
 
+def inbound_twiml() -> str:
+    """Played when someone CALLS OUR NUMBER back. Greets them as Thrust Insurance
+    and forwards the call to the producer's cell (E.164 caller-ID = our own number
+    so the carrier accepts the <Dial>); if it isn't answered, takes a short
+    voicemail. Point your SignalWire number's 'When a call comes in' webhook here."""
+    greeting = ("<Say>Thank you for calling Thrust Insurance. Please hold while we "
+                "connect you to a licensed producer.</Say>")
+    to = _transfer_number()
+    if not to:  # no forwarding number set — take a message instead of dead air
+        return _xml(greeting + "<Say>Sorry, no one is available right now. Please leave "
+                    'a message after the tone.</Say><Record maxLength="120" playBeep="true"/>')
+    caller_id = _e164(_voice_number()) or _voice_number()
+    cid = f' callerId="{caller_id}"' if caller_id else ""
+    # timeout=20: ring the cell ~20s. If unanswered the document continues to the
+    # voicemail prompt below (a completed/answered call never reaches it).
+    dial = f'<Dial{cid} timeout="20">{to}</Dial>'
+    voicemail = ("<Say>Sorry we missed you. Please leave a message after the tone and "
+                 'we will call you right back.</Say><Record maxLength="120" playBeep="true"/>')
+    return _xml(greeting + dial + voicemail)
+
+
 def place_bridge_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, str | None]:
     """Ring the producer's phone; on answer, Twilio bridges to the lead. Returns
     (call_sid, error)."""

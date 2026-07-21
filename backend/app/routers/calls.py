@@ -229,6 +229,19 @@ def twiml_bridge(lead_phone: str = "", lead_id: str = "", db: Session = Depends(
         return Response(voice.bridge_twiml(lead_phone, lead_id or None), media_type=_XML)
 
 
+@router.api_route("/twiml/inbound", methods=["GET", "POST"])
+def twiml_inbound(db: Session = Depends(get_db)):
+    """INCOMING call to our number: greet as Thrust Insurance and forward to the
+    producer's cell, with a voicemail fallback. Point your SignalWire number's
+    'When a call comes in' webhook at {PUBLIC_BASE_URL}/calls/twiml/inbound."""
+    try:
+        _refresh(db)  # load the connected voice/callback numbers on any instance
+        return Response(voice.inbound_twiml(), media_type=_XML)
+    except Exception:  # never hand the carrier a 5xx — that surfaces as 11200
+        return Response(voice._xml("<Say>Thank you for calling Thrust Insurance. "
+                                   "Please try again shortly.</Say>"), media_type=_XML)
+
+
 @router.api_route("/twiml/announce", methods=["GET", "POST"])
 def twiml_announce():
     """Played to the lead on answer — the recording-consent notice."""
