@@ -301,11 +301,14 @@ def test_memory_slot_prompts_format_cleanly():
 
 @requires_db
 def test_bulk_dispatch_endpoints(client, auth_headers):
-    """Bulk dispatch returns a clean summary for leads and restaurants."""
+    """Bulk lead dispatch returns immediately (the send runs in the background so a
+    large backlog can't time the browser out) with the pending count; restaurants
+    still return their synchronous summary."""
     r = client.post("/leads/dispatch", headers=auth_headers)
     assert r.status_code == 200
     d = r.json()
-    assert d["ok"] is True and "dispatched" in d and "pending" in d
+    assert d["ok"] is True and d.get("started") is True and "pending" in d
+    assert isinstance(d["pending"], int) and d.get("message")
     r2 = client.post("/restaurants/dispatch", headers=auth_headers)
     assert r2.status_code == 200 and r2.json()["ok"] is True
 

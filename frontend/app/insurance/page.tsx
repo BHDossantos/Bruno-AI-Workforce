@@ -156,10 +156,10 @@ function Insurance() {
 
   async function dispatchAll() {
     if (!confirm("Send the cold email to all pending leads now?")) return;
-    setBusy("all"); setMsg("Dispatching all pending leads…");
+    setBusy("all"); setMsg("Starting the send…");
     try {
-      const r = await api.post<{ dispatched: number; pending: number; failed: number }>("/leads/dispatch", {});
-      setMsg(`✅ Dispatched ${r.dispatched}/${r.pending} pending leads${r.failed ? `, ${r.failed} failed` : ""}.`);
+      const r = await api.post<{ pending: number; message: string }>("/leads/dispatch", {});
+      setMsg(`✅ ${r.message}`);
       setRefresh((n) => n + 1);
     } catch (e) { setMsg(`❌ ${e}`); }
     finally { setBusy(null); }
