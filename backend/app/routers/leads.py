@@ -118,15 +118,20 @@ def import_everquote(body: EverQuoteImportIn, db: Session = Depends(get_db),
 
 class BatchPersonalizeIn(BaseModel):
     lead_ids: list[str] | None = None
+    # Optional per-click cap. Omit to draft the whole uncontacted EverQuote list
+    # (up to a generous safety ceiling); pass a number to draft a smaller batch.
+    limit: int | None = None
 
 
 @router.post("/everquote/personalize-batch")
 def everquote_personalize_batch(body: BatchPersonalizeIn, db: Session = Depends(get_db),
                                 _=Depends(require_role("admin", "operator"))):
     """Personalize + queue an email draft for every EverQuote lead not yet
-    contacted (or a given set) — 500 leads in one click, all queued for review."""
+    contacted (or a given set) — the whole file in one click, all queued for
+    review. Sending is still paced by the daily cap at send time."""
     from .. import everquote
-    return everquote.personalize_batch(db, lead_ids=body.lead_ids)
+    kw = {"limit": body.limit} if body.limit else {}
+    return everquote.personalize_batch(db, lead_ids=body.lead_ids, **kw)
 
 
 @router.get("/everquote/return-candidates")

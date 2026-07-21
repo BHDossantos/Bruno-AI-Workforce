@@ -320,7 +320,7 @@ def _everquote_leads(db: Session):
     return db.query(Lead).filter(Lead.intake["source"].astext == "everquote")
 
 
-def personalize_batch(db: Session, lead_ids: list[str] | None = None, limit: int = 500,
+def personalize_batch(db: Session, lead_ids: list[str] | None = None, limit: int = 5000,
                       queue_sms: bool = True) -> dict:
     """Personalize + queue an email draft (and, by default, a matching SMS draft)
     for every EverQuote lead (or a given set) that hasn't been contacted on that

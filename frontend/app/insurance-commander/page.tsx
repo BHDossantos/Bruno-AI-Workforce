@@ -311,7 +311,7 @@ function InsuranceCommander() {
       {/* Import EverQuote leads */}
       <div className="card">
         <h2 className="font-semibold">📥 Import EverQuote leads</h2>
-        <p className="mb-2 text-xs text-gray-500">Upload your EverQuote CSV file (easiest — no copy/paste needed), or paste the raw text. Every field is parsed (vehicle, current carrier, credit, coverage), leads get a pre-filled quote intake, and each gets a personalized email + SMS + voicemail + call notes — 500 leads take the same effort as 5.</p>
+        <p className="mb-2 text-xs text-gray-500">Upload your EverQuote CSV file (easiest — no copy/paste needed), or paste the raw text. Every field is parsed (vehicle, current carrier, credit, coverage), leads get a pre-filled quote intake, and each gets a personalized email + SMS + voicemail + call notes — your whole file takes the same effort as one lead.</p>
         <label className="mb-2 flex cursor-pointer items-center gap-2 rounded-lg border-2 border-dashed border-brand/40 bg-brand/5 px-3 py-3 text-sm text-brand-dark hover:bg-brand/10">
           <span className="font-medium">📄 Choose CSV file…</span>
           <span className="text-xs text-gray-500">(your EverQuote export)</span>

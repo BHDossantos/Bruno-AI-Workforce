@@ -5127,6 +5127,53 @@ def test_everquote_batch_queues_sms_draft(client, auth_headers):
 
 
 @requires_db
+def test_everquote_batch_limit_is_honored(client, auth_headers):
+    """The batch endpoint drafts the whole uncontacted EverQuote list by default,
+    but an explicit `limit` in the request caps how many are drafted in one click —
+    so a large file can be sent in one shot, or throttled if desired."""
+    from app.database import SessionLocal
+    from app.models import Lead, Message
+
+    emails = [f"eqlim{i}@x.co" for i in range(3)]
+    db = SessionLocal()
+    ids = []
+    try:
+        db.query(Lead).filter(Lead.email.in_(emails)).delete(synchronize_session=False)
+        db.commit()
+        for i, em in enumerate(emails):
+            lead = Lead(segment="personal", category="EverQuote Auto", owner_name=f"Lim {i}",
+                        email=em, phone=None,
+                        intake={"source": "everquote", "everquote": {
+                            "first_name": f"Lim{i}", "vehicle_year": "2021",
+                            "vehicle_make": "Ford", "vehicle_model": "Focus"}})
+            db.add(lead); db.flush(); ids.append(lead.id)
+        db.commit()
+
+        # limit=1 → only one of our three uncontacted leads gets an email draft.
+        r = client.post("/leads/everquote/personalize-batch",
+                        json={"lead_ids": [str(i) for i in ids], "limit": 1},
+                        headers=auth_headers).json()
+        assert r["considered"] == 1 and r["queued"] == 1
+        drafted = db.query(Message).filter(
+            Message.entity_id.in_(ids), Message.channel == "email").count()
+        assert drafted == 1
+
+        # No limit → the rest of the list drafts in one shot (idempotent on the first).
+        r2 = client.post("/leads/everquote/personalize-batch",
+                         json={"lead_ids": [str(i) for i in ids]},
+                         headers=auth_headers).json()
+        assert r2["queued"] == 2  # the two still-uncontacted leads
+        total = db.query(Message).filter(
+            Message.entity_id.in_(ids), Message.channel == "email").count()
+        assert total == 3
+    finally:
+        db.query(Message).filter(Message.entity_id.in_(ids)).delete(synchronize_session=False)
+        db.query(Lead).filter(Lead.id.in_(ids)).delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
+
+@requires_db
 def test_cron_endpoint_requires_token(client):
     # No token configured in tests → cron endpoints are locked down.
     assert client.post("/cron/inbound").status_code == 401
