@@ -99,7 +99,12 @@ def apply_overrides(db: Session) -> None:
             v = int(val)
             if ceiling:
                 v = min(v, ceiling)
-            setattr(settings, field, v)
+            # Only ever RAISE above the configured default — the autoscaler scales UP
+            # toward the target and never down, so a stale LOW stored override (e.g. a
+            # cap of 70 saved when the target was small) must not pin the operator's
+            # explicit default (e.g. 200) back down.
+            if v > int(getattr(settings, field, 0) or 0):
+                setattr(settings, field, v)
         except Exception:  # pragma: no cover
             log.warning("could not apply scaled override %s=%s", field, val)
 

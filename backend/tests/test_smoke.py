@@ -5031,6 +5031,38 @@ def test_client_goal_status_and_autoscale(client, auth_headers):
 
 
 @requires_db
+def test_autoscale_override_never_lowers_the_configured_cap(monkeypatch):
+    """A STALE low autoscaler override (e.g. a send cap of 70 saved when the target
+    was small) must never pin the operator's configured default (200) back down —
+    the autoscaler only ever scales UP toward the goal."""
+    from app import client_goal
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.models import Setting
+
+    db = SessionLocal()
+    try:
+        monkeypatch.setattr(settings, "client_send_cap_ceiling", 200, raising=False)
+        client_goal._set(db, client_goal._PREFIX + "gmail_daily_send_cap", "70")
+        db.commit()
+
+        # Stale 70 must NOT lower a configured 200 default.
+        monkeypatch.setattr(settings, "gmail_daily_send_cap", 200, raising=False)
+        client_goal.apply_overrides(db)
+        assert settings.gmail_daily_send_cap == 200
+
+        # But it still RAISES a lower current value up toward the stored override.
+        monkeypatch.setattr(settings, "gmail_daily_send_cap", 50, raising=False)
+        client_goal.apply_overrides(db)
+        assert settings.gmail_daily_send_cap == 70
+    finally:
+        row = db.get(Setting, client_goal._PREFIX + "gmail_daily_send_cap")
+        if row is not None:
+            db.delete(row); db.commit()
+        db.close()
+
+
+@requires_db
 def test_inbound_sync_is_safe_without_gmail(client, auth_headers):
     resp = client.post("/inbound/sync", headers=auth_headers)
     assert resp.status_code == 200
