@@ -1301,6 +1301,27 @@ def test_twilio_voice_config_twiml_and_token():
          settings.twilio_api_key_secret, settings.twilio_twiml_app_sid) = orig
 
 
+def test_twiml_webhooks_answer_get_and_post(client):
+    """The LaML call webhooks must return valid XML for BOTH GET and POST. A carrier
+    (SignalWire) configured for GET against a POST-only route gets a 405, which it
+    reports as error 11200 and the call drops. Regression guard for that fix — also
+    checks the handlers never 5xx (also an 11200)."""
+    for path in ("/calls/twiml/bridge", "/calls/twiml/announce",
+                 "/calls/twiml/amd", "/calls/twiml/record-vm"):
+        for method in ("get", "post"):
+            r = getattr(client, method)(path)
+            assert r.status_code == 200, f"{method.upper()} {path} -> {r.status_code}"
+            assert r.text.startswith("<?xml") and "<Response>" in r.text
+
+    # /twiml/outbound reads the dialed number from the query (GET) OR form (POST).
+    rg = client.get("/calls/twiml/outbound", params={"To": "+15551234567"})
+    assert rg.status_code == 200 and "+15551234567" in rg.text
+    rp = client.post("/calls/twiml/outbound", data={"To": "+15559876543"})
+    assert rp.status_code == 200 and "+15559876543" in rp.text
+    # No number → a spoken fallback, never a 4xx/5xx the carrier would see as 11200.
+    assert "<Say>" in client.post("/calls/twiml/outbound", data={}).text
+
+
 @requires_db
 def test_call_lead_offline_returns_reason(client, auth_headers):
     """Calling a lead with Twilio not connected returns a clear 400, not a crash."""
