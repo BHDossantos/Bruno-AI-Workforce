@@ -1274,13 +1274,20 @@ def test_twilio_voice_config_twiml_and_token():
     orig = (settings.twilio_account_sid, settings.twilio_auth_token,
             settings.twilio_insurance_number, settings.producer_callback,
             settings.public_base_url, settings.twilio_api_key_sid,
-            settings.twilio_api_key_secret, settings.twilio_twiml_app_sid)
+            settings.twilio_api_key_secret, settings.twilio_twiml_app_sid,
+            settings.producer_cell)
     try:
         settings.twilio_account_sid = "AC1"; settings.twilio_auth_token = "tok"
         settings.twilio_insurance_number = "+16035550100"
-        settings.producer_callback = ""; settings.public_base_url = "https://x.run.app"
-        assert v.is_configured() is False          # no callback phone yet
-        settings.producer_callback = "+16175551234"
+        # No callback AND no cell → not configured (calling rings the callback, which
+        # now falls back to the cell, so both must be empty for it to read unconfigured).
+        settings.producer_callback = ""; settings.producer_cell = ""
+        settings.public_base_url = "https://x.run.app"
+        assert v.is_configured() is False          # no phone to ring you back on
+        settings.producer_cell = "+16039308272"    # cell alone is enough now
+        assert v.is_configured() is True
+        settings.producer_cell = ""
+        settings.producer_callback = "+16175551234"  # or the callback alone
         assert v.is_configured() is True
         # Bridge TwiML dials the lead, records dual-channel, and announces consent.
         tw = v.bridge_twiml("+15551234567", "lead-1")
@@ -1300,7 +1307,8 @@ def test_twilio_voice_config_twiml_and_token():
         (settings.twilio_account_sid, settings.twilio_auth_token,
          settings.twilio_insurance_number, settings.producer_callback,
          settings.public_base_url, settings.twilio_api_key_sid,
-         settings.twilio_api_key_secret, settings.twilio_twiml_app_sid) = orig
+         settings.twilio_api_key_secret, settings.twilio_twiml_app_sid,
+         settings.producer_cell) = orig
 
 
 def test_twiml_webhooks_answer_get_and_post(client):
@@ -2627,23 +2635,23 @@ def test_place_test_call_reports_missing_pieces():
     saved = {k: getattr(settings, k) for k in (
         "twilio_account_sid", "twilio_auth_token", "sms_provider", "voice_provider",
         "signalwire_space_url", "signalwire_project_id", "signalwire_api_token",
-        "signalwire_from_number", "producer_callback", "public_base_url")}
+        "signalwire_from_number", "producer_callback", "producer_cell", "public_base_url")}
     try:
         # No carrier at all → says to add credentials.
         for k in ("twilio_account_sid", "twilio_auth_token", "signalwire_space_url",
                   "signalwire_project_id", "signalwire_api_token", "producer_callback",
-                  "public_base_url"):
+                  "producer_cell", "public_base_url"):
             setattr(settings, k, "")
         settings.sms_provider = "auto"; settings.voice_provider = "auto"
         sid, err = twilio_voice.place_test_call()
         assert sid is None and err and "carrier" in err.lower()
 
-        # Carrier + number set, but no callback cell → names the cell as missing.
+        # Carrier + number set, but no callback cell (neither field) → names it missing.
         settings.signalwire_space_url = "x.signalwire.com"
         settings.signalwire_project_id = "proj"
         settings.signalwire_api_token = "PTtoken"
         settings.signalwire_from_number = "+19788244228"
-        settings.producer_callback = ""
+        settings.producer_callback = ""; settings.producer_cell = ""
         sid, err = twilio_voice.place_test_call()
         assert sid is None and err and "cell" in err.lower()
     finally:

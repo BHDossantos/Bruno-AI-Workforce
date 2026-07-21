@@ -56,11 +56,18 @@ def _transfer_number() -> str:
     return _e164(settings.producer_cell or settings.producer_callback)
 
 
+def _callback_number() -> str:
+    """The phone the bridge / test call rings FIRST (you), then connects the lead.
+    Uses the callback field, falling back to the cell — so calling works when EITHER
+    is set (the callback field is often left blank while the cell is filled in)."""
+    return _e164(settings.producer_callback or settings.producer_cell)
+
+
 def is_configured() -> bool:
     """Bridge calling: a Twilio-compatible carrier (Twilio or SignalWire) + a
-    caller-ID number + your callback phone."""
+    caller-ID number + a phone to ring you back on (callback or cell)."""
     from . import telco
-    return bool(telco.configured("voice") and _voice_number() and settings.producer_callback)
+    return bool(telco.configured("voice") and _voice_number() and _callback_number())
 
 
 def browser_configured() -> bool:
@@ -156,7 +163,7 @@ def place_bridge_call(lead_phone: str, lead_id: str | None) -> tuple[str | None,
     from . import telco
     url = telco.api_url("Calls.json", "voice")
     data = {
-        "To": _e164(settings.producer_callback),   # ring YOU first
+        "To": _callback_number(),                  # ring YOU first (callback or cell)
         "From": _e164(_voice_number()),            # E.164 required — SignalWire 21212 otherwise
         "Url": f"{base}/calls/twiml/bridge?{bridge_q}",
         "StatusCallback": f"{base}/calls/status" + (f"?{status_q}" if status_q else ""),
@@ -188,7 +195,7 @@ def place_test_call() -> tuple[str | None, str | None]:
                       "(or Twilio creds) in Setup.")
     if not _voice_number():
         return None, "No caller-ID number set — add your SignalWire/Twilio number in Setup."
-    to = _e164(settings.producer_callback)
+    to = _callback_number()
     if not to:
         return None, "No callback number — enter your cell in Setup → Calling ('Your cell to ring')."
     base = _base_url()
