@@ -46,10 +46,10 @@ function SavoryMind() {
 
   async function dispatchAll() {
     if (!confirm("Send the SavoryMind pitch to all pending restaurants now?")) return;
-    setBusy("all"); setMsg("Dispatching all pending restaurants…");
+    setBusy("all"); setMsg("Starting the send…");
     try {
-      const r = await api.post<{ dispatched: number; pending: number; failed: number }>("/restaurants/dispatch", {});
-      setMsg(`✅ Dispatched ${r.dispatched}/${r.pending} pending${r.failed ? `, ${r.failed} failed` : ""}.`);
+      const r = await api.post<{ pending: number; message: string }>("/restaurants/dispatch", {});
+      setMsg(`✅ ${r.message}`);
       setRefresh((n) => n + 1);
     } catch (e) { setMsg(`❌ ${e}`); }
     finally { setBusy(null); }
