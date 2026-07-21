@@ -1307,7 +1307,7 @@ def test_twiml_webhooks_answer_get_and_post(client):
     reports as error 11200 and the call drops. Regression guard for that fix — also
     checks the handlers never 5xx (also an 11200)."""
     for path in ("/calls/twiml/bridge", "/calls/twiml/announce",
-                 "/calls/twiml/amd", "/calls/twiml/record-vm"):
+                 "/calls/twiml/amd", "/calls/twiml/record-vm", "/calls/twiml/inbound"):
         for method in ("get", "post"):
             r = getattr(client, method)(path)
             assert r.status_code == 200, f"{method.upper()} {path} -> {r.status_code}"
@@ -1320,6 +1320,31 @@ def test_twiml_webhooks_answer_get_and_post(client):
     assert rp.status_code == 200 and "+15559876543" in rp.text
     # No number → a spoken fallback, never a 4xx/5xx the carrier would see as 11200.
     assert "<Say>" in client.post("/calls/twiml/outbound", data={}).text
+
+
+def test_inbound_twiml_greets_and_forwards():
+    """An incoming call greets as Thrust Insurance and forwards to the producer's
+    cell; with no forwarding number set it takes a voicemail instead of dead air."""
+    from app.config import settings
+    from app.integrations import twilio_voice as v
+    orig = (settings.producer_cell, settings.producer_callback,
+            settings.twilio_voice_number, settings.twilio_insurance_number)
+    try:
+        settings.producer_cell = "+16175551234"
+        settings.twilio_voice_number = "+16035550100"
+        xml = v.inbound_twiml()
+        assert "Thrust Insurance" in xml               # branded greeting
+        assert "<Dial" in xml and "+16175551234" in xml  # forwards to the cell
+        assert 'callerId="+16035550100"' in xml          # E.164 caller-ID our number
+        assert "<Record" in xml                          # voicemail fallback after Dial
+
+        # No forwarding number → still greets + records, never returns dead air.
+        settings.producer_cell = ""; settings.producer_callback = ""
+        xml2 = v.inbound_twiml()
+        assert "<Record" in xml2 and "<Dial" not in xml2
+    finally:
+        (settings.producer_cell, settings.producer_callback,
+         settings.twilio_voice_number, settings.twilio_insurance_number) = orig
 
 
 @requires_db
