@@ -49,7 +49,10 @@ def save_intake(db: Session, lead_id: str, quote_type: str, answers: dict[str, s
         return None
     valid_keys = {f["key"] for f in template["fields"]}
     clean_answers = {k: v for k, v in (answers or {}).items() if k in valid_keys and (v or "").strip()}
+    # Preserve everything else in intake (notably the editable CRM record under
+    # "crm") — only the quote_type/answers are being replaced here.
     lead.intake = {
+        **(lead.intake or {}),
         "quote_type": quote_type, "answers": clean_answers,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }

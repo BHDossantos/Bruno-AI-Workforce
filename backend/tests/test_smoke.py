@@ -167,6 +167,32 @@ def test_outreach_autopilot_defaults_on_and_toggles(client, auth_headers):
 
 
 @requires_db
+def test_autopilot_readiness_reports_all_three_channels(client, auth_headers):
+    """The daily-automation readiness endpoint reports email / SMS / call each with
+    enabled + connected + a named blocker, and the one-click 'arm it' releases pause
+    and turns Outreach Autopilot on. In the test env no carriers are connected, so
+    each channel is enabled-but-not-ready and names what to connect."""
+    r = client.get("/control/autopilot", headers=auth_headers).json()
+    for ch in ("email", "sms", "call"):
+        assert ch in r, ch
+        row = r[ch]
+        assert set(("enabled", "connected", "ready", "blockers", "schedule")) <= set(row)
+        # Nothing is connected in tests → not ready, and it must SAY what's missing.
+        assert row["ready"] is False
+        assert row["connected"] is False
+        assert row["blockers"], f"{ch} should name a blocker"
+
+    # One-click arm: pause released, autopilot on. Channels stay 'enabled' (the
+    # switches are on) even though still not 'ready' (no creds in the test env).
+    armed = client.post("/control/autopilot/on", headers=auth_headers).json()
+    assert armed["paused"] is False
+    assert armed["outreach_autopilot"] is True
+    assert armed["email"]["enabled"] is True and armed["sms"]["enabled"] is True
+    # Restore default-on autopilot state for other tests (leave it on).
+    client.post("/control/outreach-autopilot", json={"on": True}, headers=auth_headers)
+
+
+@requires_db
 def test_insurance_relay_toggle_routes_through_personal(client, auth_headers):
     """One-click relay: when ON, insurance sends through the personal mailbox with
     a Thrust Reply-To (so it sends without separate Thrust credentials)."""
@@ -1322,6 +1348,15 @@ def test_calls_health_reports_connect_rate(client, auth_headers):
         assert 0.0 <= d["today"]["connect_rate"] <= 100.0
         for key in ("provider", "configured", "voicemail_ready", "daily_cap", "today", "week"):
             assert key in d, key
+        # The setup checklist names every remaining gap (carrier creds + callback +
+        # base URL) and a ready_to_dial flag — so the UI can show what's left.
+        setup = d["setup"]
+        assert "blockers" in setup and isinstance(setup["blockers"], list)
+        assert "ready_to_dial" in setup
+        # In the test env there are no live carrier creds, so it must NOT claim ready
+        # and must list at least one concrete blocker to fix.
+        assert setup["ready_to_dial"] is False
+        assert setup["blockers"], "should name what's missing, not be empty"
     finally:
         for m in made:
             db.delete(m)
@@ -2454,6 +2489,182 @@ def test_app_password_whitespace_and_own_creds_win(monkeypatch):
     monkeypatch.setattr(settings, "gmail_app_password", "personalpwxxxxxx")
     login, pw, frm, _rt = gmail._smtp_login("insurance")
     assert login == "bruno@dossantosinsurance.org" and pw == "abcdefghijklmnop" and frm == "bruno@dossantosinsurance.org"
+
+
+@requires_db
+def test_crm_profile_create_edit_and_core_sync(client, auth_headers):
+    """The editable CRM record: create a client from the form, read back the schema
+    + values, edit sections (incl. a repeatable vehicles list + a custom field), and
+    confirm the handful of synced fields land on the real Lead columns."""
+    from app.database import SessionLocal
+    from app.models import Lead
+
+    made_id = None
+    try:
+        # The blank schema endpoint (Add-client form) resolves without a lead and
+        # doesn't get shadowed by the /{lead_id}/crm route.
+        blank = client.get("/leads/crm/schema?module=insurance", headers=auth_headers).json()
+        assert blank["schema"]["module"] == "insurance" and blank["profile"] == {}
+        assert any(s["key"] == "identity" for s in blank["schema"]["core_sections"])
+
+        # CREATE from the form.
+        created = client.post("/leads/crm", headers=auth_headers, json={
+            "segment": "personal", "category": "EverQuote Auto",
+            "profile": {
+                "identity": {"first_name": "Robert", "last_name": "Kwan"},
+                "contact": {"email": "robert.kwan@example.com", "primary_phone": "6035551234"},
+                "customer_profile": {"current_carrier": "GEICO"},
+            },
+        }).json()
+        made_id = created["lead_id"]
+        assert made_id
+
+        # Core columns synced from the profile.
+        db = SessionLocal()
+        try:
+            lead = db.query(Lead).filter(Lead.id == made_id).first()
+            assert lead.owner_name == "Robert Kwan"
+            assert lead.email == "robert.kwan@example.com"
+            assert lead.phone == "6035551234"
+        finally:
+            db.close()
+
+        # GET returns the schema (core + insurance module + lists) and the values.
+        got = client.get(f"/leads/{made_id}/crm", headers=auth_headers).json()
+        assert got["module"] == "insurance"
+        section_keys = {s["key"] for s in got["schema"]["core_sections"]}
+        assert {"identity", "contact", "address", "source", "sales", "compliance"} <= section_keys
+        list_keys = {l["key"] for l in got["schema"]["lists"]}
+        assert {"vehicles", "drivers", "quotes", "policies", "claims"} <= list_keys
+        assert got["profile"]["customer_profile"]["current_carrier"] == "GEICO"
+
+        # EDIT: add a vehicle (repeatable list), a compliance flag, and a custom field.
+        client.patch(f"/leads/{made_id}/crm", headers=auth_headers, json={
+            "profile": {
+                "vehicles": [{"year": 2018, "make": "Lexus", "model": "RX350"}],
+                "compliance": {"consent_to_text": True},
+                "sales": {"status": "Quoted"},
+            },
+            "custom": {"garage_code": "4417"},
+        })
+        after = client.get(f"/leads/{made_id}/crm", headers=auth_headers).json()
+        assert after["profile"]["vehicles"][0]["make"] == "Lexus"
+        assert after["profile"]["compliance"]["consent_to_text"] is True
+        assert after["custom"]["garage_code"] == "4417"
+        # Editing status synced to the Lead column too.
+        db = SessionLocal()
+        try:
+            assert db.query(Lead).filter(Lead.id == made_id).first().status == "Quoted"
+        finally:
+            db.close()
+
+        # A partial edit must NOT wipe previously-saved sections.
+        assert after["profile"]["customer_profile"]["current_carrier"] == "GEICO"
+    finally:
+        if made_id:
+            db = SessionLocal()
+            try:
+                db.query(Lead).filter(Lead.id == made_id).delete(synchronize_session=False)
+                db.commit()
+            finally:
+                db.close()
+
+
+def test_place_test_call_reports_missing_pieces():
+    """The one-tap test call names the exact missing piece (carrier creds, caller-ID,
+    or callback cell) instead of failing silently — so setup is verifiable."""
+    from app.config import settings
+    from app.integrations import twilio_voice
+
+    saved = {k: getattr(settings, k) for k in (
+        "twilio_account_sid", "twilio_auth_token", "sms_provider", "voice_provider",
+        "signalwire_space_url", "signalwire_project_id", "signalwire_api_token",
+        "signalwire_from_number", "producer_callback", "public_base_url")}
+    try:
+        # No carrier at all → says to add credentials.
+        for k in ("twilio_account_sid", "twilio_auth_token", "signalwire_space_url",
+                  "signalwire_project_id", "signalwire_api_token", "producer_callback",
+                  "public_base_url"):
+            setattr(settings, k, "")
+        settings.sms_provider = "auto"; settings.voice_provider = "auto"
+        sid, err = twilio_voice.place_test_call()
+        assert sid is None and err and "carrier" in err.lower()
+
+        # Carrier + number set, but no callback cell → names the cell as missing.
+        settings.signalwire_space_url = "x.signalwire.com"
+        settings.signalwire_project_id = "proj"
+        settings.signalwire_api_token = "PTtoken"
+        settings.signalwire_from_number = "+19788244228"
+        settings.producer_callback = ""
+        sid, err = twilio_voice.place_test_call()
+        assert sid is None and err and "cell" in err.lower()
+    finally:
+        for k, v in saved.items():
+            setattr(settings, k, v)
+
+
+@requires_db
+def test_restaurant_crm_module_create_edit_and_sync(client, auth_headers):
+    """The SavoryMind restaurant module: it's self-contained (no person-centric core
+    sections), creates a restaurant prospect from the form, edits sections + a
+    repeatable menu list, and syncs name/city back onto the Restaurant columns."""
+    from app.database import SessionLocal
+    from app.models import Restaurant
+
+    made_id = None
+    try:
+        # Blank restaurant schema: restaurant sections, NOT the person core.
+        blank = client.get("/restaurants/crm/schema", headers=auth_headers).json()
+        assert blank["schema"]["module"] == "restaurant"
+        assert blank["schema"]["core_sections"] == []   # self-contained module
+        sec = {s["key"] for s in blank["schema"]["module_sections"]}
+        assert {"restaurant_profile", "owner_crm", "intelligence", "finance", "sales_pipeline"} <= sec
+        lists = {l["key"] for l in blank["schema"]["lists"]}
+        assert {"menu", "employees", "customers", "reservations", "inventory"} <= lists
+
+        # CREATE a restaurant prospect from the form.
+        created = client.post("/restaurants/crm", headers=auth_headers, json={
+            "profile": {
+                "restaurant_profile": {"name": "Bibi Romeo", "cuisine": "Italian", "city": "Boston"},
+                "owner_crm": {"owner_name": "Romeo B."},
+                "finance": {"average_ticket": 34},
+            },
+        }).json()
+        made_id = created["restaurant_id"]
+        assert made_id and created["module"] == "restaurant"
+
+        # Synced to the real Restaurant columns.
+        db = SessionLocal()
+        try:
+            r = db.query(Restaurant).filter(Restaurant.id == made_id).first()
+            assert r.name == "Bibi Romeo" and r.city == "Boston" and r.owner_manager == "Romeo B."
+        finally:
+            db.close()
+
+        # EDIT: add menu items (repeatable) + a pipeline stage.
+        client.patch(f"/restaurants/{made_id}/crm", headers=auth_headers, json={
+            "profile": {
+                "menu": [{"item": "Carbonara", "price": 18, "category": "Main"}],
+                "sales_pipeline": {"stage": "Demo Scheduled"},
+            },
+        })
+        after = client.get(f"/restaurants/{made_id}/crm", headers=auth_headers).json()
+        assert after["profile"]["menu"][0]["item"] == "Carbonara"
+        # A partial edit didn't wipe the earlier finance section.
+        assert after["profile"]["finance"]["average_ticket"] == 34
+        db = SessionLocal()
+        try:
+            assert db.query(Restaurant).filter(Restaurant.id == made_id).first().status == "Demo Scheduled"
+        finally:
+            db.close()
+    finally:
+        if made_id:
+            db = SessionLocal()
+            try:
+                db.query(Restaurant).filter(Restaurant.id == made_id).delete(synchronize_session=False)
+                db.commit()
+            finally:
+                db.close()
 
 
 def test_everquote_model_casing():
@@ -5163,6 +5374,103 @@ def test_dispatch_order_hot_warm_cold(client):
 
 
 @requires_db
+def test_auto_dial_everquote_round_robin_continues_next_day(client, auth_headers):
+    """The dialer round-robins the EverQuote list: day one calls the oldest N, day two
+    picks up at the NEXT lead (not restarting at #1) via the least-contacted-first
+    cursor, then wraps to the oldest. Proven on the ordering + times_contacted key."""
+    from datetime import datetime, timedelta, timezone
+
+    from app import lead_temperature
+    from app.database import SessionLocal
+    from app.models import Lead
+
+    ids = []
+    db = SessionLocal()
+    try:
+        base = datetime(2020, 1, 1, tzinfo=timezone.utc)
+        # 10 EverQuote leads, created oldest→newest.
+        for i in range(10):
+            l = Lead(segment="personal", category="EverQuote Auto", score=92, status="New",
+                     phone=f"555000{i:04d}", email=f"rr{i}@x.co", times_contacted=0,
+                     created_at=base + timedelta(minutes=i))
+            db.add(l); db.flush(); ids.append(l.id)
+        db.commit()
+
+        def ranked():
+            rows = (db.query(Lead).filter(Lead.id.in_(ids))
+                    .order_by(*lead_temperature.dispatch_order(Lead)).all())
+            return [ids.index(r.id) for r in rows]   # positions 0..9 = oldest..newest
+
+        # Day one: all at 0 calls → strict oldest→newest.
+        assert ranked() == list(range(10))
+        # "Call" the oldest 6 (cap=6): bump their contact counter, like the dialer does.
+        for i in range(6):
+            db.query(Lead).filter(Lead.id == ids[i]).update(
+                {"times_contacted": 1, "last_contacted_at": base + timedelta(days=1)})
+        db.commit()
+        # Day two: the never-called 6..9 sort FIRST (oldest-first), THEN the called
+        # 0..5 — so it continues at #7, finishes the list, and only then wraps to #1.
+        assert ranked() == [6, 7, 8, 9, 0, 1, 2, 3, 4, 5]
+    finally:
+        db.query(Lead).filter(Lead.id.in_(ids)).delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
+
+@requires_db
+def test_everquote_leads_fire_first_in_send_and_dispatch(client, auth_headers):
+    """EverQuote leads (category 'EverQuote Auto') send FIRST in the email queue —
+    ahead of an equally-hot, even higher-scored non-EverQuote lead. Speed-to-lead:
+    the paid in-market quote requests go before anything else in the day's 200."""
+    from datetime import datetime, timezone
+
+    from app import lead_temperature
+    from app.database import SessionLocal
+    from app.models import Lead, Message
+
+    eq_email = "eq_first@t.co"
+    other_email = "eq_other_hot@t.co"
+    db = SessionLocal()
+    made_msgs = []
+    try:
+        db.query(Lead).filter(Lead.email.in_([eq_email, other_email])).delete(synchronize_session=False)
+        db.commit()
+        # Both are HOT. The non-EverQuote one is even hotter by score + older draft,
+        # so ONLY the EverQuote-first rule can put the EverQuote lead ahead.
+        eq = Lead(segment="personal", email=eq_email, status="New", score=92,
+                  category="EverQuote Auto", times_contacted=0)
+        other = Lead(segment="commercial", email=other_email, status="New", score=99,
+                     category="Insurance", times_contacted=0)
+        db.add_all([eq, other]); db.commit()
+
+        # send queue (Message⋈Lead) → EverQuote draft sends first even though the
+        # other draft is older + higher-scored.
+        now = datetime.now(timezone.utc)
+        m_other = Message(direction="outbound", to_email=other_email, entity_type="lead",
+                          entity_id=other.id, status="Drafted", subject="o", body="o",
+                          created_at=now)
+        m_eq = Message(direction="outbound", to_email=eq_email, entity_type="lead",
+                       entity_id=eq.id, status="Drafted", subject="e", body="e", created_at=now)
+        db.add_all([m_other, m_eq]); db.commit(); made_msgs = [m_other, m_eq]
+
+        from sqlalchemy import and_
+        q = (db.query(Message)
+             .outerjoin(Lead, and_(Message.entity_type == "lead", Message.entity_id == Lead.id))
+             .filter(Message.to_email.in_([eq_email, other_email]),
+                     Message.status == "Drafted")
+             .order_by(*lead_temperature.send_priority_order(Lead, Message)))
+        send_rank = [m.to_email for m in q.all()]
+        assert send_rank.index(eq_email) < send_rank.index(other_email)
+    finally:
+        for m in made_msgs:
+            db.delete(m)
+        db.commit()
+        db.query(Lead).filter(Lead.email.in_([eq_email, other_email])).delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
+
+@requires_db
 def test_import_dedupes_by_email_and_cleanup(client, auth_headers):
     """Re-importing the same list UPDATES existing leads instead of creating copies,
     and the /leads/dedupe cleanup removes duplicates made before that, keeping the
@@ -5374,6 +5682,68 @@ def test_auto_reply_sends_only_when_enabled_and_interested(monkeypatch):
     assert _force_draft("interested", True) is False    # on + hot → send now
     assert _force_draft("question", True) is False       # on + question → send now
     assert _force_draft("objection", True) is True       # on + not-hot → still draft
+
+
+def test_business_toggles_gate_agents_and_jobs(monkeypatch):
+    """Per-business switches decide which agents + scheduled jobs run. Default
+    (insurance-only) matches the old behavior; flipping a business on adds its
+    agents/jobs; an explicit 'false' overrides even the 'all' profile."""
+    from app import businesses, scheduler
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "autonomy_profile", "insurance", raising=False)
+    for b in businesses.ALL:
+        monkeypatch.setattr(settings, f"biz_{b}_enabled", "", raising=False)
+
+    assert businesses.enabled() == {"insurance"}
+    a, j = scheduler.scheduled_plan()
+    assert "insurance" in a and "music" not in a and "bnbglobal" not in a
+    assert "auto_dial" in j and "music_releases" not in j and "auto_apply" not in j
+
+    # Turn on music + auto job-apply explicitly.
+    monkeypatch.setattr(settings, "biz_music_enabled", "true", raising=False)
+    monkeypatch.setattr(settings, "biz_jobs_enabled", "true", raising=False)
+    assert businesses.enabled() == {"insurance", "music", "jobs"}
+    a2, j2 = scheduler.scheduled_plan()
+    assert "music" in a2 and "job_hunter" in a2
+    assert "music_releases" in j2 and "auto_apply" in j2
+    assert "bnbglobal" not in a2                       # bnb still off
+
+    # Explicit 'false' wins even when the profile is 'all'.
+    monkeypatch.setattr(settings, "autonomy_profile", "all", raising=False)
+    monkeypatch.setattr(settings, "biz_bnb_enabled", "false", raising=False)
+    assert "bnb" not in businesses.enabled()
+
+
+@requires_db
+def test_businesses_control_endpoint(client, auth_headers):
+    """GET lists each business + on/off; POST toggles one (or all), persisted."""
+    from app import businesses
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.models import Setting
+
+    try:
+        r = client.get("/control/businesses", headers=auth_headers).json()
+        keys = {b["key"] for b in r["businesses"]}
+        assert {"insurance", "bnb", "savorymind", "music", "jobs", "content"} <= keys
+
+        r2 = client.post("/control/businesses", headers=auth_headers,
+                         json={"key": "savorymind", "on": True}).json()
+        assert next(b["on"] for b in r2["businesses"] if b["key"] == "savorymind") is True
+
+        r3 = client.post("/control/businesses", headers=auth_headers,
+                         json={"key": "all", "on": False}).json()
+        assert all(b["on"] is False for b in r3["businesses"])
+    finally:
+        # Reset to unset so this can't leak into the autonomy_profile-driven tests.
+        db = SessionLocal()
+        for b in businesses.ALL:
+            db.query(Setting).filter(Setting.key == f"cfg:biz_{b}_enabled").delete(
+                synchronize_session=False)
+            setattr(settings, f"biz_{b}_enabled", "")
+        db.commit()
+        db.close()
 
 
 @requires_db
@@ -6463,6 +6833,89 @@ def test_content_apply_hook_swaps_first_line(client, auth_headers):
     assert "Second line stays." in body["body"]
 
 
+def test_telco_diagnose_pinpoints_missing_signalwire_token():
+    """The calling self-diagnostic names the ONE missing field (the API Token) when
+    the Space + Project + number are set but the token is blank — instead of a bare
+    'not configured' — and reports ready once the token is added."""
+    from app.config import settings
+    from app.integrations import telco
+
+    saved = {k: getattr(settings, k) for k in (
+        "twilio_account_sid", "twilio_auth_token", "twilio_from_number",
+        "sms_provider", "voice_provider",
+        "signalwire_space_url", "signalwire_project_id", "signalwire_api_token",
+        "signalwire_from_number", "signalwire_voice_number",
+        "signalwire_insurance_number")}
+    try:
+        # Force a clean baseline: no Twilio, SignalWire half-connected (token blank).
+        settings.twilio_account_sid = ""
+        settings.twilio_auth_token = ""
+        settings.sms_provider = "auto"
+        settings.voice_provider = "auto"
+        settings.signalwire_space_url = "dossantosinsurance-org.signalwire.com"
+        settings.signalwire_project_id = "9909fc0c-553c-442d-bbf8-64ac8efe9b21"
+        settings.signalwire_from_number = "+19788244228"
+        settings.signalwire_voice_number = ""
+        settings.signalwire_insurance_number = ""
+        settings.signalwire_api_token = ""
+
+        d = telco.diagnose()
+        assert d["ready"] is False
+        assert d["provider"] is None
+        assert "API Token" in d["missing"]
+        assert "Space URL" not in d["missing"] and "Project ID" not in d["missing"]
+        assert "API Token" in d["hint"]
+
+        # Paste the token → now usable, provider resolves to SignalWire, ready.
+        settings.signalwire_api_token = "PTfaketoken"
+        d2 = telco.diagnose()
+        assert d2["ready"] is True
+        assert d2["provider"] == "SignalWire"
+        assert d2["missing"] == []
+    finally:
+        for k, v in saved.items():
+            setattr(settings, k, v)
+
+
+def test_telco_texting_and_calling_use_independent_carriers():
+    """Bruno's real setup: texting stays on an already-registered Twilio number while
+    calling routes through SignalWire. The per-channel switch (sms_provider vs
+    voice_provider) must let the two channels resolve to DIFFERENT carriers at once."""
+    from app.config import settings
+    from app.integrations import telco
+
+    keys = ("twilio_account_sid", "twilio_auth_token", "sms_provider", "voice_provider",
+            "signalwire_space_url", "signalwire_project_id", "signalwire_api_token")
+    saved = {k: getattr(settings, k) for k in keys}
+    try:
+        # Both carriers fully connected.
+        settings.twilio_account_sid = "ACxxx"
+        settings.twilio_auth_token = "twtok"
+        settings.signalwire_space_url = "dossantosinsurance-org.signalwire.com"
+        settings.signalwire_project_id = "9909fc0c-553c-442d-bbf8-64ac8efe9b21"
+        settings.signalwire_api_token = "PTtoken"
+
+        # The split: text on Twilio, call on SignalWire — simultaneously.
+        settings.sms_provider = "twilio"
+        settings.voice_provider = "signalwire"
+        assert telco.provider("sms") == "twilio"
+        assert telco.provider("voice") == "signalwire"
+        assert "api.twilio.com" in telco.api_url("Messages.json", "sms")
+        assert "signalwire.com" in telco.api_url("Calls.json", "voice")
+        assert telco.auth("sms") == ("ACxxx", "twtok")
+        assert telco.auth("voice") == ("9909fc0c-553c-442d-bbf8-64ac8efe9b21", "PTtoken")
+        assert telco.label("sms") == "Twilio" and telco.label("voice") == "SignalWire"
+
+        # 'auto' on both prefers SignalWire when it's connected (drop-in default).
+        settings.sms_provider = "auto"
+        settings.voice_provider = "auto"
+        assert telco.provider("sms") == "signalwire"
+        assert telco.provider("voice") == "signalwire"
+    finally:
+        for k, v in saved.items():
+            setattr(settings, k, v)
+
+
 def test_education_partners_target_schools_not_generic_businesses():
     """The foundation's school agent sources real education institutions, not
     generic commercial leads (synthetic fallback stays education-categorized)."""
@@ -6833,6 +7286,8 @@ def test_send_priority_order_ranks_new_hot_first_then_followup_warm_cold():
 def test_auto_dial_daily_pass_calls_hottest_respects_cooldown_optout_and_dead(monkeypatch):
     """The daily auto-dial pass: hottest-first, capped, skips opted-out + dead/closed
     leads, and never re-dials a lead inside the cooldown window."""
+    from sqlalchemy import func
+
     from app import auto_dial, control, sms_engine
     from app.config import settings
     from app.database import SessionLocal
@@ -6846,6 +7301,10 @@ def test_auto_dial_daily_pass_calls_hottest_respects_cooldown_optout_and_dead(mo
         db.query(Message).filter(Message.channel == "call",
                                  Message.body.like("📞 Auto-dial%")).delete(synchronize_session=False)
         db.query(Lead).filter(Lead.email.like("ad-%@x.co")).delete(synchronize_session=False)
+        # EverQuote leads sort ahead of everything now; remove any dialable ones left
+        # by other tests so this pass sees only the hot leads we create here.
+        db.query(Lead).filter(func.lower(func.coalesce(Lead.category, "")).like("everquote%"),
+                              Lead.phone.isnot(None)).delete(synchronize_session=False)
         db.commit()
         # Three hot leads that will sort to the very top of the Call List, plus a
         # dead one and an opted-out one that must be skipped. Unrealistically high

@@ -55,6 +55,26 @@ function Setup() {
   const [dncMsg, setDncMsg] = useState("");
   const [dncBusy, setDncBusy] = useState(false);
   const { data: dncList, reload: reloadDnc } = useFetch<DncList>(() => api.get<DncList>("/compliance/dnc"));
+  const { data: bizData, reload: reloadBiz } = useFetch<{ businesses: { key: string; label: string; on: boolean }[] }>(
+    () => api.get("/control/businesses"));
+  const [bizBusy, setBizBusy] = useState<string | null>(null);
+  type ApRow = { enabled: boolean; connected: boolean; ready: boolean; blockers: string[]; schedule: string };
+  type Autopilot = { paused: boolean; mode: string; outreach_autopilot: boolean;
+    email: ApRow; sms: ApRow; call: ApRow };
+  const { data: ap, reload: reloadAp } = useFetch<Autopilot>(() => api.get<Autopilot>("/control/autopilot"));
+  const [apBusy, setApBusy] = useState(false);
+  const armAutopilot = async () => {
+    setApBusy(true);
+    try { await api.post("/control/autopilot/on", {}); await reloadAp(); }
+    finally { setApBusy(false); }
+  };
+
+  async function toggleBiz(key: string, on: boolean) {
+    setBizBusy(key);
+    try { await api.post("/control/businesses", { key, on }); reloadBiz(); }
+    catch (e) { setMsg(`❌ ${e}`); }
+    finally { setBizBusy(null); }
+  }
   const [sipMsg, setSipMsg] = useState("");
   const [sipBusy, setSipBusy] = useState(false);
 
@@ -65,6 +85,17 @@ function Setup() {
       setSipMsg(`${r.ok && r.registered ? "✅" : r.ok ? "⚠️" : "❌"} ${r.reason || (r.ok ? "Connected." : "Not reachable.")}`);
     } catch (e) { setSipMsg(`❌ ${e}`); }
     finally { setSipBusy(false); }
+  }
+
+  const [callTestMsg, setCallTestMsg] = useState("");
+  const [callTestBusy, setCallTestBusy] = useState(false);
+  async function testCall() {
+    setCallTestBusy(true); setCallTestMsg("Placing a test call to your phone…");
+    try {
+      const r = await api.post<{ ok: boolean; message: string }>("/calls/test", {});
+      setCallTestMsg(`✅ ${r.message}`);
+    } catch (e) { setCallTestMsg(`❌ ${e instanceof Error ? e.message : e}`); }
+    finally { setCallTestBusy(false); }
   }
 
   async function addDnc() {
@@ -136,6 +167,46 @@ function Setup() {
         subtitle="The agents need a mailbox to send outreach and read replies, and a data source for high-quality leads. Connect them here — it takes effect immediately, no redeploy." />
       {msg && <p className="mb-3 text-sm text-gray-700">{msg}</p>}
 
+      {/* Daily Autopilot — is the machine set up to EMAIL, TEXT and CALL on its own? */}
+      {ap && (
+        <div className="card mb-4 border-l-4 border-brand">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">🟢 Daily Autopilot</h2>
+            <button className="btn text-xs" disabled={apBusy} onClick={armAutopilot}>
+              {apBusy ? "Arming…" : "Arm daily autopilot"}
+            </button>
+          </div>
+          <p className="mt-1 mb-3 text-xs text-gray-500">
+            Every day the agents source leads and automatically <b>email</b>, <b>text</b> and{" "}
+            <b>call</b> them — on a schedule, within the daily caps and quiet-hours rules. Each
+            channel needs its automation switched on <i>and</i> a carrier/mailbox connected. This
+            shows what&apos;s live and what&apos;s left. {ap.paused && (
+              <b className="text-red-600">Autopilot is PAUSED — click Arm to resume.</b>
+            )}
+          </p>
+          <div className="grid gap-2">
+            {([["email", "📧 Email"], ["sms", "💬 Texting"], ["call", "📞 Calling"]] as const).map(([k, label]) => {
+              const row = ap[k];
+              return (
+                <div key={k} className="flex items-start justify-between rounded-lg border border-gray-100 px-3 py-2">
+                  <div>
+                    <span className="text-sm font-medium">{label}</span>
+                    <span className="ml-2 text-xs text-gray-400">{row.schedule}</span>
+                    {!row.ready && row.blockers.length > 0 && (
+                      <p className="mt-0.5 text-xs text-amber-600">Needs: {row.blockers.join("; ")}</p>
+                    )}
+                  </div>
+                  <span className={`badge ${row.ready ? "bg-green-100 text-green-700"
+                    : row.enabled ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-500"}`}>
+                    {row.ready ? "Live" : row.enabled ? "Needs setup" : "Off"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Do Not Contact — honor opt-out requests instantly (blocks email/text/calls) */}
       <div className="card mb-4 border-l-4 border-red-500">
         <h2 className="font-semibold">🚫 Do Not Contact (opt-out)</h2>
@@ -173,6 +244,37 @@ function Setup() {
             </ul>
           </div>
         )}
+      </div>
+
+      {/* Businesses — turn each engine on/off */}
+      <div className="card mb-4">
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="font-semibold">🏢 Businesses</h2>
+          {bizData && (
+            <div className="flex gap-2">
+              <button className="btn-ghost text-xs" disabled={!!bizBusy} onClick={() => toggleBiz("all", true)}>Turn all on</button>
+              <button className="btn-ghost text-xs" disabled={!!bizBusy} onClick={() => toggleBiz("all", false)}>All off</button>
+            </div>
+          )}
+        </div>
+        <p className="mt-1 mb-3 text-xs text-gray-500">
+          Each engine runs its own agents &amp; scheduled jobs when ON. Insurance is on by default;
+          the rest are off to keep AI spend lean. Flip one on to test it end-to-end. Takes effect on
+          the next scheduled run — no redeploy.
+        </p>
+        <div className="grid gap-2">
+          {(bizData?.businesses || []).map((b) => (
+            <label key={b.key} className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+              <span>{b.label}</span>
+              <button
+                className={`badge ${b.on ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}
+                disabled={bizBusy === b.key || bizBusy === "all"}
+                onClick={() => toggleBiz(b.key, !b.on)}>
+                {bizBusy === b.key ? "…" : b.on ? "ON" : "OFF"}
+              </button>
+            </label>
+          ))}
+        </div>
       </div>
 
       {/* Outreach automation toggles (opt-in) */}
@@ -638,6 +740,46 @@ function Setup() {
             value={form.google_places_api_key || ""} onChange={(e) => set("google_places_api_key", e.target.value)} />
         </div>
 
+        {/* Carrier routing — texting and calling choose their carrier INDEPENDENTLY */}
+        <div className="card border-l-4 border-brand">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">📶 Carrier routing (texting vs calling)</h2>
+            <span className="text-xs text-gray-500">
+              texts via <b>{data.sms?.via || "—"}</b> · calls via <b>{data.calling?.via || "—"}</b>
+            </span>
+          </div>
+          <p className="mb-3 text-xs text-gray-500">
+            Texting and calling pick their carrier <b>separately</b> — so you can keep <b>texting on
+            Twilio</b> (already A2P-registered and working) while <b>calling goes through SignalWire</b>
+            {" "}(if Twilio blocked your outbound calls). <b>Auto</b> uses SignalWire when it&apos;s
+            connected, otherwise Twilio. Fill in each carrier&apos;s credentials in the cards below.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="text-xs font-medium text-gray-600">
+              Texting (SMS) carrier
+              <select className="input mt-1" value={form.sms_provider || "auto"}
+                onChange={(e) => set("sms_provider", e.target.value)}>
+                <option value="auto">Auto (prefer SignalWire, else Twilio)</option>
+                <option value="twilio">Twilio</option>
+                <option value="signalwire">SignalWire</option>
+                <option value="plivo">Plivo</option>
+              </select>
+            </label>
+            <label className="text-xs font-medium text-gray-600">
+              Calling (Voice) carrier
+              <select className="input mt-1" value={form.voice_provider || "auto"}
+                onChange={(e) => set("voice_provider", e.target.value)}>
+                <option value="auto">Auto (prefer SignalWire, else Twilio)</option>
+                <option value="signalwire">SignalWire</option>
+                <option value="twilio">Twilio</option>
+                <option value="plivo">Plivo</option>
+                <option value="vonage">Vonage</option>
+                <option value="sip">Self-hosted SIP</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
         {/* Twilio (SMS) */}
         <div className="card">
           <div className="mb-2 flex items-center justify-between">
@@ -675,8 +817,6 @@ function Setup() {
             <b>freecallerregistry.com</b> so it isn&apos;t flagged.
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
-            <input className="input" placeholder="Provider: auto | twilio | plivo"
-              value={form.sms_provider || ""} onChange={(e) => set("sms_provider", e.target.value)} />
             <input className="input" placeholder="Plivo number +1 555 123 4567 (Voice + SMS)"
               value={form.plivo_from_number || ""} onChange={(e) => set("plivo_from_number", e.target.value)} />
             <input className="input" type="password" placeholder="Plivo Auth ID"
@@ -700,8 +840,6 @@ function Setup() {
             <b>freecallerregistry.com</b> so it isn&apos;t filtered.
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
-            <input className="input" placeholder="Voice provider: auto | vonage | plivo | twilio | sip"
-              value={form.voice_provider || ""} onChange={(e) => set("voice_provider", e.target.value)} />
             <input className="input" placeholder="Vonage number +1 555 123 4567"
               value={form.vonage_from_number || ""} onChange={(e) => set("vonage_from_number", e.target.value)} />
             <input className="input" placeholder="Vonage Application ID"
@@ -796,6 +934,13 @@ function Setup() {
             <input className="input" placeholder="TwiML App SID (browser calling)"
               value={form.twilio_twiml_app_sid || ""} onChange={(e) => set("twilio_twiml_app_sid", e.target.value)} />
           </div>
+          <div className="mt-3 flex items-center gap-3">
+            <button type="button" className="btn" onClick={testCall} disabled={callTestBusy}>
+              {callTestBusy ? "Calling…" : "📞 Test call to my phone"}
+            </button>
+            <span className="text-xs text-gray-500">Save first, then tap — your phone should ring within seconds. Proves your carrier + caller-ID + cell all work.</span>
+          </div>
+          {callTestMsg && <p className="mt-2 text-sm text-gray-700">{callTestMsg}</p>}
         </div>
 
         {/* WhatsApp — Meta Cloud API (preferred, no Twilio) or Twilio WhatsApp */}

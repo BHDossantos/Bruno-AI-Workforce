@@ -81,18 +81,28 @@ def dispatch_order(model):
     """ORDER BY clauses for a 'send all pending' pass over Lead/Restaurant rows
     directly (no Message join) — the operator's stated priority:
 
-        hot → warm → cold  (dead last)
+        EverQuote first → hot → warm → cold  (dead last)
 
-    Within a tier: uncontacted first, then hottest score (when the model has one),
-    then the oldest row (fair pacing). Splat into a query:
+    EverQuote leads (category "EverQuote Auto") lead the whole list — they're paid,
+    in-market quote requests, so speed-to-lead wins. Within a group: LEAST-contacted
+    first, then oldest row. That ``times_contacted`` key is what makes the auto-dialer
+    a round-robin cursor across days — with 100 leads and an 80/day cap, day one calls
+    the oldest 80 (all at 0 calls); day two the never-called 20 sort ahead of the
+    called-once 80, so it picks up at #81, finishes the list, then wraps to the oldest
+    again — instead of restarting at #1 every day. Splat into a query:
     ``.order_by(*dispatch_order(Lead))``."""
-    from sqlalchemy import func
+    from sqlalchemy import case, func
     score_col = getattr(model, "score", None)
-    order = [temperature_band(model.status, score_col).asc(),
-             func.coalesce(model.times_contacted, 0).asc()]
+    order = []
+    category_col = getattr(model, "category", None)
+    if category_col is not None:                               # Lead has it, Restaurant doesn't
+        category = func.lower(func.coalesce(category_col, ""))
+        order.append(case((category.like("everquote%"), 0), else_=1).asc())
+    order += [temperature_band(model.status, score_col).asc(),
+              func.coalesce(model.times_contacted, 0).asc()]   # round-robin cursor
     if score_col is not None:
         order.append(score_col.desc())
-    order.append(model.created_at.asc())
+    order.append(model.created_at.asc())                       # oldest → newest
     return order
 
 
@@ -115,6 +125,13 @@ def send_priority_order(Lead, Message):
         else_=2,                                               # cold / new / unknown
     )
     contacted = func.coalesce(Lead.times_contacted, 0)
-    # band → uncontacted-first → hottest score → oldest draft.
-    return [band.asc(), contacted.asc(), score.desc(), Message.created_at.asc()]
+    # Within the same temperature band, EverQuote (in-market, paid quote requests)
+    # go FIRST — speed-to-lead is the whole point. EverQuote leads are stamped
+    # category "EverQuote Auto", so match that prefix. The day's send fires EverQuote
+    # before any other hot lead, then the normal hot→warm→cold order.
+    category = func.lower(func.coalesce(Lead.category, ""))
+    everquote_first = case((category.like("everquote%"), 0), else_=1)
+    # band → EverQuote-first → uncontacted-first → hottest score → oldest draft.
+    return [band.asc(), everquote_first.asc(), contacted.asc(), score.desc(),
+            Message.created_at.asc()]
 

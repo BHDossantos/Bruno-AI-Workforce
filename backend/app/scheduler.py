@@ -42,15 +42,20 @@ _INSURANCE_JOBS = {"client_autoscale", "leads", "auto_outreach", "flush_drafts",
 
 
 def _insurance_only() -> bool:
-    return (settings.autonomy_profile or "all").strip().lower() == "insurance"
+    """True when insurance is the ONLY business switched on — the lean default. Once
+    any other business is toggled on (Setup → Businesses), this is False and the
+    other-business outreach paths open up."""
+    from . import businesses
+    return businesses.enabled() == {"insurance"}
 
 
 def scheduled_plan() -> tuple[dict, dict]:
-    """(agents, jobs) that WOULD be scheduled given the current autonomy profile.
-    Pure/testable — start_scheduler registers exactly these."""
-    ins = _insurance_only()
-    agents = {k: v for k, v in AGENTS.items() if not ins or k in _INSURANCE_AGENTS}
-    jobs = {k: v for k, v in _JOBS.items() if not ins or k in _INSURANCE_JOBS}
+    """(agents, jobs) that WOULD be scheduled given which businesses are switched on.
+    Pure/testable — start_scheduler registers exactly these. Each agent/job is gated
+    by its business (app/businesses.py); shared infra jobs always run."""
+    from . import businesses
+    agents = {k: v for k, v in AGENTS.items() if businesses.agent_enabled(k)}
+    jobs = {k: v for k, v in _JOBS.items() if businesses.job_enabled(k)}
     return agents, jobs
 
 
@@ -100,9 +105,12 @@ def _publish_blog_due(db):
 def _run_leads(db):
     """Lead-gen + cold-email pass for every outreach business (4×/day).
     Insurance-only mode drops the SavoryMind/BnB passes."""
+    from . import businesses
     keys = ["commercial_finder", "home_finder", "auto_finder", "insurance", "referral_partner"]
-    if not _insurance_only():
-        keys += ["savorymind", "bnbglobal"]
+    if businesses.is_on("savorymind"):
+        keys.append("savorymind")
+    if businesses.is_on("bnb"):
+        keys.append("bnbglobal")
     out = {}
     for key in keys:
         cls = AGENTS.get(key)

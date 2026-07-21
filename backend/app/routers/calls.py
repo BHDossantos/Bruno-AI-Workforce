@@ -35,6 +35,27 @@ def _refresh(db: Session) -> None:
         pass
 
 
+@router.post("/test")
+def test_call(db: Session = Depends(get_db), _=Depends(_write)):
+    """Place a one-tap TEST call to your own cell — proves the carrier creds +
+    caller-ID + callback number all work, without dialing a real lead. Surfaces the
+    exact carrier error if it fails, so setup is verifiable in seconds."""
+    _refresh(db)
+    from ..integrations import twilio_voice
+    sid, err = twilio_voice.place_test_call()
+    if not sid:
+        raise HTTPException(400, err or "Test call failed.")
+    return {"ok": True, "call_sid": sid,
+            "message": "Calling your phone now — pick up to hear the confirmation."}
+
+
+@router.post("/twiml/test")
+def twiml_test():
+    """TwiML the carrier fetches for the test call — a spoken confirmation."""
+    from ..integrations import twilio_voice
+    return Response(twilio_voice.test_twiml(), media_type=_XML)
+
+
 @router.post("/lead/{lead_id}")
 def call_lead(lead_id: str, db: Session = Depends(get_db), _=Depends(_write)):
     """Ring the producer's phone, then bridge to this lead (recorded)."""
@@ -147,9 +168,26 @@ def calling_health(db: Session = Depends(get_db), _=Depends(_read)):
     week_stats = _counts(week)
     provider = vdispatch.active()
     cap = int(settings.auto_dial_daily_cap or 0)
+    from ..integrations import telco
+
+    # Full "ready to dial" checklist — the CARRIER creds (telco.diagnose) PLUS the
+    # two things the Call button also needs: a callback cell to ring first, and a
+    # public base URL so the carrier can reach our call webhooks. Naming every gap
+    # here means pasting the API token doesn't just surface the NEXT missing field.
+    setup = telco.diagnose()
+    blockers = list(setup.get("missing") or [])
+    if not (settings.producer_callback or "").strip():
+        blockers.append("your cell / callback number (Setup → Calling)")
+    if not (settings.public_base_url or "").strip():
+        blockers.append("PUBLIC_BASE_URL (set in the deploy env)")
+    setup["blockers"] = blockers
+    setup["ready_to_dial"] = vdispatch.is_configured() and not blockers
     return {
         "provider": provider,
         "configured": vdispatch.is_configured(),
+        # Exactly what's still missing to make the number dial (API token, callback
+        # cell, base URL) — so "still not working" is an actionable checklist.
+        "setup": setup,
         "voicemail_ready": voice.voicemail_configured(),
         "transfer_enabled": bool(settings.auto_dial_transfer_enabled),
         "daily_cap": cap,

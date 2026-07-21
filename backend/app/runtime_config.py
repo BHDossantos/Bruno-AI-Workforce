@@ -84,6 +84,13 @@ FIELDS: dict[str, bool] = {
     "sms_followup_delay_days": False,
     # Auto-send the AI reply to clearly-interested email replies (opt-in).
     "auto_reply_enabled": False,
+    # Per-business on/off switches (Setup → Businesses).
+    "biz_insurance_enabled": False,
+    "biz_bnb_enabled": False,
+    "biz_savorymind_enabled": False,
+    "biz_music_enabled": False,
+    "biz_jobs_enabled": False,
+    "biz_content_enabled": False,
     # JSearch / RapidAPI key → live LinkedIn/Indeed/Glassdoor/ZipRecruiter jobs.
     "jobs_api_key": True,
     # Instantly.ai / Smartlead.ai — dedicated cold-email sending engines.

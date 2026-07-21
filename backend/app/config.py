@@ -31,6 +31,16 @@ class Settings(BaseSettings):
     # Defaults to insurance-only so nothing off-brand (e.g. restaurant/consulting
     # cold emails) sends from the insurance domain. Flip to "all" to re-enable them.
     autonomy_profile: str = "insurance"
+    # Per-business on/off (Setup → Businesses). Empty = follow autonomy_profile
+    # (insurance-only by default); "true"/"false" explicitly overrides that one
+    # business. Flip each on to run + test its agents & scheduled jobs. See
+    # app/businesses.py.
+    biz_insurance_enabled: str = ""
+    biz_bnb_enabled: str = ""
+    biz_savorymind_enabled: str = ""
+    biz_music_enabled: str = ""
+    biz_jobs_enabled: str = ""
+    biz_content_enabled: str = ""
     embedding_model: str = "text-embedding-3-small"  # for the memory/knowledge layer
     image_model: str = "gpt-image-1"  # for auto-generated social post images
     # Jennifer voice assistant — real neural TTS so she sounds natural, not robotic.
@@ -313,7 +323,12 @@ class Settings(BaseSettings):
     # otherwise. Gated by the same Outreach Autopilot / full-auto switch as auto-send.
     auto_dial_enabled: bool = True         # master switch for the daily 8am auto-dial pass
     auto_dial_daily_cap: int = 80          # max leads auto-dialed per day (protects your line)
-    auto_dial_cooldown_days: int = 7       # don't auto-dial the same lead within N days
+    # Min whole days between auto-dials of the SAME lead, measured by calendar day.
+    # 1 = at most once per day, so the dialer round-robins the whole list: it never
+    # re-calls a lead already dialed today, and picks the least-recently-called
+    # (never-called first) each day — churning a 100-lead list at 80/day cycles every
+    # ~1.25 days. Raise it to space calls further apart.
+    auto_dial_cooldown_days: int = 1
     # Transfer a LIVE answer to the producer's cell? Default OFF on a fresh number
     # whose reputation may filter calls to voicemail (a transfer would just hit the
     # producer's voicemail and waste the call). When off, the auto-dialer leaves the
@@ -472,9 +487,10 @@ class Settings(BaseSettings):
     # Safe ceilings the autoscaler will never exceed. Per-account send cap protects
     # mailbox reputation; per-business lead target keeps a single run timeout-safe.
     # NOTE: a personal Gmail App Password gets revoked/flagged by Google if it sends
-    # cold email at volume — keep the cold cap LOW (~50/day) for a consumer Gmail.
-    # Raise this only when sending through a dedicated provider (SES/SendGrid/etc).
-    client_send_cap_ceiling: int = 50
+    # cold email at volume. The client-goal autoscaler will raise gmail_daily_send_cap
+    # up to THIS ceiling to hit a target — so it must be ≥ the send cap, or it pulls
+    # sending back down. 200 to match the 200/day target (dedicated provider: Resend).
+    client_send_cap_ceiling: int = 200
     client_lead_target_ceiling: int = 600
 
     # Instantly.ai — dedicated cold-email engine (many warmed inboxes + deliverability
@@ -504,7 +520,7 @@ class Settings(BaseSettings):
     # SendGrid's GLOBAL daily send cap (across all businesses). On the free trial
     # SendGrid allows ~100/day, so keep this at 90 until the paid plan is active;
     # raise it after the upgrade.
-    sendgrid_daily_cap: int = 90
+    sendgrid_daily_cap: int = 200   # global daily cap when sending via SendGrid
 
     # Resend — modern email API with great deliverability on your own domain.
     # Preferred over SendGrid/Gmail when connected. Verify your domain in Resend
@@ -522,17 +538,16 @@ class Settings(BaseSettings):
     # Outbound mode: "send" (auto-send now), "send_on_approve", or "draft".
     gmail_outbound_mode: str = "send"
     # Safety cap on auto-sent outreach per day, per account (protects the mailbox).
-    # Higher ceiling so a backlog clears faster; warmup still ramps a fresh mailbox
-    # up to it gradually. Google Workspace allows ~2,000 sends/day, so 300 is well
-    # within limits — lower it if a fresh mailbox ever gets flagged.
-    gmail_daily_send_cap: int = 50
-    # Deliverability warmup: ramp volume on a fresh mailbox so it isn't flagged
-    # as spam. Effective cap = min(gmail_daily_send_cap, start + step × days_active).
-    # Starts higher and ramps faster than before, so the queue drains in days, not
-    # weeks, while still easing a brand-new mailbox in.
+    # 200/day per Bruno's target. Google Workspace allows ~2,000 sends/day, so this
+    # is well within limits — lower it if a fresh mailbox ever gets flagged.
+    gmail_daily_send_cap: int = 200
+    # Deliverability warmup: ramp volume on a fresh mailbox so it isn't flagged as
+    # spam. Effective cap = min(gmail_daily_send_cap, start + step × days_active). A
+    # warmed mailbox (many days active) is already at the ceiling; a brand-new one
+    # climbs 100 → 200 over ~4 days. Runtime-adjustable in Setup.
     email_warmup_enabled: bool = True
-    email_warmup_start: int = 12
-    email_warmup_step: int = 4
+    email_warmup_start: int = 100
+    email_warmup_step: int = 25
 
     # ── Domain-level send pacing (protects a NEW sending domain's reputation) ──
     # Both the auto-send autopilot AND the manual "Send drafts" button honor these,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { AuthGate, PageHeader, useFetch } from "@/components/ui";
 
@@ -41,7 +42,8 @@ function Clients() {
   return (
     <div>
       <PageHeader title="Client Acquisition Engine"
-        subtitle="The standing order: bring in new clients 24/7. The engine sizes outreach volume to hit your daily target at the funnel's measured conversion rate." />
+        subtitle="The standing order: bring in new clients 24/7. The engine sizes outreach volume to hit your daily target at the funnel's measured conversion rate."
+        action={<Link href="/clients/new" className="btn text-sm">+ Add Client</Link>} />
 
       {g && (
         <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">

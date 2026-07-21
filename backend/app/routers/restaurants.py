@@ -1,5 +1,6 @@
 """SavoryMind restaurants + consumer growth routes."""
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
@@ -10,6 +11,50 @@ from ..schemas import RestaurantOut, StatusUpdate
 from ..security import require_role
 
 router = APIRouter(prefix="/restaurants", tags=["savorymind"])
+
+
+class CrmUpdateIn(BaseModel):
+    profile: dict = {}
+    custom: dict[str, str] | None = None
+
+
+@router.get("/crm/schema")
+def restaurant_crm_schema(_=Depends(require_role("admin", "operator", "viewer"))):
+    """Blank SavoryMind restaurant CRM form schema (for the 'Add restaurant' page)."""
+    from .. import crm_profile
+    return {"schema": crm_profile.schema_for_module("restaurant"), "profile": {}, "custom": {}}
+
+
+@router.get("/{restaurant_id}/crm")
+def get_restaurant_crm(restaurant_id: str, db: Session = Depends(get_db),
+                       _=Depends(require_role("admin", "operator", "viewer"))):
+    """The restaurant's editable CRM record: profile, owner, intelligence, finance,
+    and repeatable locations / employees / customers / menu / inventory / reviews."""
+    from .. import crm_profile
+    r = db.query(Restaurant).filter(Restaurant.id == restaurant_id).first()
+    if not r:
+        raise HTTPException(404, "Restaurant not found")
+    return {"schema": crm_profile.schema_for(r), **crm_profile.get_crm(r)}
+
+
+@router.patch("/{restaurant_id}/crm")
+def update_restaurant_crm(restaurant_id: str, body: CrmUpdateIn, db: Session = Depends(get_db),
+                          _=Depends(require_role("admin", "operator"))):
+    """Save edits to any section(s) of the restaurant's CRM record."""
+    from .. import crm_profile
+    r = db.query(Restaurant).filter(Restaurant.id == restaurant_id).first()
+    if not r:
+        raise HTTPException(404, "Restaurant not found")
+    return crm_profile.update_crm_entity(db, r, body.profile, body.custom)
+
+
+@router.post("/crm")
+def create_restaurant_crm(body: CrmUpdateIn, db: Session = Depends(get_db),
+                          _=Depends(require_role("admin", "operator"))):
+    """Add a new SavoryMind restaurant prospect from the CRM form."""
+    from .. import crm_profile
+    r = crm_profile.create_restaurant(db, body.profile, body.custom)
+    return {"restaurant_id": str(r.id), **crm_profile.get_crm(r)}
 
 
 @router.get("", response_model=list[RestaurantOut])
