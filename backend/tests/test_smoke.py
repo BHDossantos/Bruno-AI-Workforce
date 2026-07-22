@@ -7811,3 +7811,51 @@ def test_conversation_engine_phase2_profile_opportunity_renewals(client, auth_he
         _cd.commit()
     finally:
         _cd.close()
+
+
+@requires_db
+def test_conversation_engine_phase3_learning_insights(client, auth_headers):
+    """Phase 3: the learning loop mines logged calls into insights — contact/close
+    rate, best hours to call, per-carrier win rate, and top objections."""
+    from app.database import SessionLocal
+    from app.models import ConversationOutcome, FollowUp, Lead
+
+    db = SessionLocal()
+    ids = []
+    try:
+        db.query(Lead).filter(Lead.email.like("p3%@x.co")).delete(synchronize_session=False)
+        db.commit()
+        for i in range(3):
+            lead = Lead(segment="personal", owner_name=f"L3 {i}", email=f"p3{i}@x.co",
+                        phone=f"+1555000{i}333", status="New")
+            db.add(lead); db.flush(); ids.append(str(lead.id))
+        db.commit()
+    finally:
+        db.close()
+
+    # 3 calls same hour: 2 answered (1 sold w/ GEICO, 1 already_insured GEICO), 1 no-answer.
+    client.post(f"/leads/{ids[0]}/conversation", headers=auth_headers, json={
+        "method": "call", "outcome": "answered", "conversation_status": "sold",
+        "current_carrier": "GEICO", "objection": "price_too_high"})
+    client.post(f"/leads/{ids[1]}/conversation", headers=auth_headers, json={
+        "method": "call", "outcome": "answered", "conversation_status": "already_insured",
+        "current_carrier": "GEICO"})
+    client.post(f"/leads/{ids[2]}/conversation", headers=auth_headers, json={
+        "method": "call", "outcome": "no_answer"})
+
+    ins = client.get("/conversations/insights", headers=auth_headers).json()
+    assert ins["total"] >= 3 and ins["answered"] >= 2 and ins["sold"] >= 1
+    assert 0 < ins["close_rate"] <= 100 and 0 < ins["contact_rate"] <= 100
+    geico = [c for c in ins["by_carrier"] if c["carrier"] == "GEICO"]
+    assert geico and geico[0]["seen"] >= 2 and geico[0]["won"] >= 1
+    assert any(h["calls"] >= 3 for h in ins["best_hours"])          # 3 calls this hour
+    assert any(o["objection"] == "price_too_high" for o in ins["top_objections"])
+
+    _cd = SessionLocal()
+    try:
+        _cd.query(ConversationOutcome).filter(ConversationOutcome.lead_id.in_(ids)).delete(synchronize_session=False)
+        _cd.query(FollowUp).filter(FollowUp.entity_id.in_(ids)).delete(synchronize_session=False)
+        _cd.query(Lead).filter(Lead.id.in_(ids)).delete(synchronize_session=False)
+        _cd.commit()
+    finally:
+        _cd.close()

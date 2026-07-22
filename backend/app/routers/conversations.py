@@ -108,6 +108,13 @@ def conversations_dashboard(db: Session = Depends(get_db), _=Depends(_read)):
     return engine.dashboard(db)
 
 
+@router.get("/conversations/insights")
+def conversations_insights(db: Session = Depends(get_db), _=Depends(_read)):
+    """The learning loop — best hours to call, carriers you convert against, loaded
+    renewal months, and most-common objections, mined from every logged call."""
+    return engine.learnings(db)
+
+
 @router.get("/conversations/renewals")
 def conversations_renewals(db: Session = Depends(get_db), _=Depends(_read)):
     """The renewal pipeline — already-insured leads who wanted a review, sorted by

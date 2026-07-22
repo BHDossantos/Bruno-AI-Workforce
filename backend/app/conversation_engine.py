@@ -323,6 +323,87 @@ def upcoming_renewals(db: Session, limit: int = 200) -> list[dict]:
     return out[:limit]
 
 
+def learnings(db: Session) -> dict:
+    """Phase 3 — the weekly learning loop. Mines every logged conversation to tell a
+    producer what actually works: best hours to call, which carriers convert, which
+    renewal months are loaded, and which objections show up most. Deterministic
+    analytics today; the same rows train richer models later. 'Smarter every week.'"""
+    from zoneinfo import ZoneInfo
+
+    from .config import settings
+
+    rows = db.query(ConversationOutcome).all()
+    total = len(rows)
+    if not total:
+        return {"total": 0, "note": "Log some calls and insights appear here."}
+
+    try:
+        tz = ZoneInfo(settings.timezone or "America/New_York")
+    except Exception:  # pragma: no cover
+        tz = ZoneInfo("America/New_York")
+
+    answered = sum(1 for r in rows if r.outcome == "answered")
+    sold = sum(1 for r in rows if r.conversation_status == "sold")
+
+    # Best time to call — answered rate by local hour (min 3 calls to count).
+    by_hour: dict[int, dict] = {}
+    for r in rows:
+        if r.method != "call" or not r.created_at:
+            continue
+        h = r.created_at.astimezone(tz).hour
+        b = by_hour.setdefault(h, {"calls": 0, "answered": 0})
+        b["calls"] += 1
+        if r.outcome == "answered":
+            b["answered"] += 1
+    best_hours = sorted(
+        ({"hour": h, "calls": b["calls"], "answered_rate": round(100.0 * b["answered"] / b["calls"], 1)}
+         for h, b in by_hour.items() if b["calls"] >= 3),
+        key=lambda x: -x["answered_rate"])[:5]
+
+    # Carriers we beat — win rate against each (rows with a status, that carrier).
+    carrier: dict[str, dict] = {}
+    for r in rows:
+        if not r.current_carrier:
+            continue
+        c = carrier.setdefault(r.current_carrier, {"seen": 0, "won": 0})
+        c["seen"] += 1
+        if r.conversation_status == "sold":
+            c["won"] += 1
+    by_carrier = sorted(
+        ({"carrier": k, "seen": v["seen"], "won": v["won"],
+          "win_rate": round(100.0 * v["won"] / v["seen"], 1)} for k, v in carrier.items()),
+        key=lambda x: (-x["seen"]))[:8]
+
+    # Renewal months loaded with reviewable business.
+    months: dict[str, int] = {}
+    for r in rows:
+        if r.renewal_month and r.future_review:
+            months[r.renewal_month] = months.get(r.renewal_month, 0) + 1
+    by_renewal_month = [{"month": m, "count": n}
+                        for m, n in sorted(months.items(), key=lambda x: -x[1])]
+
+    # Objections we hear most.
+    objs: dict[str, int] = {}
+    for r in rows:
+        if r.objection:
+            objs[r.objection] = objs.get(r.objection, 0) + 1
+    top_objections = [{"objection": o, "count": n}
+                      for o, n in sorted(objs.items(), key=lambda x: -x[1])][:6]
+
+    return {
+        "total": total,
+        "answered": answered,
+        "sold": sold,
+        "contact_rate": round(100.0 * answered / total, 1),
+        "close_rate": round(100.0 * sold / total, 1),
+        "best_hours": best_hours,
+        "by_carrier": by_carrier,
+        "by_renewal_month": by_renewal_month,
+        "top_objections": top_objections,
+        "timezone": str(tz),
+    }
+
+
 def dashboard(db: Session) -> dict:
     """Segment the book by conversation status + surface today's activity — the
     'Already Insured 48 · Shopping 22 · Needs Quote 18' view."""

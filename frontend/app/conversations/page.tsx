@@ -11,8 +11,16 @@ type Dashboard = {
 };
 type Lead = { id: string; name?: string; owner_name?: string; email?: string | null; phone?: string | null };
 type Renewal = { lead_id: string; name: string; current_carrier?: string | null; renewal_month?: string | null; remind_at?: string | null };
+type Insights = {
+  total: number; answered?: number; sold?: number; contact_rate?: number; close_rate?: number;
+  best_hours?: { hour: number; calls: number; answered_rate: number }[];
+  by_carrier?: { carrier: string; seen: number; won: number; win_rate: number }[];
+  by_renewal_month?: { month: string; count: number }[];
+  top_objections?: { objection: string; count: number }[];
+};
 
 const pretty = (s: string) => s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+const hour12 = (h: number) => `${((h + 11) % 12) + 1} ${h < 12 ? "AM" : "PM"}`;
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -28,6 +36,7 @@ function ConversationEngine() {
   const { data: dash, reload: reloadDash } = useFetch<Dashboard>(() => api.get<Dashboard>("/conversations/dashboard"));
   const { data: leads } = useFetch<Lead[]>(() => api.get<Lead[]>("/leads?limit=300&sort=score"));
   const { data: renewals } = useFetch<{ renewals: Renewal[] }>(() => api.get("/conversations/renewals"));
+  const { data: insights } = useFetch<Insights>(() => api.get("/conversations/insights"));
 
   const [leadId, setLeadId] = useState("");
   const [opp, setOpp] = useState<Record<string, number> | null>(null);
@@ -126,6 +135,34 @@ function ConversationEngine() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Learning loop — what actually works (gets smarter every week) */}
+      {insights && insights.total > 0 && (
+        <div className="mb-6 rounded-xl border border-indigo-200 bg-indigo-50/40 p-4">
+          <div className="mb-2 text-sm font-semibold text-indigo-900">📈 What's working — learned from {insights.total} calls</div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3 text-sm">
+            <div>
+              <div className="text-xs font-medium text-gray-500">Rates</div>
+              <div>Contact <b>{insights.contact_rate}%</b> · Close <b>{insights.close_rate}%</b></div>
+            </div>
+            <div>
+              <div className="text-xs font-medium text-gray-500">Best times to call</div>
+              {(insights.best_hours || []).length ? (insights.best_hours || []).map((h) => (
+                <div key={h.hour}>{hour12(h.hour)} — <b>{h.answered_rate}%</b> answered <span className="text-xs text-gray-400">({h.calls})</span></div>
+              )) : <div className="text-gray-400">need more calls</div>}
+            </div>
+            <div>
+              <div className="text-xs font-medium text-gray-500">Carriers you face (win rate)</div>
+              {(insights.by_carrier || []).slice(0, 4).map((c) => (
+                <div key={c.carrier}>{c.carrier} — <b>{c.win_rate}%</b> <span className="text-xs text-gray-400">({c.won}/{c.seen})</span></div>
+              ))}
+            </div>
+          </div>
+          {(insights.top_objections || []).length > 0 && (
+            <div className="mt-3 text-xs text-gray-600">Top objections: {(insights.top_objections || []).map((o) => `${pretty(o.objection)} (${o.count})`).join(" · ")}</div>
+          )}
         </div>
       )}
 
