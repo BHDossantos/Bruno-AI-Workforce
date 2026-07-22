@@ -7859,3 +7859,50 @@ def test_conversation_engine_phase3_learning_insights(client, auth_headers):
         _cd.commit()
     finally:
         _cd.close()
+
+
+@requires_db
+def test_dispatch_email_prefers_resend_over_broken_gmail(monkeypatch):
+    """dispatch_email (the Send buttons / autopilot path) must try Resend FIRST — so a
+    set-up Resend sends even when the account's Gmail App Password is dead. Regression
+    for insurance mail falling to a 535 BadCredentials Gmail login."""
+    from app import outreach
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.integrations import gmail, resend, sendgrid
+    from app.models import Lead, Message
+
+    # Resend "connected" and it succeeds; Gmail "configured" but would fail if used.
+    monkeypatch.setattr(resend, "is_configured", lambda: True)
+    monkeypatch.setattr(resend, "from_for", lambda a: "b@dossantosinsurance.org")
+    monkeypatch.setattr(resend, "replyto_for", lambda a, f: f)
+    sent = {}
+    def _resend_send(to, subj, html, from_email=None, reply_to=None):
+        sent["to"], sent["from"] = to, from_email
+        return "resend-mid-1", None
+    monkeypatch.setattr(resend, "send_with_error", _resend_send)
+    monkeypatch.setattr(sendgrid, "is_configured", lambda: False)
+    monkeypatch.setattr(gmail, "is_configured", lambda a=None: True)  # present but must NOT be used
+    def _boom(*a, **k):
+        raise AssertionError("Gmail was used even though Resend is connected")
+    monkeypatch.setattr(gmail, "send_message", _boom)
+    monkeypatch.setattr(settings, "gmail_outbound_mode", "send", raising=False)
+
+    db = SessionLocal()
+    lid = None
+    try:
+        db.query(Lead).filter(Lead.email == "resendfix@x.co").delete(synchronize_session=False)
+        db.commit()
+        lead = Lead(segment="personal", owner_name="Rez Fix", email="resendfix@x.co", status="New")
+        db.add(lead); db.flush(); lid = lead.id; db.commit()
+        msg = outreach.dispatch_email(db, entity_type="lead", entity_id=lead.id,
+                                      to_email="resendfix@x.co", subject="Hi", body="Test",
+                                      account="insurance", actor="test", autonomous=False)
+        assert msg.status == "Sent" and msg.provider_id == "resend-mid-1"
+        assert sent["from"] == "b@dossantosinsurance.org"   # sent from the right identity
+    finally:
+        if lid is not None:
+            db.query(Message).filter(Message.entity_id == lid).delete(synchronize_session=False)
+            db.query(Lead).filter(Lead.id == lid).delete(synchronize_session=False)
+            db.commit()
+        db.close()

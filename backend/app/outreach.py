@@ -290,11 +290,11 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
     db.add(msg)
     db.flush()
 
-    from .integrations import sender, sendgrid
-    # A sender is anything that can deliver: a campaign engine (Instantly/Smartlead),
-    # SendGrid (direct delivery), or Gmail. Only draft if NONE is configured.
-    if not to_email or not (gmail.is_configured(account) or sender.is_configured()
-                            or sendgrid.is_configured()):
+    from .integrations import resend, sender, sendgrid
+    # A sender is anything that can deliver: Resend (own-domain API), a campaign
+    # engine (Instantly/Smartlead), SendGrid, or Gmail. Only draft if NONE is set up.
+    if not to_email or not (resend.is_configured() or gmail.is_configured(account)
+                            or sender.is_configured() or sendgrid.is_configured()):
         return msg  # nothing to send to / no sender configured — keep as stored draft
     if not is_real_email(to_email):
         # Never email sample/placeholder data — keep it as a draft only.
@@ -368,14 +368,22 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
 
     html = email_template.render(body, account)  # consistent template + compliant footer
     if mode == "send":
-        # Deliver via SendGrid when connected (reliable at volume), else Gmail.
-        # Send AS the business's verified sender; replies come back to that address.
-        if sendgrid.is_configured():
-            from_email = sendgrid.from_for(account)
-            reply_to = sendgrid.replyto_for(account, from_email)
+        # Provider ladder: Resend (own-domain API, best deliverability) → SendGrid →
+        # the account's Gmail. So a working provider sends even when another (e.g. a
+        # Gmail App Password) is broken. Previously Resend was SKIPPED here, so a
+        # set-up Resend was ignored and insurance mail fell to a dead Gmail login.
+        mid = send_err = None
+        if resend.is_configured():
+            r_from = resend.from_for(account)
+            mid, send_err = resend.send_with_error(
+                to_email, subject or "", html or "",
+                from_email=r_from, reply_to=resend.replyto_for(account, r_from))
+        if not mid and sendgrid.is_configured():
+            sg_from = sendgrid.from_for(account)
             mid = sendgrid.send_email(to_email, subject or "", html or "",
-                                      from_email=from_email, reply_to=reply_to)
-        else:
+                                      from_email=sg_from,
+                                      reply_to=sendgrid.replyto_for(account, sg_from))
+        if not mid and gmail.is_configured(account):
             mid = gmail.send_message(to_email, subject or "", html or "", account=account)
         if mid:
             msg.provider_id = mid
@@ -393,6 +401,9 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
                 newsletters.subscribe_on_outreach(db, entity_type, entity_id, to_email)
             except Exception:
                 pass
+        else:
+            # Nothing delivered — record the real reason so the Outbox shows WHY.
+            _log(db, actor, "email_send_failed", msg, to=to_email, detail=send_err)
     else:  # draft / send_on_approve
         did = gmail.create_draft(to_email, subject or "", html or "", account=account)
         if did:
