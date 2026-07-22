@@ -108,6 +108,25 @@ def conversations_dashboard(db: Session = Depends(get_db), _=Depends(_read)):
     return engine.dashboard(db)
 
 
+@router.get("/conversations/renewals")
+def conversations_renewals(db: Session = Depends(get_db), _=Depends(_read)):
+    """The renewal pipeline — already-insured leads who wanted a review, sorted by
+    the ~30-day-before-renewal reminder date. Work these ahead of renewal season."""
+    return {"renewals": engine.upcoming_renewals(db)}
+
+
+@router.get("/leads/{lead_id}/opportunity")
+def lead_opportunity(lead_id: str, db: Session = Depends(get_db), _=Depends(_read)):
+    """Per-line cross-sell opportunity estimate for a lead (Auto/Home/Umbrella/…),
+    from their data + everything logged on their conversations."""
+    lead = db.query(Lead).filter(Lead.id == lead_id).first()
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    convos = (db.query(ConversationOutcome)
+              .filter(ConversationOutcome.lead_id == lead_id).all())
+    return {"lead_id": lead_id, "opportunity": engine.estimate_opportunity(lead, convos)}
+
+
 @router.get("/conversations/objection-response")
 def objection_response(objection: str | None = None, conversation_status: str | None = None,
                        _=Depends(_read)):

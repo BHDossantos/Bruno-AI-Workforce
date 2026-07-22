@@ -7754,3 +7754,60 @@ def test_conversation_engine_logs_structured_outcome_and_fires_effects(client, a
             _cd.commit()
         finally:
             _cd.close()
+
+
+@requires_db
+def test_conversation_engine_phase2_profile_opportunity_renewals(client, auth_headers):
+    """Phase 2: logging conversations builds the customer profile onto the lead,
+    the opportunity estimator scores each line, and already-insured + review shows
+    up in the renewals pipeline."""
+    from app.database import SessionLocal
+    from app.models import ConversationOutcome, FollowUp, Lead
+
+    db = SessionLocal()
+    try:
+        db.query(Lead).filter(Lead.email == "p2@x.co").delete(synchronize_session=False)
+        db.commit()
+        lead = Lead(segment="personal", category="EverQuote Auto", owner_name="Pat Two",
+                    email="p2@x.co", phone="+15550002222", status="New",
+                    intake={"source": "everquote", "everquote": {
+                        "homeowner": True, "marital_status": "Married",
+                        "vehicle_make": "Toyota"}})
+        db.add(lead); db.flush(); lid = str(lead.id); db.commit()
+    finally:
+        db.close()
+
+    # Log an already-insured + renewal conversation.
+    client.post(f"/leads/{lid}/conversation", headers=auth_headers, json={
+        "method": "call", "outcome": "answered", "conversation_status": "already_insured",
+        "current_carrier": "State Farm", "current_premium": 1450, "renewal_month": "September",
+        "future_review": True, "insurance_needed": ["home"]})
+
+    # Profile built itself onto the lead.
+    _d = SessionLocal()
+    try:
+        lead = _d.query(Lead).filter(Lead.id == lid).first()
+        prof = (lead.intake or {}).get("profile") or {}
+        assert prof.get("current_carrier") == "State Farm"
+        assert prof.get("current_premium") == 1450
+        assert prof.get("renewal_month") == "September"
+    finally:
+        _d.close()
+
+    # Opportunity: homeowner+married+auto → home & umbrella & auto all strong.
+    opp = client.get(f"/leads/{lid}/opportunity", headers=auth_headers).json()["opportunity"]
+    assert opp["home"] >= 80 and opp["auto"] >= 80 and opp["umbrella"] >= 70
+
+    # Renewals pipeline includes this lead.
+    ren = client.get("/conversations/renewals", headers=auth_headers).json()["renewals"]
+    mine = [r for r in ren if r["lead_id"] == lid]
+    assert mine and mine[0]["current_carrier"] == "State Farm" and mine[0]["remind_at"]
+
+    _cd = SessionLocal()
+    try:
+        _cd.query(ConversationOutcome).filter(ConversationOutcome.lead_id == lid).delete(synchronize_session=False)
+        _cd.query(FollowUp).filter(FollowUp.entity_id == lid).delete(synchronize_session=False)
+        _cd.query(Lead).filter(Lead.id == lid).delete(synchronize_session=False)
+        _cd.commit()
+    finally:
+        _cd.close()

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { AuthGate, PageHeader, KpiCard, useFetch } from "@/components/ui";
 
@@ -10,6 +10,7 @@ type Dashboard = {
   contact_rate: number; top_carriers: { carrier: string; count: number }[];
 };
 type Lead = { id: string; name?: string; owner_name?: string; email?: string | null; phone?: string | null };
+type Renewal = { lead_id: string; name: string; current_carrier?: string | null; renewal_month?: string | null; remind_at?: string | null };
 
 const pretty = (s: string) => s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
@@ -26,8 +27,10 @@ function ConversationEngine() {
   const { data: schema } = useFetch<Schema>(() => api.get<Schema>("/conversations/schema"));
   const { data: dash, reload: reloadDash } = useFetch<Dashboard>(() => api.get<Dashboard>("/conversations/dashboard"));
   const { data: leads } = useFetch<Lead[]>(() => api.get<Lead[]>("/leads?limit=300&sort=score"));
+  const { data: renewals } = useFetch<{ renewals: Renewal[] }>(() => api.get("/conversations/renewals"));
 
   const [leadId, setLeadId] = useState("");
+  const [opp, setOpp] = useState<Record<string, number> | null>(null);
   const [form, setForm] = useState<Record<string, unknown>>({ method: "call", outcome: "answered" });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -36,6 +39,12 @@ function ConversationEngine() {
   const opts = schema?.schema || {};
   const set = (k: string, v: unknown) => setForm((f) => ({ ...f, [k]: v }));
   const answered = form.outcome === "answered";
+
+  useEffect(() => {
+    if (!leadId) { setOpp(null); return; }
+    api.get<{ opportunity: Record<string, number> }>(`/leads/${leadId}/opportunity`)
+      .then((r) => setOpp(r.opportunity)).catch(() => setOpp(null));
+  }, [leadId]);
 
   const suggested = useMemo(() => {
     const objection = form.objection as string | undefined;
@@ -105,6 +114,21 @@ function ConversationEngine() {
         </>
       )}
 
+      {/* Renewal pipeline — money hiding in your book */}
+      {renewals && renewals.renewals.length > 0 && (
+        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <div className="mb-2 text-sm font-semibold text-amber-900">🔔 Renewal pipeline ({renewals.renewals.length}) — work these before renewal</div>
+          <div className="max-h-52 overflow-y-auto">
+            {renewals.renewals.map((r) => (
+              <div key={r.lead_id} className="flex items-center justify-between border-b border-amber-100 py-1.5 text-sm last:border-0">
+                <span>{r.name} <span className="text-xs text-amber-700">{r.current_carrier || "—"} · renews {r.renewal_month}</span></span>
+                <span className="text-xs text-amber-800">remind {r.remind_at}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Structured log form */}
       <div className="rounded-xl border border-gray-200 bg-white p-4">
         <div className="mb-3 text-sm font-semibold text-gray-700">Log a conversation</div>
@@ -121,6 +145,22 @@ function ConversationEngine() {
           <Field label="Method"><Select k="method" /></Field>
           <Field label="Outcome"><Select k="outcome" /></Field>
         </div>
+
+        {opp && (
+          <div className="mt-3 rounded-lg bg-gray-50 p-3">
+            <div className="mb-2 text-xs font-medium text-gray-500">Cross-sell opportunity for this lead</div>
+            <div className="flex flex-wrap gap-3">
+              {Object.entries(opp).map(([line, pct]) => (
+                <div key={line} className="min-w-[110px] flex-1">
+                  <div className="flex justify-between text-xs text-gray-600"><span>{pretty(line)}</span><b>{pct}%</b></div>
+                  <div className="mt-1 h-2 w-full rounded bg-gray-200">
+                    <div className="h-2 rounded bg-brand" style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {!answered && (
           <div className="mt-3 flex flex-wrap gap-4 rounded-lg bg-gray-50 p-3">

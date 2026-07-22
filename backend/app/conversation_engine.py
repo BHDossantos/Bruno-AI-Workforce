@@ -195,6 +195,12 @@ def _sync_lead(db: Session, lead: Lead, row: ConversationOutcome) -> None:
 
     from .models import Message
 
+    # 0) The customer profile builds itself — persist durable facts onto the lead.
+    try:
+        _sync_profile(lead, row)
+    except Exception:
+        log.debug("profile sync skipped", exc_info=True)
+
     # 1) A call row on the timeline (keeps the 📞 counter + AI timeline real).
     if row.method == "call":
         db.add(Message(channel="call", direction="outbound", entity_type="lead",
@@ -237,6 +243,84 @@ def _sync_lead(db: Session, lead: Lead, row: ConversationOutcome) -> None:
                             body=na.replace("_", " ")))
         except Exception:
             log.debug("followup create skipped", exc_info=True)
+
+
+# ── Phase 2: the customer profile builds itself, opportunity, renewals ──────────
+# Conversation facts that should persist onto the lead's profile so it compounds
+# across calls (not just live in one conversation row).
+_PROFILE_FIELDS = ("current_carrier", "current_premium", "renewal_month")
+
+
+def _sync_profile(lead: Lead, row: ConversationOutcome) -> None:
+    """Persist durable facts from a conversation onto lead.intake['profile'] so the
+    Customer Profile builds itself over successive calls (last non-empty wins)."""
+    intake = dict(lead.intake or {})
+    profile = dict(intake.get("profile") or {})
+    for f in _PROFILE_FIELDS:
+        v = getattr(row, f, None)
+        if v not in (None, "", []):
+            profile[f] = float(v) if f == "current_premium" else v
+    if row.insurance_needed:
+        have = set(profile.get("insurance_needed") or [])
+        profile["insurance_needed"] = sorted(have | set(row.insurance_needed))
+    intake["profile"] = profile
+    lead.intake = intake  # reassign so SQLAlchemy flags the JSONB dirty
+
+
+def estimate_opportunity(lead: Lead, convos: list[ConversationOutcome] | None = None) -> dict:
+    """Deterministic per-line cross-sell estimate (0-100) from the lead's data +
+    conversation signals — Bruno's 'Auto 95% · Home 82% · Umbrella 78%' view. No AI
+    key needed; the weekly learning loop (Phase 3) can calibrate these later."""
+    eq = ((lead.intake or {}).get("everquote") or {}) if lead else {}
+    homeowner = bool(eq.get("homeowner"))
+    married = "marr" in (eq.get("marital_status") or "").lower()
+    luxury = bool(eq.get("is_luxury"))
+    wants = set()
+    for c in (convos or []):
+        wants |= set(c.insurance_needed or [])
+
+    est = {
+        "auto": 92 if (eq.get("vehicle_make") or lead and lead.category and "Auto" in (lead.category or "")) else 65,
+        "home": 84 if homeowner else 28,
+        "renters": 20 if homeowner else 62,
+        "umbrella": 76 if (homeowner and (married or luxury)) else 34,
+        "life": 58 if married else 40,
+        "commercial": 78 if (eq.get("business_owner")) else 12,
+    }
+    # A line the customer explicitly named gets a strong bump.
+    for line in wants:
+        if line in est:
+            est[line] = min(99, est[line] + 15)
+    return {k: v for k, v in sorted(est.items(), key=lambda x: -x[1])}
+
+
+def upcoming_renewals(db: Session, limit: int = 200) -> list[dict]:
+    """Leads with a renewal on the horizon (already-insured + a review requested),
+    sorted by the ~30-day-before reminder date — the renewal pipeline to work."""
+    rows = (db.query(ConversationOutcome)
+            .filter(ConversationOutcome.renewal_month.isnot(None),
+                    ConversationOutcome.future_review.is_(True))
+            .order_by(ConversationOutcome.created_at.desc()).limit(1000).all())
+    # Keep the latest row per lead, then sort by reminder date.
+    seen: dict = {}
+    for r in rows:
+        if r.lead_id and r.lead_id not in seen:
+            seen[r.lead_id] = r
+    out = []
+    for r in seen.values():
+        lead = db.query(Lead).filter(Lead.id == r.lead_id).first()
+        remind = _renewal_reminder_at(r.renewal_month)
+        out.append({
+            "lead_id": str(r.lead_id),
+            "name": (lead.owner_name if lead else None) or "Lead",
+            "phone": lead.phone if lead else None,
+            "email": lead.email if lead else None,
+            "current_carrier": r.current_carrier,
+            "renewal_month": r.renewal_month,
+            "remind_at": remind.date().isoformat() if remind else None,
+        })
+    out.sort(key=lambda x: x["remind_at"] or "9999")
+    return out[:limit]
 
 
 def dashboard(db: Session) -> dict:
