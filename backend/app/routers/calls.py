@@ -45,8 +45,10 @@ def test_call(db: Session = Depends(get_db), _=Depends(_write)):
     sid, err = twilio_voice.place_test_call()
     if not sid:
         raise HTTPException(400, err or "Test call failed.")
-    return {"ok": True, "call_sid": sid,
-            "message": "Calling your phone now — pick up to hear the confirmation."}
+    rings = twilio_voice.dial_targets()["rings_first_pretty"]
+    return {"ok": True, "call_sid": sid, "ringing": rings,
+            "message": f"Ringing {rings} now — pick up to hear the confirmation. "
+                       "If that isn't the phone in your hand, fix 'Your cell to ring' in Setup."}
 
 
 @router.post("/twiml/test")
@@ -68,13 +70,15 @@ def call_lead(lead_id: str, db: Session = Depends(get_db), _=Depends(_write)):
     sid, err = vdispatch.place_bridge_call(lead.phone, str(lead.id))
     if not sid:
         raise HTTPException(400, f"Couldn't start the call — {err}")
+    rings = voice.dial_targets()["rings_first_pretty"]
     db.add(Message(channel="call", direction="outbound", entity_type="lead",
                    entity_id=lead.id, from_account="insurance",
-                   body="📞 Call started (ringing your phone)…", status="Dialing",
+                   body=f"📞 Call started — ringing {rings}…", status="Dialing",
                    provider_id=sid, sent_at=datetime.now(timezone.utc)))
     db.commit()
-    return {"ok": True, "call_sid": sid,
-            "message": "Calling your phone now — pick up to be connected to the lead."}
+    return {"ok": True, "call_sid": sid, "ringing": rings,
+            "message": f"Ringing {rings} now — pick up to be connected to the lead. "
+                       "If that isn't your phone, fix 'Your cell to ring' in Setup → Calling."}
 
 
 @router.post("/auto/{lead_id}")
@@ -91,14 +95,15 @@ def auto_call_lead(lead_id: str, db: Session = Depends(get_db), _=Depends(_write
     if not sid:
         raise HTTPException(400, f"Couldn't start the call — {err}")
     vm = "your recorded voicemail" if voice.voicemail_configured() else "a spoken message"
+    transfers = voice.dial_targets()["transfers_to_pretty"]
     db.add(Message(channel="call", direction="outbound", entity_type="lead",
                    entity_id=lead.id, from_account="insurance",
-                   body=f"📞 Auto-dialing — transfers to you if answered, leaves {vm} if not…",
+                   body=f"📞 Auto-dialing — transfers to {transfers} if answered, leaves {vm} if not…",
                    status="Dialing", provider_id=sid, sent_at=datetime.now(timezone.utc)))
     db.commit()
-    return {"ok": True, "call_sid": sid,
-            "message": "Auto-dialing the lead — your phone rings if they pick up; "
-                       f"otherwise it leaves {vm}."}
+    return {"ok": True, "call_sid": sid, "transfers_to": transfers,
+            "message": f"Auto-dialing the lead — {transfers} rings if they pick up; "
+                       f"otherwise it leaves {vm}. If that isn't your phone, fix it in Setup → Calling."}
 
 
 @router.post("/auto-dial-run")
@@ -185,6 +190,9 @@ def calling_health(db: Session = Depends(get_db), _=Depends(_read)):
     return {
         "provider": provider,
         "configured": vdispatch.is_configured(),
+        # The exact numbers we will ring / transfer to right now — so "call done but
+        # my phone never rang" is instantly explainable: check this is your phone.
+        "dial_targets": voice.dial_targets(),
         # Exactly what's still missing to make the number dial (API token, callback
         # cell, base URL) — so "still not working" is an actionable checklist.
         "setup": setup,

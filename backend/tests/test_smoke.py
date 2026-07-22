@@ -1264,6 +1264,29 @@ def test_bridge_call_from_number_is_e164(monkeypatch):
     assert captured["url"].startswith("https://example.signalwire.com/")  # routed to SignalWire
 
 
+def test_dial_targets_surface_the_number_we_ring(monkeypatch):
+    """The calling engine must SURFACE the exact number it rings — 'call done but my
+    phone never rang' is almost always the rung number not being the phone in hand,
+    and nothing used to show which number it was. dial_targets exposes it, prefers the
+    explicit callback field, and falls back to the cell (flagged as such)."""
+    from app.config import settings
+    from app.integrations import twilio_voice as v
+
+    # Callback set → we ring it, and say the source is the callback field.
+    monkeypatch.setattr(settings, "producer_callback", "(603) 930-8272", raising=False)
+    monkeypatch.setattr(settings, "producer_cell", "6035572462", raising=False)
+    t = v.dial_targets()
+    assert t["rings_first"] == "+16039308272"
+    assert t["rings_first_pretty"] == "+1 (603) 930-8272"
+    assert t["rings_source"] == "callback"
+
+    # Callback blank → fall back to the cell, and flag that it came from the cell.
+    monkeypatch.setattr(settings, "producer_callback", "", raising=False)
+    t2 = v.dial_targets()
+    assert t2["rings_first"] == "+16035572462"
+    assert t2["rings_source"] == "cell"
+
+
 def test_twilio_voice_config_twiml_and_token():
     """Bridge calling is configured with creds + a number + a callback phone;
     browser softphone also needs an API key + TwiML App. TwiML bridges + records

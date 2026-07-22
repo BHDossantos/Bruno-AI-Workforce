@@ -32,6 +32,11 @@ type Coverage = {
 type CallHealth = {
   provider: string | null; configured: boolean; voicemail_ready: boolean;
   transfer_enabled: boolean; daily_cap: number; remaining_today: number | null;
+  dial_targets?: {
+    rings_first: string; rings_first_pretty: string;
+    transfers_to: string; transfers_to_pretty: string;
+    caller_id_pretty: string; rings_source: string;
+  };
   today: { placed: number; connected: number; missed: number; dialing: number; connect_rate: number };
   week: { placed: number; connected: number; missed: number; dialing: number; connect_rate: number };
 };
@@ -153,6 +158,13 @@ export default function WorkListPage() {
               <span className="ml-auto rounded-lg bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">No voicemail drop recorded</span>
             )}
           </div>
+          {callHealth.dial_targets?.rings_first_pretty && (
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-gray-100 pt-3 text-sm">
+              <span>📱 Clicking <b>Call</b> rings <b className="text-gray-900">{callHealth.dial_targets.rings_first_pretty}</b> first, then connects the lead.</span>
+              <span className="text-gray-500">Live auto-dial answers transfer to <b className="text-gray-700">{callHealth.dial_targets.transfers_to_pretty || callHealth.dial_targets.rings_first_pretty}</b>.</span>
+              <span className="text-xs text-gray-400">Not your phone? Fix “Your cell to ring” on Setup → Calling.</span>
+            </div>
+          )}
         </div>
       )}
 

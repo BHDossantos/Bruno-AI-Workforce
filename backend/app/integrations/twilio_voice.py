@@ -63,6 +63,38 @@ def _callback_number() -> str:
     return _e164(settings.producer_callback or settings.producer_cell)
 
 
+def pretty_phone(e164: str) -> str:
+    """Human-readable US number for the UI: '+16039308272' -> '+1 (603) 930-8272'.
+    Non-US / short numbers are returned as-is so we never mangle them."""
+    d = re.sub(r"\D", "", e164 or "")
+    if len(d) == 11 and d.startswith("1"):
+        return f"+1 ({d[1:4]}) {d[4:7]}-{d[7:]}"
+    return e164 or ""
+
+
+def dial_targets() -> dict:
+    """The exact numbers the calling engine will use RIGHT NOW — so the UI can show
+    'we will ring THIS number' instead of leaving it a black box. This is the single
+    most common reason 'the call says done but my phone never rang': the number being
+    rung isn't the phone in your hand, and nothing surfaced which number it was."""
+    rings = _callback_number()
+    transfers = _transfer_number()
+    caller = _e164(_voice_number()) or _voice_number()
+    # Did the rung number come from the explicit callback field, or fall back to the
+    # (possibly stale) cell default? Surfacing this tells you where to fix it.
+    source = "callback" if _e164(settings.producer_callback) else (
+        "cell" if _e164(settings.producer_cell) else "none")
+    return {
+        "rings_first": rings,
+        "rings_first_pretty": pretty_phone(rings),
+        "transfers_to": transfers,
+        "transfers_to_pretty": pretty_phone(transfers),
+        "caller_id": caller,
+        "caller_id_pretty": pretty_phone(caller),
+        "rings_source": source,
+    }
+
+
 def is_configured() -> bool:
     """Bridge calling: a Twilio-compatible carrier (Twilio or SignalWire) + a
     caller-ID number + a phone to ring you back on (callback or cell)."""
