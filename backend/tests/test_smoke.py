@@ -1748,6 +1748,43 @@ def test_sip_softswitch_provider_and_dispatch(monkeypatch):
     assert "sofia/gateway/bruno_trunk/19782541435" in bridge
 
 
+def test_voice_active_labels_signalwire_not_twilio(monkeypatch):
+    """When calls route through the Twilio-compatible stack, the active-provider
+    label must say 'signalwire' if SignalWire is the connected carrier — not the
+    generic 'twilio' (they share the module, and the Call List showed the wrong one)."""
+    from app.config import settings
+    from app.integrations import voice
+
+    keys = ("twilio_account_sid", "twilio_auth_token", "twilio_from_number",
+            "voice_provider", "producer_callback", "producer_cell",
+            "signalwire_space_url", "signalwire_project_id", "signalwire_api_token",
+            "signalwire_from_number")
+    saved = {k: getattr(settings, k) for k in keys}
+    try:
+        monkeypatch.setattr(settings, "voice_provider", "auto", raising=False)
+        monkeypatch.setattr(settings, "producer_cell", "+16039308272", raising=False)
+        # SignalWire connected, no Twilio, auto → active() reads 'signalwire'.
+        for k in ("twilio_account_sid", "twilio_auth_token", "twilio_from_number"):
+            monkeypatch.setattr(settings, k, "", raising=False)
+        monkeypatch.setattr(settings, "signalwire_space_url", "dossantosinsurance-org.signalwire.com", raising=False)
+        monkeypatch.setattr(settings, "signalwire_project_id", "proj", raising=False)
+        monkeypatch.setattr(settings, "signalwire_api_token", "PTtoken", raising=False)
+        monkeypatch.setattr(settings, "signalwire_from_number", "+19788244228", raising=False)
+        assert voice.active() == "signalwire"
+        # And it still routes through the shared Twilio-compatible module.
+        assert voice._mod().__name__.endswith("twilio_voice")
+
+        # Twilio only (a Twilio number + creds, SignalWire token cleared) → 'twilio'.
+        monkeypatch.setattr(settings, "signalwire_api_token", "", raising=False)
+        monkeypatch.setattr(settings, "twilio_account_sid", "ACxxx", raising=False)
+        monkeypatch.setattr(settings, "twilio_auth_token", "tok", raising=False)
+        monkeypatch.setattr(settings, "twilio_from_number", "+16035550100", raising=False)
+        assert voice.active() == "twilio"
+    finally:
+        for k, v in saved.items():
+            setattr(settings, k, v)
+
+
 @requires_db
 def test_resend_inbound_webhook_two_way(client, monkeypatch):
     """The Resend webhook makes email two-way: an inbound reply is linked to its

@@ -31,23 +31,32 @@ def active() -> str | None:
     if pref == "sip" and sip_voice.is_configured():
         return "sip"
     if pref in ("twilio", "signalwire") and twilio_voice.is_configured():
-        return "twilio"
+        return _twilio_label()
     # auto (or the preferred one isn't configured): pick what's connected.
     if vonage_voice.is_configured():
         return "vonage"
     if plivo_voice.is_configured():
         return "plivo"
     if twilio_voice.is_configured():
-        return "twilio"
+        return _twilio_label()
     if sip_voice.is_configured():
         return "sip"
     return None
 
 
+def _twilio_label() -> str:
+    """The real name of the Twilio-compatible carrier in use — 'signalwire' when
+    SignalWire is connected/preferred, else 'twilio'. Both share the twilio_voice
+    module, so without this the UI mislabels SignalWire calls as 'twilio'."""
+    from . import telco
+    return telco.provider("voice") or "twilio"
+
+
 def _mod():
     from . import plivo_voice, sip_voice, twilio_voice, vonage_voice
+    # 'signalwire' and 'twilio' both route through the shared Twilio-compatible module.
     return {"plivo": plivo_voice, "vonage": vonage_voice, "sip": sip_voice,
-            "twilio": twilio_voice}.get(active(), twilio_voice)
+            "twilio": twilio_voice, "signalwire": twilio_voice}.get(active(), twilio_voice)
 
 
 def is_configured() -> bool:
