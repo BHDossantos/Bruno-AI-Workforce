@@ -7681,3 +7681,76 @@ def test_leads_sort_options(client, auth_headers):
     # Name A→Z → Alpha before Zeta (opposite of score, proving the sort applied).
     by_name = emails(client.get("/leads?sort=name&state=SRT&limit=500", headers=auth_headers).json())
     assert by_name == ["srt-a@x.co", "srt-z@x.co"]
+
+
+@requires_db
+def test_conversation_engine_logs_structured_outcome_and_fires_effects(client, auth_headers):
+    """The Conversation Engine: logging a structured call writes a queryable row,
+    generates an AI summary + suggested response, moves the lead, and auto-creates a
+    renewal follow-up. The dashboard then segments the book by conversation status."""
+    from app.database import SessionLocal
+    from app.models import ConversationOutcome, FollowUp, Lead
+
+    db = SessionLocal()
+    try:
+        db.query(Lead).filter(Lead.email == "convo@x.co").delete(synchronize_session=False)
+        db.commit()
+        lead = Lead(segment="personal", category="EverQuote Auto", owner_name="Cara Convo",
+                    email="convo@x.co", phone="+15558675309", status="New")
+        db.add(lead); db.flush(); lid = str(lead.id); db.commit()
+    finally:
+        db.close()
+
+    # Schema drives the form.
+    schema = client.get("/conversations/schema", headers=auth_headers).json()
+    assert "already_insured" in schema["schema"]["conversation_status"]
+    assert schema["objection_responses"]["already_insured"]
+
+    # Log a structured "already insured, review at renewal" conversation.
+    r = client.post(f"/leads/{lid}/conversation", headers=auth_headers, json={
+        "method": "call", "outcome": "answered", "attempt_number": 1,
+        "conversation_status": "already_insured", "current_carrier": "GEICO",
+        "renewal_month": "October", "future_review": True,
+        "objection": "already_insured", "next_action": "renewal",
+    }).json()
+    assert r["ok"] is True
+    assert r["ai_summary"] and "GEICO" in r["ai_summary"]
+    assert r["suggested_response"]                      # AI line to say
+    assert r["next_follow_up_at"]                        # ~30 days before Oct renewal
+
+    # It persisted as a queryable row + created a renewal follow-up.
+    _d = SessionLocal()
+    try:
+        rows = _d.query(ConversationOutcome).filter(ConversationOutcome.lead_id == lid).all()
+        assert len(rows) == 1 and rows[0].current_carrier == "GEICO"
+        fus = _d.query(FollowUp).filter(FollowUp.entity_type == "lead",
+                                        FollowUp.entity_id == lid).count()
+        assert fus >= 1
+    finally:
+        _d.close()
+
+    # History + dashboard.
+    hist = client.get(f"/leads/{lid}/conversations", headers=auth_headers).json()
+    assert hist["count"] == 1
+    dash = client.get("/conversations/dashboard", headers=auth_headers).json()
+    assert dash["by_status"].get("already_insured", 0) >= 1
+    assert any(c["carrier"] == "GEICO" for c in dash["top_carriers"])
+
+    # Do-Not-Contact on a call suppresses the lead across channels.
+    client.post(f"/leads/{lid}/conversation", headers=auth_headers,
+                json={"method": "call", "outcome": "answered",
+                      "conversation_status": "do_not_contact"})
+    from app import compliance
+    _d2 = SessionLocal()
+    try:
+        assert compliance.is_dnc(_d2, phone="+15558675309") is True
+    finally:
+        _d2.close()
+        _cd = SessionLocal()
+        try:
+            _cd.query(ConversationOutcome).filter(ConversationOutcome.lead_id == lid).delete(synchronize_session=False)
+            _cd.query(FollowUp).filter(FollowUp.entity_id == lid).delete(synchronize_session=False)
+            _cd.query(Lead).filter(Lead.id == lid).delete(synchronize_session=False)
+            _cd.commit()
+        finally:
+            _cd.close()

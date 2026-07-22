@@ -18,6 +18,7 @@ const GROUPS: NavGroup[] = [
     title: "🛡️ Work Leads", icon: "🛡️",
     items: [
       { href: "/worklist", label: "Call List", icon: "📞" },
+      { href: "/conversations", label: "Conversation Engine", icon: "🧠" },
       { href: "/insurance", label: "Insurance Leads", icon: "🎯" },
       { href: "/texts", label: "Texts", icon: "💬" },
       { href: "/outbox", label: "Email Outbox", icon: "📧" },
