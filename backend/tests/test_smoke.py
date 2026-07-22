@@ -7917,3 +7917,33 @@ def test_business_registry_seeds_and_serves(client, auth_headers, monkeypatch):
     assert r.status_code == 200
     keys = {b["key"] for b in r.json()["businesses"]}
     assert {"personal", "insurance", "bnb", "savorymind"} <= keys
+
+
+@requires_db
+def test_call_status_webhook_records_real_outcome(client):
+    """The call-status webhook must turn SignalWire's raw result into a plain-English
+    timeline entry — 'rang' vs 'carrier rejected' — so 'my phone never rang' is
+    finally explainable instead of stuck on an optimistic 'ringing…'."""
+    from app.database import SessionLocal
+    from app.models import Message
+
+    db = SessionLocal()
+    try:
+        m = Message(channel="call", direction="outbound", from_account="insurance",
+                    status="Dialing", provider_id="CA_status_test",
+                    body="📞 Call started — ringing…")
+        db.add(m); db.commit(); mid = m.id
+    finally:
+        db.close()
+
+    # A carrier rejection (accepted then never rang) → Missed, with an actionable reason.
+    r = client.post("/calls/status", data={"CallSid": "CA_status_test",
+                                           "CallStatus": "failed", "SipResponseCode": "403"})
+    assert r.status_code == 200
+    db = SessionLocal()
+    try:
+        m = db.get(Message, mid)
+        assert m.status == "Missed" and m.delivery_status == "failed"
+        assert "did not connect" in (m.body or "") and "SignalWire" in (m.body or "")
+    finally:
+        db.close()

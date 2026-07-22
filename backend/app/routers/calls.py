@@ -345,16 +345,55 @@ async def dial_status(request: Request, lead_id: str = "", db: Session = Depends
 
 @router.post("/status")
 async def call_status(request: Request, lead_id: str = "", db: Session = Depends(get_db)):
-    """Call status callback — mark the call row done when it completes."""
+    """Call status callback — record what SignalWire/Twilio ACTUALLY did with the
+    call, not just that we handed it off. Captures the ringing event (proof the
+    phone rang) and the terminal outcome + failure reason (SIP code / error), and
+    writes it in plain English onto the timeline so 'my phone never rang' stops
+    being a black box: you see 'rang, no answer' vs 'carrier rejected — 403'."""
     form = await request.form()
     sid = form.get("CallSid")
-    status = form.get("CallStatus")
-    if sid and status in ("completed", "busy", "no-answer", "failed", "canceled"):
-        msg = db.query(Message).filter(Message.provider_id == sid,
-                                       Message.channel == "call").first()
-        if msg and msg.status == "Dialing":
-            msg.status = "Sent" if status == "completed" else "Missed"
-            db.commit()
+    status = (form.get("CallStatus") or "").strip().lower()
+    if not sid or not status:
+        return Response("", media_type=_XML)
+    msg = (db.query(Message).filter(Message.provider_id == sid, Message.channel == "call")
+           .first())
+    if not msg:
+        return Response("", media_type=_XML)
+    sip = (form.get("SipResponseCode") or "").strip()
+    err_code = (form.get("ErrorCode") or "").strip()
+    err_msg = (form.get("ErrorMessage") or "").strip()
+    duration = (form.get("CallDuration") or form.get("DialCallDuration") or "").strip()
+    msg.delivery_status = status
+    # 'ringing' is proof the carrier reached the phone; keep the row Dialing but record it.
+    if status == "ringing" and msg.status == "Dialing":
+        msg.body = "📞 Ringing your phone now (SignalWire connected the call)…"
+    elif status in ("completed", "answered") and int(duration or 0) > 0:
+        if msg.status == "Dialing":
+            msg.status = "Sent"
+        msg.body = f"📞 Call connected ({duration}s)."
+    elif status in ("completed", "busy", "no-answer", "failed", "canceled"):
+        if msg.status == "Dialing":
+            msg.status = "Missed"
+        # Explain WHY in a way that points at the actual fix.
+        detail = ", ".join(p for p in [
+            f"status={status}",
+            (f"SIP {sip}" if sip else ""),
+            (f"error {err_code}" if err_code else ""),
+            (err_msg if err_msg else ""),
+        ] if p)
+        hint = ""
+        if status in ("failed", "canceled") or sip in ("403", "603") or err_code:
+            hint = (" — SignalWire accepted the call but did NOT ring the number. "
+                    "Usual cause: the SignalWire project is in trial / the destination "
+                    "isn't a verified number, or outbound calling isn't enabled. Check "
+                    "SignalWire → Call Logs for this call, and verify the number / upgrade "
+                    "the project.")
+        elif status == "no-answer":
+            hint = " — it rang but wasn't answered."
+        elif status == "busy":
+            hint = " — the line was busy."
+        msg.body = f"📞 Call did not connect ({detail}){hint}"
+    db.commit()
     return Response("", media_type=_XML)
 
 
