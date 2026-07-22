@@ -8003,3 +8003,19 @@ def test_calls_webhook_check_flags_unset_base_url(client, auth_headers, monkeypa
     assert r.status_code == 200
     body = r.json()
     assert body["ok"] is False and "PUBLIC_BASE_URL" in body["verdict"]
+
+
+@requires_db
+def test_conversation_scoreboard_and_reason_field(client, auth_headers):
+    """The daily scoreboard returns today's numbers + a trend, and the schema now
+    offers 'reason_for_calling' so every conversation can capture why they called."""
+    sb = client.get("/conversations/scoreboard?days=7", headers=auth_headers)
+    assert sb.status_code == 200
+    body = sb.json()
+    assert body["window_days"] == 7 and len(body["trend"]) == 7
+    for k in ("calls", "emails", "touches", "conversations", "quotes", "followups", "sales"):
+        assert k in body["today"]
+    assert {"answer_rate", "quote_conversion"} <= set(body["today"])
+
+    schema = client.get("/conversations/schema", headers=auth_headers).json()["schema"]
+    assert "reason_for_calling" in schema and "everquote_quote_request" in schema["reason_for_calling"]
