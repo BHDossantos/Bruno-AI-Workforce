@@ -16,8 +16,9 @@ call never 500s.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .models import ConversationOutcome, Lead
@@ -49,6 +50,9 @@ SCHEMA: dict = {
                   "trust_issue", "didnt_request_quote", "other"],
     "next_action": ["call", "text", "email", "renewal", "referral", "birthday", "policy_review"],
     "future_follow_up": ["never", "6_months", "12_months"],
+    "reason_for_calling": ["everquote_quote_request", "renewal_shopping", "new_policy",
+                           "add_vehicle", "add_driver", "bundle_home_auto", "price_increase",
+                           "claim_issue", "referral", "life_event", "other"],
 }
 
 # ── Objection → AI-suggested response. The producer sees the exact words to say. ──
@@ -434,4 +438,68 @@ def dashboard(db: Session) -> dict:
         "contact_rate": round(100.0 * answered / total, 1) if total else 0.0,
         "top_carriers": sorted(({"carrier": k, "count": int(v)} for k, v in carriers.items()),
                                key=lambda x: -x["count"])[:8],
+    }
+
+
+def scoreboard(db: Session, days: int = 14) -> dict:
+    """Bruno's daily scoreboard — today's numbers plus the last N days as a trend, so
+    you can see at a glance whether your improvements are working over time.
+
+    Touches come from Message (calls/emails/texts), conversations + quotes-started
+    from the structured ConversationOutcome rows, follow-ups from FollowUp, and sales
+    from signed Clients. Quote-conversion = sales ÷ quotes started."""
+    from .models import Client, FollowUp, Message
+
+    today = date.today()
+
+    def _start(d: date) -> datetime:
+        return datetime.combine(d, datetime.min.time(), tzinfo=timezone.utc)
+
+    def _end(d: date) -> datetime:
+        return datetime.combine(d, datetime.max.time(), tzinfo=timezone.utc)
+
+    series: list[dict] = []
+    for i in range(days - 1, -1, -1):
+        d = today - timedelta(days=i)
+        s, e = _start(d), _end(d)
+        touch = dict(db.query(Message.channel, func.count()).filter(
+            Message.direction == "outbound", Message.sent_at >= s, Message.sent_at <= e)
+            .group_by(Message.channel).all())
+        calls, emails, texts = (int(touch.get("call", 0)), int(touch.get("email", 0)),
+                                int(touch.get("sms", 0)))
+        convos = int(db.query(func.count()).select_from(ConversationOutcome).filter(
+            ConversationOutcome.created_at >= s, ConversationOutcome.created_at <= e).scalar() or 0)
+        quotes = int(db.query(func.count()).select_from(ConversationOutcome).filter(
+            ConversationOutcome.created_at >= s, ConversationOutcome.created_at <= e,
+            ConversationOutcome.quote_started.is_(True)).scalar() or 0)
+        followups = int(db.query(func.count()).select_from(FollowUp).filter(
+            FollowUp.created_at >= s, FollowUp.created_at <= e).scalar() or 0)
+        sales = int(db.query(func.count()).select_from(Client).filter(
+            Client.signed_at == d).scalar() or 0)
+        series.append({
+            "date": d.isoformat(), "calls": calls, "emails": emails, "texts": texts,
+            "touches": calls + emails + texts, "conversations": convos, "quotes": quotes,
+            "followups": followups, "sales": sales,
+        })
+
+    row = series[-1]
+
+    def _rate(n: int, d_: int) -> float:
+        return round(100.0 * n / d_, 1) if d_ else 0.0
+
+    keys = ("calls", "emails", "texts", "touches", "conversations", "quotes", "followups", "sales")
+    window = {k: sum(r[k] for r in series) for k in keys}
+    return {
+        "today": {
+            **row,
+            "answer_rate": _rate(row["conversations"], row["calls"]),
+            "quote_conversion": _rate(row["sales"], row["quotes"]),
+        },
+        "window_days": days,
+        "window_totals": {
+            **window,
+            "answer_rate": _rate(window["conversations"], window["calls"]),
+            "quote_conversion": _rate(window["sales"], window["quotes"]),
+        },
+        "trend": series,
     }

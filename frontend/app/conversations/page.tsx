@@ -209,6 +209,7 @@ function ConversationEngine() {
 
         {answered && (
           <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+            <Field label="Reason for calling"><Select k="reason_for_calling" /></Field>
             <Field label="Conversation status"><Select k="conversation_status" /></Field>
             <Field label="Objection"><Select k="objection" /></Field>
             <Field label="Next action"><Select k="next_action" /></Field>
