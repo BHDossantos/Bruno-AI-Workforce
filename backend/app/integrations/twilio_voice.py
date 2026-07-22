@@ -199,7 +199,10 @@ def place_bridge_call(lead_phone: str, lead_id: str | None) -> tuple[str | None,
         "From": _e164(_voice_number()),            # E.164 required — SignalWire 21212 otherwise
         "Url": f"{base}/calls/twiml/bridge?{bridge_q}",
         "StatusCallback": f"{base}/calls/status" + (f"?{status_q}" if status_q else ""),
-        "StatusCallbackEvent": "completed",
+        # Capture ringing + terminal events so the timeline shows whether SignalWire
+        # actually RANG the phone (vs. accepting the call then dropping it), and the
+        # real failure reason if it never connected.
+        "StatusCallbackEvent": ["initiated", "ringing", "answered", "completed"],
     }
     try:
         r = httpx.post(url, data=data, auth=telco.auth("voice"), timeout=20)
@@ -315,7 +318,10 @@ def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, s
         "MachineDetection": "DetectMessageEnd",   # wait for the beep so the whole VM lands
         "MachineDetectionTimeout": "15",
         "StatusCallback": f"{base}/calls/status" + (f"?{status_q}" if status_q else ""),
-        "StatusCallbackEvent": "completed",
+        # Capture ringing + terminal events so the timeline shows whether SignalWire
+        # actually RANG the phone (vs. accepting the call then dropping it), and the
+        # real failure reason if it never connected.
+        "StatusCallbackEvent": ["initiated", "ringing", "answered", "completed"],
     }
     try:
         r = httpx.post(url, data=data, auth=telco.auth("voice"), timeout=20)

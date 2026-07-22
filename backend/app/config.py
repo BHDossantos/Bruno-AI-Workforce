@@ -150,6 +150,10 @@ class Settings(BaseSettings):
     # forwards to the cell (so a lead who calls the email's number reaches Bruno).
     producer_office_phone: str = "(978) 824-4228"
     producer_cell: str = "16039308272"
+    # Sales performance — commission on new business (annual premium %) and the
+    # monthly commission goal, both editable in Setup. Goal 0 hides goal-vs-actual.
+    sales_commission_pct: float = 12.0
+    sales_monthly_revenue_goal: float = 0.0
     # Compliance & Governance — the single gate every autonomous outbound action
     # passes through (opt-out/DNC, contact-hour windows, per-state licensing,
     # required disclosures) with an immutable audit log. See app/compliance.py.

@@ -47,6 +47,8 @@ FIELDS: dict[str, bool] = {
     "twilio_voice_number": False,      # caller-ID for outbound calls (Voice-enabled)
     "producer_callback": False,        # YOUR cell — the carrier rings this to bridge calls
     "producer_cell": False,            # fallback ring/transfer number (correctable in Setup)
+    "sales_commission_pct": False,     # commission % on annual premium (Performance)
+    "sales_monthly_revenue_goal": False,  # monthly commission goal (Performance)
     "producer_voicemail_url": False,   # recorded voicemail drop (auto-dialer plays it)
     "twilio_api_key_sid": False,       # browser softphone: API Key SID
     "twilio_api_key_secret": True,     # browser softphone: API Key secret

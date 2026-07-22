@@ -7917,3 +7917,77 @@ def test_business_registry_seeds_and_serves(client, auth_headers, monkeypatch):
     assert r.status_code == 200
     keys = {b["key"] for b in r.json()["businesses"]}
     assert {"personal", "insurance", "bnb", "savorymind"} <= keys
+
+
+@requires_db
+def test_call_status_webhook_records_real_outcome(client):
+    """The call-status webhook must turn SignalWire's raw result into a plain-English
+    timeline entry — 'rang' vs 'carrier rejected' — so 'my phone never rang' is
+    finally explainable instead of stuck on an optimistic 'ringing…'."""
+    from app.database import SessionLocal
+    from app.models import Message
+
+    db = SessionLocal()
+    try:
+        db.query(Message).filter(Message.provider_id == "CA_status_test").delete(
+            synchronize_session=False)
+        m = Message(channel="call", direction="outbound", from_account="insurance",
+                    status="Dialing", provider_id="CA_status_test",
+                    body="📞 Call started — ringing…")
+        db.add(m); db.commit(); mid = m.id
+    finally:
+        db.close()
+
+    # A carrier rejection (accepted then never rang) → Missed, with an actionable reason.
+    r = client.post("/calls/status", data={"CallSid": "CA_status_test",
+                                           "CallStatus": "failed", "SipResponseCode": "403"})
+    assert r.status_code == 200
+    db = SessionLocal()
+    try:
+        m = db.get(Message, mid)
+        assert m.status == "Missed" and m.delivery_status == "failed"
+        assert "did not connect" in (m.body or "") and "SignalWire" in (m.body or "")
+    finally:
+        db.close()
+
+
+@requires_db
+def test_sales_agent_and_performance_endpoints(client, auth_headers):
+    """The Sales Agent status + needs-you queue and the Performance funnel/revenue
+    report return well-formed payloads the UI can render."""
+    st = client.get("/sales-agent/status", headers=auth_headers)
+    assert st.status_code == 200
+    body = st.json()
+    assert {"live", "today", "pipeline", "needs_you_count"} <= set(body)
+    assert {"working", "needs_you", "won", "lost"} <= set(body["pipeline"])
+    assert {"emails", "texts", "calls"} <= set(body["today"])
+
+    ny = client.get("/sales-agent/needs-you", headers=auth_headers)
+    assert ny.status_code == 200 and "leads" in ny.json()
+
+    perf = client.get("/performance", headers=auth_headers).json()
+    assert [s["label"] for s in perf["funnel"]["stages"]][0] == "Leads"
+    assert {"contact_rate", "response_rate", "close_rate"} <= set(perf["funnel"]["rates"])
+    assert {"book_commission", "mtd_commission", "commission_pct"} <= set(perf["revenue"])
+    assert len(perf["trend"]) == 6  # last 6 months
+
+
+def test_sales_performance_funnel_rates_math(monkeypatch):
+    """Funnel conversion math is correct and the funnel only narrows."""
+    from app import sales_performance as sp
+
+    # 100 leads: 40 New, 30 Contacted, 20 Interested (engaged), 8 Won, 2 Lost.
+    rows = [("New", 40), ("Contacted", 30), ("Interested", 20), ("Closed Won", 8),
+            ("Closed Lost", 2)]
+
+    class _Grouped:
+        def all(self): return rows
+
+    class _DB:
+        def query(self, *a): return self
+        def group_by(self, *a): return _Grouped()
+    f = sp.funnel(_DB())
+    counts = [s["count"] for s in f["stages"]]
+    assert counts == [100, 60, 28, 8]           # narrows: leads→contacted→engaged→won
+    assert f["rates"]["contact_rate"] == 60.0    # 60/100 reached contacted
+    assert f["rates"]["close_rate"] == 80.0      # 8 won of 10 decided
