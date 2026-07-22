@@ -187,6 +187,7 @@ def calling_health(db: Session = Depends(get_db), _=Depends(_read)):
         blockers.append("PUBLIC_BASE_URL (set in the deploy env)")
     setup["blockers"] = blockers
     setup["ready_to_dial"] = vdispatch.is_configured() and not blockers
+    setup["public_base_url"] = (settings.public_base_url or "").strip() or None
     return {
         "provider": provider,
         "configured": vdispatch.is_configured(),
@@ -205,7 +206,43 @@ def calling_health(db: Session = Depends(get_db), _=Depends(_read)):
     }
 
 
-@router.get("/token")
+@router.get("/webhook-check")
+def webhook_check(db: Session = Depends(get_db), _=Depends(_read)):
+    """Test whether SignalWire can actually REACH our call webhooks — the #1 reason a
+    call rings, you answer, and it dies: PUBLIC_BASE_URL is stale/wrong (e.g. still a
+    europe URL after the backend moved), so when you pick up, SignalWire calls back to
+    a dead address and can't bridge/transfer the lead. This fetches our own
+    {PUBLIC_BASE_URL}/health the same way SignalWire would, and reports the verdict."""
+    _refresh(db)
+    import httpx
+    from ..config import settings
+    base = (settings.public_base_url or "").strip().rstrip("/")
+    if not base:
+        return {"ok": False, "url": None,
+                "verdict": "PUBLIC_BASE_URL is not set — SignalWire has no address to call "
+                           "back to, so calls can ring but never bridge/transfer. Set it in "
+                           "the deploy env to your BACKEND's public URL."}
+    url = f"{base}/health"
+    try:
+        r = httpx.get(url, timeout=8, follow_redirects=True)
+        ok = r.status_code == 200 and "ok" in (r.text or "").lower()
+        return {
+            "ok": ok, "url": url, "status_code": r.status_code,
+            "verdict": ("✅ Webhooks are reachable — SignalWire can call back to bridge and "
+                        "transfer. If calls still don't ring, the issue is on the SignalWire "
+                        "number/account side (trial or unverified number).") if ok else
+                       (f"⚠️ PUBLIC_BASE_URL answered {r.status_code}, not a healthy 200. If this "
+                        "isn't your live BACKEND URL, transfers will fail — fix PUBLIC_BASE_URL."),
+        }
+    except Exception as exc:
+        return {"ok": False, "url": url, "status_code": None,
+                "verdict": (f"❌ Could NOT reach {url} ({str(exc)[:120]}). SignalWire can't reach "
+                            "it either — so a call rings, you answer, and it drops because it "
+                            "can't bridge. PUBLIC_BASE_URL is wrong/stale; set it to your live "
+                            "backend URL.")}
+
+
+
 def browser_token(db: Session = Depends(get_db), _=Depends(_read)):
     """Short-lived Twilio Voice token for the in-browser softphone."""
     _refresh(db)
