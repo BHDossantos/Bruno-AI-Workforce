@@ -1,0 +1,141 @@
+name: Autonomous Improver
+
+# Standing engineering agent. Runs on a schedule, works the backlog in
+# .github/autonomous-improver.md, and opens a DRAFT pull request with one
+# focused improvement. It never merges and never pushes to main — the owner
+# reviews and merges. Trigger manually first (workflow_dispatch) to smoke-test,
+# then let the schedule take over. Requires repo secret ANTHROPIC_API_KEY.
+
+on:
+  schedule:
+    # Daily at 08:17 UTC (off the :00 mark on purpose).
+    - cron: "17 8 * * *"
+  workflow_dispatch:
+    inputs:
+      focus:
+        description: "Optional: steer this run (e.g. 'Epic 1 step 1: business registry table')."
+        required: false
+        type: string
+
+# Never let two runs overlap or race the same branch space.
+concurrency:
+  group: autonomous-improver
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  improve:
+    name: Improve one thing
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: bruno
+          POSTGRES_PASSWORD: bruno
+          POSTGRES_DB: bruno_ai
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bruno"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://bruno:bruno@localhost:5432/bruno_ai
+      SECRET_KEY: ci-secret
+      ENABLE_SCHEDULER: "false"
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_PASSWORD: testpass
+      AGENT_SUMMARY_PATH: ${{ runner.temp }}/agent-summary.md
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Install backend deps
+        working-directory: backend
+        run: pip install -r requirements-dev.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Seed a default summary (in case the agent makes no change)
+        run: echo "No changes proposed this run." > "$AGENT_SUMMARY_PATH"
+
+      - name: Run the improvement agent
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          RUN_FOCUS: ${{ github.event.inputs.focus }}
+        run: |
+          claude --bare -p "You are the Autonomous Improvement Agent for this repo.
+          FIRST, read and follow .github/autonomous-improver.md — it is your charter,
+          rules, and prioritized backlog. Then do exactly ONE focused, self-contained
+          improvement this run:
+            - If a manual focus was given, honor it: '$RUN_FOCUS'
+            - Otherwise advance the top READY backlog item, or land one Epic-4
+              technical-debt/standards improvement.
+          Make the change in the working tree. Keep it small and reviewable.
+          Then VERIFY:
+            - Backend: cd backend && python -m pytest -q   (DATABASE_URL is set)
+            - Frontend (only if you touched it): cd frontend && npx tsc --noEmit
+          Do NOT git commit, push, or open a PR — the workflow does that from your
+          working-tree changes. Do NOT modify this workflow file or the charter's
+          rules. Never touch secrets. Never add a model identifier to any file.
+          When done, WRITE a concise PR-ready summary to the file at \$AGENT_SUMMARY_PATH
+          covering: what you changed and why, the exact test/typecheck results, and
+          any risk or follow-up. If you intentionally made no change, say so there." \
+            --allowedTools "Read,Edit,Write,Bash,Glob,Grep" \
+            --permission-mode acceptEdits \
+            --max-turns 60
+
+      - name: Load agent summary into an output
+        id: summary
+        if: always()
+        run: |
+          {
+            echo "body<<AGENT_EOF"
+            cat "$AGENT_SUMMARY_PATH" 2>/dev/null || echo "(no summary produced)"
+            echo ""
+            echo "---"
+            echo "🤖 Opened by the Autonomous Improver workflow. Draft — review before merging."
+            echo "AGENT_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open draft PR if there are changes
+        if: always()
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ github.token }}
+          branch: agent/scheduled-run-${{ github.run_number }}
+          base: main
+          draft: true
+          delete-branch: true
+          commit-message: "Autonomous improver: scheduled run #${{ github.run_number }}"
+          title: "[agent] Improvement — run #${{ github.run_number }}"
+          body: ${{ steps.summary.outputs.body }}
+          add-paths: |
+            backend/**
+            frontend/**
+            docs/**
+            *.md
