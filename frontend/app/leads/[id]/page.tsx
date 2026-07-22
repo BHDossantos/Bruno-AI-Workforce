@@ -72,12 +72,14 @@ function Profile() {
   const emailText = emailBody ?? emailFallback;
   const smsText = smsBody ?? smsFallback;
 
-  async function act(kind: string, fn: () => Promise<unknown>) {
+  async function act(kind: string, fn: () => Promise<unknown>, keepNote = false) {
     setBusy(kind);
-    setNote("");
+    if (!keepNote) setNote("");
     try {
       await fn();
-      setNote(`✅ ${kind} done.`);
+      // Call/auto-call/voicemail set their OWN note (the real carrier result — the
+      // number being rung + guidance); a generic "done" would clobber that truth.
+      if (!keepNote) setNote(`✅ ${kind} done.`);
       setTick((t) => t + 1);
     } catch (e) {
       setNote(`❌ ${e}`);
@@ -103,17 +105,17 @@ function Profile() {
     act("Call", async () => {
       const r = await api.post<{ message: string }>(`/calls/lead/${id}`, {});
       setNote(`📞 ${r.message}`);
-    });
+    }, true);
   const autoCall = () =>
     act("Auto-call", async () => {
       const r = await api.post<{ message: string }>(`/calls/auto/${id}`, {});
       setNote(`🤖 ${r.message}`);
-    });
+    }, true);
   const recordVoicemail = () =>
     act("Record voicemail", async () => {
       const r = await api.post<{ message: string }>(`/calls/record-voicemail`, {});
       setNote(`🎙️ ${r.message}`);
-    });
+    }, true);
   const saveNote = () =>
     act("Note", async () => {
       await api.post(`/leads/${id}/note`, { note: noteText });
