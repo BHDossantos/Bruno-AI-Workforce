@@ -1748,6 +1748,43 @@ def test_sip_softswitch_provider_and_dispatch(monkeypatch):
     assert "sofia/gateway/bruno_trunk/19782541435" in bridge
 
 
+def test_voice_active_labels_signalwire_not_twilio(monkeypatch):
+    """When calls route through the Twilio-compatible stack, the active-provider
+    label must say 'signalwire' if SignalWire is the connected carrier — not the
+    generic 'twilio' (they share the module, and the Call List showed the wrong one)."""
+    from app.config import settings
+    from app.integrations import voice
+
+    keys = ("twilio_account_sid", "twilio_auth_token", "twilio_from_number",
+            "voice_provider", "producer_callback", "producer_cell",
+            "signalwire_space_url", "signalwire_project_id", "signalwire_api_token",
+            "signalwire_from_number")
+    saved = {k: getattr(settings, k) for k in keys}
+    try:
+        monkeypatch.setattr(settings, "voice_provider", "auto", raising=False)
+        monkeypatch.setattr(settings, "producer_cell", "+16039308272", raising=False)
+        # SignalWire connected, no Twilio, auto → active() reads 'signalwire'.
+        for k in ("twilio_account_sid", "twilio_auth_token", "twilio_from_number"):
+            monkeypatch.setattr(settings, k, "", raising=False)
+        monkeypatch.setattr(settings, "signalwire_space_url", "dossantosinsurance-org.signalwire.com", raising=False)
+        monkeypatch.setattr(settings, "signalwire_project_id", "proj", raising=False)
+        monkeypatch.setattr(settings, "signalwire_api_token", "PTtoken", raising=False)
+        monkeypatch.setattr(settings, "signalwire_from_number", "+19788244228", raising=False)
+        assert voice.active() == "signalwire"
+        # And it still routes through the shared Twilio-compatible module.
+        assert voice._mod().__name__.endswith("twilio_voice")
+
+        # Twilio only (a Twilio number + creds, SignalWire token cleared) → 'twilio'.
+        monkeypatch.setattr(settings, "signalwire_api_token", "", raising=False)
+        monkeypatch.setattr(settings, "twilio_account_sid", "ACxxx", raising=False)
+        monkeypatch.setattr(settings, "twilio_auth_token", "tok", raising=False)
+        monkeypatch.setattr(settings, "twilio_from_number", "+16035550100", raising=False)
+        assert voice.active() == "twilio"
+    finally:
+        for k, v in saved.items():
+            setattr(settings, k, v)
+
+
 @requires_db
 def test_resend_inbound_webhook_two_way(client, monkeypatch):
     """The Resend webhook makes email two-way: an inbound reply is linked to its
@@ -7644,3 +7681,181 @@ def test_leads_sort_options(client, auth_headers):
     # Name A→Z → Alpha before Zeta (opposite of score, proving the sort applied).
     by_name = emails(client.get("/leads?sort=name&state=SRT&limit=500", headers=auth_headers).json())
     assert by_name == ["srt-a@x.co", "srt-z@x.co"]
+
+
+@requires_db
+def test_conversation_engine_logs_structured_outcome_and_fires_effects(client, auth_headers):
+    """The Conversation Engine: logging a structured call writes a queryable row,
+    generates an AI summary + suggested response, moves the lead, and auto-creates a
+    renewal follow-up. The dashboard then segments the book by conversation status."""
+    from app.database import SessionLocal
+    from app.models import ConversationOutcome, FollowUp, Lead
+
+    db = SessionLocal()
+    try:
+        db.query(Lead).filter(Lead.email == "convo@x.co").delete(synchronize_session=False)
+        db.commit()
+        lead = Lead(segment="personal", category="EverQuote Auto", owner_name="Cara Convo",
+                    email="convo@x.co", phone="+15558675309", status="New")
+        db.add(lead); db.flush(); lid = str(lead.id); db.commit()
+    finally:
+        db.close()
+
+    # Schema drives the form.
+    schema = client.get("/conversations/schema", headers=auth_headers).json()
+    assert "already_insured" in schema["schema"]["conversation_status"]
+    assert schema["objection_responses"]["already_insured"]
+
+    # Log a structured "already insured, review at renewal" conversation.
+    r = client.post(f"/leads/{lid}/conversation", headers=auth_headers, json={
+        "method": "call", "outcome": "answered", "attempt_number": 1,
+        "conversation_status": "already_insured", "current_carrier": "GEICO",
+        "renewal_month": "October", "future_review": True,
+        "objection": "already_insured", "next_action": "renewal",
+    }).json()
+    assert r["ok"] is True
+    assert r["ai_summary"] and "GEICO" in r["ai_summary"]
+    assert r["suggested_response"]                      # AI line to say
+    assert r["next_follow_up_at"]                        # ~30 days before Oct renewal
+
+    # It persisted as a queryable row + created a renewal follow-up.
+    _d = SessionLocal()
+    try:
+        rows = _d.query(ConversationOutcome).filter(ConversationOutcome.lead_id == lid).all()
+        assert len(rows) == 1 and rows[0].current_carrier == "GEICO"
+        fus = _d.query(FollowUp).filter(FollowUp.entity_type == "lead",
+                                        FollowUp.entity_id == lid).count()
+        assert fus >= 1
+    finally:
+        _d.close()
+
+    # History + dashboard.
+    hist = client.get(f"/leads/{lid}/conversations", headers=auth_headers).json()
+    assert hist["count"] == 1
+    dash = client.get("/conversations/dashboard", headers=auth_headers).json()
+    assert dash["by_status"].get("already_insured", 0) >= 1
+    assert any(c["carrier"] == "GEICO" for c in dash["top_carriers"])
+
+    # Do-Not-Contact on a call suppresses the lead across channels.
+    client.post(f"/leads/{lid}/conversation", headers=auth_headers,
+                json={"method": "call", "outcome": "answered",
+                      "conversation_status": "do_not_contact"})
+    from app import compliance
+    _d2 = SessionLocal()
+    try:
+        assert compliance.is_dnc(_d2, phone="+15558675309") is True
+    finally:
+        _d2.close()
+        _cd = SessionLocal()
+        try:
+            _cd.query(ConversationOutcome).filter(ConversationOutcome.lead_id == lid).delete(synchronize_session=False)
+            _cd.query(FollowUp).filter(FollowUp.entity_id == lid).delete(synchronize_session=False)
+            _cd.query(Lead).filter(Lead.id == lid).delete(synchronize_session=False)
+            _cd.commit()
+        finally:
+            _cd.close()
+
+
+@requires_db
+def test_conversation_engine_phase2_profile_opportunity_renewals(client, auth_headers):
+    """Phase 2: logging conversations builds the customer profile onto the lead,
+    the opportunity estimator scores each line, and already-insured + review shows
+    up in the renewals pipeline."""
+    from app.database import SessionLocal
+    from app.models import ConversationOutcome, FollowUp, Lead
+
+    db = SessionLocal()
+    try:
+        db.query(Lead).filter(Lead.email == "p2@x.co").delete(synchronize_session=False)
+        db.commit()
+        lead = Lead(segment="personal", category="EverQuote Auto", owner_name="Pat Two",
+                    email="p2@x.co", phone="+15550002222", status="New",
+                    intake={"source": "everquote", "everquote": {
+                        "homeowner": True, "marital_status": "Married",
+                        "vehicle_make": "Toyota"}})
+        db.add(lead); db.flush(); lid = str(lead.id); db.commit()
+    finally:
+        db.close()
+
+    # Log an already-insured + renewal conversation.
+    client.post(f"/leads/{lid}/conversation", headers=auth_headers, json={
+        "method": "call", "outcome": "answered", "conversation_status": "already_insured",
+        "current_carrier": "State Farm", "current_premium": 1450, "renewal_month": "September",
+        "future_review": True, "insurance_needed": ["home"]})
+
+    # Profile built itself onto the lead.
+    _d = SessionLocal()
+    try:
+        lead = _d.query(Lead).filter(Lead.id == lid).first()
+        prof = (lead.intake or {}).get("profile") or {}
+        assert prof.get("current_carrier") == "State Farm"
+        assert prof.get("current_premium") == 1450
+        assert prof.get("renewal_month") == "September"
+    finally:
+        _d.close()
+
+    # Opportunity: homeowner+married+auto → home & umbrella & auto all strong.
+    opp = client.get(f"/leads/{lid}/opportunity", headers=auth_headers).json()["opportunity"]
+    assert opp["home"] >= 80 and opp["auto"] >= 80 and opp["umbrella"] >= 70
+
+    # Renewals pipeline includes this lead.
+    ren = client.get("/conversations/renewals", headers=auth_headers).json()["renewals"]
+    mine = [r for r in ren if r["lead_id"] == lid]
+    assert mine and mine[0]["current_carrier"] == "State Farm" and mine[0]["remind_at"]
+
+    _cd = SessionLocal()
+    try:
+        _cd.query(ConversationOutcome).filter(ConversationOutcome.lead_id == lid).delete(synchronize_session=False)
+        _cd.query(FollowUp).filter(FollowUp.entity_id == lid).delete(synchronize_session=False)
+        _cd.query(Lead).filter(Lead.id == lid).delete(synchronize_session=False)
+        _cd.commit()
+    finally:
+        _cd.close()
+
+
+@requires_db
+def test_conversation_engine_phase3_learning_insights(client, auth_headers):
+    """Phase 3: the learning loop mines logged calls into insights — contact/close
+    rate, best hours to call, per-carrier win rate, and top objections."""
+    from app.database import SessionLocal
+    from app.models import ConversationOutcome, FollowUp, Lead
+
+    db = SessionLocal()
+    ids = []
+    try:
+        db.query(Lead).filter(Lead.email.like("p3%@x.co")).delete(synchronize_session=False)
+        db.commit()
+        for i in range(3):
+            lead = Lead(segment="personal", owner_name=f"L3 {i}", email=f"p3{i}@x.co",
+                        phone=f"+1555000{i}333", status="New")
+            db.add(lead); db.flush(); ids.append(str(lead.id))
+        db.commit()
+    finally:
+        db.close()
+
+    # 3 calls same hour: 2 answered (1 sold w/ GEICO, 1 already_insured GEICO), 1 no-answer.
+    client.post(f"/leads/{ids[0]}/conversation", headers=auth_headers, json={
+        "method": "call", "outcome": "answered", "conversation_status": "sold",
+        "current_carrier": "GEICO", "objection": "price_too_high"})
+    client.post(f"/leads/{ids[1]}/conversation", headers=auth_headers, json={
+        "method": "call", "outcome": "answered", "conversation_status": "already_insured",
+        "current_carrier": "GEICO"})
+    client.post(f"/leads/{ids[2]}/conversation", headers=auth_headers, json={
+        "method": "call", "outcome": "no_answer"})
+
+    ins = client.get("/conversations/insights", headers=auth_headers).json()
+    assert ins["total"] >= 3 and ins["answered"] >= 2 and ins["sold"] >= 1
+    assert 0 < ins["close_rate"] <= 100 and 0 < ins["contact_rate"] <= 100
+    geico = [c for c in ins["by_carrier"] if c["carrier"] == "GEICO"]
+    assert geico and geico[0]["seen"] >= 2 and geico[0]["won"] >= 1
+    assert any(h["calls"] >= 3 for h in ins["best_hours"])          # 3 calls this hour
+    assert any(o["objection"] == "price_too_high" for o in ins["top_objections"])
+
+    _cd = SessionLocal()
+    try:
+        _cd.query(ConversationOutcome).filter(ConversationOutcome.lead_id.in_(ids)).delete(synchronize_session=False)
+        _cd.query(FollowUp).filter(FollowUp.entity_id.in_(ids)).delete(synchronize_session=False)
+        _cd.query(Lead).filter(Lead.id.in_(ids)).delete(synchronize_session=False)
+        _cd.commit()
+    finally:
+        _cd.close()

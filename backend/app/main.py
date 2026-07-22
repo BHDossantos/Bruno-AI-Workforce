@@ -19,6 +19,7 @@ from .routers import (
     compliance,
     connections,
     control,
+    conversations,
     cron,
     decisions,
     grants,
@@ -169,6 +170,7 @@ app.include_router(automations.router)
 app.include_router(campaigns.router)
 app.include_router(deliverability.router)
 app.include_router(book.router)
+app.include_router(conversations.router)
 app.include_router(webhooks.router)
 app.include_router(resend_webhook.router)
 

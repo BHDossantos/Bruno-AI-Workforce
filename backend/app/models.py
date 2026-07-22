@@ -780,3 +780,59 @@ class Setting(Base):
     value: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ConversationOutcome(Base):
+    """One structured row per contact attempt / conversation — the Conversation
+    Engine's core. Every call/text/email becomes queryable data (method, outcome,
+    conversation status, carrier, renewal month, objection, next action), so the
+    dashboard segments the book ('Already Insured 48 · Shopping 22') and the weekly
+    AI learning loop can rank scripts, timing and follow-ups. A NEW table (never
+    alters leads/messages) so it's safe under create_all with no migration system."""
+    __tablename__ = "conversation_outcomes"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    lead_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+
+    # ── The attempt ──
+    attempt_number: Mapped[int | None] = mapped_column(Integer)
+    method: Mapped[str] = mapped_column(String, default="call")        # call|sms|email|voicemail|linkedin|facebook|whatsapp
+    outcome: Mapped[str | None] = mapped_column(String)               # answered|no_answer|busy|voicemail|wrong_number|disconnected|invalid_number
+    duration_seconds: Mapped[int | None] = mapped_column(Integer)
+    # If no answer — what we did instead
+    voicemail_left: Mapped[bool] = mapped_column(Boolean, default=False)
+    text_sent: Mapped[bool] = mapped_column(Boolean, default=False)
+    email_sent: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # ── The conversation (if they answered) ──
+    conversation_status: Mapped[str | None] = mapped_column(String, index=True)  # interested|not_interested|already_insured|shopping_around|requested_quote|needs_call_back|wrong_person|do_not_contact|language_barrier|sold|lost
+    insurance_needed: Mapped[list] = mapped_column(JSONB, default=list)           # ["auto","home",...]
+    objection: Mapped[str | None] = mapped_column(String)                          # price_too_high|coverage_too_low|need_spouse|...
+    # Quote progress
+    quote_started: Mapped[bool] = mapped_column(Boolean, default=False)
+    quote_completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    quote_sent: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # ── Already insured / competitor intel (the gold) ──
+    current_carrier: Mapped[str | None] = mapped_column(String)
+    current_premium: Mapped[Numeric | None] = mapped_column(Numeric)
+    renewal_month: Mapped[str | None] = mapped_column(String)
+    future_review: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Not interested / shopping detail
+    not_interested_reason: Mapped[str | None] = mapped_column(String)
+    quotes_gathered: Mapped[int | None] = mapped_column(Integer)       # how many quotes they're comparing
+    biggest_concern: Mapped[str | None] = mapped_column(String)         # price|coverage|service|claims|bundle|agent
+    quote_priority: Mapped[str | None] = mapped_column(String)          # high|medium|low
+
+    # ── What happens next ──
+    next_action: Mapped[str | None] = mapped_column(String)             # call|text|email|renewal|referral|birthday|policy_review
+    next_follow_up_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # ── Narrative + AI ──
+    notes: Mapped[dict | None] = mapped_column(JSONB)                   # structured: {summary, pain_points, needs, competitors, ...}
+    ai_summary: Mapped[str | None] = mapped_column(Text)
+    close_probability: Mapped[int | None] = mapped_column(Integer)      # 0-100
+
+    producer: Mapped[str | None] = mapped_column(String)               # who logged it
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True)
