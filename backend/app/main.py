@@ -15,6 +15,7 @@ from .routers import (
     analytics,
     auth,
     book,
+    businesses,
     calls,
     compliance,
     connections,
@@ -79,11 +80,12 @@ def _post_boot() -> None:
         log.exception("Startup seed() failed — check DATABASE_URL / Cloud SQL connection")
     try:
         from .database import SessionLocal
-        from . import client_goal, runtime_config, selfcheck
+        from . import business_registry, client_goal, runtime_config, selfcheck
         _db = SessionLocal()
         try:
             runtime_config.apply_to_settings(_db)  # load any in-app-connected creds
             client_goal.apply_overrides(_db)        # restore autoscaled outreach volume
+            business_registry.seed_defaults(_db)    # seed the business/brand registry (mirrors settings)
             selfcheck.run(_db)  # verify core features + auto-correct safe issues on boot
         finally:
             _db.close()
@@ -171,6 +173,7 @@ app.include_router(campaigns.router)
 app.include_router(deliverability.router)
 app.include_router(book.router)
 app.include_router(conversations.router)
+app.include_router(businesses.router)
 app.include_router(webhooks.router)
 app.include_router(resend_webhook.router)
 
