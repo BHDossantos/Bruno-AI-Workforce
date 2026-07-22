@@ -37,6 +37,7 @@ type CallHealth = {
     transfers_to: string; transfers_to_pretty: string;
     caller_id_pretty: string; rings_source: string;
   };
+  setup?: { public_base_url?: string | null };
   today: { placed: number; connected: number; missed: number; dialing: number; connect_rate: number };
   week: { placed: number; connected: number; missed: number; dialing: number; connect_rate: number };
 };
@@ -92,6 +93,17 @@ export default function WorkListPage() {
   const { data: coverage } = useFetch<Coverage>(() => api.get<Coverage>("/leads/coverage"), [tick]);
   const { data: callHealth } = useFetch<CallHealth>(() => api.get<CallHealth>("/calls/health"), [tick]);
   const [showGaps, setShowGaps] = useState(false);
+  const [webhook, setWebhook] = useState<{ verdict: string; ok: boolean } | null>(null);
+  const [wchecking, setWchecking] = useState(false);
+
+  async function checkCallSetup() {
+    setWchecking(true); setWebhook(null);
+    try {
+      const r = await api.get<{ ok: boolean; verdict: string }>("/calls/webhook-check");
+      setWebhook({ ok: r.ok, verdict: r.verdict });
+    } catch (e) { setWebhook({ ok: false, verdict: String(e) }); }
+    finally { setWchecking(false); }
+  }
 
   // Per-lead action state: a status message + a busy flag, keyed by lead id.
   const [busy, setBusy] = useState<Record<string, boolean>>({});
@@ -163,6 +175,19 @@ export default function WorkListPage() {
               <span>📱 Clicking <b>Call</b> rings <b className="text-gray-900">{callHealth.dial_targets.rings_first_pretty}</b> first, then connects the lead.</span>
               <span className="text-gray-500">Live auto-dial answers transfer to <b className="text-gray-700">{callHealth.dial_targets.transfers_to_pretty || callHealth.dial_targets.rings_first_pretty}</b>.</span>
               <span className="text-xs text-gray-400">Not your phone? Fix “Your cell to ring” on Setup → Calling.</span>
+            </div>
+          )}
+          <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-gray-100 pt-3 text-sm">
+            <button className="btn-ghost text-sm" disabled={wchecking} onClick={checkCallSetup}>
+              {wchecking ? "Checking…" : "🩺 Why didn’t my phone ring? Test call setup"}
+            </button>
+            {callHealth.dial_targets && (
+              <span className="text-xs text-gray-400">Webhook: {callHealth.setup?.public_base_url || "PUBLIC_BASE_URL not set"}</span>
+            )}
+          </div>
+          {webhook && (
+            <div className={`mt-2 rounded-lg border px-3 py-2 text-sm ${webhook.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-700"}`}>
+              {webhook.verdict}
             </div>
           )}
         </div>

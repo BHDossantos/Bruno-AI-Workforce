@@ -7991,3 +7991,15 @@ def test_sales_performance_funnel_rates_math(monkeypatch):
     assert counts == [100, 60, 28, 8]           # narrows: leads→contacted→engaged→won
     assert f["rates"]["contact_rate"] == 60.0    # 60/100 reached contacted
     assert f["rates"]["close_rate"] == 80.0      # 8 won of 10 decided
+
+
+@requires_db
+def test_calls_webhook_check_flags_unset_base_url(client, auth_headers, monkeypatch):
+    """The webhook-reachability check names the exact failure: an unset (or
+    unreachable) PUBLIC_BASE_URL means calls ring but can't bridge/transfer."""
+    from app.config import settings
+    monkeypatch.setattr(settings, "public_base_url", "", raising=False)
+    r = client.get("/calls/webhook-check", headers=auth_headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is False and "PUBLIC_BASE_URL" in body["verdict"]
