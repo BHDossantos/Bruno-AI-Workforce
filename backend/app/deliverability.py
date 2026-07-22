@@ -4,9 +4,9 @@ The one screen that answers "are my emails actually going out, how many today,
 and what's stuck?" — plus a single button to drain the whole outbox now.
 
 It reports the ACTIVE sending channel (Instantly/Smartlead campaign engine,
-SendGrid direct delivery, or Gmail), today's sends vs the daily cap, the queued
+Resend direct delivery, or Gmail), today's sends vs the daily cap, the queued
 backlog, a per-mailbox breakdown, and recent failures from the action log. The
-cap logic mirrors outreach.dispatch_email exactly: SendGrid has one GLOBAL daily
+cap logic mirrors outreach.dispatch_email exactly: Resend shares one GLOBAL daily
 limit; Gmail mailboxes are capped per-account with warmup.
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from . import outreach
 from .config import settings
-from .integrations import gmail, sender, sendgrid
+from .integrations import gmail, resend, sender
 from .models import ActionLog, DoNotContact, Lead, Message, Restaurant
 
 _ACCOUNTS = [
@@ -43,9 +43,9 @@ def _active_channel() -> dict:
     if pname:
         return {"channel": pname, "label": pname.title() + " (campaign engine)",
                 "kind": "provider", "paced_externally": True}
-    if sendgrid.is_configured():
-        return {"channel": "sendgrid", "label": "SendGrid (direct delivery)",
-                "kind": "sendgrid", "paced_externally": False}
+    if resend.is_configured():
+        return {"channel": "resend", "label": "Resend (direct delivery)",
+                "kind": "resend", "paced_externally": False}
     for acct, _ in _ACCOUNTS:
         if gmail.is_configured(acct):
             return {"channel": "gmail", "label": "Gmail mailbox", "kind": "gmail",
@@ -102,10 +102,10 @@ def snapshot(db: Session) -> dict:
     sent_week = int(db.query(func.count()).select_from(Message).filter(
         Message.direction == "outbound", Message.sent_at >= week_start).scalar() or 0)
 
-    # Cap mirrors dispatch_email: SendGrid is one global daily limit; otherwise the
+    # Cap mirrors dispatch_email: Resend shares one global daily limit; otherwise the
     # cap is per-mailbox so we sum each connected account's effective (warmup) cap.
-    if sendgrid.is_configured():
-        cap = settings.sendgrid_daily_cap
+    if resend.is_configured():
+        cap = settings.gmail_daily_send_cap
     else:
         cap = sum(outreach.effective_cap(db, a) for a, _ in _ACCOUNTS if gmail.is_configured(a))
     cap = int(cap or 0)
@@ -118,7 +118,6 @@ def snapshot(db: Session) -> dict:
         accounts.append({
             "account": acct, "label": label, "connected": connected,
             "sent_today": outreach.sent_today_count(db, acct),
-            "sendgrid_sender": sendgrid.from_for(acct) if sendgrid.has_key() else None,
         })
 
     # Backlog: real-emailable prospects still waiting to be sent.
@@ -144,7 +143,7 @@ def snapshot(db: Session) -> dict:
     if paused:
         status, tone = "Paused — Emergency Stop is on. Nothing is sending.", "bad"
     elif not can_send:
-        status, tone = ("No sender connected — connect SendGrid or a Gmail mailbox "
+        status, tone = ("No sender connected — connect Resend or a Gmail mailbox "
                         "on Setup, or nothing goes out.", "bad")
     elif backlog > 0 and sent_today == 0:
         status, tone = (f"{backlog} queued but 0 sent today — hit 'Send all pending "

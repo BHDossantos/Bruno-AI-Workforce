@@ -5,7 +5,7 @@ import { AuthGate, PageHeader, useFetch, KpiCard, LoadState } from "@/components
 
 type Warmup = { enabled: boolean; day: number | null; at_ceiling: boolean };
 type Mailbox = {
-  id: string; type: "gmail" | "sendgrid"; label: string;
+  id: string; type: "gmail" | "resend"; label: string;
   address: string | null; reply_to: string | null; connected: boolean;
   sent_today: number; daily_cap: number; shared_cap: boolean;
   remaining?: number; warmup: Warmup;
@@ -14,7 +14,7 @@ type Pool = {
   active_channel: string | null;
   mailboxes: Mailbox[];
   connected_count: number;
-  totals: { daily_capacity: number; sent_today: number; remaining: number; sendgrid_shared_cap: number | null };
+  totals: { daily_capacity: number; sent_today: number; remaining: number; resend_shared_cap: number | null };
 };
 
 function warmLabel(w: Warmup): string {
@@ -32,7 +32,7 @@ function Mailboxes() {
     <div>
       <PageHeader
         title="Mailbox Pool"
-        subtitle="Every identity you can send from — Gmail mailboxes and SendGrid senders — with health, today's usage vs cap, and warmup. This is your total daily sending capacity."
+        subtitle="Every identity you can send from — Gmail mailboxes and the Resend sender — with health, today's usage vs cap, and warmup. This is your total daily sending capacity."
       />
 
       <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -42,10 +42,10 @@ function Mailboxes() {
         <KpiCard label="Connected mailboxes" value={String(data.connected_count)} />
       </div>
 
-      {data.totals.sendgrid_shared_cap != null && (
+      {data.totals.resend_shared_cap != null && (
         <p className="mb-4 text-xs text-gray-500">
-          SendGrid senders share one account-wide daily limit of{" "}
-          <b>{data.totals.sendgrid_shared_cap.toLocaleString()}</b> — counted once in capacity above.
+          The Resend sender uses one account-wide daily limit of{" "}
+          <b>{data.totals.resend_shared_cap.toLocaleString()}</b> — counted once in capacity above.
         </p>
       )}
 
@@ -66,8 +66,8 @@ function Mailboxes() {
                 <tr key={m.id} className="border-t align-top">
                   <td className="p-3 font-medium">{m.label}</td>
                   <td className="p-3">
-                    <span className={`badge ${m.type === "sendgrid" ? "bg-violet-100 text-violet-700" : "bg-sky-100 text-sky-700"}`}>
-                      {m.type === "sendgrid" ? "SendGrid" : "Gmail"}
+                    <span className={`badge ${m.type === "resend" ? "bg-violet-100 text-violet-700" : "bg-sky-100 text-sky-700"}`}>
+                      {m.type === "resend" ? "Resend" : "Gmail"}
                     </span>
                   </td>
                   <td className="p-3 text-xs text-gray-500">{m.address || "—"}{m.reply_to && m.reply_to !== m.address && <div className="text-gray-400">↩ {m.reply_to}</div>}</td>

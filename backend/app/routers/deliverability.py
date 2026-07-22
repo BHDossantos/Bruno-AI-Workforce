@@ -35,12 +35,3 @@ def mailbox_pool(db: Session = Depends(get_db), _=Depends(_read)):
     from .. import mailbox_pool as mp
     runtime_config.apply_to_settings(db)  # reflect the latest connected senders/keys
     return mp.snapshot(db)
-
-
-@router.get("/sendgrid-stats")
-def sendgrid_stats(days: int = 7, db: Session = Depends(get_db), _=Depends(_read)):
-    """Real delivery stats from SendGrid: delivered / opens / bounces / rates for
-    the last N days. Pulls live from SendGrid's Stats API."""
-    from ..integrations import sendgrid
-    runtime_config.apply_to_settings(db)  # ensure the latest stored key is used
-    return sendgrid.stats(days)

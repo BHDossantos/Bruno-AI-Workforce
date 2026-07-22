@@ -33,24 +33,25 @@ def mailbox_health(db: Session = Depends(get_db),
     runtime_config.apply_to_settings(db)  # use the latest connected creds
     from .. import outreach
     from ..config import settings
-    from ..integrations import gmail, sendgrid
+    from ..integrations import gmail, resend
     accounts = [("personal", "Personal Gmail"), ("insurance", "Insurance mailbox (primary)"),
                 ("insurance_backup", "Insurance mailbox #2 (backup)"),
                 ("bnb", "BnB Global mailbox"), ("savorymind", "SavoryMind mailbox")]
     out = []
-    # SendGrid (if connected) is the actual sender — show its health first.
-    if sendgrid.has_key():
-        v = sendgrid.verify()
+    # Resend (if connected) is the actual sender — show its health first.
+    if resend.has_key():
+        configured = resend.is_configured()
+        cap = int(settings.gmail_daily_send_cap)
+        sent = int(outreach.sent_today_count(db, "personal"))
         out.append({
-            "account": "sendgrid", "label": "SendGrid (delivery)",
-            "configured": sendgrid.is_configured(),
-            "can_send": bool(v.get("ok") and sendgrid.is_configured()),
-            "method": "sendgrid", "address": settings.sendgrid_from_email or None,
-            "reason": (v.get("reason") if not v.get("ok") else
-                       (None if sendgrid.is_configured() else "Add a verified sender email")),
-            "sent_today": int(outreach.sent_today_count(db, "personal")),
-            "daily_cap": int(settings.sendgrid_daily_cap),
-            "remaining_today": max(0, int(settings.sendgrid_daily_cap) - int(outreach.sent_today_count(db, "personal"))),
+            "account": "resend", "label": "Resend (delivery)",
+            "configured": configured,
+            "can_send": configured,
+            "method": "resend", "address": resend.from_for("insurance") or None,
+            "reason": (None if configured else "Add a verified sender email"),
+            "sent_today": sent,
+            "daily_cap": cap,
+            "remaining_today": max(0, cap - sent),
         })
     for key, label in accounts:
         v = gmail.verify(key)

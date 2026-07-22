@@ -378,7 +378,7 @@ def send_lead_email(lead_id: str, body: SendNowIn, db: Session = Depends(get_db)
                     _=Depends(require_role("admin", "operator"))):
     """Send this lead an email NOW from their profile. Uses the typed message if
     given, else the AI-personalized EverQuote email (or the lead's stored cold
-    email). Delivers via the app's SendGrid-first path."""
+    email). Delivers via the app's Resend-first path."""
     from .. import everquote
     lead = db.query(Lead).filter(Lead.id == lead_id).first()
     if not lead:
@@ -486,7 +486,7 @@ def two_way_test(body: TwoWayTestIn, db: Session = Depends(get_db),
             result["email"] = ({"sent": True, "status": m.status} if m.status == "Sent"
                                else {"sent": False, "status": m.status,
                                      "reason": "Drafted, not sent — connect a Gmail mailbox or "
-                                               "SendGrid, and confirm auto-send is on."})
+                                               "Resend, and confirm auto-send is on."})
         except Exception as exc:  # never 500 — report the reason
             result["email"] = {"sent": False, "reason": str(exc)[:200]}
 

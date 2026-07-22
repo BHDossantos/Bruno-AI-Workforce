@@ -61,7 +61,7 @@ def send_message(message_id: str, db: Session = Depends(get_db), _=Depends(_writ
     from .. import outreach
     if not outreach.can_deliver(msg.from_account):
         raise HTTPException(status_code=400,
-                            detail=f"No delivery channel for '{msg.from_account}' — connect SendGrid or a Gmail mailbox in Setup")
+                            detail=f"No delivery channel for '{msg.from_account}' — connect Resend or a Gmail mailbox in Setup")
     mid, err = outreach.deliver(msg.to_email, msg.subject, msg.body, account=msg.from_account)
     if not mid:
         raise HTTPException(status_code=502, detail=f"Send failed: {err or 'unknown error'}")

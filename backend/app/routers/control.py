@@ -119,13 +119,13 @@ def _autopilot_readiness(db: Session) -> dict:
     acct = "insurance"
 
     # EMAIL — auto-sends drafts hourly 8am-8pm when autopilot is on and a channel
-    # (Resend / SendGrid / Gmail) is connected.
+    # (Resend / Gmail) is connected.
     email_conn = outreach.can_deliver(acct)
     email_block = ([] if not paused else ["autopilot is paused (hit Resume)"])
     if not autosend_on:
         email_block.append("Outreach Autopilot is off")
     if not email_conn:
-        email_block.append("connect an email channel (Resend / SendGrid / Gmail) in Setup")
+        email_block.append("connect an email channel (Resend / Gmail) in Setup")
 
     # SMS — the warm/opt-in texting drafts auto-send in the same pass; the cold
     # emailed-but-silent follow-up is a separate opt-in (needs A2P).
