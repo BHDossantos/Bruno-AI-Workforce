@@ -54,6 +54,7 @@ from .routers import (
     reports,
     resend_webhook,
     restaurants,
+    sales,
     setup,
     sms,
     webhooks,
@@ -174,6 +175,7 @@ app.include_router(deliverability.router)
 app.include_router(book.router)
 app.include_router(conversations.router)
 app.include_router(businesses.router)
+app.include_router(sales.router)
 app.include_router(webhooks.router)
 app.include_router(resend_webhook.router)
 

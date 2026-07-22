@@ -18,6 +18,7 @@ const GROUPS: NavGroup[] = [
     title: "🛡️ Work Leads", icon: "🛡️",
     items: [
       { href: "/worklist", label: "Call List", icon: "📞" },
+      { href: "/sales-agent", label: "Sales Agent", icon: "🤖" },
       { href: "/conversations", label: "Conversation Engine", icon: "🧠" },
       { href: "/insurance", label: "Insurance Leads", icon: "🎯" },
       { href: "/texts", label: "Texts", icon: "💬" },
@@ -54,6 +55,7 @@ const GROUPS: NavGroup[] = [
   {
     title: "📊 Analytics", icon: "📊",
     items: [
+      { href: "/performance", label: "Performance", icon: "📊" },
       { href: "/analytics", label: "Funnel Analytics", icon: "📊" },
       { href: "/revenue", label: "Revenue & ROI", icon: "💵" },
       { href: "/growth", label: "Growth Analytics", icon: "📈" },
