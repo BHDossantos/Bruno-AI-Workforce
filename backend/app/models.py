@@ -836,3 +836,32 @@ class ConversationOutcome(Base):
     producer: Mapped[str | None] = mapped_column(String)               # who logged it
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class Business(Base):
+    """A configured business/brand — the config-driven replacement for the fixed
+    business set (personal/insurance/bnb/savorymind) that used to be hard-coded in
+    ~15 places. Adding a business becomes a row here (a Setup form), not a code
+    change. New table → safe to create under create_all(); nothing reads it for
+    behavior yet (that's a later, separate step), so this can't break sending."""
+    __tablename__ = "businesses"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    key: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    label: Mapped[str] = mapped_column(String, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Email identity
+    gmail_address: Mapped[str | None] = mapped_column(String)   # the Gmail mailbox that sends
+    sender_from: Mapped[str | None] = mapped_column(String)     # verified from-address (Resend/domain)
+    reply_to: Mapped[str | None] = mapped_column(String)        # where replies land, if different
+    business_name: Mapped[str | None] = mapped_column(String)   # brand name in signatures
+    # Scheduling / content
+    calendar_link: Mapped[str | None] = mapped_column(String)   # booking CTA
+    newsletter_banner: Mapped[str | None] = mapped_column(String)
+    content_categories: Mapped[list] = mapped_column(JSONB, default=list)  # content-factory topics
+    # Lead routing
+    segments: Mapped[list] = mapped_column(JSONB, default=list)  # lead segments this business owns
+    lead_source: Mapped[str | None] = mapped_column(String)      # default lead source (e.g. "everquote")
+    # Free-form extras so new fields don't need a column (no-migration-safe)
+    extra: Mapped[dict | None] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now())

@@ -7883,3 +7883,37 @@ def test_dispatch_email_prefers_resend_over_broken_gmail(monkeypatch):
             db.query(Lead).filter(Lead.id == lid).delete(synchronize_session=False)
             db.commit()
         db.close()
+
+
+@requires_db
+def test_business_registry_seeds_and_serves(client, auth_headers, monkeypatch):
+    """The config-driven business registry seeds the default brands from live
+    settings, is idempotent, and serves them via GET /businesses so the UI can
+    render from data instead of a hard-coded list."""
+    from app import business_registry as registry
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.models import Business
+
+    # A known setting so we can prove the seed mirrors live config (not literals).
+    monkeypatch.setattr(settings, "insurance_business_name", "Thrust Insurance", raising=False)
+
+    db = SessionLocal()
+    try:
+        db.query(Business).delete(synchronize_session=False)
+        db.commit()
+        added = registry.seed_defaults(db)
+        assert added >= 4                                  # personal/insurance/bnb/savorymind
+        assert registry.seed_defaults(db) == 0             # idempotent — no duplicates
+        ins = registry.get(db, "insurance")
+        assert ins and ins.business_name == "Thrust Insurance"
+        assert "commercial" in (ins.segments or []) and ins.lead_source == "everquote"
+        bnb = registry.get(db, "bnb")
+        assert bnb and bnb.segments == ["consulting"]
+    finally:
+        db.close()
+
+    r = client.get("/businesses", headers=auth_headers)
+    assert r.status_code == 200
+    keys = {b["key"] for b in r.json()["businesses"]}
+    assert {"personal", "insurance", "bnb", "savorymind"} <= keys
