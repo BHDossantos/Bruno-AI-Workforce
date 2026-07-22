@@ -1,7 +1,7 @@
 """Mailbox pool — every sending identity in one view.
 
-Like Instantly/Smartlead's inbox pool: each mailbox you can send from (the four
-Gmail accounts and each verified SendGrid sender), with its health, today's sends
+Like Instantly/Smartlead's inbox pool: each mailbox you can send from (the Gmail
+accounts and the Resend verified sender), with its health, today's sends
 vs its daily cap, and warmup progress — plus the pool's total daily capacity. So
 you can see at a glance how much outreach the whole engine can push today and
 which identity is carrying it.
@@ -17,7 +17,7 @@ from sqlalchemy import func
 
 from . import outreach
 from .config import settings
-from .integrations import gmail, sendgrid
+from .integrations import gmail, resend
 from .models import Message
 
 _GMAIL_ACCOUNTS = [
@@ -26,11 +26,6 @@ _GMAIL_ACCOUNTS = [
     (gmail.INSURANCE_BACKUP, "Insurance #2 (backup)"),
     (gmail.BNB, "BnB Global"),
     (gmail.SAVORYMIND, "SavoryMind"),
-]
-_SENDGRID_BUSINESS = [
-    ("insurance", "Thrust Insurance"),
-    ("bnb", "BnB Global"),
-    ("savorymind", "SavoryMind"),
 ]
 
 
@@ -50,24 +45,22 @@ def _warmup(db, account: str) -> dict:
 
 def snapshot(db) -> dict:
     """Every sending identity + the pool's combined daily capacity."""
-    sendgrid_on = sendgrid.is_configured()
+    resend_on = resend.is_configured()
     global_sent = outreach.sent_today_count(db)
 
     mailboxes = []
 
-    # SendGrid verified senders — the durable, at-volume channel. They share ONE
-    # global daily cap (SendGrid's account limit), so capacity is counted once.
-    if sendgrid.has_key():
-        for business, label in _SENDGRID_BUSINESS:
-            sender = sendgrid.from_for(business)
-            if not sender:
-                continue
+    # Resend verified sender — the durable, at-volume channel. It shares ONE
+    # global daily cap, so capacity is counted once.
+    if resend.has_key():
+        sender = resend.from_for("insurance")
+        if sender:
             mailboxes.append({
-                "id": f"sendgrid:{business}", "type": "sendgrid", "label": label,
-                "address": sender, "reply_to": sendgrid.replyto_for(business, sender),
-                "connected": sendgrid_on,
-                "sent_today": outreach.sent_today_count(db, business),
-                "daily_cap": settings.sendgrid_daily_cap, "shared_cap": True,
+                "id": "resend:insurance", "type": "resend", "label": "Resend (verified domain)",
+                "address": sender, "reply_to": resend.replyto_for("insurance", sender),
+                "connected": resend_on,
+                "sent_today": global_sent,
+                "daily_cap": settings.gmail_daily_send_cap, "shared_cap": True,
                 "warmup": {"enabled": False, "day": None, "at_ceiling": True},
             })
 
@@ -84,16 +77,16 @@ def snapshot(db) -> dict:
             "warmup": _warmup(db, account),
         })
 
-    # Pool capacity. SendGrid is one shared global limit (counted once, when a
+    # Pool capacity. Resend is one shared global limit (counted once, when a
     # verified sender exists); Gmail mailboxes each add their own effective cap.
-    sendgrid_capacity = settings.sendgrid_daily_cap if sendgrid_on else 0
+    resend_capacity = settings.gmail_daily_send_cap if resend_on else 0
     gmail_capacity = sum(m["daily_cap"] for m in mailboxes
                          if m["type"] == "gmail" and m["connected"])
-    total_capacity = sendgrid_capacity + gmail_capacity
+    total_capacity = resend_capacity + gmail_capacity
 
     connected_count = sum(1 for m in mailboxes if m["connected"])
     return {
-        "active_channel": sendgrid.is_configured() and "sendgrid"
+        "active_channel": resend.is_configured() and "resend"
         or (gmail.is_configured(gmail.PERSONAL) and "gmail") or None,
         "mailboxes": mailboxes,
         "connected_count": connected_count,
@@ -101,7 +94,7 @@ def snapshot(db) -> dict:
             "daily_capacity": total_capacity,
             "sent_today": global_sent,
             "remaining": max(0, total_capacity - global_sent),
-            "sendgrid_shared_cap": sendgrid_capacity or None,
+            "resend_shared_cap": resend_capacity or None,
         },
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }

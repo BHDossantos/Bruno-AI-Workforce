@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from . import money_actions, outreach_performance
 from .config import settings
-from .integrations import mailer, sendgrid
+from .integrations import mailer
 
 log = logging.getLogger("bruno.outreach_digest")
 
@@ -27,15 +27,10 @@ def build(db: Session) -> dict:
     further DB reads may follow it on the same session. We reuse the goal it returns
     rather than querying it again."""
     perf = outreach_performance.report(db, days=7)
-    sg = sendgrid.stats(7) if sendgrid.has_key() else {"ok": False}
     cockpit = money_actions.actions(db)  # must be last DB read (status poisons tx)
     goal = cockpit.get("goal", {})
     hot = [h for h in cockpit.get("hot_leads", []) if h.get("temperature") == "hot"]
     deliver = None
-    if sg.get("ok"):
-        t = sg["totals"]
-        deliver = {"delivered": t["delivered"], "delivered_rate": sg["delivered_rate"],
-                   "open_rate": sg["open_rate"], "bounce_rate": sg["bounce_rate"]}
 
     return {
         "goal": goal,

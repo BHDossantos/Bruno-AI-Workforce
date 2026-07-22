@@ -45,7 +45,8 @@ FIELDS: dict[str, bool] = {
     "twilio_from_number": False,
     "twilio_insurance_number": False,  # optional separate number for insurance texts
     "twilio_voice_number": False,      # caller-ID for outbound calls (Voice-enabled)
-    "producer_callback": False,        # YOUR cell — Twilio rings this to bridge calls
+    "producer_callback": False,        # YOUR cell — the carrier rings this to bridge calls
+    "producer_cell": False,            # fallback ring/transfer number (correctable in Setup)
     "producer_voicemail_url": False,   # recorded voicemail drop (auto-dialer plays it)
     "twilio_api_key_sid": False,       # browser softphone: API Key SID
     "twilio_api_key_secret": True,     # browser softphone: API Key secret
@@ -98,15 +99,6 @@ FIELDS: dict[str, bool] = {
     "instantly_campaign_id": False,
     "smartlead_api_key": True,
     "smartlead_campaign_id": False,
-    # SendGrid — reliable email delivery (verified sender required).
-    "sendgrid_api_key": True,
-    "sendgrid_from_email": False,
-    "sendgrid_from_insurance": False,
-    "sendgrid_from_bnb": False,
-    "sendgrid_from_savorymind": False,
-    "sendgrid_replyto_insurance": False,
-    "sendgrid_replyto_bnb": False,
-    "sendgrid_replyto_savorymind": False,
     # Resend — modern email API (preferred when connected).
     "resend_api_key": True,
     "resend_from_email": False,
@@ -193,7 +185,7 @@ def save(db, field: str, value: str) -> bool:
 def status(db) -> dict:
     """Connection status — booleans + non-secret addresses only, never secrets."""
     from .integrations import (apollo, gmail, instantly, jobs_api, places, resend,
-                               sendgrid, smartlead, sms, twilio_voice, voice,
+                               smartlead, sms, twilio_voice, voice,
                                whatsapp_cloud)
     apply_to_settings(db)  # make sure the live view reflects stored values
     bridge_on = bool(settings.bridge_token)
@@ -206,8 +198,6 @@ def status(db) -> dict:
                       "has_key": instantly.has_key()},
         "smartlead": {"configured": smartlead.is_configured(),
                       "has_key": smartlead.has_key()},
-        "sendgrid": {"configured": sendgrid.is_configured(),
-                     "has_key": sendgrid.has_key()},
         "resend": {"configured": resend.is_configured(),
                    "has_key": resend.has_key()},
         "gmail_personal": {

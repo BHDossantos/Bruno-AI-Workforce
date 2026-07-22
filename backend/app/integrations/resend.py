@@ -1,7 +1,7 @@
 """Email delivery via Resend (https://resend.com).
 
-A modern transactional-email API with strong deliverability. Same interface as
-``integrations.sendgrid`` (``is_configured`` / ``from_for`` / ``send_with_error``)
+A modern transactional-email API with strong deliverability. Exposes a small
+provider-agnostic interface (``is_configured`` / ``from_for`` / ``send_with_error``)
 so ``outreach.deliver`` can prefer it without special-casing. No-ops cleanly when
 unconfigured.
 
@@ -48,8 +48,7 @@ def replyto_for(account: str | None, from_email: str) -> str:
 def send_with_error(to: str, subject: str, html: str, *, from_email: str | None = None,
                     reply_to: str | None = None) -> tuple[str | None, str | None]:
     """Send one HTML email via Resend. Returns (message_id, error_reason) — exactly
-    one is non-None — mirroring sendgrid.send_with_error so callers stay provider-
-    agnostic."""
+    one is non-None — so callers stay provider-agnostic."""
     if not has_key():
         return None, "Resend isn't connected — add your API key in Setup."
     if not to:

@@ -507,28 +507,8 @@ class Settings(BaseSettings):
     # Smartlead.ai — same idea as Instantly (the app picks whichever is connected).
     smartlead_api_key: str = ""
     smartlead_campaign_id: str = ""
-    # SendGrid — reliable DELIVERY (we keep our copy + sequences; SendGrid just sends).
-    # Requires a VERIFIED sender. Used for direct sends when Gmail is too fragile.
-    sendgrid_api_key: str = ""
-    sendgrid_from_email: str = ""  # default / personal sender
-    # Per-business verified senders (SendGrid Single Sender) so each business sends
-    # AS its own brand. Defaults match the verified senders already set up.
-    sendgrid_from_insurance: str = "b@dossantosinsurance.org"
-    sendgrid_from_bnb: str = "braxandbrie@gmail.com"
-    sendgrid_from_savorymind: str = "taste@savorymindfood.com"
-    # Optional per-business Reply-To (where replies land). Blank → replies go to the
-    # from-address. Lets BnB send AS hello@bnbglobal.net but route replies to a
-    # monitored inbox without a mailbox on the sending domain.
-    sendgrid_replyto_insurance: str = ""
-    sendgrid_replyto_bnb: str = "braxandbrie@gmail.com"
-    sendgrid_replyto_savorymind: str = ""
-    # SendGrid's GLOBAL daily send cap (across all businesses). On the free trial
-    # SendGrid allows ~100/day, so keep this at 90 until the paid plan is active;
-    # raise it after the upgrade.
-    sendgrid_daily_cap: int = 200   # global daily cap when sending via SendGrid
-
     # Resend — modern email API with great deliverability on your own domain.
-    # Preferred over SendGrid/Gmail when connected. Verify your domain in Resend
+    # Preferred over Gmail when connected. Verify your domain in Resend
     # (add its DNS records) so you can send AS b@dossantosinsurance.org. Replies go
     # to resend_reply_to (a mailbox you actually read) if set, else the from-address.
     resend_api_key: str = ""

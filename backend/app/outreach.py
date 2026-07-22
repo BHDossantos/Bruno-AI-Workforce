@@ -76,7 +76,7 @@ def _day_start():
 
 def sent_today_count(db: Session, account: str | None = None) -> int:
     """Emails actually sent today. Per-account when account is given, else GLOBAL
-    across all accounts (used for the provider-wide cap, e.g. SendGrid's daily limit)."""
+    across all accounts (used for the provider-wide daily send cap)."""
     q = db.query(func.count()).select_from(Message).filter(Message.sent_at >= _day_start())
     if account is not None:
         q = q.filter(Message.from_account == account)
@@ -112,13 +112,13 @@ def deliver(to_email: str, subject: str | None, body: str | None,
     (message_id, error_reason).
 
     Order: Resend first (modern API, best deliverability on your own domain), then
-    SendGrid, then the account's Gmail mailbox. This is what the Outbox "Send" /
+    the account's Gmail mailbox. This is what the Outbox "Send" /
     "Send next N" buttons use, so a working provider delivers even when a Gmail app
     password is rejected.
     """
-    from .integrations import resend, sendgrid
+    from .integrations import resend
     html = email_template.render(email_template.clean_body(body), account)
-    # 1) Resend — preferred when connected.
+    # 1) Resend — preferred (own-domain API, best deliverability).
     if resend.is_configured():
         from_email = resend.from_for(account)
         reply_to = resend.replyto_for(account, from_email)
@@ -126,36 +126,23 @@ def deliver(to_email: str, subject: str | None, body: str | None,
                                           from_email=from_email, reply_to=reply_to)
         if mid:
             return mid, None
-        # Resend couldn't send — fall through to SendGrid / Gmail, else report why.
-        if not sendgrid.is_configured() and not gmail.is_configured(account):
+        # Resend couldn't send — fall through to Gmail, else report why.
+        if not gmail.is_configured(account):
             return None, err
         _resend_err = err
     else:
         _resend_err = None
-    # 2) SendGrid.
-    if sendgrid.is_configured():
-        from_email = sendgrid.from_for(account)
-        reply_to = sendgrid.replyto_for(account, from_email)
-        mid, err = sendgrid.send_with_error(to_email, subject or "", html or "",
-                                            from_email=from_email, reply_to=reply_to)
-        if mid:
-            return mid, None
-        # SendGrid couldn't send — fall through to Gmail if it's set up, else
-        # report the SendGrid reason.
-        if gmail.is_configured(account):
-            mid2, err2 = gmail.send_with_error(to_email, subject or "", body or "", account=account)
-            return mid2, (None if mid2 else (err2 or err))
-        return None, err
+    # 2) The account's Gmail mailbox.
     if gmail.is_configured(account):
         return gmail.send_with_error(to_email, subject or "", body or "", account=account)
     return None, (_resend_err
-                  or f"No delivery channel configured for '{account}' (connect Resend, SendGrid or a Gmail mailbox)")
+                  or f"No delivery channel configured for '{account}' (connect Resend or a Gmail mailbox)")
 
 
 def can_deliver(account: str = "insurance") -> bool:
-    """True if any channel can deliver for this account (Resend, SendGrid or Gmail)."""
-    from .integrations import resend, sendgrid
-    return resend.is_configured() or sendgrid.is_configured() or gmail.is_configured(account)
+    """True if any channel can deliver for this account (Resend or Gmail)."""
+    from .integrations import resend
+    return resend.is_configured() or gmail.is_configured(account)
 
 
 def _email_sent_today(db: Session) -> int:
@@ -229,7 +216,7 @@ def send_email_drafts(db: Session, *, limit: int = 25, account: str | None = Non
     for m in msgs:
         if not can_deliver(m.from_account):
             failed += 1
-            reason = f"No delivery channel for '{m.from_account}' — connect SendGrid or a Gmail mailbox"
+            reason = f"No delivery channel for '{m.from_account}' — connect Resend or a Gmail mailbox"
             if reason not in errors:
                 errors.append(reason)
             continue
@@ -290,11 +277,11 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
     db.add(msg)
     db.flush()
 
-    from .integrations import sender, sendgrid
-    # A sender is anything that can deliver: a campaign engine (Instantly/Smartlead),
-    # SendGrid (direct delivery), or Gmail. Only draft if NONE is configured.
-    if not to_email or not (gmail.is_configured(account) or sender.is_configured()
-                            or sendgrid.is_configured()):
+    from .integrations import resend, sender
+    # A sender is anything that can deliver: Resend (own-domain API), a campaign
+    # engine (Instantly/Smartlead), or Gmail. Only draft if NONE is set up.
+    if not to_email or not (resend.is_configured() or gmail.is_configured(account)
+                            or sender.is_configured()):
         return msg  # nothing to send to / no sender configured — keep as stored draft
     if not is_real_email(to_email):
         # Never email sample/placeholder data — keep it as a draft only.
@@ -357,25 +344,25 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
     if mode == "send" and already_contacted_today(db, to_email):
         _log(db, actor, "send_skipped_duplicate", msg, to=to_email)
         return msg
-    # SendGrid has ONE global daily limit (not per-mailbox), so cap on the global
-    # sent-today count; Gmail mailboxes are capped per-account with warmup.
-    if sendgrid.is_configured():
-        _cap, _sent = settings.sendgrid_daily_cap, sent_today_count(db)
-    else:
-        _cap, _sent = effective_cap(db, account), sent_today_count(db, account)
+    # Gmail mailboxes are capped per-account with a warmup ramp. Resend (own domain)
+    # paces itself, but we still hold the day's total under the same cap.
+    _cap, _sent = effective_cap(db, account), sent_today_count(db, account)
     if mode == "send" and _sent >= _cap:
         mode = "draft"  # hit the daily cap — degrade to a draft
 
     html = email_template.render(body, account)  # consistent template + compliant footer
     if mode == "send":
-        # Deliver via SendGrid when connected (reliable at volume), else Gmail.
-        # Send AS the business's verified sender; replies come back to that address.
-        if sendgrid.is_configured():
-            from_email = sendgrid.from_for(account)
-            reply_to = sendgrid.replyto_for(account, from_email)
-            mid = sendgrid.send_email(to_email, subject or "", html or "",
-                                      from_email=from_email, reply_to=reply_to)
-        else:
+        # Provider ladder: Resend (own-domain API, best deliverability) → the account's
+        # Gmail. So a working provider sends even when another (e.g. a Gmail App
+        # Password) is broken. Previously Resend was SKIPPED here, so a set-up Resend
+        # was ignored and insurance mail fell to a dead Gmail login.
+        mid = send_err = None
+        if resend.is_configured():
+            r_from = resend.from_for(account)
+            mid, send_err = resend.send_with_error(
+                to_email, subject or "", html or "",
+                from_email=r_from, reply_to=resend.replyto_for(account, r_from))
+        if not mid and gmail.is_configured(account):
             mid = gmail.send_message(to_email, subject or "", html or "", account=account)
         if mid:
             msg.provider_id = mid
@@ -393,6 +380,9 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
                 newsletters.subscribe_on_outreach(db, entity_type, entity_id, to_email)
             except Exception:
                 pass
+        else:
+            # Nothing delivered — record the real reason so the Outbox shows WHY.
+            _log(db, actor, "email_send_failed", msg, to=to_email, detail=send_err)
     else:  # draft / send_on_approve
         did = gmail.create_draft(to_email, subject or "", html or "", account=account)
         if did:

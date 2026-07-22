@@ -1264,6 +1264,29 @@ def test_bridge_call_from_number_is_e164(monkeypatch):
     assert captured["url"].startswith("https://example.signalwire.com/")  # routed to SignalWire
 
 
+def test_dial_targets_surface_the_number_we_ring(monkeypatch):
+    """The calling engine must SURFACE the exact number it rings — 'call done but my
+    phone never rang' is almost always the rung number not being the phone in hand,
+    and nothing used to show which number it was. dial_targets exposes it, prefers the
+    explicit callback field, and falls back to the cell (flagged as such)."""
+    from app.config import settings
+    from app.integrations import twilio_voice as v
+
+    # Callback set → we ring it, and say the source is the callback field.
+    monkeypatch.setattr(settings, "producer_callback", "(603) 930-8272", raising=False)
+    monkeypatch.setattr(settings, "producer_cell", "6035572462", raising=False)
+    t = v.dial_targets()
+    assert t["rings_first"] == "+16039308272"
+    assert t["rings_first_pretty"] == "+1 (603) 930-8272"
+    assert t["rings_source"] == "callback"
+
+    # Callback blank → fall back to the cell, and flag that it came from the cell.
+    monkeypatch.setattr(settings, "producer_callback", "", raising=False)
+    t2 = v.dial_targets()
+    assert t2["rings_first"] == "+16035572462"
+    assert t2["rings_source"] == "cell"
+
+
 def test_twilio_voice_config_twiml_and_token():
     """Bridge calling is configured with creds + a number + a callback phone;
     browser softphone also needs an API key + TwiML App. TwiML bridges + records
@@ -1488,7 +1511,7 @@ def test_plivo_backup_sms_provider_routing(monkeypatch):
 
 def test_resend_email_provider_and_deliver_preference(monkeypatch):
     """Resend is 'configured' with a key + sender, and outreach.deliver PREFERS it
-    over SendGrid/Gmail when connected — so email flows through Resend."""
+    over Gmail when connected — so email flows through Resend."""
     from app.config import settings
     from app.integrations import resend
     from app import outreach
@@ -1505,7 +1528,7 @@ def test_resend_email_provider_and_deliver_preference(monkeypatch):
     monkeypatch.setattr(settings, "resend_reply_to", "me@x.co", raising=False)
     assert resend.replyto_for("insurance", "b@dossantosinsurance.org") == "me@x.co"
 
-    # deliver() prefers Resend when connected (SendGrid/Gmail not consulted).
+    # deliver() prefers Resend when connected (Gmail not consulted).
     sent = {}
     monkeypatch.setattr(resend, "send_with_error",
                         lambda to, subj, html, from_email=None, reply_to=None:
@@ -3369,28 +3392,6 @@ def test_mailbox_pool_snapshot(client, auth_headers):
     assert d["connected_count"] == 0 and d["active_channel"] is None
 
 
-def test_sendgrid_stats_safe_without_key():
-    """SendGrid stats degrade cleanly when no key is set (no crash, clear reason)."""
-    from app.config import settings
-    from app.integrations import sendgrid
-    orig = settings.sendgrid_api_key
-    try:
-        settings.sendgrid_api_key = ""
-        out = sendgrid.stats(7)
-        assert out["ok"] is False and "reason" in out
-    finally:
-        settings.sendgrid_api_key = orig
-
-
-@requires_db
-def test_deliverability_sendgrid_stats_endpoint(client, auth_headers):
-    """The dashboard's SendGrid-stats endpoint returns a structured result
-    (ok:false offline) without erroring."""
-    r = client.get("/deliverability/sendgrid-stats?days=7", headers=auth_headers)
-    assert r.status_code == 200
-    assert "ok" in r.json()
-
-
 def test_insurance_line_classifier():
     """Every lead resolves to a line of business: home/auto/life/commercial.
     Referral partners route to the personal line they FEED (realtor→home,
@@ -4913,62 +4914,36 @@ def test_bnb_mailbox_routing():
 
 
 @requires_db
-def test_sendgrid_direct_send(monkeypatch):
-    """With SendGrid connected, outreach delivers via SendGrid (not Gmail) even
+def test_resend_direct_send(monkeypatch):
+    """With Resend connected, outreach delivers via Resend (not Gmail) even
     with no Gmail App Password, and the message is marked Sent."""
     from app import outreach
     from app.config import settings
     from app.database import SessionLocal
-    from app.integrations import sendgrid
+    from app.integrations import resend
     from app.models import Lead
 
-    monkeypatch.setattr(settings, "sendgrid_api_key", "SG.key")
-    monkeypatch.setattr(settings, "sendgrid_from_email", "hello@bnbglobal.net")
+    monkeypatch.setattr(settings, "resend_api_key", "re_test")
+    monkeypatch.setattr(settings, "resend_from_insurance", "b@dossantosinsurance.org")
     sent = {}
-    monkeypatch.setattr(sendgrid, "send_email",
+    monkeypatch.setattr(resend, "send_with_error",
                         lambda to, subject, html, from_email=None, reply_to=None:
-                            sent.update(to=to, from_email=from_email) or "sg-1")
+                            (sent.update(to=to, from_email=from_email) or ("re-1", None)))
 
     db = SessionLocal()
     try:
-        lead = Lead(segment="consulting", company_name="SG Co", email="ceo@sgco.io",
+        lead = Lead(segment="consulting", company_name="RS Co", email="ceo@rsco.io",
                     status="New", cold_email="Hi there.")
         db.add(lead); db.flush()
         msg = outreach.dispatch_email(db, entity_type="lead", entity_id=lead.id,
                                       to_email=lead.email, subject="quick idea",
-                                      body=lead.cold_email, account="personal",
+                                      body=lead.cold_email, account="insurance",
                                       actor="test", autonomous=False)
-        assert msg.status == "Sent" and msg.provider_id == "sg-1"
-        assert sent.get("to") == "ceo@sgco.io"
+        assert msg.status == "Sent" and msg.provider_id == "re-1"
+        assert sent.get("to") == "ceo@rsco.io"
         db.rollback()
     finally:
         db.close()
-
-
-def test_sendgrid_per_business_sender():
-    """SendGrid sends AS each business's verified sender; default otherwise."""
-    from app.config import settings
-    from app.integrations import sendgrid
-    monkeypatch_vals = {
-        "sendgrid_from_insurance": "b@dossantosinsurance.org",
-        "sendgrid_from_bnb": "braxandbrie@gmail.com",
-        "sendgrid_from_savorymind": "taste@savorymindfood.com",
-        "sendgrid_from_email": "hello@default.com",
-    }
-    saved = {k: getattr(settings, k) for k in monkeypatch_vals}
-    for k, v in monkeypatch_vals.items():
-        setattr(settings, k, v)
-    try:
-        assert sendgrid.from_for("insurance") == "b@dossantosinsurance.org"
-        assert sendgrid.from_for("bnb") == "braxandbrie@gmail.com"
-        assert sendgrid.from_for("savorymind") == "taste@savorymindfood.com"
-        assert sendgrid.from_for("personal") == "hello@default.com"
-        # Reply-To: BnB routes replies to the monitored inbox; others default to from.
-        assert sendgrid.replyto_for("bnb", "hello@bnbglobal.net") == "braxandbrie@gmail.com"
-        assert sendgrid.replyto_for("savorymind", "taste@savorymindfood.com") == "taste@savorymindfood.com"
-    finally:
-        for k, v in saved.items():
-            setattr(settings, k, v)
 
 
 def test_sender_selector_gating():
@@ -6750,7 +6725,7 @@ def test_setup_connect_status_and_save(client, auth_headers):
     assert set(s) == {"ai", "gmail_personal", "gmail_insurance", "gmail_insurance_backup",
                       "gmail_bnb", "gmail_savorymind",
                       "apollo", "google_places", "sms", "whatsapp", "calling", "jobs_api", "instantly",
-                      "smartlead", "sendgrid", "resend", "meta_app", "tiktok_app", "booking",
+                      "smartlead", "resend", "meta_app", "tiktok_app", "booking",
                       "contacts_outreach_exclude", "newsletter_banners"}
     assert s["apollo"]["configured"] is False
     # SMS compliance guardrails are surfaced so the Texts UI shows the real window/cap.
@@ -7859,3 +7834,52 @@ def test_conversation_engine_phase3_learning_insights(client, auth_headers):
         _cd.commit()
     finally:
         _cd.close()
+
+
+@requires_db
+def test_dispatch_email_prefers_resend_over_broken_gmail(monkeypatch):
+    """dispatch_email (the Send buttons / autopilot path) must try Resend FIRST — so a
+    set-up Resend sends even when the account's Gmail App Password is dead. Regression
+    for insurance mail falling to a 535 BadCredentials Gmail login."""
+    from app import outreach
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.integrations import gmail, resend
+    from app.models import Lead, Message
+
+    # Resend "connected" and it succeeds; Gmail "configured" but would fail if used.
+    monkeypatch.setattr(resend, "is_configured", lambda: True)
+    monkeypatch.setattr(resend, "from_for", lambda a: "b@dossantosinsurance.org")
+    monkeypatch.setattr(resend, "replyto_for", lambda a, f: f)
+    sent = {}
+    def _resend_send(to, subj, html, from_email=None, reply_to=None):
+        sent["to"], sent["from"] = to, from_email
+        return "resend-mid-1", None
+    monkeypatch.setattr(resend, "send_with_error", _resend_send)
+    monkeypatch.setattr(gmail, "is_configured", lambda a=None: True)  # present but must NOT be used
+    def _boom(*a, **k):
+        raise AssertionError("Gmail was used even though Resend is connected")
+    monkeypatch.setattr(gmail, "send_message", _boom)
+    monkeypatch.setattr(settings, "gmail_outbound_mode", "send", raising=False)
+
+    db = SessionLocal()
+    lid = None
+    try:
+        db.query(Lead).filter(Lead.email == "resendfix@x.co").delete(synchronize_session=False)
+        db.commit()
+        lead = Lead(segment="personal", owner_name="Rez Fix", email="resendfix@x.co", status="New")
+        db.add(lead); db.flush(); lid = lead.id; db.commit()
+        msg = outreach.dispatch_email(db, entity_type="lead", entity_id=lead.id,
+                                      to_email="resendfix@x.co", subject="Hi", body="Test",
+                                      account="insurance", actor="test", autonomous=False)
+        assert msg.status == "Sent" and msg.provider_id == "resend-mid-1"
+        assert sent["from"] == "b@dossantosinsurance.org"   # sent from the right identity
+    finally:
+        # Drop any pending/dirty ORM state first so the bulk deletes below don't
+        # race an autoflush UPDATE on the row we're about to remove (StaleDataError).
+        db.rollback()
+        if lid is not None:
+            db.query(Message).filter(Message.entity_id == lid).delete(synchronize_session=False)
+            db.query(Lead).filter(Lead.id == lid).delete(synchronize_session=False)
+            db.commit()
+        db.close()

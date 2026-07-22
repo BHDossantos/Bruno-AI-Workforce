@@ -12,7 +12,7 @@ type Status = {
   apollo: Area; google_places: Area;
   sms?: Area & { via?: string | null }; whatsapp?: Area & { via?: string | null }; jobs_api?: Area;
   calling?: Area & { via?: string | null; browser?: boolean; recording?: boolean; callback_set?: boolean };
-  instantly?: Area; smartlead?: Area; sendgrid?: Area; resend?: Area;
+  instantly?: Area; smartlead?: Area; resend?: Area;
   meta_app?: { configured: boolean; app_id: string; redirect_uri: string };
   tiktok_app?: { configured: boolean; client_key: string; redirect_uri: string };
   booking?: { default: string; insurance: string; bnb: string; savorymind: string };
@@ -479,7 +479,7 @@ function Setup() {
           <p className="mb-3 text-xs text-gray-500">
             Dedicated mailbox for BnB Global consulting outreach (keeps it off your personal Gmail).
             Use a Google <b>App Password</b> (not your login password). Note: a single Gmail still has
-            a low safe cold-volume limit — for real volume, route BnB through Smartlead/SendGrid.
+            a low safe cold-volume limit — for real volume, route BnB through Smartlead/Resend.
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
             <input className="input" placeholder={data.gmail_bnb?.address || "braxandbrie@gmail.com"}
@@ -497,7 +497,7 @@ function Setup() {
           </div>
           <p className="mb-3 text-xs text-gray-500">
             Dedicated mailbox for SavoryMind restaurant outreach. Use a Google <b>App Password</b>.
-            For real volume, route SavoryMind through Smartlead/SendGrid instead of a single Gmail.
+            For real volume, route SavoryMind through Smartlead/Resend instead of a single Gmail.
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
             <input className="input" placeholder={data.gmail_savorymind?.address || "taste@savorymindfood.com"}
@@ -540,7 +540,7 @@ function Setup() {
           </div>
           <p className="mb-3 text-xs text-gray-500">
             Modern email API with excellent deliverability on your own domain — <b>preferred over
-            SendGrid/Gmail</b> when connected. From resend.com: create an <b>API key</b>, then add
+            Gmail</b> when connected. From resend.com: create an <b>API key</b>, then add
             &amp; verify your domain (Resend → Domains → add the DNS records it shows) so you can send
             AS <code>b@dossantosinsurance.org</code>. Set a <b>reply-to</b> inbox you actually read so
             replies reach you.
@@ -563,45 +563,6 @@ function Setup() {
             <b>signing secret</b> above to verify posts (optional but recommended). Replies then land
             on the contact’s profile automatically, with an AI-drafted response ready to send.
           </p>
-        </div>
-
-        {/* SendGrid — reliable delivery */}
-        <div className="card">
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="font-semibold">📨 SendGrid (reliable email delivery)</h2>
-            <Badge ok={!!data.sendgrid?.configured} />
-          </div>
-          <p className="mb-3 text-xs text-gray-500">
-            Sends your outreach through SendGrid instead of Gmail (which Google revokes at volume) —
-            you keep all your copy, sequences and automation. Paste your <b>API key</b> and a{" "}
-            <b>verified sender</b> email (verify it first in SendGrid → Sender Authentication; full
-            domain auth with SPF/DKIM gives the best inbox placement). When connected, outreach
-            sends via SendGrid automatically at a higher daily cap.
-          </p>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <input className="input" type="password" placeholder="SendGrid API key"
-              value={form.sendgrid_api_key || ""} onChange={(e) => set("sendgrid_api_key", e.target.value)} />
-            <input className="input" placeholder="Default verified sender (from)"
-              value={form.sendgrid_from_email || ""} onChange={(e) => set("sendgrid_from_email", e.target.value)} />
-          </div>
-          <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Verified sender per business</div>
-          <div className="mt-1 grid gap-2 sm:grid-cols-3">
-            <input className="input" placeholder="Insurance from"
-              value={form.sendgrid_from_insurance || ""} onChange={(e) => set("sendgrid_from_insurance", e.target.value)} />
-            <input className="input" placeholder="BnB Global from"
-              value={form.sendgrid_from_bnb || ""} onChange={(e) => set("sendgrid_from_bnb", e.target.value)} />
-            <input className="input" placeholder="SavoryMind from"
-              value={form.sendgrid_from_savorymind || ""} onChange={(e) => set("sendgrid_from_savorymind", e.target.value)} />
-          </div>
-          <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Reply-To per business (optional — where replies land)</div>
-          <div className="mt-1 grid gap-2 sm:grid-cols-3">
-            <input className="input" placeholder="Insurance reply-to"
-              value={form.sendgrid_replyto_insurance || ""} onChange={(e) => set("sendgrid_replyto_insurance", e.target.value)} />
-            <input className="input" placeholder="BnB reply-to"
-              value={form.sendgrid_replyto_bnb || ""} onChange={(e) => set("sendgrid_replyto_bnb", e.target.value)} />
-            <input className="input" placeholder="SavoryMind reply-to"
-              value={form.sendgrid_replyto_savorymind || ""} onChange={(e) => set("sendgrid_replyto_savorymind", e.target.value)} />
-          </div>
         </div>
 
         {/* Meta app — powers the one-click Facebook/Instagram connect button */}
