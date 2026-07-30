@@ -8087,3 +8087,48 @@ def test_send_email_drafts_holds_back_blank_drafts(client, monkeypatch):
             db.query(Message).filter(Message.id == mid).delete(synchronize_session=False)
             db.commit()
         db.close()
+
+
+@requires_db
+def test_cold_drafts_never_blank_use_business_templates(client, monkeypatch):
+    """When the AI returns nothing (no key / error), cold drafts must fall back to a
+    compelling, business-tailored body — never blank. This is the root-cause fix for
+    leads receiving blank emails."""
+    from app import importer
+    from app.database import SessionLocal
+    from app.models import Lead, Restaurant
+
+    monkeypatch.setattr(importer.client, "complete_json", lambda *a, **k: {})  # AI down
+
+    db = SessionLocal()
+    try:
+        ins = Lead(segment="commercial", company_name="Acme HVAC", owner_name="Dana Eggert",
+                   category="HVAC", email="dana@acme.co", status="New")
+        con = Lead(segment="consulting", company_name="TechCo", owner_name="Sam Lee",
+                   email="sam@techco.io", status="New")
+        db.add_all([ins, con]); db.flush()
+        importer.draft_lead_email(db, ins)
+        importer.draft_lead_email(db, con)
+        assert (ins.cold_email or "").strip() and "Acme HVAC" in ins.cold_email
+        assert (con.cold_email or "").strip() and "BnB" in con.cold_email
+
+        r = Restaurant(name="Bella Pasta", cuisine="Italian", owner_manager="Mia R",
+                       kind="prospect", email="mia@bella.co", status="New")
+        db.add(r); db.flush()
+        importer.draft_restaurant_email(db, r)
+        assert (r.pitch_email or "").strip() and "Bella Pasta" in r.pitch_email
+        db.rollback()
+    finally:
+        db.close()
+
+
+@requires_db
+def test_delivery_watchdog_audits_all_three_channels(client, auth_headers):
+    """The watchdog reports email/text/call sends + blanks + EverQuote backlog + a
+    concrete issues list, so a silent delivery failure can't go unnoticed."""
+    r = client.get("/deliverability/watchdog", headers=auth_headers)
+    assert r.status_code == 200
+    b = r.json()
+    assert {"email", "sms", "calls", "blanks_held", "everquote_backlog", "issues", "healthy"} <= set(b)
+    assert isinstance(b["issues"], list)
+    assert "sent" in b["email"] and "sent" in b["sms"] and "placed" in b["calls"]
