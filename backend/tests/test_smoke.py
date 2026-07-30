@@ -8059,11 +8059,14 @@ def test_send_email_drafts_holds_back_blank_drafts(client, monkeypatch):
     from app.integrations import resend
     from app.models import Message
 
-    # Pretend a sender is connected + never actually hit the network.
+    # Pretend a sender is connected; record any address deliver() is asked to send to
+    # (the batch may also carry other valid drafts — that's fine; the BLANK one must
+    # never be among them).
+    delivered: list[str] = []
     monkeypatch.setattr(resend, "is_configured", lambda: True)
     monkeypatch.setattr(outreach, "can_deliver", lambda a=None: True)
     monkeypatch.setattr(outreach, "deliver",
-                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("blank was sent!")))
+                        lambda to, *a, **k: (delivered.append(to) or ("mid-1", None)))
     monkeypatch.setattr(settings, "email_rampup_start", "", raising=False)
 
     db = SessionLocal()
@@ -8074,8 +8077,9 @@ def test_send_email_drafts_holds_back_blank_drafts(client, monkeypatch):
         m = Message(channel="email", direction="outbound", to_email="blanktest@example.com",
                     from_account="insurance", subject="Hi", body="   ", status="Drafted")
         db.add(m); db.commit(); mid = m.id
-        res = outreach.send_email_drafts(db, limit=50, account="insurance")
+        res = outreach.send_email_drafts(db, limit=200, account="insurance")
         assert res.get("skipped_blank", 0) >= 1
+        assert "blanktest@example.com" not in delivered   # the blank was NOT sent
         db.expire_all()
         assert db.get(Message, mid).status == "Needs Review"
     finally:

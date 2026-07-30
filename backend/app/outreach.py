@@ -227,6 +227,7 @@ def send_email_drafts(db: Session, *, limit: int = 25, account: str | None = Non
         if not (email_template.clean_body(m.body) or "").strip():
             m.status = "Needs Review"
             skipped_blank += 1
+            failed += 1  # held back = not sent; keep sent+failed==considered
             continue
         if not can_deliver(m.from_account):
             failed += 1
