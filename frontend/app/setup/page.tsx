@@ -90,7 +90,7 @@ function Setup() {
   const [callTestMsg, setCallTestMsg] = useState("");
   const [callTestBusy, setCallTestBusy] = useState(false);
   async function testCall() {
-    setCallTestBusy(true); setCallTestMsg("Placing a test call to your phone…");
+    setCallTestBusy(true); setCallTestMsg("Placing a test call and reading SignalWire's result (~10s)…");
     try {
       const r = await api.post<{ ok: boolean; message: string }>("/calls/test", {});
       setCallTestMsg(`✅ ${r.message}`);

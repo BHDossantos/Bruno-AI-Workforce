@@ -249,6 +249,64 @@ def place_test_call() -> tuple[str | None, str | None]:
 
 
 # ── Auto-dial with answering-machine detection: leave a voicemail or transfer ──
+def get_call_status(sid: str) -> dict:
+    """Read a call's REAL outcome back from the carrier (SignalWire/Twilio) — so the
+    app can tell you what actually happened instead of guessing. Returns status
+    (queued/ringing/in-progress/completed/busy/no-answer/failed/canceled) + duration."""
+    from . import telco
+    if not sid:
+        return {"status": None, "error": "no sid"}
+    try:
+        r = httpx.get(telco.api_url(f"Calls/{sid}.json", "voice"),
+                      auth=telco.auth("voice"), timeout=15)
+        if r.status_code >= 400:
+            return {"status": None, "error": f"{telco.label('voice')} {r.status_code}: {(r.text or '')[:160]}"}
+        j = r.json()
+        return {"status": (j.get("status") or "").lower(), "duration": j.get("duration"),
+                "to": j.get("to"), "from": j.get("from"),
+                "sip_code": j.get("sip_response_code") or j.get("answered_by")}
+    except Exception as exc:  # pragma: no cover - network guard
+        return {"status": None, "error": str(exc)[:160]}
+
+
+def poll_call_outcome(sid: str, *, tries: int = 6, delay: float = 2.0) -> dict:
+    """Poll the carrier for a call's terminal outcome (up to ~tries*delay seconds) and
+    return a plain-English verdict that names the fix — used by the Test button so one
+    click reads SignalWire's own result without you digging in its dashboard."""
+    from . import telco
+    terminal = {"completed", "busy", "no-answer", "failed", "canceled"}
+    last = {"status": None}
+    for _ in range(max(1, tries)):
+        last = get_call_status(sid)
+        st = last.get("status")
+        if st in terminal:
+            break
+        if last.get("error"):
+            break
+        time.sleep(delay)
+    st = last.get("status")
+    label = telco.label("voice")
+    if st == "completed":
+        verdict = f"✅ {label} says the call COMPLETED — your phone rang and connected. If you didn't hear it, check Do-Not-Disturb / silent mode on the phone."
+    elif st == "no-answer":
+        verdict = f"📴 {label} says NO-ANSWER — meaning it DID ring but wasn't picked up. So the number/route works; just answer next time (or it went to voicemail)."
+    elif st == "busy":
+        verdict = f"📵 {label} says BUSY — the line was busy. The route works; try again."
+    elif st in ("failed", "canceled"):
+        verdict = (f"❌ {label} says the call FAILED/CANCELED — it never rang. This is a "
+                   "SignalWire number/config issue, almost always: the FROM number isn't "
+                   "Voice-enabled (SMS-only), or outbound calling to that destination is "
+                   "blocked. In SignalWire → Phone Numbers, confirm the number is Voice-capable, "
+                   "and that it's the number saved in Setup → Calling.")
+    elif last.get("error"):
+        verdict = f"⚠️ Couldn't read the call status from {label}: {last['error']}"
+    else:
+        verdict = (f"⏳ {label} still shows the call as '{st or 'unknown'}' after a few seconds "
+                   "(not a final result yet). If your phone didn't ring, check the SignalWire "
+                   "Voice logs for this call.")
+    return {"status": st, "verdict": verdict, "raw": last}
+
+
 def voicemail_configured() -> bool:
     """True once the producer has recorded their voicemail drop."""
     return bool(settings.producer_voicemail_url)

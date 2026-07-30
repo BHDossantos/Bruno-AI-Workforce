@@ -8019,3 +8019,22 @@ def test_conversation_scoreboard_and_reason_field(client, auth_headers):
 
     schema = client.get("/conversations/schema", headers=auth_headers).json()["schema"]
     assert "reason_for_calling" in schema and "everquote_quote_request" in schema["reason_for_calling"]
+
+
+def test_poll_call_outcome_verdicts(monkeypatch):
+    """poll_call_outcome turns the carrier's raw status into a plain verdict that
+    names the fix — critically distinguishing 'failed (never rang → config)' from
+    'no-answer (it DID ring)'."""
+    from app.integrations import twilio_voice as v
+
+    monkeypatch.setattr(v, "get_call_status", lambda sid: {"status": "failed"})
+    out = v.poll_call_outcome("CA1", tries=1, delay=0)
+    assert out["status"] == "failed" and "Voice-enabled" in out["verdict"]
+
+    monkeypatch.setattr(v, "get_call_status", lambda sid: {"status": "no-answer"})
+    out = v.poll_call_outcome("CA2", tries=1, delay=0)
+    assert out["status"] == "no-answer" and "DID ring" in out["verdict"]
+
+    monkeypatch.setattr(v, "get_call_status", lambda sid: {"status": "completed", "duration": "12"})
+    out = v.poll_call_outcome("CA3", tries=1, delay=0)
+    assert out["status"] == "completed" and "COMPLETED" in out["verdict"]
