@@ -8038,3 +8038,48 @@ def test_poll_call_outcome_verdicts(monkeypatch):
     monkeypatch.setattr(v, "get_call_status", lambda sid: {"status": "completed", "duration": "12"})
     out = v.poll_call_outcome("CA3", tries=1, delay=0)
     assert out["status"] == "completed" and "COMPLETED" in out["verdict"]
+
+
+def test_deliver_blocks_blank_email():
+    """A blank/whitespace/None body must NEVER be sent — it goes out as a fully empty
+    email that makes leads reply 'I got 2 blank emails from you'."""
+    from app import outreach
+    for body in ("", "   ", "\n\n", None):
+        mid, err = outreach.deliver("lead@example.com", "Hi", body)
+        assert mid is None and "empty" in (err or "").lower()
+
+
+@requires_db
+def test_send_email_drafts_holds_back_blank_drafts(client, monkeypatch):
+    """send_email_drafts must pull an empty-body draft OUT of the queue (status →
+    Needs Review) instead of sending it blank."""
+    from app import outreach
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.integrations import resend
+    from app.models import Message
+
+    # Pretend a sender is connected + never actually hit the network.
+    monkeypatch.setattr(resend, "is_configured", lambda: True)
+    monkeypatch.setattr(outreach, "can_deliver", lambda a=None: True)
+    monkeypatch.setattr(outreach, "deliver",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("blank was sent!")))
+    monkeypatch.setattr(settings, "email_rampup_start", "", raising=False)
+
+    db = SessionLocal()
+    mid = None
+    try:
+        db.query(Message).filter(Message.to_email == "blanktest@example.com").delete(
+            synchronize_session=False)
+        m = Message(channel="email", direction="outbound", to_email="blanktest@example.com",
+                    from_account="insurance", subject="Hi", body="   ", status="Drafted")
+        db.add(m); db.commit(); mid = m.id
+        res = outreach.send_email_drafts(db, limit=50, account="insurance")
+        assert res.get("skipped_blank", 0) >= 1
+        db.expire_all()
+        assert db.get(Message, mid).status == "Needs Review"
+    finally:
+        if mid is not None:
+            db.query(Message).filter(Message.id == mid).delete(synchronize_session=False)
+            db.commit()
+        db.close()
