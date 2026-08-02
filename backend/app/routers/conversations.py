@@ -46,6 +46,7 @@ class ConversationIn(BaseModel):
     next_action: str | None = None
     next_follow_up_at: str | None = None
     close_probability: int | None = None
+    reason_for_calling: str | None = None
     notes: dict | None = None
 
 
@@ -88,7 +89,14 @@ def log_conversation(lead_id: str, body: ConversationIn, db: Session = Depends(g
     if not lead:
         raise HTTPException(404, "Lead not found")
     producer = getattr(user, "email", None) or "producer"
-    row = engine.log_outcome(db, lead.id, body.model_dump(), producer=producer)
+    payload = body.model_dump()
+    # Reason-for-calling is captured into the notes JSON (no schema change needed),
+    # so it lives alongside the rest of the structured record.
+    if payload.get("reason_for_calling"):
+        notes = dict(payload.get("notes") or {})
+        notes.setdefault("reason_for_calling", payload["reason_for_calling"])
+        payload["notes"] = notes
+    row = engine.log_outcome(db, lead.id, payload, producer=producer)
     return {"ok": True, **_serialize(row)}
 
 
@@ -106,6 +114,14 @@ def conversations_dashboard(db: Session = Depends(get_db), _=Depends(_read)):
     """Segment the whole book by conversation status + today's activity + which
     carriers we're competing against."""
     return engine.dashboard(db)
+
+
+@router.get("/conversations/scoreboard")
+def conversations_scoreboard(days: int = 14, db: Session = Depends(get_db), _=Depends(_read)):
+    """The daily scoreboard — today's calls / emails / touches / conversations /
+    quotes / follow-ups / sales + quote-conversion, with the last N days as a trend
+    so you can see whether your improvements are working over time."""
+    return engine.scoreboard(db, days=max(1, min(days, 90)))
 
 
 @router.get("/conversations/insights")

@@ -8003,3 +8003,132 @@ def test_calls_webhook_check_flags_unset_base_url(client, auth_headers, monkeypa
     assert r.status_code == 200
     body = r.json()
     assert body["ok"] is False and "PUBLIC_BASE_URL" in body["verdict"]
+
+
+@requires_db
+def test_conversation_scoreboard_and_reason_field(client, auth_headers):
+    """The daily scoreboard returns today's numbers + a trend, and the schema now
+    offers 'reason_for_calling' so every conversation can capture why they called."""
+    sb = client.get("/conversations/scoreboard?days=7", headers=auth_headers)
+    assert sb.status_code == 200
+    body = sb.json()
+    assert body["window_days"] == 7 and len(body["trend"]) == 7
+    for k in ("calls", "emails", "touches", "conversations", "quotes", "followups", "sales"):
+        assert k in body["today"]
+    assert {"answer_rate", "quote_conversion"} <= set(body["today"])
+
+    schema = client.get("/conversations/schema", headers=auth_headers).json()["schema"]
+    assert "reason_for_calling" in schema and "everquote_quote_request" in schema["reason_for_calling"]
+
+
+def test_poll_call_outcome_verdicts(monkeypatch):
+    """poll_call_outcome turns the carrier's raw status into a plain verdict that
+    names the fix — critically distinguishing 'failed (never rang → config)' from
+    'no-answer (it DID ring)'."""
+    from app.integrations import twilio_voice as v
+
+    monkeypatch.setattr(v, "get_call_status", lambda sid: {"status": "failed"})
+    out = v.poll_call_outcome("CA1", tries=1, delay=0)
+    assert out["status"] == "failed" and "Voice-enabled" in out["verdict"]
+
+    monkeypatch.setattr(v, "get_call_status", lambda sid: {"status": "no-answer"})
+    out = v.poll_call_outcome("CA2", tries=1, delay=0)
+    assert out["status"] == "no-answer" and "DID ring" in out["verdict"]
+
+    monkeypatch.setattr(v, "get_call_status", lambda sid: {"status": "completed", "duration": "12"})
+    out = v.poll_call_outcome("CA3", tries=1, delay=0)
+    assert out["status"] == "completed" and "COMPLETED" in out["verdict"]
+
+
+def test_deliver_blocks_blank_email():
+    """A blank/whitespace/None body must NEVER be sent — it goes out as a fully empty
+    email that makes leads reply 'I got 2 blank emails from you'."""
+    from app import outreach
+    for body in ("", "   ", "\n\n", None):
+        mid, err = outreach.deliver("lead@example.com", "Hi", body)
+        assert mid is None and "empty" in (err or "").lower()
+
+
+@requires_db
+def test_send_email_drafts_holds_back_blank_drafts(client, monkeypatch):
+    """send_email_drafts must pull an empty-body draft OUT of the queue (status →
+    Needs Review) instead of sending it blank."""
+    from app import outreach
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.integrations import resend
+    from app.models import Message
+
+    # Pretend a sender is connected; record any address deliver() is asked to send to
+    # (the batch may also carry other valid drafts — that's fine; the BLANK one must
+    # never be among them).
+    delivered: list[str] = []
+    monkeypatch.setattr(resend, "is_configured", lambda: True)
+    monkeypatch.setattr(outreach, "can_deliver", lambda a=None: True)
+    monkeypatch.setattr(outreach, "deliver",
+                        lambda to, *a, **k: (delivered.append(to) or ("mid-1", None)))
+    monkeypatch.setattr(settings, "email_rampup_start", "", raising=False)
+
+    db = SessionLocal()
+    mid = None
+    try:
+        db.query(Message).filter(Message.to_email == "blanktest@example.com").delete(
+            synchronize_session=False)
+        m = Message(channel="email", direction="outbound", to_email="blanktest@example.com",
+                    from_account="insurance", subject="Hi", body="   ", status="Drafted")
+        db.add(m); db.commit(); mid = m.id
+        res = outreach.send_email_drafts(db, limit=200, account="insurance")
+        assert res.get("skipped_blank", 0) >= 1
+        assert "blanktest@example.com" not in delivered   # the blank was NOT sent
+        db.expire_all()
+        assert db.get(Message, mid).status == "Needs Review"
+    finally:
+        if mid is not None:
+            db.query(Message).filter(Message.id == mid).delete(synchronize_session=False)
+            db.commit()
+        db.close()
+
+
+@requires_db
+def test_cold_drafts_never_blank_use_business_templates(client, monkeypatch):
+    """When the AI returns nothing (no key / error), cold drafts must fall back to a
+    compelling, business-tailored body — never blank. This is the root-cause fix for
+    leads receiving blank emails."""
+    from app import importer
+    from app.database import SessionLocal
+    from app.models import Lead, Restaurant
+
+    monkeypatch.setattr(importer.client, "complete_json", lambda *a, **k: {})  # AI down
+
+    db = SessionLocal()
+    try:
+        ins = Lead(segment="commercial", company_name="Acme HVAC", owner_name="Dana Eggert",
+                   category="HVAC", email="dana@acme.co", status="New")
+        con = Lead(segment="consulting", company_name="TechCo", owner_name="Sam Lee",
+                   email="sam@techco.io", status="New")
+        db.add_all([ins, con]); db.flush()
+        importer.draft_lead_email(db, ins)
+        importer.draft_lead_email(db, con)
+        assert (ins.cold_email or "").strip() and "Acme HVAC" in ins.cold_email
+        assert (con.cold_email or "").strip() and "BnB" in con.cold_email
+
+        r = Restaurant(name="Bella Pasta", cuisine="Italian", owner_manager="Mia R",
+                       kind="prospect", email="mia@bella.co", status="New")
+        db.add(r); db.flush()
+        importer.draft_restaurant_email(db, r)
+        assert (r.pitch_email or "").strip() and "Bella Pasta" in r.pitch_email
+        db.rollback()
+    finally:
+        db.close()
+
+
+@requires_db
+def test_delivery_watchdog_audits_all_three_channels(client, auth_headers):
+    """The watchdog reports email/text/call sends + blanks + EverQuote backlog + a
+    concrete issues list, so a silent delivery failure can't go unnoticed."""
+    r = client.get("/deliverability/watchdog", headers=auth_headers)
+    assert r.status_code == 200
+    b = r.json()
+    assert {"email", "sms", "calls", "blanks_held", "everquote_backlog", "issues", "healthy"} <= set(b)
+    assert isinstance(b["issues"], list)
+    assert "sent" in b["email"] and "sent" in b["sms"] and "placed" in b["calls"]

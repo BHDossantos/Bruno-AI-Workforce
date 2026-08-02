@@ -263,6 +263,58 @@ def process_leads_csv(db: Session, rows: list[dict]) -> dict:
             "skipped_no_email": skipped}
 
 
+def _first_name(full: str | None, default: str = "there") -> str:
+    parts = (full or "").strip().split()
+    return parts[0] if parts else default
+
+
+def _fallback_lead_body(lead: Lead) -> str:
+    """A compelling, business-tailored email body used when the AI is unavailable or
+    returns nothing — so a cold lead NEVER gets a blank email. The template layer adds
+    the header image, CTA button, and signature (phones); this is the message itself."""
+    from .config import settings
+    first = _first_name(lead.owner_name)
+    producer = settings.producer_name or "Bruno"
+    segment = (lead.segment or "commercial").lower()
+    if segment == "consulting":
+        who = lead.company_name or "your team"
+        return (f"Hi {first},\n\n"
+                f"I'm {producer} with BnB Global. We help teams like {who} ship results faster — "
+                f"cutting delivery time and cost without the bloated agency overhead.\n\n"
+                f"Would a quick 15-minute call make sense to see if we can help? "
+                f"Just reply here, or call or text me directly — my number's below.")
+    biz = settings.insurance_business_name or "Thrust Insurance"
+    who = lead.company_name or "you"
+    category = lead.category or lead.industry or ""
+    reason = (lead.reason or "").strip() or (
+        f"{category} businesses typically need liability, property, and professional coverage — "
+        "and I often find better protection at a lower premium than folks are paying now."
+        if segment == "commercial"
+        else "I help people get the right home, auto, and life coverage — often at a lower "
+             "premium than they're paying now.")
+    return (f"Hi {first},\n\n"
+            f"I'm {producer}, a licensed producer with {biz}. {reason}\n\n"
+            f"I'd like to put together a quick, no-obligation quote for {who} — it takes about "
+            f"two minutes and could save you money. Just reply here, or call or text me anytime; "
+            f"my number's below.")
+
+
+def _fallback_restaurant_body(r: Restaurant) -> str:
+    """A compelling SavoryMind body (restaurant + consumer-app angle) for when the AI
+    is unavailable — so a restaurant prospect never gets a blank pitch."""
+    from .config import settings
+    producer = settings.producer_name or "Bruno"
+    first = _first_name(r.owner_manager)
+    name = r.name or "your restaurant"
+    cuisine = (r.cuisine or "restaurant").lower()
+    return (f"Hi {first},\n\n"
+            f"I'm {producer} with SavoryMind. We help {cuisine} spots like {name} fill more tables "
+            f"and grow orders — menu intelligence that shows what to promote and price, plus our "
+            f"consumer app that puts you in front of hungry local diners searching for a place to eat.\n\n"
+            f"Could I show you how it works in a quick call? Just reply here, or call or text me "
+            f"anytime — my number's below.")
+
+
 def draft_lead_email(db: Session, lead: Lead) -> str:
     """Write the AI cold email + call script for one lead, in place, and return the
     subject line. Shared by the paced sender so the expensive AI call happens on the
@@ -294,6 +346,10 @@ def draft_lead_email(db: Session, lead: Lead) -> str:
         lead.call_script = _text(art.get("call_script")) or lead.call_script
         lead.linkedin_msg = art.get("linkedin_msg") or lead.linkedin_msg
         subject = art.get("cold_email_subject")
+    # NEVER leave a blank body: if the AI produced nothing (no key / error), fall back
+    # to the compelling per-business template so the lead still gets a real email.
+    if not (lead.cold_email or "").strip():
+        lead.cold_email = _fallback_lead_body(lead)
     return subject or fallback
 
 
@@ -387,6 +443,9 @@ def draft_restaurant_email(db: Session, r: Restaurant) -> str:
         r.linkedin_msg = art.get("linkedin_msg") or r.linkedin_msg
         r.follow_up = art.get("demo_invite") or r.follow_up
         subject = art.get("pitch_subject")
+    # NEVER leave a blank pitch: fall back to the SavoryMind template when AI is down.
+    if not (r.pitch_email or "").strip():
+        r.pitch_email = _fallback_restaurant_body(r)
     return subject or f"Growing revenue at {r.name} with SavoryMind"
 
 

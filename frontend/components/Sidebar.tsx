@@ -55,6 +55,7 @@ const GROUPS: NavGroup[] = [
   {
     title: "📊 Analytics", icon: "📊",
     items: [
+      { href: "/scoreboard", label: "Daily Scoreboard", icon: "🏆" },
       { href: "/performance", label: "Performance", icon: "📊" },
       { href: "/analytics", label: "Funnel Analytics", icon: "📊" },
       { href: "/revenue", label: "Revenue & ROI", icon: "💵" },

@@ -22,6 +22,18 @@ def get_deliverability(db: Session = Depends(get_db), _=Depends(_read)):
     return deliverability.snapshot(db)
 
 
+@router.get("/watchdog")
+def watchdog(db: Session = Depends(get_db), _=Depends(_read)):
+    """Daily delivery audit across ALL THREE channels: did email / text / call send
+    today, EverQuote-first, zero blanks? Returns per-channel numbers + concrete issues."""
+    from .. import delivery_watchdog, runtime_config
+    try:
+        runtime_config.apply_to_settings(db)
+    except Exception:
+        pass
+    return delivery_watchdog.audit(db)
+
+
 @router.post("/send-now")
 def send_now(db: Session = Depends(get_db), _=Depends(_write)):
     """Send every queued lead + restaurant prospect right now (respects caps/pause)."""

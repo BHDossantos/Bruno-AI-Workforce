@@ -304,6 +304,10 @@ class Settings(BaseSettings):
     newsletter_banner_bnb: str = ""
     newsletter_banner_savorymind: str = ""
     newsletter_banner_music: str = ""
+    # Header image shown at the top of every outbound email (a hosted image URL).
+    # Blank → a branded color header bar with the business name is used instead, so
+    # emails always have a header and never a broken image.
+    email_header_image: str = ""
     # Auto-send a warm intro text when a lead replies to our email (becomes warm).
     sms_auto_on_reply: bool = True
     # SMS compliance + deliverability guards (applied to every autonomous/bulk send).

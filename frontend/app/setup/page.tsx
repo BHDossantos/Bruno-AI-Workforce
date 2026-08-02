@@ -90,7 +90,7 @@ function Setup() {
   const [callTestMsg, setCallTestMsg] = useState("");
   const [callTestBusy, setCallTestBusy] = useState(false);
   async function testCall() {
-    setCallTestBusy(true); setCallTestMsg("Placing a test call to your phone…");
+    setCallTestBusy(true); setCallTestMsg("Placing a test call and reading SignalWire's result (~10s)…");
     try {
       const r = await api.post<{ ok: boolean; message: string }>("/calls/test", {});
       setCallTestMsg(`✅ ${r.message}`);
@@ -651,6 +651,15 @@ function Setup() {
               value={form.newsletter_banner_savorymind || ""} onChange={(e) => set("newsletter_banner_savorymind", e.target.value)} />
             <input className="input" placeholder={data.newsletter_banners?.music || "Music banner image URL"}
               value={form.newsletter_banner_music || ""} onChange={(e) => set("newsletter_banner_music", e.target.value)} />
+          </div>
+          <div className="mt-3 border-t border-gray-100 pt-3">
+            <div className="mb-1 text-sm font-medium text-gray-700">📧 Email header image (top of every outbound email)</div>
+            <p className="mb-2 text-xs text-gray-500">
+              Paste a hosted image URL (your logo/banner) to show at the top of every sales email.
+              Leave blank and emails use a branded header bar with your business name — never blank, never a broken image.
+            </p>
+            <input className="input w-full" placeholder="https://your-site.com/email-header.png"
+              value={form.email_header_image || ""} onChange={(e) => set("email_header_image", e.target.value)} />
           </div>
         </div>
 

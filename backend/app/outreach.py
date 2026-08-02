@@ -117,7 +117,14 @@ def deliver(to_email: str, subject: str | None, body: str | None,
     password is rejected.
     """
     from .integrations import resend
-    html = email_template.render(email_template.clean_body(body), account)
+    cleaned = email_template.clean_body(body)
+    # HARD GUARD: never send a blank email. An empty (or stripped-to-empty) body
+    # would go out as a fully blank message — spammy and reputation-damaging (leads
+    # reply "I got 2 blank emails from you"). Refuse instead, so the caller can flag
+    # it for a real draft rather than burning a send.
+    if not (cleaned or "").strip():
+        return None, "Not sent — the email body was empty (blank email blocked)."
+    html = email_template.render(cleaned, account)
     # 1) Resend — preferred (own-domain API, best deliverability).
     if resend.is_configured():
         from_email = resend.from_for(account)
@@ -211,9 +218,17 @@ def send_email_drafts(db: Session, *, limit: int = 25, account: str | None = Non
     msgs = (q.order_by(*lead_temperature.send_priority_order(Lead, Message))
             .limit(batch).all())
 
-    sent = failed = 0
+    sent = failed = skipped_blank = 0
     errors: list[str] = []
     for m in msgs:
+        # Never send a blank email. Pull empty-body drafts OUT of the send queue
+        # (status → "Needs Review") so they don't go out blank or retry forever, and
+        # are visible for a real draft to be written.
+        if not (email_template.clean_body(m.body) or "").strip():
+            m.status = "Needs Review"
+            skipped_blank += 1
+            failed += 1  # held back = not sent; keep sent+failed==considered
+            continue
         if not can_deliver(m.from_account):
             failed += 1
             reason = f"No delivery channel for '{m.from_account}' — connect Resend or a Gmail mailbox"
@@ -231,8 +246,11 @@ def send_email_drafts(db: Session, *, limit: int = 25, account: str | None = Non
             failed += 1
             if err and err not in errors:
                 errors.append(err)
+    if skipped_blank:
+        errors.append(f"{skipped_blank} blank draft(s) held back for review (not sent).")
     db.commit()
-    return {"sent": sent, "failed": failed, "considered": len(msgs), "errors": errors[:3],
+    return {"sent": sent, "failed": failed, "skipped_blank": skipped_blank,
+            "considered": len(msgs), "errors": errors[:3],
             "daily_cap": cap, "sent_today": _email_sent_today(db)}
 
 
@@ -276,6 +294,15 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
                   subject=subject, body=body, status="Drafted", approved=False)
     db.add(msg)
     db.flush()
+
+    # HARD GUARD: never send a blank email. If the body is empty (or stripped to
+    # empty), hold it for review instead of blasting a blank message that makes a
+    # lead reply "I got 2 blank emails from you".
+    if not (body or "").strip():
+        msg.status = "Needs Review"
+        _log(db, actor, "send_skipped_blank", msg, to=to_email)
+        db.commit()
+        return msg
 
     from .integrations import resend, sender
     # A sender is anything that can deliver: Resend (own-domain API), a campaign

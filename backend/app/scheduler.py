@@ -38,7 +38,7 @@ _INSURANCE_AGENTS = {"insurance", "commercial_finder", "home_finder", "auto_find
 _INSURANCE_JOBS = {"client_autoscale", "leads", "auto_outreach", "flush_drafts",
                    "followups", "sms_followups", "booking_nudges", "lifecycle",
                    "outreach_digest", "refresh_tokens", "selfcheck", "referrals",
-                   "auto_dial", "everquote_drafts"}
+                   "auto_dial", "everquote_drafts", "delivery_watchdog"}
 
 
 def _insurance_only() -> bool:
@@ -244,6 +244,11 @@ def _run_selfcheck(db):
     return selfcheck.run(db)
 
 
+def _run_delivery_watchdog(db):
+    from . import delivery_watchdog
+    return delivery_watchdog.run(db)
+
+
 def _run_auto_apply(db):
     from . import autoapply
     return autoapply.run_auto_apply(db)
@@ -319,6 +324,9 @@ _JOBS: dict[str, tuple] = {
     "outreach_digest":  (_run_outreach_digest, "0 8 * * *"),
     # Self-check + auto-correct core features daily (re-seed, refresh creds, flag).
     "selfcheck":        (_run_selfcheck, "0 4 * * *"),
+    # Delivery watchdog — after the day's send window, audit that email/text/call all
+    # went out (EverQuote-first, zero blanks) and log loudly if anything's short.
+    "delivery_watchdog": (_run_delivery_watchdog, "5 21 * * *"),
     # Auto-apply to qualified jobs (self-gates: only acts when its mode != off),
     # after the 5 AM job sourcing — so it works the freshly-prepared queue.
     "auto_apply":       (_run_auto_apply, "30 9 * * *"),

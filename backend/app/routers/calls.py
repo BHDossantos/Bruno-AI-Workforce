@@ -46,9 +46,13 @@ def test_call(db: Session = Depends(get_db), _=Depends(_write)):
     if not sid:
         raise HTTPException(400, err or "Test call failed.")
     rings = twilio_voice.dial_targets()["rings_first_pretty"]
+    # Read SignalWire's OWN verdict for this call (up to ~12s) so one click tells you
+    # exactly what happened — rang / no-answer / failed — no dashboard digging.
+    outcome = twilio_voice.poll_call_outcome(sid)
     return {"ok": True, "call_sid": sid, "ringing": rings,
-            "message": f"Ringing {rings} now — pick up to hear the confirmation. "
-                       "If that isn't the phone in your hand, fix 'Your cell to ring' in Setup."}
+            "carrier_status": outcome.get("status"),
+            "verdict": outcome.get("verdict"),
+            "message": f"Test call to {rings}. {outcome.get('verdict') or ''}"}
 
 
 @router.post("/twiml/test")
