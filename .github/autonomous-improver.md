@@ -72,6 +72,35 @@ change.
 Derived from a full audit of hard-coded identities and known debt. Work top-down;
 each item is a separate draft PR unless trivially small.
 
+### EPIC 0 — THE THREE CORE CHANNELS MUST WORK (highest priority, every run)
+
+The owner's hard line: automatic **emails, texts, and calls** must go out reliably
+every day — **EverQuote leads first, never blank, tailored per business**. If these
+don't work, nothing else matters. On every run, verify and harden:
+
+1. **Never blank.** Every outbound email must have real, business-tailored content
+   (Insurance / BnB / SavoryMind restaurant + consumer). Draft generation has
+   template fallbacks (`importer._fallback_lead_body` / `_fallback_restaurant_body`)
+   and send paths block blanks (`outreach.deliver` / `send_email_drafts` /
+   `dispatch_email`). Keep these intact; extend coverage to any new segment/source.
+2. **Actually sent, at volume.** The day's target volume must go out (email/sms/
+   calls), EverQuote-first. Watch `delivery_watchdog.audit` output; if a channel is
+   short, autopilot is off, or blanks are held, fix the cause. Caps live in
+   `config.py` (`gmail_daily_send_cap`, `sms_daily_send_cap`, `auto_dial_daily_cap`).
+3. **Calls connect.** Bridge/auto-dial must ring the producer + transfer. The
+   carrier verdict tooling (`twilio_voice.poll_call_outcome`, `/calls/webhook-check`)
+   surfaces why a call fails. If SignalWire can't be made to ring reliably, evaluate
+   an alternate provider (Plivo/Vonage already supported; Quo is connected).
+4. **Auto, not manual.** The whole point is hands-free. Ensure the scheduler sends
+   without a human (Outreach Autopilot / auto mode) and never silently stalls.
+
+### EPIC 0.5 — Cut the Google Cloud cost (see docs/COST_OPTIMIZATION.md)
+
+The owner pays ~$1,000/mo and wants it down. The likely driver is the Cloud SQL
+tier/HA (provisioned outside the repo). Follow `docs/COST_OPTIMIZATION.md`: the
+backend's always-on instance is required for the scheduler (do NOT scale it to
+zero); the savings are in right-sizing Cloud SQL. Surface/track this until resolved.
+
 ### EPIC 1 — Config-driven Business/Brand registry (the big "plug-and-play" win)
 
 Today one fixed business set (`personal, insurance, insurance_backup, bnb,
