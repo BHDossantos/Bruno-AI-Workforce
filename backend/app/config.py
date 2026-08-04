@@ -414,6 +414,10 @@ class Settings(BaseSettings):
     personal_business_name: str = ""
     insurance_business_name: str = "Thrust Insurance"
     company_address: str = ""  # physical mailing address shown in the footer
+    # BCC address copied (blind) on EVERY outbound customer email, so the owner
+    # gets a copy of exactly what each customer received. Editable in Setup; blank
+    # disables it. Defaults to the owner's inbox so it's on out of the box.
+    outbound_bcc: str = "brunodossantos707@gmail.com"
     calendar_link: str = ""     # default booking link (Calendly/Cal.com) added to email CTAs
     # Per-business booking links: a prospect of each business books the right
     # calendar. Empty falls back to the default calendar_link above.

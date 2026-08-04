@@ -65,6 +65,12 @@ def send_with_error(to: str, subject: str, html: str, *, from_email: str | None 
     }
     if reply_to:
         payload["reply_to"] = reply_to
+    # BCC the owner on every outbound email so they get a copy of exactly what the
+    # customer received (blind — the customer never sees it). Skip if it's the
+    # recipient themselves.
+    bcc = (settings.outbound_bcc or "").strip()
+    if bcc and bcc.lower() != (to or "").strip().lower():
+        payload["bcc"] = [bcc]
     headers = {"Authorization": f"Bearer {(settings.resend_api_key or '').strip()}",
                "Content-Type": "application/json"}
     try:

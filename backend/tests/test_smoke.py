@@ -8169,3 +8169,28 @@ def test_everquote_followups_are_first_and_never_blank(monkeypatch):
             db.query(Lead).filter(Lead.id == lid).delete(synchronize_session=False)
             db.commit()
         db.close()
+
+
+def test_outbound_bcc_copies_owner_on_every_email(monkeypatch):
+    """Every outbound email is blind-copied to the owner (outbound_bcc) so they get a
+    copy of exactly what the customer received — via Resend's bcc field."""
+    from app.config import settings
+    from app.integrations import resend
+
+    monkeypatch.setattr(settings, "resend_api_key", "re_test", raising=False)
+    monkeypatch.setattr(settings, "resend_from_insurance", "b@dossantosinsurance.org", raising=False)
+    monkeypatch.setattr(settings, "outbound_bcc", "boss@example.com", raising=False)
+
+    captured = {}
+    class _Resp:
+        status_code = 200
+        def json(self): return {"id": "re_1"}
+    monkeypatch.setattr(resend.httpx, "post",
+                        lambda url, json=None, headers=None, timeout=None: captured.update(json=json) or _Resp())
+    mid, err = resend.send_with_error("customer@x.co", "Hi", "<p>body</p>")
+    assert mid == "re_1" and err is None
+    assert captured["json"].get("bcc") == ["boss@example.com"]   # owner copied
+    # Never BCC the recipient themselves.
+    captured.clear()
+    resend.send_with_error("boss@example.com", "Hi", "<p>body</p>")
+    assert "bcc" not in captured["json"]
