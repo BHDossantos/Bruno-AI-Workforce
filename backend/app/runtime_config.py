@@ -138,6 +138,8 @@ FIELDS: dict[str, bool] = {
     "newsletter_banner_music": False,
     # Header image on every outbound email (blank → branded text header).
     "email_header_image": False,
+    # BCC copy of every outbound customer email to the owner (blank disables).
+    "outbound_bcc": False,
 }
 
 

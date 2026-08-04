@@ -216,11 +216,15 @@ def _send_smtp_verbose(account: str, to: str, subject: str, body: str) -> tuple[
         mime["Reply-To"] = reply_to
     msg_id = make_msgid()
     mime["Message-ID"] = msg_id
+    # BCC the owner on every send (envelope only — no Bcc header, so the customer
+    # never sees it) so they get a copy of exactly what went out.
+    bcc = (settings.outbound_bcc or "").strip()
+    recipients = [to] + ([bcc] if bcc and bcc.lower() != (to or "").strip().lower() else [])
     try:
         with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as server:
             server.starttls()
             server.login(login_addr, pw)
-            server.sendmail(from_addr or login_addr, [to], mime.as_string())
+            server.sendmail(from_addr or login_addr, recipients, mime.as_string())
         return msg_id, None
     except Exception as exc:  # pragma: no cover - network guard
         reason = f"(logging in as {login_addr}) {str(exc)[:230] or exc.__class__.__name__}"
@@ -290,6 +294,11 @@ def _raw(account: str, to: str, subject: str, body: str) -> dict:
     mime["to"] = to
     mime["from"] = address_for(account)
     mime["subject"] = subject or "(no subject)"
+    # BCC the owner a copy of every send (Gmail API honors the Bcc header and does
+    # not show it to the recipient).
+    bcc = (settings.outbound_bcc or "").strip()
+    if bcc and bcc.lower() != (to or "").strip().lower():
+        mime["bcc"] = bcc
     return {"raw": base64.urlsafe_b64encode(mime.as_bytes()).decode()}
 
 

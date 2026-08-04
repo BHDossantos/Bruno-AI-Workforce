@@ -13,7 +13,7 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
-from sqlalchemy import func
+from sqlalchemy import case, func
 
 from . import memory, outreach
 from .ai import client, skills
@@ -96,18 +96,68 @@ def _sms_text(name: str | None, purpose: str) -> str:
     return fallback
 
 
+def _fallback_followup_body(db: Session, fu, name: str | None) -> str:
+    """A compelling, tailored follow-up body used when the AI is unavailable/empty —
+    so an EverQuote (or any) lead ALWAYS gets its follow-up (with the quote + message)
+    instead of a blank that's held and never sent. Best-effort; never raises."""
+    from .config import settings
+    first = (name or "there").split()[0] if name else "there"
+    producer = settings.producer_name or "Bruno"
+    lead = None
+    try:
+        if fu.entity_type == "lead":
+            lead = db.query(Lead).filter(Lead.id == fu.entity_id).first()
+    except Exception:
+        lead = None
+    seg = (lead.segment or "").lower() if lead else ""
+    cat = (lead.category or "").lower() if lead else ""
+    intake = (lead.intake or {}) if lead else {}
+    is_everquote = cat.startswith("everquote") or (intake.get("source") == "everquote")
+    if lead and is_everquote:
+        eq = intake.get("everquote", {}) if isinstance(intake, dict) else {}
+        carrier = (eq.get("current_carrier") or "").strip()
+        # lead.reason already reads "EverQuote auto lead — 2022 Toyota Camry, currently with GEICO"
+        detail = ""
+        if lead.reason and "—" in lead.reason:
+            detail = lead.reason.split("—", 1)[1].split(",")[0].strip()  # "2022 Toyota Camry"
+        veh = f" for your {detail}" if detail else ""
+        beat = f"I think I can beat what you're paying with {carrier}" if carrier else "I think I can save you money"
+        return (f"Hi {first},\n\n"
+                f"Just following up on the auto insurance quote I put together for you{veh}. "
+                f"{beat} — it only takes two minutes to confirm a couple of details and lock in the price.\n\n"
+                f"Reply here, or call or text me anytime — my number's below. — {producer}")
+    if seg == "consulting":
+        return (f"Hi {first},\n\n"
+                f"Circling back — I'd still love to show you how BnB Global can help your team ship faster "
+                f"without the agency overhead. Worth a quick 15 minutes this week?\n\n"
+                f"Reply here, or call or text me anytime — my number's below. — {producer}")
+    if fu.entity_type == "restaurant":
+        return (f"Hi {first},\n\n"
+                f"Following up on SavoryMind — we help restaurants fill more tables and reach hungry local "
+                f"diners through our consumer app. Can I show you how it works in a quick call?\n\n"
+                f"Reply here, or call or text me anytime — my number's below. — {producer}")
+    return (f"Hi {first},\n\n"
+            f"Just following up to see if you'd like me to put together your insurance quote — it takes "
+            f"about two minutes and could lower what you're paying now.\n\n"
+            f"Reply here, or call or text me anytime — my number's below. — {producer}")
+
+
 def process_due_followups(db: Session, limit: int = 400) -> dict:
     """Execute all due, not-yet-completed follow-ups — HOT LEADS FIRST — across every
     channel in the cadence: email (sent via the dispatcher), SMS (queued as a
     compliance-gated draft), and calls (a task in the call queue). Anyone who already
     replied is skipped and their sequence stops."""
     today = date.today()
-    # Hot leads first: rank due steps by their lead's score (non-lead follow-ups
-    # fall to 0 and run after). Then by due date so older touches don't starve.
+    # EverQuote leads FIRST (in-market paid quote requests — speed-to-lead is the
+    # whole point), then hottest score, then oldest due date so nothing starves.
+    # This matches the EverQuote-first ordering used by the email/SMS/call senders,
+    # so a lead's follow-ups are prioritized the same way its first touch was.
+    everquote_first = case(
+        (func.lower(func.coalesce(Lead.category, "")).like("everquote%"), 0), else_=1)
     due = (db.query(FollowUp)
            .outerjoin(Lead, (FollowUp.entity_type == "lead") & (FollowUp.entity_id == Lead.id))
            .filter(FollowUp.due_date <= today, FollowUp.completed.is_(False))
-           .order_by(func.coalesce(Lead.score, 0).desc(), FollowUp.due_date)
+           .order_by(everquote_first.asc(), func.coalesce(Lead.score, 0).desc(), FollowUp.due_date)
            .limit(limit).all())
     sysp = skills.system_prompt("cold-email")
     sent = texted = tasked = skipped = 0
@@ -154,6 +204,9 @@ def process_due_followups(db: Session, limit: int = 400) -> dict:
 
         # ── Email: generate + send/draft via the shared dispatcher (respects mode). ──
         to_email = next((m.to_email for m in msgs if m.to_email and "@" in (m.to_email or "")), None)
+        if not to_email and fu.entity_type == "lead":
+            _l = _lead_first(db, fu.entity_id)  # fall back to the lead's own email
+            to_email = _l.email if (_l and _l.email and "@" in _l.email) else None
         if not to_email:
             fu.completed = True  # no address to email
             continue
@@ -165,6 +218,11 @@ def process_due_followups(db: Session, limit: int = 400) -> dict:
             system=sysp)
         subject = (art.get("subject") if isinstance(art, dict) else None) or f"Following up ({fu.step})"
         body = art.get("body") if isinstance(art, dict) else None
+        # NEVER send a blank follow-up: if the AI produced nothing, use a compelling
+        # tailored template (referencing their quote for EverQuote leads) so the
+        # follow-up actually goes out instead of being held as blank.
+        if not (body or "").strip():
+            body = _fallback_followup_body(db, fu, name)
 
         msg = outreach.dispatch_email(
             db, entity_type=fu.entity_type, entity_id=fu.entity_id, to_email=to_email,

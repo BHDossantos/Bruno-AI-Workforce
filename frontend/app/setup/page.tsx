@@ -661,6 +661,15 @@ function Setup() {
             <input className="input w-full" placeholder="https://your-site.com/email-header.png"
               value={form.email_header_image || ""} onChange={(e) => set("email_header_image", e.target.value)} />
           </div>
+          <div className="mt-3 border-t border-gray-100 pt-3">
+            <div className="mb-1 text-sm font-medium text-gray-700">📩 Copy me on every email (BCC)</div>
+            <p className="mb-2 text-xs text-gray-500">
+              Every email sent to a customer is blind-copied to this address, so you get a copy of
+              exactly what they received (the customer never sees it). Leave blank to turn it off.
+            </p>
+            <input className="input w-full" placeholder="you@example.com"
+              value={form.outbound_bcc || ""} onChange={(e) => set("outbound_bcc", e.target.value)} />
+          </div>
         </div>
 
         {/* Imported-contacts warm outreach — who to never auto-email */}
