@@ -33,6 +33,18 @@ def _sent_today(db: Session, channel: str) -> int:
         Message.sent_at >= _day_start()).scalar() or 0)
 
 
+def _days_since_last(db: Session, channel: str) -> int | None:
+    """Days since the last outbound message on a channel (None if never). Surfaces a
+    silently stalled channel — e.g. 'no call has actually gone out in 10 days' —
+    which is exactly how a broken carrier/provider hides."""
+    last = db.query(func.max(Message.sent_at)).filter(
+        Message.channel == channel, Message.direction == "outbound",
+        Message.sent_at.isnot(None)).scalar()
+    if not last:
+        return None
+    return (datetime.now(timezone.utc) - last).days
+
+
 def _everquote_backlog(db: Session) -> int:
     """EverQuote leads that still haven't been worked (New/Drafted) — these must
     always be sent FIRST, so any backlog here while other leads get sent is a
@@ -90,6 +102,18 @@ def audit(db: Session) -> dict:
     # CALLS
     calls = {"placed": _sent_today(db, "call"), "cap": int(settings.auto_dial_daily_cap or 0)}
 
+    # Stalled-channel detection — a channel that hasn't ACTUALLY sent anything in days
+    # is the clearest sign a provider quietly broke (e.g. no real call reached the
+    # carrier since a given date). Flag any channel silent for 3+ days.
+    stale_days = {c: _days_since_last(db, c) for c in ("email", "sms", "call")}
+    for chan, label in (("email", "EMAIL"), ("sms", "TEXT"), ("call", "CALL")):
+        d = stale_days[chan]
+        if d is None:
+            issues.append(f"{label}: no {chan} has EVER actually sent — this channel isn't working.")
+        elif d >= 3:
+            issues.append(f"{label}: last {chan} actually sent {d} days ago — the channel looks "
+                          "STALLED (provider/config broke or autopilot is off). Check the carrier.")
+
     # Blanks + EverQuote priority
     blanks = _blanks_held(db)
     eq_backlog = _everquote_backlog(db)
@@ -111,6 +135,7 @@ def audit(db: Session) -> dict:
         "healthy": healthy,
         "paused": paused, "autopilot_on": autopilot,
         "email": email, "sms": sms, "calls": calls,
+        "days_since_last": stale_days,
         "blanks_held": blanks, "everquote_backlog": eq_backlog,
         "issues": issues,
         "generated_at": datetime.now(timezone.utc).isoformat(),
