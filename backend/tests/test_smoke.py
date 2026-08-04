@@ -8132,3 +8132,40 @@ def test_delivery_watchdog_audits_all_three_channels(client, auth_headers):
     assert {"email", "sms", "calls", "blanks_held", "everquote_backlog", "issues", "healthy"} <= set(b)
     assert isinstance(b["issues"], list)
     assert "sent" in b["email"] and "sent" in b["sms"] and "placed" in b["calls"]
+
+
+@requires_db
+def test_everquote_followups_are_first_and_never_blank(monkeypatch):
+    """EverQuote follow-ups must go out FIRST and NEVER blank — even when the AI is
+    down, the follow-up falls back to a tailored body that references their quote."""
+    from app import followups
+    from app.database import SessionLocal
+    from app.models import FollowUp, Lead, Message
+    from datetime import date
+
+    monkeypatch.setattr(followups.client, "complete_json", lambda *a, **k: {})  # AI down
+
+    db = SessionLocal()
+    lid = None
+    try:
+        lead = Lead(segment="personal", category="EverQuote Auto", owner_name="Carmen Ruiz",
+                    email="carmen.followup@x.co", status="Contacted",
+                    reason="EverQuote auto lead — 2015 Nissan Rogue, currently with GEICO",
+                    intake={"source": "everquote", "everquote": {"current_carrier": "GEICO"}})
+        db.add(lead); db.flush(); lid = lead.id
+        db.add(FollowUp(entity_type="lead", entity_id=lid, step=2, due_date=date.today(),
+                        channel="email", completed=False))
+        db.commit()
+        followups.process_due_followups(db)
+        m = (db.query(Message).filter(Message.entity_type == "lead", Message.entity_id == lid,
+                                      Message.channel == "email")
+             .order_by(Message.created_at.desc()).first())
+        assert m is not None and (m.body or "").strip()          # never blank
+        assert "Nissan Rogue" in m.body and "quote" in m.body.lower()  # references their quote
+    finally:
+        if lid is not None:
+            db.query(Message).filter(Message.entity_id == lid).delete(synchronize_session=False)
+            db.query(FollowUp).filter(FollowUp.entity_id == lid).delete(synchronize_session=False)
+            db.query(Lead).filter(Lead.id == lid).delete(synchronize_session=False)
+            db.commit()
+        db.close()
