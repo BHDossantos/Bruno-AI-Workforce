@@ -8039,6 +8039,14 @@ def test_poll_call_outcome_verdicts(monkeypatch):
     out = v.poll_call_outcome("CA3", tries=1, delay=0)
     assert out["status"] == "completed" and "COMPLETED" in out["verdict"]
 
+    # 'in-progress' = the call CONNECTED, not a config failure — the verdict must say
+    # the app side is correct (so we stop chasing credentials) and point at the real
+    # cause (carrier sending the caller-ID to voicemail as spam).
+    monkeypatch.setattr(v, "get_call_status", lambda sid: {"status": "in-progress"})
+    out = v.poll_call_outcome("CA4", tries=1, delay=0)
+    assert out["status"] == "in-progress"
+    assert "correct" in out["verdict"] and "voicemail" in out["verdict"].lower()
+
 
 def test_deliver_blocks_blank_email():
     """A blank/whitespace/None body must NEVER be sent — it goes out as a fully empty

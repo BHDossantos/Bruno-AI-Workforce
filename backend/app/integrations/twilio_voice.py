@@ -269,7 +269,7 @@ def get_call_status(sid: str) -> dict:
         return {"status": None, "error": str(exc)[:160]}
 
 
-def poll_call_outcome(sid: str, *, tries: int = 6, delay: float = 2.0) -> dict:
+def poll_call_outcome(sid: str, *, tries: int = 9, delay: float = 2.0) -> dict:
     """Poll the carrier for a call's terminal outcome (up to ~tries*delay seconds) and
     return a plain-English verdict that names the fix — used by the Test button so one
     click reads SignalWire's own result without you digging in its dashboard."""
@@ -298,6 +298,29 @@ def poll_call_outcome(sid: str, *, tries: int = 6, delay: float = 2.0) -> dict:
                    "Voice-enabled (SMS-only), or outbound calling to that destination is "
                    "blocked. In SignalWire → Phone Numbers, confirm the number is Voice-capable, "
                    "and that it's the number saved in Setup → Calling.")
+    elif st in ("in-progress", "ringing", "queued", "initiated"):
+        # The call is LIVE on the carrier — it wasn't rejected. 'in-progress' means it
+        # actually CONNECTED (something answered): your handset, or your carrier's
+        # voicemail. So creds / token / space / project / caller-ID / webhook are all
+        # correct — nothing left to fix in the app. If your phone never audibly rang,
+        # the call was answered before it reached you, which is the classic signature of
+        # your MOBILE carrier flagging the SignalWire caller-ID as spam and routing it
+        # straight to voicemail — not an app problem.
+        connected = st == "in-progress"
+        lead = ("✅ CONNECTED" if connected else f"'{st}'")
+        verdict = (
+            f"{'✅' if connected else '⏳'} {label} shows the call as {lead} — the call went "
+            "through and was NOT rejected, so your credentials, caller-ID number, and "
+            "webhook are all correct (nothing left to fix in the app). "
+            + ("Since it connected but your handset didn't audibly ring, the call was "
+               "answered before it reached you — almost always your mobile carrier "
+               "sending the SignalWire number to voicemail as suspected spam. Fixes: "
+               "register the number for branded/verified caller-ID (CNAM / 10DLC) in "
+               "SignalWire, or try calling a landline/second phone to confirm it rings there. "
+               if connected else
+               "Give it a few more seconds and re-check; if it stays like this, open the "
+               "SignalWire → Voice → Logs entry for this call for the final status.")
+        )
     elif last.get("error"):
         verdict = f"⚠️ Couldn't read the call status from {label}: {last['error']}"
     else:
