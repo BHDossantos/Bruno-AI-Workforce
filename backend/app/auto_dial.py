@@ -133,9 +133,15 @@ def run(db, per_run_limit: int | None = None) -> dict:
             log.info("auto-dial skipped lead %s: %s", lead.id, err)
             continue
         drop = "leaves your recorded voicemail" if vm else "leaves a spoken message"
+        # Describe what will ACTUALLY happen: with transfers off (default) every answer
+        # gets the voicemail drop; with transfers on, a live answer rings your cell first.
+        if settings.auto_dial_transfer_enabled:
+            action = f"transfers to your cell if answered, {drop} if not"
+        else:
+            action = f"{drop} on answer"
         db.add(Message(channel="call", direction="outbound", entity_type="lead",
                        entity_id=lead.id, from_account="insurance",
-                       body=f"{_MARKER} — transfers to your cell if answered, {drop} if not…",
+                       body=f"{_MARKER} — {action}…",
                        status="Dialing", provider_id=sid,
                        sent_at=datetime.now(timezone.utc)))
         lead.times_contacted = (lead.times_contacted or 0) + 1

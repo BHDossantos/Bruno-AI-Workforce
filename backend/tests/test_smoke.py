@@ -7304,11 +7304,22 @@ def test_auto_dial_transfers_human_and_drops_recorded_voicemail(monkeypatch):
     monkeypatch.setattr(settings, "producer_callback", "(603) 930-8272", raising=False)
     monkeypatch.setattr(settings, "public_base_url", "https://x.run.app", raising=False)
     monkeypatch.setattr(settings, "call_recording_enabled", True, raising=False)
+    # Transfers ON for the transfer assertions (default is now OFF — covered below).
+    monkeypatch.setattr(settings, "auto_dial_transfer_enabled", True, raising=False)
 
     # Human (and 'unknown') → transfer to YOUR phone, normalized to E.164, recorded.
     for ab in ("human", "unknown", ""):
         xml = voice.amd_twiml(ab, "lead-1")
         assert "<Dial" in xml and "+16039308272" in xml and 'callerId="+19781112222"' in xml
+
+    # Transfers OFF (the safe default) → even a live human answer gets the voicemail,
+    # NOT a doomed transfer to a cell that may not ring. This is the SignalWire path
+    # finally honoring auto_dial_transfer_enabled like Plivo/Vonage/SIP already do.
+    monkeypatch.setattr(settings, "producer_voicemail_url", "https://cdn/vm.mp3", raising=False)
+    monkeypatch.setattr(settings, "auto_dial_transfer_enabled", False, raising=False)
+    off = voice.amd_twiml("human", "lead-1")
+    assert "<Play>https://cdn/vm.mp3</Play>" in off and "<Dial" not in off
+    monkeypatch.setattr(settings, "auto_dial_transfer_enabled", True, raising=False)
 
     # Machine + a recorded voicemail → play it, no transfer.
     monkeypatch.setattr(settings, "producer_voicemail_url", "https://cdn/vm.mp3", raising=False)
@@ -7319,6 +7330,15 @@ def test_auto_dial_transfers_human_and_drops_recorded_voicemail(monkeypatch):
     # Machine + no recording → a spoken fallback still leaves a message.
     monkeypatch.setattr(settings, "producer_voicemail_url", "", raising=False)
     assert "<Say>" in voice.amd_twiml("machine_end", None) and voice.voicemail_configured() is False
+
+    # A live-answer transfer must carry an action URL so a failed transfer (your cell
+    # not ringing) falls through to a callback message instead of dropping the lead.
+    monkeypatch.setattr(settings, "producer_voicemail_url", "https://cdn/vm.mp3", raising=False)
+    human = voice.amd_twiml("human", "lead-1")
+    assert "/calls/amd-transfer-result" in human
+    # transfer_missed leaves the live caller a spoken promise + the recorded drop.
+    missed = voice.transfer_missed_twiml()
+    assert "<Say>" in missed and "<Play>https://cdn/vm.mp3</Play>" in missed
 
     # Recording flow captures audio and posts it back to be saved.
     rec = voice.record_vm_twiml()
@@ -8038,6 +8058,14 @@ def test_poll_call_outcome_verdicts(monkeypatch):
     monkeypatch.setattr(v, "get_call_status", lambda sid: {"status": "completed", "duration": "12"})
     out = v.poll_call_outcome("CA3", tries=1, delay=0)
     assert out["status"] == "completed" and "COMPLETED" in out["verdict"]
+
+    # 'in-progress' = the call CONNECTED, not a config failure — the verdict must say
+    # the app side is correct (so we stop chasing credentials) and point at the real
+    # cause (carrier sending the caller-ID to voicemail as spam).
+    monkeypatch.setattr(v, "get_call_status", lambda sid: {"status": "in-progress"})
+    out = v.poll_call_outcome("CA4", tries=1, delay=0)
+    assert out["status"] == "in-progress"
+    assert "correct" in out["verdict"] and "voicemail" in out["verdict"].lower()
 
 
 def test_deliver_blocks_blank_email():

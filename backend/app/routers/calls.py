@@ -384,6 +384,34 @@ async def dial_status(request: Request, lead_id: str = "", db: Session = Depends
     return Response("", media_type=_XML)
 
 
+@router.api_route("/amd-transfer-result", methods=["GET", "POST"])
+async def amd_transfer_result(request: Request, lead_id: str = "", db: Session = Depends(get_db)):
+    """<Dial action> for an auto-dial LIVE answer — fired after we tried to transfer the
+    lead to the producer's cell. If the transfer connected, end quietly. If it WASN'T
+    answered (the 'my phone never rang' failure — cell screened / on DND / forwarded),
+    don't leave the live lead in dead air: play a callback message + our recorded
+    voicemail, and record on the timeline that a live answer couldn't be transferred, so
+    a silently-failing producer line is visible instead of just lost leads."""
+    try:
+        _refresh(db)
+        form = await request.form()
+        sid = form.get("CallSid")
+        dial = (form.get("DialCallStatus") or "").strip().lower()
+        if dial == "completed":
+            return Response("", media_type=_XML)  # transfer connected — nothing to add
+        if sid:
+            msg = (db.query(Message).filter(Message.provider_id == sid,
+                                            Message.channel == "call").first())
+            if msg:
+                msg.body = ("📞 Live answer — but the transfer to your cell wasn't picked up "
+                            f"({dial or 'no-answer'}); left the caller a callback message. If "
+                            "this repeats, your cell isn't ringing (screening / DND / forwarding).")
+                db.commit()
+        return Response(voice.transfer_missed_twiml(), media_type=_XML)
+    except Exception:  # never hand the carrier a 5xx — leave the caller a message anyway
+        return Response(voice.transfer_missed_twiml(), media_type=_XML)
+
+
 @router.post("/status")
 async def call_status(request: Request, lead_id: str = "", db: Session = Depends(get_db)):
     """Call status callback — record what SignalWire/Twilio ACTUALLY did with the
