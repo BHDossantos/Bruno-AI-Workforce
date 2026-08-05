@@ -7304,11 +7304,22 @@ def test_auto_dial_transfers_human_and_drops_recorded_voicemail(monkeypatch):
     monkeypatch.setattr(settings, "producer_callback", "(603) 930-8272", raising=False)
     monkeypatch.setattr(settings, "public_base_url", "https://x.run.app", raising=False)
     monkeypatch.setattr(settings, "call_recording_enabled", True, raising=False)
+    # Transfers ON for the transfer assertions (default is now OFF — covered below).
+    monkeypatch.setattr(settings, "auto_dial_transfer_enabled", True, raising=False)
 
     # Human (and 'unknown') → transfer to YOUR phone, normalized to E.164, recorded.
     for ab in ("human", "unknown", ""):
         xml = voice.amd_twiml(ab, "lead-1")
         assert "<Dial" in xml and "+16039308272" in xml and 'callerId="+19781112222"' in xml
+
+    # Transfers OFF (the safe default) → even a live human answer gets the voicemail,
+    # NOT a doomed transfer to a cell that may not ring. This is the SignalWire path
+    # finally honoring auto_dial_transfer_enabled like Plivo/Vonage/SIP already do.
+    monkeypatch.setattr(settings, "producer_voicemail_url", "https://cdn/vm.mp3", raising=False)
+    monkeypatch.setattr(settings, "auto_dial_transfer_enabled", False, raising=False)
+    off = voice.amd_twiml("human", "lead-1")
+    assert "<Play>https://cdn/vm.mp3</Play>" in off and "<Dial" not in off
+    monkeypatch.setattr(settings, "auto_dial_transfer_enabled", True, raising=False)
 
     # Machine + a recorded voicemail → play it, no transfer.
     monkeypatch.setattr(settings, "producer_voicemail_url", "https://cdn/vm.mp3", raising=False)

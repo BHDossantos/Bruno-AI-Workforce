@@ -367,11 +367,17 @@ def transfer_missed_twiml() -> str:
 
 
 def amd_twiml(answered_by: str | None, lead_id: str | None) -> str:
-    """After Twilio detects who answered our call to the lead:
-      • human  → transfer to the producer's phone (bridged + recorded), or
-      • machine → play the producer's recorded voicemail (real voice), then hang up."""
+    """After the carrier detects who answered our call to the lead:
+      • human + transfers ON → transfer to the producer's phone (bridged + recorded);
+      • machine, OR transfers OFF → play the producer's recorded voicemail (real voice).
+
+    Honors ``auto_dial_transfer_enabled`` exactly like the Plivo/Vonage/SIP paths do —
+    when it's off (the safe default), EVERY answered call gets the voicemail drop instead
+    of ringing a cell that may be screened/unreachable, so leads reliably hear your
+    message even when the carrier's machine-detection is unsure (it often reports
+    'unknown', which we'd otherwise treat as a human and try to transfer)."""
     base = _base_url()
-    if _amd_is_human(answered_by):
+    if settings.auto_dial_transfer_enabled and _amd_is_human(answered_by):
         num = _transfer_number()   # transfer a live answer to the producer's cell
         attrs = f' callerId="{_e164(_voice_number())}" timeout="25"'
         if settings.call_recording_enabled and base:
@@ -387,7 +393,8 @@ def amd_twiml(answered_by: str | None, lead_id: str | None) -> str:
         return _xml('<Say>Please hold — connecting you with a licensed insurance producer. '
                     'This call may be recorded for quality.</Say>'
                     f'<Dial{attrs}>{num}</Dial>')
-    # Machine → leave the recorded voicemail (your real voice), else a spoken fallback.
+    # Machine answered, OR transfers are off → leave the recorded voicemail (your real
+    # voice), else a spoken fallback. This is the path that reliably lands your message.
     vm = settings.producer_voicemail_url
     return _xml(f'<Play>{vm}</Play>' if vm else f'<Say>{_vm_fallback_text()}</Say>')
 
