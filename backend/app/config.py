@@ -311,7 +311,12 @@ class Settings(BaseSettings):
     # Auto-send a warm intro text when a lead replies to our email (becomes warm).
     sms_auto_on_reply: bool = True
     # SMS compliance + deliverability guards (applied to every autonomous/bulk send).
-    sms_daily_send_cap: int = 50           # max texts per day across all numbers
+    # Max texts/day across all numbers. Raised 50→200 for higher volume, but texting
+    # can't safely match email's 600: carriers throttle/BLOCK high-volume SMS from a
+    # number that isn't A2P 10DLC-registered (the same number-reputation issue that
+    # sends the calls to voicemail). 200/day is an aggressive-but-survivable step for a
+    # standard number; going higher needs A2P 10DLC brand/campaign registration first.
+    sms_daily_send_cap: int = 200          # max texts per day across all numbers
     sms_send_window_start: int = 8         # earliest local hour to text (TCPA: 8am)
     sms_send_window_end: int = 21          # latest local hour to text (TCPA: 9pm)
     sms_timezone: str = "America/New_York"  # recipient tz (NH/MA/FL are all Eastern)
@@ -554,8 +559,12 @@ class Settings(BaseSettings):
     # so total emails/day from the domain never spike — spikes from a fresh domain
     # get the whole domain flagged as spam by Gmail/Outlook.
     #
-    # Steady-state cap once warmed:
-    email_daily_send_cap: int = 70
+    # Steady-state cap once warmed. 600/day: the domain already sustained 300–500/day
+    # during the initial ramp below, so 600 is a small step up (not a spike) and safe
+    # for a warmed domain. Combined with 24/7 hourly sending this spreads ~25/hr across
+    # the day — smooth, inbox-friendly volume. Raise further only in steps while
+    # watching bounce/spam rates on the deliverability screen.
+    email_daily_send_cap: int = 600
     # One-off warm-up ramp to clear an initial backlog on a fresh domain WITHOUT
     # getting flagged: a comma list of per-day caps counted from email_rampup_start
     # (element 0 = the start date, element 1 = the next day, …). After the list is
