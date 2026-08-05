@@ -347,6 +347,25 @@ def _vm_fallback_text() -> str:
             "Thank you and talk soon.")
 
 
+def _transfer_missed_text() -> str:
+    """Said to a LIVE lead when the transfer to the producer's cell wasn't answered."""
+    return (f"I'm sorry, {settings.producer_name} just stepped away for a moment. "
+            "He'll call you right back very shortly about your insurance quote. "
+            "Thank you for your patience.")
+
+
+def transfer_missed_twiml() -> str:
+    """Played to a LIVE lead when the transfer to the producer's cell isn't picked up —
+    so an interested human who answered hears a real callback promise (plus the recorded
+    voicemail if we have one) instead of dead air. A dropped live answer is the single
+    worst outcome of the transfer leg failing (the producer's cell is screened / on DND /
+    forwarded), so we always leave the caller something."""
+    body = f'<Say>{_transfer_missed_text()}</Say>'
+    if settings.producer_voicemail_url:
+        body += f'<Play>{settings.producer_voicemail_url}</Play>'
+    return _xml(body)
+
+
 def amd_twiml(answered_by: str | None, lead_id: str | None) -> str:
     """After Twilio detects who answered our call to the lead:
       • human  → transfer to the producer's phone (bridged + recorded), or
@@ -354,14 +373,20 @@ def amd_twiml(answered_by: str | None, lead_id: str | None) -> str:
     base = _base_url()
     if _amd_is_human(answered_by):
         num = _transfer_number()   # transfer a live answer to the producer's cell
-        rec = ""
+        attrs = f' callerId="{_e164(_voice_number())}" timeout="25"'
         if settings.call_recording_enabled and base:
-            rec = (' record="record-from-answer-dual"'
-                   f' recordingStatusCallback="{base}/calls/recording'
-                   f'{("?lead_id=" + lead_id) if lead_id else ""}"')
+            attrs += (' record="record-from-answer-dual"'
+                      f' recordingStatusCallback="{base}/calls/recording'
+                      f'{("?lead_id=" + lead_id) if lead_id else ""}"')
+        # When the transfer to your cell isn't answered, control returns here — hand it
+        # to /amd-transfer-result so the LIVE lead gets a callback message instead of
+        # dead air (and we log that your cell didn't ring). Needs base to be reachable.
+        if base:
+            attrs += (f' action="{base}/calls/amd-transfer-result'
+                      f'{("?lead_id=" + lead_id) if lead_id else ""}"')
         return _xml('<Say>Please hold — connecting you with a licensed insurance producer. '
                     'This call may be recorded for quality.</Say>'
-                    f'<Dial callerId="{_e164(_voice_number())}" timeout="25"{rec}>{num}</Dial>')
+                    f'<Dial{attrs}>{num}</Dial>')
     # Machine → leave the recorded voicemail (your real voice), else a spoken fallback.
     vm = settings.producer_voicemail_url
     return _xml(f'<Play>{vm}</Play>' if vm else f'<Say>{_vm_fallback_text()}</Say>')

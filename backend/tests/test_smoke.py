@@ -7320,6 +7320,15 @@ def test_auto_dial_transfers_human_and_drops_recorded_voicemail(monkeypatch):
     monkeypatch.setattr(settings, "producer_voicemail_url", "", raising=False)
     assert "<Say>" in voice.amd_twiml("machine_end", None) and voice.voicemail_configured() is False
 
+    # A live-answer transfer must carry an action URL so a failed transfer (your cell
+    # not ringing) falls through to a callback message instead of dropping the lead.
+    monkeypatch.setattr(settings, "producer_voicemail_url", "https://cdn/vm.mp3", raising=False)
+    human = voice.amd_twiml("human", "lead-1")
+    assert "/calls/amd-transfer-result" in human
+    # transfer_missed leaves the live caller a spoken promise + the recorded drop.
+    missed = voice.transfer_missed_twiml()
+    assert "<Say>" in missed and "<Play>https://cdn/vm.mp3</Play>" in missed
+
     # Recording flow captures audio and posts it back to be saved.
     rec = voice.record_vm_twiml()
     assert "<Record" in rec and "/calls/vm-saved" in rec
