@@ -158,9 +158,12 @@ def _flush_hot_drafts(db):
         return {"skipped": "paused"}
     if control.get_mode(db) != "auto" and not control.outreach_autopilot(db):
         return {"skipped": "auto-send off (turn on Outreach Autopilot to enable)"}
-    # Email: 50/run × 13 hourly runs (8am–8pm) = up to 650/day of capacity, held
-    # under the ramp-aware daily cap by send_email_drafts — so the day's volume
-    # spreads across the day (good for deliverability) and never exceeds the cap.
+    # Email: 50/run × 24 hourly runs (round-the-clock) = up to 1200/day of capacity,
+    # held under the ramp-aware daily cap by send_email_drafts — so the day's volume
+    # spreads across all 24 hours (email has no legal quiet-hours; smooth 24/7 sending
+    # is BETTER for deliverability than daytime bursts) and never exceeds the cap.
+    # Text: send_sms_drafts self-gates to the legal 8am–9pm window (TCPA), so texts only
+    # go out during legal hours even though this now runs around the clock for email.
     # Insurance-only: send ONLY insurance drafts so any leftover other-business
     # drafts in the queue never go out from the insurance domain.
     acct = "insurance" if _insurance_only() else None
@@ -289,15 +292,18 @@ _JOBS: dict[str, tuple] = {
     # compliance rails (opt-out, 8am-9pm window, daily cap, cooldown).
     "auto_dial":        (_run_auto_dial, "* 8-20 * * *"),
     # Draft the first-touch email + SMS for EverQuote leads that don't have one yet
-    # (the opener flush_drafts sends). Hourly during the day so a lead imported
-    # before this ran, or without going through the import path, still gets queued.
-    "everquote_drafts": (_everquote_drafts, "10 8-20 * * *"),
+    # (the opener flush_drafts sends). Hourly around the clock so a lead imported at
+    # any hour — including overnight — has its opener queued and ready to send the
+    # moment it's legal. Drafting has no compliance concern; only the send does.
+    "everquote_drafts": (_everquote_drafts, "10 * * * *"),
     # Drain the outreach backlog (leads + restaurants + warm contacts), 2×/day.
     "auto_outreach":    (_auto_outreach, "30 9,15 * * *"),
-    # Auto-send personalized DRAFTS — hot leads first — hourly during the day so a
-    # fresh EverQuote lead gets its first email/text fast (speed wins). Only acts
-    # when Outreach Autopilot / full-auto is on; otherwise drafts wait for review.
-    "flush_drafts":     (_flush_hot_drafts, "20 8-20 * * *"),
+    # Auto-send personalized DRAFTS — hot leads first — EVERY hour, 24/7, so a fresh
+    # EverQuote lead gets its first email the moment it's queued (speed wins) and email
+    # sends non-stop around the clock. Texts inside this run self-gate to the legal
+    # 8am–9pm window (TCPA). Only acts when Outreach Autopilot / full-auto is on;
+    # otherwise drafts wait for review.
+    "flush_drafts":     (_flush_hot_drafts, "20 * * * *"),
     # Per-funnel newsletters to warm repliers, Mon/Wed/Fri.
     "newsletters":      (_run_newsletters, "0 11 * * 1,3,5"),
     # Build any due music release kit (release-as-eras), daily.
