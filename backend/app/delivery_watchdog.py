@@ -79,6 +79,7 @@ def audit(db: Session) -> dict:
 
     # EMAIL
     email = {"sent": 0, "cap": 0, "backlog": 0}
+    reputation: dict = {}
     try:
         from . import deliverability
         snap = deliverability.snapshot(db)
@@ -88,6 +89,16 @@ def audit(db: Session) -> dict:
             issues.append("EMAIL: no sender connected — nothing can send. Connect Resend/Gmail in Setup.")
         elif email["backlog"] and email["sent"] == 0:
             issues.append(f"EMAIL: {email['backlog']} queued but 0 sent today — the sender may be stuck.")
+        # Auto-watch sender reputation so nobody has to stare at the dashboard — critical
+        # now that daily volume is high. warn/bad bounce/complaint rate → loud issue with
+        # the numbers + fix, so a domain heading for spam-jail surfaces on its own.
+        reputation = snap.get("reputation") or {}
+        if reputation.get("tone") in ("warn", "bad"):
+            sev = "HIGH" if reputation.get("tone") == "bad" else "rising"
+            issues.append(
+                f"DELIVERABILITY ({sev}): bounce {reputation.get('bounce_rate')}% / complaint "
+                f"{reputation.get('complaint_rate')}% over the last week — "
+                f"{reputation.get('note', 'trending toward spam filters; slow the send / clean the list.')}")
     except Exception as exc:
         issues.append(f"EMAIL: audit failed — {str(exc)[:120]}")
 
@@ -135,6 +146,7 @@ def audit(db: Session) -> dict:
         "healthy": healthy,
         "paused": paused, "autopilot_on": autopilot,
         "email": email, "sms": sms, "calls": calls,
+        "reputation": reputation,
         "days_since_last": stale_days,
         "blanks_held": blanks, "everquote_backlog": eq_backlog,
         "issues": issues,
