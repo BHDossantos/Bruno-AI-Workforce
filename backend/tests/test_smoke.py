@@ -8157,9 +8157,34 @@ def test_delivery_watchdog_audits_all_three_channels(client, auth_headers):
     r = client.get("/deliverability/watchdog", headers=auth_headers)
     assert r.status_code == 200
     b = r.json()
-    assert {"email", "sms", "calls", "blanks_held", "everquote_backlog", "issues", "healthy"} <= set(b)
+    assert {"email", "sms", "calls", "reputation", "blanks_held", "everquote_backlog",
+            "issues", "healthy"} <= set(b)
     assert isinstance(b["issues"], list)
     assert "sent" in b["email"] and "sent" in b["sms"] and "placed" in b["calls"]
+
+
+@requires_db
+def test_delivery_watchdog_flags_bad_reputation(monkeypatch):
+    """A warn/bad bounce-or-complaint rate must surface as a loud DELIVERABILITY issue
+    on its own — so nobody has to watch the dashboard, especially at high volume."""
+    from app import delivery_watchdog
+    from app.database import SessionLocal
+
+    monkeypatch.setattr(delivery_watchdog, "_days_since_last", lambda db, c: 0)
+    def _snap(db):
+        return {"sent_today": 40, "daily_cap": 600, "backlog": 0, "can_send": True,
+                "reputation": {"tone": "bad", "bounce_rate": 7.1, "complaint_rate": 0.4,
+                               "note": "Bounce/complaint rate is high — slow the send."}}
+    import app.deliverability as deliverability
+    monkeypatch.setattr(deliverability, "snapshot", _snap)
+
+    db = SessionLocal()
+    try:
+        rep = delivery_watchdog.audit(db)
+        assert rep["reputation"]["tone"] == "bad"
+        assert any("DELIVERABILITY" in i and "7.1%" in i for i in rep["issues"])
+    finally:
+        db.close()
 
 
 @requires_db
