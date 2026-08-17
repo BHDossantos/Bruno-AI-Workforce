@@ -12,9 +12,12 @@ from ..models import ActionLog, Agent, FollowUp, Message, Task
 log = logging.getLogger("bruno.agents")
 
 # Follow-up cadence: the first touch (Day 0) is sent by the agent; these are the
-# 7 automated follow-up steps, every 2 days for ~2 weeks (days 2,4,6,8,10,12,14
-# from first contact). Anyone who replies is dropped from the sequence.
-FOLLOW_UP_OFFSETS = {1: 2, 2: 4, 3: 6, 4: 8, 5: 10, 6: 12, 7: 14}
+# 7 automated follow-up steps. FRONT-LOADED on purpose — speed-to-lead is the single
+# biggest conversion factor for time-sensitive quote shoppers, so we hit hard in the
+# first 4 days (days 1, 2, 4 = three touches that first week) then taper to a day-21
+# breakup, instead of an even every-2-days drip that lands the first follow-up too late.
+# Anyone who replies is dropped from the sequence.
+FOLLOW_UP_OFFSETS = {1: 1, 2: 2, 3: 4, 4: 7, 5: 10, 6: 14, 7: 21}
 
 
 class BaseAgent:

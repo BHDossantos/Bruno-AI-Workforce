@@ -145,12 +145,15 @@ def test_followup_cadence_has_distinct_purposes():
     assert _STEP_PURPOSE[1] != _STEP_PURPOSE[2]
 
 
-def test_followup_cadence_is_every_two_days_for_seven_touches():
-    """Automated follow-ups fire every 2 days for ~2 weeks (7 touches: days
-    2,4,6,8,10,12,14 from first contact) — the user's requested cadence."""
+def test_followup_cadence_is_front_loaded_for_seven_touches():
+    """Automated follow-ups are FRONT-LOADED for speed-to-lead: 7 touches on days
+    1,2,4,7,10,14,21 — three in the first four days, then tapering to a day-21
+    breakup, so the first follow-up lands next-day instead of on day 2."""
     from app.agents.base import FOLLOW_UP_OFFSETS
     assert sorted(FOLLOW_UP_OFFSETS.keys()) == [1, 2, 3, 4, 5, 6, 7]
-    assert [FOLLOW_UP_OFFSETS[s] for s in range(1, 8)] == [2, 4, 6, 8, 10, 12, 14]
+    assert [FOLLOW_UP_OFFSETS[s] for s in range(1, 8)] == [1, 2, 4, 7, 10, 14, 21]
+    # Front-loaded: three touches inside the first four days.
+    assert sum(1 for s in range(1, 8) if FOLLOW_UP_OFFSETS[s] <= 4) == 3
 
 
 @requires_db
