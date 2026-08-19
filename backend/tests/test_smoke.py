@@ -5570,8 +5570,10 @@ def test_auto_dial_everquote_round_robin_continues_next_day(client, auth_headers
 @requires_db
 def test_everquote_leads_fire_first_in_send_and_dispatch(client, auth_headers):
     """EverQuote leads (category 'EverQuote Auto') send FIRST in the email queue —
-    ahead of an equally-hot, even higher-scored non-EverQuote lead. Speed-to-lead:
-    the paid in-market quote requests go before anything else in the day's 200."""
+    ABOVE EVERYTHING, even a hotter non-EverQuote lead in a higher temperature band.
+    Here the EverQuote lead is only WARM while the other is HOT + higher-scored, so
+    ONLY 'EverQuote above all bands' can rank it first. Speed-to-lead: the paid
+    in-market quote requests go before anything else in the day's send."""
     from datetime import datetime, timezone
 
     from app import lead_temperature
@@ -5585,10 +5587,11 @@ def test_everquote_leads_fire_first_in_send_and_dispatch(client, auth_headers):
     try:
         db.query(Lead).filter(Lead.email.in_([eq_email, other_email])).delete(synchronize_session=False)
         db.commit()
-        # Both are HOT. The non-EverQuote one is even hotter by score + older draft,
-        # so ONLY the EverQuote-first rule can put the EverQuote lead ahead.
-        eq = Lead(segment="personal", email=eq_email, status="New", score=92,
-                  category="EverQuote Auto", times_contacted=0)
+        # The EverQuote lead is only WARM; the non-EverQuote lead is HOT + higher-scored
+        # + older draft. Under band-first ordering the hot lead would win — so this only
+        # passes if EverQuote outranks the temperature band entirely.
+        eq = Lead(segment="personal", email=eq_email, status="Replied", score=30,
+                  category="EverQuote Auto", times_contacted=1)
         other = Lead(segment="commercial", email=other_email, status="New", score=99,
                      category="Insurance", times_contacted=0)
         db.add_all([eq, other]); db.commit()
