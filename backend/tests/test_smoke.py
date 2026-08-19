@@ -1471,6 +1471,38 @@ def test_sms_configured_accepts_either_number():
          settings.twilio_from_number, settings.twilio_insurance_number) = orig
 
 
+def test_sms_send_normalizes_from_and_to_to_e164(monkeypatch):
+    """A From/To stored WITH formatting must be normalized to E.164 before the send —
+    otherwise SignalWire rejects it with 21212 'From invalid format' (the real bug that
+    silently killed texting). Mirrors the voice caller-ID guard."""
+    from app.config import settings
+    from app.integrations import sms
+
+    # Force SignalWire with a from-number saved WITH punctuation (the failing case).
+    monkeypatch.setattr(settings, "sms_provider", "signalwire", raising=False)
+    monkeypatch.setattr(settings, "signalwire_space_url", "x.signalwire.com", raising=False)
+    monkeypatch.setattr(settings, "signalwire_project_id", "proj", raising=False)
+    monkeypatch.setattr(settings, "signalwire_api_token", "PTtoken", raising=False)
+    monkeypatch.setattr(settings, "signalwire_from_number", "(978) 824-4228", raising=False)
+    monkeypatch.setattr(settings, "signalwire_insurance_number", "", raising=False)
+    monkeypatch.setattr(settings, "public_base_url", "", raising=False)
+
+    captured = {}
+    class _Resp:
+        status_code = 201
+        def json(self):  # noqa: D401
+            return {"sid": "SM1"}
+    def _fake_post(url, data=None, auth=None, timeout=None):
+        captured.update(data or {})
+        return _Resp()
+    monkeypatch.setattr(sms.httpx, "post", _fake_post)
+
+    sid, err = sms.send_with_error("(617) 555-1234", "hello", account="insurance")
+    assert err is None and sid == "SM1"
+    assert captured["From"] == "+19788244228"   # was "(978) 824-4228"
+    assert captured["To"] == "+16175551234"      # was "(617) 555-1234"
+
+
 def test_plivo_backup_sms_provider_routing(monkeypatch):
     """The Plivo backup: texting is 'configured' if EITHER provider is connected, and
     send_with_error routes to Plivo when it's the selected provider (or, in 'auto',

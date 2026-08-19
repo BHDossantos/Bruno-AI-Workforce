@@ -7,12 +7,27 @@ no-ops cleanly when Twilio isn't configured.
 from __future__ import annotations
 
 import logging
+import re
 
 import httpx
 
 from ..config import settings
 
 log = logging.getLogger("bruno.sms")
+
+
+def _e164(phone: str | None) -> str:
+    """Normalize a US phone to E.164 (+1XXXXXXXXXX). A 'From' or 'To' stored with
+    formatting — '(978) 824-4228', '978-824-4228', or a bare '9788244228' — is exactly
+    what makes SignalWire/Twilio reject the send with 21212 'From invalid format'. The
+    carrier requires E.164, so normalize both numbers before the send (the voice path
+    already does this; SMS didn't, which silently broke texting on a formatted number)."""
+    d = re.sub(r"\D", "", phone or "")
+    if len(d) == 11 and d.startswith("1"):
+        return "+" + d
+    if len(d) == 10:
+        return "+1" + d
+    return ("+" + d) if d else ""
 
 
 def _sid() -> str:
@@ -89,10 +104,14 @@ def send_with_error(to: str, body: str, account: str = "personal") -> tuple[str 
         return None, "no recipient phone"
     if not body:
         return None, "empty message"
-    if not number_for(account):
+    # E.164-normalize BOTH numbers — a From stored as "(978)…" is the 21212 "From
+    # invalid format" reject; a To with formatting fails the same way (21211/21214).
+    from_num = _e164(number_for(account))
+    to_num = _e164(to) or to
+    if not from_num:
         return None, f"no {telco.label()} 'from' number set"
     url = telco.api_url("Messages.json")
-    data = {"To": to, "From": number_for(account), "Body": body}
+    data = {"To": to_num, "From": from_num, "Body": body}
     # Ask the carrier to report the REAL delivery outcome (delivered/undelivered/
     # failed) to our webhook, so the app can show whether the text actually landed —
     # not just that it was accepted. No callback set → we'd only ever know "handed off".
