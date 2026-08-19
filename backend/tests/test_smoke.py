@@ -145,12 +145,15 @@ def test_followup_cadence_has_distinct_purposes():
     assert _STEP_PURPOSE[1] != _STEP_PURPOSE[2]
 
 
-def test_followup_cadence_is_every_two_days_for_seven_touches():
-    """Automated follow-ups fire every 2 days for ~2 weeks (7 touches: days
-    2,4,6,8,10,12,14 from first contact) — the user's requested cadence."""
+def test_followup_cadence_is_front_loaded_for_seven_touches():
+    """Automated follow-ups are FRONT-LOADED for speed-to-lead: 7 touches on days
+    1,2,4,7,10,14,21 — three in the first four days, then tapering to a day-21
+    breakup, so the first follow-up lands next-day instead of on day 2."""
     from app.agents.base import FOLLOW_UP_OFFSETS
     assert sorted(FOLLOW_UP_OFFSETS.keys()) == [1, 2, 3, 4, 5, 6, 7]
-    assert [FOLLOW_UP_OFFSETS[s] for s in range(1, 8)] == [2, 4, 6, 8, 10, 12, 14]
+    assert [FOLLOW_UP_OFFSETS[s] for s in range(1, 8)] == [1, 2, 4, 7, 10, 14, 21]
+    # Front-loaded: three touches inside the first four days.
+    assert sum(1 for s in range(1, 8) if FOLLOW_UP_OFFSETS[s] <= 4) == 3
 
 
 @requires_db
@@ -5567,8 +5570,10 @@ def test_auto_dial_everquote_round_robin_continues_next_day(client, auth_headers
 @requires_db
 def test_everquote_leads_fire_first_in_send_and_dispatch(client, auth_headers):
     """EverQuote leads (category 'EverQuote Auto') send FIRST in the email queue —
-    ahead of an equally-hot, even higher-scored non-EverQuote lead. Speed-to-lead:
-    the paid in-market quote requests go before anything else in the day's 200."""
+    ABOVE EVERYTHING, even a hotter non-EverQuote lead in a higher temperature band.
+    Here the EverQuote lead is only WARM while the other is HOT + higher-scored, so
+    ONLY 'EverQuote above all bands' can rank it first. Speed-to-lead: the paid
+    in-market quote requests go before anything else in the day's send."""
     from datetime import datetime, timezone
 
     from app import lead_temperature
@@ -5582,10 +5587,11 @@ def test_everquote_leads_fire_first_in_send_and_dispatch(client, auth_headers):
     try:
         db.query(Lead).filter(Lead.email.in_([eq_email, other_email])).delete(synchronize_session=False)
         db.commit()
-        # Both are HOT. The non-EverQuote one is even hotter by score + older draft,
-        # so ONLY the EverQuote-first rule can put the EverQuote lead ahead.
-        eq = Lead(segment="personal", email=eq_email, status="New", score=92,
-                  category="EverQuote Auto", times_contacted=0)
+        # The EverQuote lead is only WARM; the non-EverQuote lead is HOT + higher-scored
+        # + older draft. Under band-first ordering the hot lead would win — so this only
+        # passes if EverQuote outranks the temperature band entirely.
+        eq = Lead(segment="personal", email=eq_email, status="Replied", score=30,
+                  category="EverQuote Auto", times_contacted=1)
         other = Lead(segment="commercial", email=other_email, status="New", score=99,
                      category="Insurance", times_contacted=0)
         db.add_all([eq, other]); db.commit()

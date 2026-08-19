@@ -109,12 +109,16 @@ def dispatch_order(model):
 def send_priority_order(Lead, Message):
     """ORDER BY clauses for the auto-send queue — the operator's stated priority:
 
-        new HOT & uncontacted → HOT needing follow-up → WARM → COLD  (dead last)
+        EVERQUOTE (all of it) → then new HOT & uncontacted → HOT follow-up → WARM → COLD
 
-    Within a tier: uncontacted first, then hottest score, then the oldest draft
-    (fair pacing). Pass the Lead + Message models. Lead may be OUTER-joined, so its
-    columns can be NULL for non-lead drafts → those fall into the cold tier.
-    Splat into a query: ``.order_by(*send_priority_order(Lead, Message))``."""
+    EverQuote is FIRST above everything else — a warm EverQuote lead outranks even a hot
+    non-EverQuote lead — because EverQuote leads are paid, in-market quote requests and
+    speed-to-lead is the whole game. Only after every EverQuote lead is worked does the
+    normal hot→warm→cold order apply. Within a group: uncontacted first, then hottest
+    score, then the oldest draft (fair pacing). Matches dispatch_order (calls), so email,
+    text, and calls all fire EverQuote first. Pass the Lead + Message models. Lead may be
+    OUTER-joined, so its columns can be NULL for non-lead drafts → those fall into the
+    cold tier. Splat into a query: ``.order_by(*send_priority_order(Lead, Message))``."""
     from sqlalchemy import case, func
     score = func.coalesce(Lead.score, 0)
     status = func.lower(func.coalesce(Lead.status, ""))
@@ -125,13 +129,13 @@ def send_priority_order(Lead, Message):
         else_=2,                                               # cold / new / unknown
     )
     contacted = func.coalesce(Lead.times_contacted, 0)
-    # Within the same temperature band, EverQuote (in-market, paid quote requests)
-    # go FIRST — speed-to-lead is the whole point. EverQuote leads are stamped
-    # category "EverQuote Auto", so match that prefix. The day's send fires EverQuote
-    # before any other hot lead, then the normal hot→warm→cold order.
+    # EverQuote (in-market, paid quote requests) go FIRST, above every temperature band —
+    # speed-to-lead is the whole point. EverQuote leads are stamped category "EverQuote
+    # Auto", so match that prefix. The day's send drains EverQuote entirely before any
+    # other lead, then falls through to the normal hot→warm→cold order.
     category = func.lower(func.coalesce(Lead.category, ""))
     everquote_first = case((category.like("everquote%"), 0), else_=1)
-    # band → EverQuote-first → uncontacted-first → hottest score → oldest draft.
-    return [band.asc(), everquote_first.asc(), contacted.asc(), score.desc(),
+    # EverQuote-first (above all) → band → uncontacted-first → hottest score → oldest draft.
+    return [everquote_first.asc(), band.asc(), contacted.asc(), score.desc(),
             Message.created_at.asc()]
 
