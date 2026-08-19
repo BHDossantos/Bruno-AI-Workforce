@@ -8201,6 +8201,10 @@ def test_linkedin_founder_posts_once_daily_with_gates(monkeypatch):
         posted.clear()
         r2 = linkedin_founder.run(db)
         assert r2.get("skipped") == "already posted today" and "msg" not in posted
+
+        # force=True (the manual 'Post now' path) bypasses the daily cap for a test.
+        r3 = linkedin_founder.run(db, force=True)
+        assert r3.get("published") == 1 and "msg" in posted
     finally:
         db.query(ContentItem).filter(ContentItem.business == "bnbglobal",
                                      ContentItem.channel == "linkedin").delete(synchronize_session=False)
