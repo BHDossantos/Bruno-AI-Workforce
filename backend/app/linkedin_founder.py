@@ -99,9 +99,11 @@ def _recent_openings(db: Session, limit: int = 10) -> str:
     return " | ".join(firsts) if firsts else "none yet"
 
 
-def run(db: Session) -> dict:
+def run(db: Session, *, force: bool = False) -> dict:
     """Generate + publish ONE BnB founder LinkedIn post for today (with an image),
-    unless it's already been posted. No-ops cleanly when unavailable."""
+    unless it's already been posted. ``force`` bypasses the once-a-day cap for a manual
+    'Post now' test (the scheduler always calls with force=False). No-ops cleanly when
+    unavailable."""
     from . import control, media
     from .ai import client
     from .integrations import linkedin_api
@@ -114,7 +116,7 @@ def run(db: Session) -> dict:
         return {"skipped": "AI not connected"}
     if not linkedin_api.is_connected(db):
         return {"skipped": "LinkedIn not connected — authorize LinkedIn in Setup to auto-post."}
-    if _posted_today(db):
+    if _posted_today(db) and not force:
         return {"skipped": "already posted today", "posted_today": 1}
 
     angle = _ANGLES[date.today().timetuple().tm_yday % len(_ANGLES)]

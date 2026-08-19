@@ -26,6 +26,20 @@ def run_factory(body: FactoryIn, db: Session = Depends(get_db), _=Depends(_write
     return content_factory.generate_pack(db, body.topic, body.business, body.channels)
 
 
+@router.post("/linkedin-founder/post-now")
+def linkedin_founder_now(force: bool = True, db: Session = Depends(get_db), _=Depends(_write)):
+    """Fire the daily LinkedIn founder post right now — a one-tap way to see it work
+    end to end (generate → image → publish) instead of waiting for the 1pm cron.
+    force defaults True so a manual test posts even if today's scheduled one already
+    went out. Returns the same result the scheduler logs (published / skipped + why)."""
+    from .. import linkedin_founder
+    res = linkedin_founder.run(db, force=force)
+    if res.get("published"):
+        return {"ok": True, "message": "Posted to LinkedIn now.", **res}
+    return {"ok": False, "message": f"Did not post — {res.get('skipped') or res.get('reason') or 'unknown'}.",
+            **res}
+
+
 @router.get("")
 def list_content(business: str | None = None, channel: str | None = None,
                  status: str | None = None, limit: int = 100,
