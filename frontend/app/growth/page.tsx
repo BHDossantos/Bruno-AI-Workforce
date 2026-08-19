@@ -1,7 +1,38 @@
 "use client";
 
+import { useState } from "react";
 import { api } from "@/lib/api";
 import { AuthGate, PageHeader, KpiCard, useFetch, LoadState } from "@/components/ui";
+
+function LinkedInPostNow() {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  async function go() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await api.post<{ ok: boolean; message: string }>("/content/linkedin-founder/post-now");
+      setMsg(r.message);
+    } catch (e) {
+      setMsg(`Failed: ${e instanceof Error ? e.message : "unknown error"}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="card">
+      <h2 className="mb-1 font-semibold">Daily LinkedIn founder post</h2>
+      <p className="mb-3 text-sm text-gray-500">
+        One brand-awareness post/day in your founder voice (with an image), posted automatically at 1pm.
+        Fire one now to see it live.
+      </p>
+      <button className="btn" onClick={go} disabled={busy}>
+        {busy ? "Posting…" : "Post to LinkedIn now"}
+      </button>
+      {msg && <p className="mt-3 text-sm">{msg}</p>}
+    </div>
+  );
+}
 
 type PlatformRow = {
   platform: string;
@@ -74,6 +105,8 @@ function GrowthView() {
   return (
     <div className="space-y-8">
       <PageHeader title="Growth Analytics" subtitle="What the media engine is producing, and how every platform is performing" />
+
+      <LinkedInPostNow />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <KpiCard label="Total followers" value={k.total_followers} />
