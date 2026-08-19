@@ -262,6 +262,11 @@ def _run_client_autoscale(db):
     return client_goal.autoscale(db)
 
 
+def _run_linkedin_founder(db):
+    from . import linkedin_founder
+    return linkedin_founder.run(db)
+
+
 def _run_auto_dial(db):
     # per_run_limit=1 → one call per minute (paced, human), starting at 8am; the
     # daily total is still bounded by AUTO_DIAL_DAILY_CAP.
@@ -336,6 +341,10 @@ _JOBS: dict[str, tuple] = {
     # Auto-apply to qualified jobs (self-gates: only acts when its mode != off),
     # after the 5 AM job sourcing — so it works the freshly-prepared queue.
     "auto_apply":       (_run_auto_apply, "30 9 * * *"),
+    # ONE LinkedIn founder post/day (brand awareness, not selling) with an image, at
+    # 1pm ET — a strong LinkedIn engagement window. Self-gates on LinkedIn being
+    # connected; only posts once/day. Runs under the insurance-only profile too.
+    "linkedin_founder": (_run_linkedin_founder, "0 13 * * *"),
 }
 
 

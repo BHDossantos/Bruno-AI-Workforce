@@ -462,6 +462,14 @@ class Settings(BaseSettings):
     # When True, the Influence Commander runs the Content Factory daily from the
     # evergreen library across your business lines.
     content_factory_enabled: bool = True
+    # Daily LinkedIn FOUNDER post (brand awareness, not selling) — one post/day in the
+    # founder's own voice about the entrepreneurial journey behind the BnB brand, with
+    # an auto-generated image. Runs even under the lean insurance-only profile. Requires
+    # LinkedIn to be connected in Setup. Set the founder name (defaults to producer_name)
+    # and the brand shown in the post's voice.
+    linkedin_founder_enabled: bool = True
+    linkedin_founder_name: str = ""            # defaults to producer_name if blank
+    linkedin_founder_brand: str = "BnB Global"
     browser_auto_submit: bool = False  # human-in-the-loop by default — review before submit
     # When True, the daily job hunter pre-builds each top job's fill package
     # (résumé + answers + cover letter) so the Apply Queue is submit-ready.
