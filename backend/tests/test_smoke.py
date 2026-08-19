@@ -8156,6 +8156,59 @@ def test_send_email_drafts_holds_back_blank_drafts(client, monkeypatch):
 
 
 @requires_db
+def test_linkedin_founder_posts_once_daily_with_gates(monkeypatch):
+    """The daily LinkedIn founder post: publishes ONE image post/day via the LinkedIn
+    API, logs it as a bnbglobal/linkedin ContentItem, then no-ops the rest of the day —
+    and cleanly skips when LinkedIn isn't connected (no accidental unposted work)."""
+    from app import control, linkedin_founder, media
+    from app.ai import client as ai_client
+    from app.database import SessionLocal
+    from app.integrations import linkedin_api
+    from app.models import ContentItem
+
+    monkeypatch.setattr(control, "is_paused_safe", lambda db: False)
+    monkeypatch.setattr(ai_client, "is_live", lambda: True)
+    monkeypatch.setattr(ai_client, "complete_json", lambda *a, **k: {
+        "post": "I almost quit in year two. Here's what kept me going.",
+        "hashtags": "#Founders #Entrepreneurship", "image_prompt": "a quiet office at dawn"})
+    monkeypatch.setattr(media, "can_generate", lambda: False)  # skip image (no network)
+    posted = {}
+    monkeypatch.setattr(linkedin_api, "post",
+                        lambda db, msg, image_url=None: posted.update(msg=msg) or {"ok": True, "id": "urn:li:1"})
+
+    db = SessionLocal()
+    try:
+        db.query(ContentItem).filter(ContentItem.business == "bnbglobal",
+                                     ContentItem.channel == "linkedin").delete(synchronize_session=False)
+        db.commit()
+
+        # Not connected → skips cleanly, posts nothing.
+        monkeypatch.setattr(linkedin_api, "is_connected", lambda db: False)
+        assert linkedin_founder.run(db).get("skipped")
+        assert "post" not in posted
+
+        # Connected → publishes exactly one, logged as a published bnbglobal/linkedin item.
+        monkeypatch.setattr(linkedin_api, "is_connected", lambda db: True)
+        r1 = linkedin_founder.run(db)
+        assert r1.get("published") == 1 and "quit in year two" in posted["msg"]
+        item = (db.query(ContentItem).filter(ContentItem.business == "bnbglobal",
+                ContentItem.channel == "linkedin", ContentItem.status == "published").first())
+        assert item is not None and item.published_at is not None
+        # never sells — the system prompt forbids it; sanity-check the logged body.
+        assert "book a call" not in (item.body or "").lower()
+
+        # Second run same day → one-per-day cadence holds, nothing new posts.
+        posted.clear()
+        r2 = linkedin_founder.run(db)
+        assert r2.get("skipped") == "already posted today" and "msg" not in posted
+    finally:
+        db.query(ContentItem).filter(ContentItem.business == "bnbglobal",
+                                     ContentItem.channel == "linkedin").delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
+
+@requires_db
 def test_cold_drafts_never_blank_use_business_templates(client, monkeypatch):
     """When the AI returns nothing (no key / error), cold drafts must fall back to a
     compelling, business-tailored body — never blank. This is the root-cause fix for
