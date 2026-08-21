@@ -371,9 +371,14 @@ def test_newsletter_funnel_mapping():
     # subscribe() ignores unknown funnels / empty email (db not touched on those paths).
     assert newsletters.subscribe(db=None, funnel="nope", email="a@b.c") is False
     assert newsletters.subscribe(db=None, funnel="insurance", email=None) is False
-    # _issue always returns a written issue, even offline (template fallback).
+    # _issue always returns a written issue, even offline (template fallback) — and the
+    # fallback now SELLS warmly (a real offer + CTA), not the old bland "quick note".
     subj, body = newsletters._issue("insurance")
     assert subj and body
+    assert "quick note" not in body.lower()          # the old bland copy is gone
+    assert "{name}" not in body                        # placeholder is filled in
+    assert "free" in body.lower() and ("call" in body.lower() or "reply" in body.lower())  # offer + CTA
+    assert "this week" not in subj.lower()             # benefit-driven subject, not "— this week"
 
 
 @requires_db
