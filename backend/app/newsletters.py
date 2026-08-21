@@ -22,18 +22,58 @@ log = logging.getLogger("bruno.newsletters")
 
 FUNNELS = ["insurance", "bnbglobal", "savorymind", "music"]
 
-# How each funnel's newsletter reads + which mailbox it sends from.
+# How each funnel's email reads + which mailbox it sends from. Each carries a concrete
+# OFFER to drive action (the email should sell, warmly), a role for the sender's voice,
+# and a warm sales-y fallback for when the AI is offline (never the old bland "quick
+# note … reply anytime").
 _FUNNEL = {
-    "insurance": {"label": "Thrust Insurance", "account": "insurance",
-                  "topic": "insurance tips, coverage gaps, and money-saving ideas for "
-                           "homeowners and small businesses in NH/MA/FL"},
-    "bnbglobal": {"label": "BnB Global", "account": "personal",
-                  "topic": "practical cloud, reliability, security and AI wins for "
-                           "growing tech teams"},
-    "savorymind": {"label": "SavoryMind", "account": "personal",
-                   "topic": "restaurant revenue, menu intelligence and review-to-revenue ideas"},
-    "music": {"label": "Bruno D", "account": "personal",
-              "topic": "new music, the stories behind the songs, shows, and where to listen"},
+    "insurance": {
+        "label": "Thrust Insurance", "account": "insurance", "role": "licensed insurance agent",
+        "topic": "overpaying on home/auto insurance and coverage gaps in NH, MA and FL",
+        "offer": "a free 10-minute coverage review to see if you're overpaying",
+        "fallback_subject": "Quick question about your insurance",
+        "fallback_body": (
+            "Hi — it's {name} with Thrust Insurance. I'll keep this short: most people I "
+            "talk to in NH, MA and FL are quietly overpaying on their home or auto "
+            "insurance, or they're missing coverage they assume they already have.\n\n"
+            "I'd love to run a free 10-minute review of your policy. No obligation — and if "
+            "I can't beat what you've got, I'll tell you straight.\n\n"
+            "Worth a quick look? Just reply here, or call or text me and I'll take it from there."),
+    },
+    "bnbglobal": {
+        "label": "BnB Global", "account": "personal", "role": "founder",
+        "topic": "cloud cost, reliability and security wins for growing tech teams",
+        "offer": "a free 20-minute audit of your cloud setup",
+        "fallback_subject": "Found a few ways teams like yours cut cloud spend",
+        "fallback_body": (
+            "Hi — it's {name} from BnB Global. Most growing teams I meet are overspending on "
+            "cloud and carrying reliability risks they can't see until something breaks.\n\n"
+            "I'd be glad to run a free 20-minute audit and point out the quick wins — even if "
+            "you never work with us.\n\n"
+            "Want me to take a look? Just reply and I'll send a couple of times."),
+    },
+    "savorymind": {
+        "label": "SavoryMind", "account": "personal", "role": "founder",
+        "topic": "turning reviews and menu data into more covers and revenue",
+        "offer": "a free review-to-revenue audit of your restaurant",
+        "fallback_subject": "A quick way to turn your reviews into more covers",
+        "fallback_body": (
+            "Hi — it's {name} from SavoryMind. Your online reviews and menu are quietly "
+            "deciding how many people walk in — and small changes can move revenue fast.\n\n"
+            "I'd love to run a free review-to-revenue audit and show you two or three "
+            "changes worth trying this month.\n\n"
+            "Interested? Just reply and I'll get it over to you."),
+    },
+    "music": {
+        "label": "Bruno D", "account": "personal", "role": "artist",
+        "topic": "new music, the stories behind the songs, and where to listen",
+        "offer": "give the new release a listen and let me know what you think",
+        "fallback_subject": "New music from me — take a listen",
+        "fallback_body": (
+            "Hey — it's {name}. I've got new music out and I'd love for you to be one of the "
+            "first to hear it.\n\nTake a listen when you have a minute, and hit reply to let me "
+            "know what you think — it genuinely means a lot."),
+    },
 }
 
 
@@ -103,20 +143,27 @@ def _unsub_url(token: str) -> str:
 
 
 def _issue(funnel: str) -> tuple[str, str]:
-    """AI-write this funnel's issue; fall back to a simple template offline."""
+    """AI-write this funnel's issue — warm, personal, and built to SELL. Falls back to a
+    warm sales-y template (never the old bland 'quick note') when the AI is offline."""
     cfg = _FUNNEL[funnel]
+    name = (settings.producer_name or "").strip() or "Bruno"
+    fallback = (cfg["fallback_subject"], cfg["fallback_body"].format(name=name))
     if client.is_live():
         from .ai import skills
         out = client.complete_json(
-            f"Write this week's short email newsletter from {cfg['label']} about "
-            f"{cfg['topic']}. Warm, useful, 120-180 words, one clear takeaway and a "
-            f"soft CTA. No placeholders/signature. Return JSON {{\"subject\",\"body\"}}.",
+            f"Write a warm, personal email from {name}, {cfg['role']} at {cfg['label']}, to "
+            f"someone who recently reached out. It MUST sell — this is not a newsletter. "
+            f"Voice: first person, friendly and human, like writing to one person, never "
+            f"corporate. Open with a specific, relatable hook about {cfg['topic']}; give ONE "
+            f"concrete reason to act now; end with a clear, confident call to action to "
+            f"{cfg['offer']}. 80-140 words, short scannable lines. Do NOT repeat the company "
+            f"name more than once. No placeholders, no signature, no 'unsubscribe'. Return "
+            f'JSON {{"subject","body"}} — the subject is a benefit- or curiosity-driven hook '
+            f"(e.g. saving money, a missed opportunity), NEVER 'this week' or just the company name.",
             system=skills.system_prompt("emails", "copywriting"))
         if isinstance(out, dict) and out.get("body"):
-            return out.get("subject") or f"{cfg['label']} — this week", out["body"]
-    return (f"{cfg['label']} — this week",
-            f"Hi! A quick note from {cfg['label']} with the latest on {cfg['topic']}. "
-            "Reply anytime — I read every message.")
+            return out.get("subject") or fallback[0], out["body"]
+    return fallback
 
 
 def preview(db: Session, funnel: str) -> dict:
