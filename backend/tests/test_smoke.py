@@ -2992,6 +2992,54 @@ def test_two_way_test_creates_profile_and_attempts_both_channels(client, auth_he
 
 
 @requires_db
+@requires_db
+def test_everquote_import_sends_first_touch_instantly(monkeypatch):
+    """Speed-to-lead: importing an EverQuote lead SENDS the opener immediately (not just
+    drafts it), so the first email/text goes out within seconds instead of waiting up to
+    an hour for the cron. Gated by autopilot — off → drafted only."""
+    from app import control, everquote, outreach, sms_engine
+    from app.database import SessionLocal
+    from app.models import Lead, Message
+
+    calls = {"email": 0, "sms": 0}
+    monkeypatch.setattr(outreach, "send_email_drafts",
+                        lambda db, **k: calls.update(email=calls["email"] + 1) or {"sent": 1, "failed": 0})
+    monkeypatch.setattr(sms_engine, "send_sms_drafts",
+                        lambda db, **k: calls.update(sms=calls["sms"] + 1) or {"sent": 1})
+
+    csv_text = ("created_at,eqLeadUUID,product,cost,first_name,last_name,city,state,email,"
+                "phone,current_insurer,zip_code,detail\n"
+                "Jul 9 2026,uuid-speed-1,Preferred,500,Speed,Lead,Nashua,NH,"
+                "speed-lead@x.co,6035550188,Progressive,03060,\n")
+    rows = everquote.parse_csv(csv_text)
+
+    db = SessionLocal()
+    try:
+        db.query(Message).filter(Message.to_email == "speed-lead@x.co").delete(synchronize_session=False)
+        db.query(Lead).filter(Lead.email == "speed-lead@x.co").delete(synchronize_session=False)
+        db.commit()
+
+        # Autopilot ON (default) → opener is sent instantly on import.
+        monkeypatch.setattr(control, "is_paused_safe", lambda db: False)
+        monkeypatch.setattr(control, "get_mode", lambda db: "semi")
+        monkeypatch.setattr(control, "outreach_autopilot", lambda db: True)
+        res = everquote.import_rows(db, rows)
+        assert res.get("sent", {}).get("email") is not None      # flush ran
+        assert calls["email"] == 1 and calls["sms"] == 1          # both channels fired now
+
+        # Paused → nothing sends on import (openers wait), so no accidental blasts.
+        calls["email"] = calls["sms"] = 0
+        monkeypatch.setattr(control, "is_paused_safe", lambda db: True)
+        res2 = everquote.import_rows(db, rows)
+        assert res2.get("sent", {}).get("skipped") == "paused"
+        assert calls["email"] == 0 and calls["sms"] == 0
+    finally:
+        db.query(Message).filter(Message.to_email == "speed-lead@x.co").delete(synchronize_session=False)
+        db.query(Lead).filter(Lead.email == "speed-lead@x.co").delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
+
 def test_everquote_import_auto_drafts_opener(client, auth_headers):
     """Regression: importing an EverQuote lead now auto-creates its first-touch email
     draft (the opener) on import — so it flows into flush_drafts instead of silently
