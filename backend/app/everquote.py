@@ -188,10 +188,39 @@ def import_rows(db: Session, rows: list[dict]) -> dict:
             drafted = personalize_batch(db, lead_ids=lead_ids)
         except Exception:  # pragma: no cover - drafting must not break the import
             log.exception("EverQuote auto-personalize on import failed")
+    # Speed-to-lead for real: don't just draft — SEND now. EverQuote leads sort FIRST
+    # in the send queue, so flushing right here fires their first email/text within
+    # seconds of import instead of up to an hour later at the next cron. Same autopilot
+    # gate + same guards (blank / daily cap / texting hours / opt-out) as the cron;
+    # texts outside 8am-9pm just stay drafted for the next in-window send. Best-effort:
+    # a send hiccup must never fail the import (the hourly flush is still the backstop).
+    sent = {}
+    if drafted:
+        try:
+            sent = _flush_first_touch_now(db)
+        except Exception:  # pragma: no cover - sending must not break the import
+            log.exception("EverQuote instant first-touch send failed")
     result = {"imported": imported, "updated": updated, "skipped": skipped,
-              "total": len(rows), "lead_ids": lead_ids, "drafted": drafted}
+              "total": len(rows), "lead_ids": lead_ids, "drafted": drafted, "sent": sent}
     log.info("EverQuote import: %s", result)
     return result
+
+
+def _flush_first_touch_now(db: Session) -> dict:
+    """Send the just-drafted EverQuote openers immediately (email + SMS), highest
+    priority first. Gated by the same Outreach Autopilot switch as the scheduled flush —
+    off → the openers wait for review, exactly like every other draft. Reuses the shared
+    senders so every compliance/deliverability guard still applies."""
+    from . import control
+    if control.is_paused_safe(db):
+        return {"skipped": "paused"}
+    if control.get_mode(db) != "auto" and not control.outreach_autopilot(db):
+        return {"skipped": "autopilot off — openers drafted, will send on review/next flush"}
+    from . import outreach, sms_engine
+    return {
+        "email": outreach.send_email_drafts(db, limit=25, account="insurance"),
+        "sms": sms_engine.send_sms_drafts(db, limit=25, account="insurance"),
+    }
 
 
 def _discount_angles(f: dict) -> list[str]:
