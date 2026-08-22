@@ -13,6 +13,11 @@ listed here. Anything not so marked is verbatim v1.0.
       not distinguish "not observed" from "observed not to have occurred", so an
       unavailable source silently penalised the hypothesis it could not support.
 
+  A2  Dated AI Act position and expanded standards register (section 13.9,
+      Appendix J). Resolves finding 3 in OPSPROOF_SPEC_FINDINGS.md. The existing
+      position was sound and is preserved; this adds the deadlines a buyer's risk
+      function asks about and precise document identifiers.
+
 This file is the AUTHORITATIVE specification for product, design, architecture,
 data, AI, security, testing and commercial decisions.
 
@@ -2880,6 +2885,39 @@ Customer legal and compliance teams determine applicability, mappings and suffic
 
 The product must maintain an inventory of AI uses, intended purpose, providers, data, human oversight, logging and risk controls. The company must obtain legal analysis of whether a particular deployment or feature falls into a regulated category. Regardless of classification, the team will apply human oversight, transparency, monitoring, incident and data-governance practices appropriate to enterprise operational decisions.
 
+**[Amendment A2] Applicable dates.** These changed recently enough that most
+published material is stale, and a buyer's risk function will ask:
+
+| Obligation | Date | Status |
+|---|---|---|
+| Transparency obligations | 2 August 2026 | **In effect and enforceable.** Not deferred. |
+| High-risk, stand-alone Annex III systems | 2 December 2027 | Deferred from 2 August 2026 by the Digital Omnibus on AI. |
+| High-risk AI embedded in Annex I regulated products | 2 August 2028 | Deferred from 2 August 2027. |
+
+The Digital Omnibus received Council approval on 29 June 2026 and entered into
+force on 27 July 2026. A deferral is not a repeal: the substantive obligations —
+risk management, data governance, technical documentation, human oversight,
+fundamental-rights impact assessment where required — are unchanged, only their
+compliance date moved.
+
+**[Amendment A2] Annex III scope is undetermined and must stay that way in
+writing.** The critical-infrastructure entry in Annex III covers AI used as a
+*safety component* in the management or operation of critical digital
+infrastructure, road traffic, or the supply of water, gas, heating or
+electricity. A change-control system operating inside a financial entity's own IT
+estate is not obviously within that entry, and the "safety component" threshold
+turns on endangering health or safety rather than on the criticality of the
+customer.
+
+The register records this as **scope undetermined, pending counsel** — not
+resolved in either direction. Claiming a high-risk classification the product
+does not hold manufactures obligations it does not need; asserting in writing
+that it does not apply is a legal conclusion this team is not positioned to
+reach. Either way it changes nothing about what gets built: the human-oversight,
+logging and transparency controls specified throughout section 9 are applied
+because they are correct for a system making operational decisions in production,
+not because a classification compels them.
+
 #### Security and AI frameworks
 
 The engineering system should align with:
@@ -5192,16 +5230,25 @@ No production write capability may be introduced unless every applicable answer 
 
 The team should maintain a controlled compliance/standards register with owner and review status. Initial authoritative references include:
 
-- EU Digital Operational Resilience Act (DORA), Regulation (EU) 2022/2554: Official regulation text
-- EU Artificial Intelligence Act, Regulation (EU) 2024/1689: Official regulation text
-- NIST AI Risk Management Framework: Official framework page
-- NIST AI RMF Generative AI Profile: Official publication
-- NIST Secure Software Development Framework: Official publication
-- NIST Secure Software Development Practices for Generative AI and Dual-Use Foundation Models: Official publication
-- OWASP Top 10 for LLM Applications / Generative AI Security: Official OWASP project
-- OpenTelemetry documentation and specifications: Official documentation
-- WCAG 2.2: W3C Recommendation
-- SLSA specification: Official specification
+**[Amendment A2]** Entries carry precise identifiers and versions so the register
+can be checked rather than taken on trust. Verification status is recorded per row.
+
+| Reference | Identifier / version | Notes |
+|---|---|---|
+| EU Digital Operational Resilience Act | Regulation (EU) 2022/2554 | Applies to covered entities since 17 January 2025. ICT change management sits at Art. 9(4)(e), expanded by the RTS below. |
+| RTS on ICT risk management framework | Commission Delegated Regulation (EU) 2024/1774, **Art. 17** | The operative change-management article: security-requirement verification, **independence of the approving function from the requesting and implementing functions**, documented roles, testing and transition. |
+| EU Artificial Intelligence Act | Regulation (EU) 2024/1689 | See section 13.9 for applicable dates and the Annex III scope position. |
+| Digital Omnibus on AI | Amending act, in force 27 July 2026 | Source of the deferred high-risk dates in section 13.9. |
+| NIST AI Risk Management Framework | **NIST AI 100-1**, v1.0 | Core functions: Govern, Map, Measure, Manage. Govern is cross-cutting. |
+| NIST AI RMF Generative AI Profile | **NIST AI 600-1**, July 2024 | Cross-sectoral GAI profile; 12 risk categories mapped to the AI RMF core. |
+| NIST Secure Software Development Framework | **NIST SP 800-218** (SSDF v1.1) | Practice groups PO / PS / PW / RV. |
+| SSDF for generative AI | **NIST SP 800-218A** | Read *with* SP 800-218, not as a substitute. Adds training-data integrity, model-artifact protection, prompt-injection and data-poisoning response. |
+| OWASP Top 10 for LLM Applications | **2025 edition (v2.0)**, published 18 November 2024 | LLM01 Prompt Injection through LLM10 Unbounded Consumption. **Unverified:** a 2026 edition has since been published and was not retrievable at the time of writing. Diff it against section 9.4's prompt-injection controls before this register is used with a customer. |
+| OpenTelemetry | Specification and semantic conventions | Applied where relevant to section 10.13. |
+| WCAG | **2.2**, W3C Recommendation, 5 October 2023 | Level AA conformance is 55 success criteria (31 Level A + 24 Level AA). WCAG 3.0 remains a Working Draft and is not expected to reach Recommendation before approximately 2028, so **2.2 AA is the target** — see section 14.19. |
+| SLSA | **v1.0** Build Track, OpenSSF | Operationalizes SSDF practices PS.1-PS.3 with build provenance. |
+| ISO/IEC 27001 and SOC 2 | As commercial maturity requires | Certification only via accredited assessment. |
+
 The existence of a reference does not create a product claim. Security, legal and compliance owners map applicable requirements to actual controls and evidence.
 
 ### Appendix K - Initial customer discovery guide

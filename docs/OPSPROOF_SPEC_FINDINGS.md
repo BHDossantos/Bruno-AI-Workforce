@@ -91,7 +91,9 @@ patched.
 
 ## 3. The standards register should carry the AI Act's revised dates
 
-**Severity: low — the spec is not wrong, but it is less useful than it could be.**
+**Severity: low. RESOLVED — Amendment A2** in `OPSPROOF_EXECUTION_SPEC.md`
+(§13.9, Appendix J). The spec was not wrong; it was less useful than it could be.
+Kept below as the rationale for that amendment.
 
 §13.9's EU AI Act position is well-judged: it requires an AI-use inventory, requires
 legal analysis of classification, and commits to human oversight, transparency,
@@ -117,9 +119,11 @@ recorded as *scope undetermined, pending counsel* — not resolved in either
 direction. Claiming high-risk status the product does not have manufactures
 obligations it does not need; disclaiming it in writing is a legal opinion.
 
-**Proposed resolution.** Add the dates and the Annex III scope question to §13.9 and
-Appendix J, keeping the existing "obtain legal analysis" instruction as the operative
-requirement.
+**Resolution as shipped (Amendment A2).** §13.9 now carries a dated obligations
+table and states the Annex III position as *scope undetermined, pending counsel*,
+with the existing "obtain legal analysis" instruction preserved as the operative
+requirement. Appendix J is now a table with precise identifiers and per-row
+verification status.
 
 **Also verified and safe to cite in Appendix J:** NIST AI RMF (AI 100-1)
 Govern/Map/Measure/Manage with the Generative AI Profile **NIST AI 600-1** (July
@@ -167,10 +171,22 @@ whatever was chosen.
 |---|---|---|---|
 | 1 | ~~Hypothesis engine lacks `not_observed` state~~ | Correctness | **Resolved — Amendment A1** |
 | 2 | Evidence Vault name collides with Kosli | Commercial / legal | Head of Product |
-| 3 | Standards register missing AI Act dates and Annex III scope note | Completeness | Head of Security/Trust |
+| 3 | ~~Standards register missing AI Act dates and Annex III scope note~~ | Completeness | **Resolved — Amendment A2** |
 | 4 | Three backend toolchains, no ADR | Engineering economics | Head of Engineering/CTO |
 
-None of these blocks Gate A. **Finding 1 is resolved in the spec by Amendment
-A1**; what remains is implementation — P0-16's gate now carries a degraded-source
-replay test that must pass before Gate D ships. Finding 2 must be resolved before
-any customer-facing material. Findings 3 and 4 are open and unblocking.
+None of these blocks Gate A.
+
+**Finding 1 — resolved by Amendment A1.** What remains is implementation: P0-16's
+gate now carries a degraded-source replay test that must pass before Gate D ships.
+
+**Finding 3 — resolved by Amendment A2**, with one item deliberately left open
+inside it: the OWASP LLM Top 10 2026 edition could not be retrieved and is marked
+unverified in Appendix J. Someone with access must diff it against §9.4 before the
+register is used with a customer.
+
+**Finding 2** must be resolved before any customer-facing material is produced —
+it needs a product-naming decision, not research.
+
+**Finding 4** needs an engineering decision recorded as an ADR before Gate A,
+since by then the tenant model, event contracts and connector framework are all
+written in whatever was chosen.
