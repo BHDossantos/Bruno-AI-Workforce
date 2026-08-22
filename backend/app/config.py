@@ -271,6 +271,12 @@ class Settings(BaseSettings):
     signalwire_from_number: str = "+19788244228"   # default SMS+Voice number (E.164)
     signalwire_insurance_number: str = ""          # optional separate insurance SMS number
     signalwire_voice_number: str = ""              # optional separate caller-ID for calls
+    # Local-presence dialing: a comma-separated pool of owned numbers (E.164) in various
+    # area codes. The auto-dialer shows the one matching the LEAD's area code, which gets
+    # answered 2-4x more than an out-of-area number. Blank → always use the default number
+    # (safe no-op). Buy area-code numbers in SignalWire and paste them here to activate,
+    # e.g. "+16035551212,+16175551212" for NH + MA.
+    local_presence_numbers: str = ""
     # Twilio WhatsApp Business API — a legitimate, official channel (unlike
     # LinkedIn/consumer WhatsApp automation). Number must be WhatsApp-enabled in
     # the Twilio console (sandbox for testing, or an approved Twilio Sender for
