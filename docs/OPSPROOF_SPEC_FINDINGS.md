@@ -12,7 +12,9 @@ are corrections; one is a naming conflict the spec cannot resolve on its own.
 
 ## 1. The hypothesis engine has no "absence of evidence" rule — a broken connector can exonerate the guilty change
 
-**Severity: high.** This is a correctness defect in the product's core claim.
+**Severity: high. RESOLVED — Amendment A1** in `OPSPROOF_EXECUTION_SPEC.md`
+(sections 7.10, 8.5, P0-16). The finding is kept below as the rationale for that
+amendment. This was a correctness defect in the product's core claim.
 
 §8.5 (incident hypothesis evidence score) and §7.10 (Hypothesis Workspace) define
 supporting and contradicting evidence, but nothing in the spec distinguishes:
@@ -32,7 +34,15 @@ resulting hypothesis is presented with the same visual confidence as one built o
 complete data. §8.3's data-confidence score correctly handles this at the
 *assessment* level; the hypothesis engine has no equivalent.
 
-**Proposed resolution.** Add to §8.5:
+**Where it bit, concretely.** Two components in §8.5's scoring table carried the
+defect. *Corroborating telemetry* (15 points) scored **zero** when telemetry was
+merely unavailable — indistinguishable from telemetry that was available and
+showed nothing. And the *contradictory evidence penalty* (up to −25) had no
+precondition on source health, so silence from a degraded source could be read as
+argument against the hypothesis. Together they could cost a correct hypothesis up
+to 40 points for the sole reason that a connector was down.
+
+**Resolution as shipped (Amendment A1).** Added to §8.5:
 
 - Evidence for a hypothesis resolves to one of four states: `supporting`,
   `contradicting`, `not_observed`, `not_applicable`.
@@ -67,7 +77,7 @@ feature makes differentiation harder to articulate and concedes the frame. It is
 also a weak position if the name is ever asserted, and the spec's own front matter
 already flags that "OpsProof" itself requires trademark clearance.
 
-**Proposed resolution.** Rename the surface. `OPSPROOF_STRATEGY.md` uses **Control
+**Proposed resolution — still open.** Rename the surface. `OPSPROOF_STRATEGY.md` uses **Control
 Ledger**, which was the name selected when this conflict was first raised. Adopt it
 across the spec (§4.2, §7.12, §14.11, Appendix D, P0-19) or choose an alternative,
 but resolve it before any customer-facing material is produced. Roll the decision
@@ -155,11 +165,12 @@ whatever was chosen.
 
 | # | Finding | Type | Proposed owner (§18.4) |
 |---|---|---|---|
-| 1 | Hypothesis engine lacks `not_observed` state | Correctness | Head of Data/AI |
+| 1 | ~~Hypothesis engine lacks `not_observed` state~~ | Correctness | **Resolved — Amendment A1** |
 | 2 | Evidence Vault name collides with Kosli | Commercial / legal | Head of Product |
 | 3 | Standards register missing AI Act dates and Annex III scope note | Completeness | Head of Security/Trust |
 | 4 | Three backend toolchains, no ADR | Engineering economics | Head of Engineering/CTO |
 
-None of these blocks Gate A. Finding 1 must be resolved before Gate D
-(evidence-backed incident intelligence) ships, since it is a defect in that gate's
-core logic. Finding 2 must be resolved before any customer-facing material.
+None of these blocks Gate A. **Finding 1 is resolved in the spec by Amendment
+A1**; what remains is implementation — P0-16's gate now carries a degraded-source
+replay test that must pass before Gate D ships. Finding 2 must be resolved before
+any customer-facing material. Findings 3 and 4 are open and unblocking.

@@ -1,8 +1,17 @@
 <!--
 Converted from OpsProof_Product_Engineering_Design_Execution_Specification_v1.0.docx
 (the owner-supplied Word original) into Markdown so it is diffable and reviewable
-in git. Content is unmodified; only formatting was translated — Word headings to
-Markdown headings, Word tables to Markdown tables, Word lists to Markdown lists.
+in git. The conversion itself changed no content — only formatting was translated:
+Word headings to Markdown headings, Word tables to Markdown tables, Word lists to
+Markdown lists.
+
+Substantive changes made after conversion are marked inline as [Amendment An] and
+listed here. Anything not so marked is verbatim v1.0.
+
+  A1  Evidence availability states in the hypothesis engine (sections 7.10, 8.5,
+      P0-16). Resolves finding 1 in OPSPROOF_SPEC_FINDINGS.md: the engine could
+      not distinguish "not observed" from "observed not to have occurred", so an
+      unavailable source silently penalised the hypothesis it could not support.
 
 This file is the AUTHORITATIVE specification for product, design, architecture,
 data, AI, security, testing and commercial decisions.
@@ -1252,6 +1261,12 @@ Provide the shared model needed to calculate blast radius, retrieve relevant cha
 - Create system-generated and human-generated hypotheses.
 - Separate cause, contributing factor and symptom.
 - Display supporting, contradictory and missing evidence.
+- **[Amendment A1]** Resolve each evidence component to one of `supporting`,
+  `contradicting`, `not_observed` or `not_applicable`, and render `not_observed`
+  as a named gap identifying the unavailable source — never as contradiction.
+- **[Amendment A1]** Display evidence completeness beside the strength label, and
+  mark the ranking unstable where an unavailable source could reorder the top
+  hypotheses.
 - Offer diagnostic checks with expected confirming/refuting result.
 - Assign checks to users and record outcome.
 - Preserve version history as evidence changes.
@@ -1264,6 +1279,12 @@ Provide the shared model needed to calculate blast radius, retrieve relevant cha
 - The system can present “insufficient evidence” as the leading conclusion.
 - Contradictory evidence is visible at the same hierarchy level as supporting evidence.
 - Ranking logic is inspectable and replayable.
+- **[Amendment A1]** A hypothesis is never ranked lower because a source was
+  unavailable. Replaying an incident with a connector disabled must not reorder
+  hypotheses relative to the same replay with that connector absent from the
+  tenant's expected source set.
+- **[Amendment A1]** No strength label is displayed without its evidence
+  completeness where completeness is below threshold.
 
 ### 7.11 Remediation Center
 
@@ -1468,6 +1489,38 @@ The incident engine ranks hypotheses using bounded evidence. It is not a legal o
 | Contextual consistency | 5 | Do environment, region, version and scope align? |
 | Contradictory evidence penalty | Up to -25 | What evidence argues against the hypothesis? |
 
+#### Evidence availability states [Amendment A1]
+
+Every component above resolves to one of four states. The distinction between the
+last two is load-bearing and must never be collapsed:
+
+| State | Meaning |
+|---|---|
+| `supporting` | The source was available for the relevant window and the evidence supports the hypothesis. |
+| `contradicting` | The source was available for the relevant window and the evidence argues against the hypothesis. |
+| `not_observed` | No usable data. The source is disconnected, degraded, stale beyond its freshness threshold, or was never collecting this signal. **This is not evidence of absence.** |
+| `not_applicable` | The component cannot apply to this change class — for example, mechanism-symptom match for a change type with no defined mechanism. |
+
+Scoring rules:
+
+- A component in `not_observed` or `not_applicable` state scores **no points and
+  no penalty**, and is **removed from the attainable maximum**. The evidence score
+  is normalized over the components that were actually available, so a hypothesis
+  is never ranked down for a source the customer's environment could not provide.
+- The contradictory evidence penalty is **admissible only from a source confirmed
+  healthy and current for the relevant window**. Absence of a signal from a
+  degraded source is `not_observed`, never contradicting.
+- Each hypothesis carries an **evidence completeness** value alongside its score:
+  the attainable maximum after exclusions, as a percentage of the full 100. This
+  is reported separately and is never blended into the evidence score.
+- Where the ordering of the top-ranked hypotheses would change if an
+  `not_observed` component were resolved either way, the ranking is marked
+  **unstable** and the responsible sources are named.
+
+This mirrors the treatment risk assessments already receive in section 8.3: an
+incomplete picture lowers confidence in the answer, it never quietly improves the
+answer itself.
+
 #### Evidence-strength labels
 
 - 80-100: Strongly supported
@@ -1476,6 +1529,11 @@ The incident engine ranks hypotheses using bounded evidence. It is not a legal o
 - 20-39: Weak
 - 0-19: Unlikely
 The product should use these labels before displaying calibrated probabilities. A later probability display requires validation and calibration evidence.
+
+**[Amendment A1]** A strength label is only comparable across hypotheses at equal
+evidence completeness. Where completeness falls below the tenant's configured
+threshold, the interface presents the label together with its completeness value
+and the unavailable sources — never the label alone.
 
 ### 8.6 Relevant-change retrieval
 
@@ -4592,6 +4650,10 @@ Gate
 
 - Canonical incident scenarios and hard negatives pass.
 - Human confirmation is required for cause.
+- **[Amendment A1]** Evidence availability states are implemented per section 8.5,
+  and the degraded-source replay test passes: for each canonical scenario, replay
+  with a required source disabled must not rank the true causal change lower than
+  the same replay with that source excluded from the expected set.
 
 #### P0-17 AI Gateway and evidence-grounded summaries
 
