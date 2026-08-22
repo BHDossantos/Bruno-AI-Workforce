@@ -27,8 +27,30 @@ permissions:
   pull-requests: write
 
 jobs:
+  # Cheap gate (a few seconds): only run the heavy job when the API key is configured.
+  # Without this, every daily run installed all deps + the CLI and then FAILED at the
+  # agent step (no key) — ~40 min of wasted runner time and a failed run every day.
+  preflight:
+    name: Check API key
+    runs-on: ubuntu-latest
+    outputs:
+      has_key: ${{ steps.check.outputs.has_key }}
+    steps:
+      - id: check
+        env:
+          KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "$KEY" ]; then
+            echo "has_key=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_key=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::ANTHROPIC_API_KEY not set — skipping the Autonomous Improver. Add the repo secret to enable it."
+          fi
+
   improve:
     name: Improve one thing
+    needs: preflight
+    if: needs.preflight.outputs.has_key == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     services:
