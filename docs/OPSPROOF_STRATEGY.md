@@ -13,8 +13,25 @@ risk officer or internal auditor will ask for.
 
 This is a **separate venture** from Bruno AI Workforce. This doc lives here
 because it is where the venture strategy lives (see `BNBGLOBAL_GROWTH.md`,
-`OUTBOUND_OS_ROADMAP.md`). No app code implements any of it. The engineering
-spec is `OPSPROOF_BUILD_SPEC.md`.
+`OUTBOUND_OS_ROADMAP.md`). No app code implements any of it.
+
+### Where this doc sits
+
+`OPSPROOF_EXECUTION_SPEC.md` is the **authoritative** baseline for product,
+design, architecture, data, AI, security, testing and commercial packaging. It
+supersedes the earlier `OPSPROOF_BUILD_SPEC.md`, which has been removed rather
+than left to rot as a weaker duplicate (it remains in git history).
+
+**This doc's unique contribution is the market evidence the spec does not
+carry.** The spec's §2.4 draws the competitive boundary by *category* —
+observability, ITSM, CI/CD, GRC — and names no vendors. Sections 1, 6, 7 and 9
+below name them, state what each already ships, and cite sources. That is the
+difference between "we sit above your stack" and knowing that Datadog already
+correlates Kubernetes deploys to the failures they cause, that Kosli already
+ships an Evidence Vault, and that the nearest priced comparable lists roughly an
+order of magnitude below the entry ACV in §7.
+
+Open findings raised against the spec: `OPSPROOF_SPEC_FINDINGS.md`.
 
 ---
 
@@ -154,6 +171,12 @@ classification inputs, root-cause evidence, remediation and closure.
 **Read that separation-of-duties line again.** It is a *technical* control that
 almost no engineering stack enforces or evidences today, and it is the single
 best cold-open in the sales conversation.
+
+The full standards register — NIST AI RMF and the Generative AI Profile, NIST
+SSDF, OWASP LLM guidance, OpenTelemetry, WCAG 2.2 AA, SLSA — is in
+`OPSPROOF_EXECUTION_SPEC.md` §13.9 and Appendix J. Verification notes and the
+EU AI Act's revised dates are in `OPSPROOF_SPEC_FINDINGS.md` finding 3. The
+RTS Art. 17 mapping stays here because it is the one that sells.
 
 > **Discipline rule — applies to all collateral, decks, and the product UI.**
 > OpsProof helps a firm **collect, structure and evidence** its ICT change and
@@ -333,8 +356,11 @@ constrains where the first customer comes from.
 
 - [ ] **Name and domain clearance** for "OpsProof" — trademark search in EU/US
       software classes, domain availability.
-- [ ] **Rename the evidence surface.** "Evidence Vault" is Kosli's. Pick from
-      Control Ledger / Change Record / Proof Ledger and use it consistently.
+- [x] **Rename the evidence surface** — decided: **Control Ledger**. "Evidence
+      Vault" is Kosli's shipped feature name. **Still open in the spec**, which
+      uses Evidence Vault throughout (§4.2, §7.12, §14.11, Appendix D, P0-19);
+      tracked as finding 2 in `OPSPROOF_SPEC_FINDINGS.md`. Fold into the
+      trademark clearance item above rather than running it separately.
 - [ ] **Resolve the "DORA" collision.** To an engineer, DORA means *DevOps
       Research and Assessment* metrics; to the buyer it means the *regulation*.
       Never use the word unqualified in collateral — write "DORA (Regulation
