@@ -384,9 +384,14 @@ def start_scheduler() -> BackgroundScheduler | None:
         )
         log.info("Scheduled %s at %s", job_id, desc)
 
-    # Poll both mailboxes for replies every 2 hours (no-op if Gmail unconfigured).
+    # Poll both mailboxes for replies every 5 minutes (no-op if Gmail unconfigured).
+    # Speed-to-lead cuts both ways: a lead who replies "I'm interested" is the hottest
+    # signal there is, and a 2-hour poll let them go cold before we even saw it. 5 min
+    # picks up hand-raisers ~24x faster so the AI reply/warm-text fires while they're
+    # still at the keyboard. (Resend inbound is already real-time; this is the Gmail
+    # fallback path.) Two mailboxes every 5 min is well within Gmail API quota.
     _scheduler.add_job(lambda: _with_db(_sync_inbound, "inbound_sync"),
-                       IntervalTrigger(hours=2), id="inbound_sync", replace_existing=True)
+                       IntervalTrigger(minutes=5), id="inbound_sync", replace_existing=True)
     _scheduler.start()
     log.info("24/7 engine started — %d agents + %d business jobs%s",
              len(agents), len(jobs), " (insurance-only)" if ins else "")
