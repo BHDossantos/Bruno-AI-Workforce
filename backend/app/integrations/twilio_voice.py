@@ -50,6 +50,35 @@ def _voice_number() -> str:
             or settings.twilio_from_number or "")
 
 
+def _area_code(phone: str | None) -> str:
+    """US area code (the 3 digits after +1), or '' if not a US number."""
+    d = re.sub(r"\D", "", phone or "")
+    if len(d) == 11 and d.startswith("1"):
+        d = d[1:]
+    return d[:3] if len(d) == 10 else ""
+
+
+def local_presence_from(dest_phone: str | None) -> str:
+    """Pick the caller-ID that best matches the lead's AREA CODE — 'local presence'
+    dialing, which lifts answer rates 2-4x because people pick up a local number far
+    more than an out-of-area one. Reads a comma-separated pool of owned SignalWire
+    numbers (E.164) from ``local_presence_numbers``; returns the one whose area code
+    matches the destination, else the default voice number. With no pool set it simply
+    returns the default — so this is safe and a no-op until you add area-code numbers."""
+    default = _voice_number()
+    pool = (settings.local_presence_numbers or "").strip()
+    if not pool:
+        return default
+    want = _area_code(dest_phone)
+    if not want:
+        return default
+    for raw in pool.split(","):
+        num = _e164(raw.strip())
+        if num and _area_code(num) == want:
+            return num
+    return default
+
+
 def _transfer_number() -> str:
     """Where a live-answered auto-dial is transferred — the producer's CELL first,
     then the callback number as a fallback. So 'someone answers → my cell rings.'"""
@@ -426,7 +455,9 @@ def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, s
     url = telco.api_url("Calls.json", "voice")
     data = {
         "To": to_lead,                       # dial the LEAD directly (not you first)
-        "From": _e164(_voice_number()),
+        # Local presence: show a caller-ID in the lead's own area code when we own one
+        # (falls back to the default number) — a local number gets answered far more.
+        "From": _e164(local_presence_from(to_lead)) or _e164(_voice_number()),
         "Url": f"{base}/calls/twiml/amd?{q}",
         "MachineDetection": "DetectMessageEnd",   # wait for the beep so the whole VM lands
         "MachineDetectionTimeout": "15",

@@ -1238,6 +1238,33 @@ def test_twilio_creds_are_whitespace_stripped(monkeypatch):
     assert telco.account_sid() == "AC123"
 
 
+def test_local_presence_from_matches_area_code(monkeypatch):
+    """Local-presence dialing: the auto-dialer's caller-ID matches the lead's area code
+    when we own a number there, else falls back to the default — and is a safe no-op
+    when no pool is configured."""
+    from app.config import settings
+    from app.integrations import twilio_voice as v
+
+    # Force the SignalWire provider so _voice_number() resolves to the SignalWire number.
+    monkeypatch.setattr(settings, "voice_provider", "signalwire", raising=False)
+    monkeypatch.setattr(settings, "signalwire_space_url", "x.signalwire.com", raising=False)
+    monkeypatch.setattr(settings, "signalwire_project_id", "proj", raising=False)
+    monkeypatch.setattr(settings, "signalwire_api_token", "PTtoken", raising=False)
+    monkeypatch.setattr(settings, "signalwire_voice_number", "+19788244228", raising=False)
+    monkeypatch.setattr(settings, "signalwire_insurance_number", "", raising=False)
+    monkeypatch.setattr(settings, "signalwire_from_number", "", raising=False)
+
+    # No pool → always the default number (safe no-op).
+    monkeypatch.setattr(settings, "local_presence_numbers", "", raising=False)
+    assert v.local_presence_from("(603) 555-1212") == "+19788244228"
+
+    # Pool set → match the lead's area code; fall back to default when none matches.
+    monkeypatch.setattr(settings, "local_presence_numbers", "+16035550100, (617) 555-0199", raising=False)
+    assert v.local_presence_from("6035551212") == "+16035550100"      # NH lead → NH number
+    assert v.local_presence_from("+16175551212") == "+16175550199"    # MA lead → MA number
+    assert v.local_presence_from("+13055551212") == "+19788244228"    # FL lead, no match → default
+
+
 def test_bridge_call_from_number_is_e164(monkeypatch):
     """The bridge call's 'From' must be sent in E.164 — SignalWire rejects anything
     else with '21212: From must be an E.164 number'. Even a number stored with
