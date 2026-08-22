@@ -291,9 +291,13 @@ def personalize(lead: Lead, use_ai: bool = True) -> dict:
         "You can reply to this email, call me directly, or text me the best time to reach you.\n\n"
         f"Looking forward to helping you.\n\n{_signature()}")
 
+    # Offer a one-tap booking link in the text too (not just email) when one is set —
+    # a calendar link converts far better than "reply or call".
+    from . import email_template
+    book = email_template.booking_link("insurance")
+    cta = (f"Grab a time here: {book}" if book else "Reply or call when you have 2 minutes")
     sms = (f"Hi {first}, it's {producer} with Thrust Insurance. I finished reviewing your {vehicle} "
-           "quote and found a few discounts to verify. Reply or call when you have 2 minutes — thanks! "
-           "Reply STOP to opt out.")
+           f"quote and found a few discounts to verify. {cta} — thanks! Reply STOP to opt out.")
 
     callback = f" at {settings.producer_callback}" if settings.producer_callback else ""
     voicemail = (f"Hi {first}, this is {producer} with Thrust Insurance. I just reviewed the quote you "
