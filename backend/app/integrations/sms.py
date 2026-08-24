@@ -21,13 +21,23 @@ def _e164(phone: str | None) -> str:
     formatting — '(978) 824-4228', '978-824-4228', or a bare '9788244228' — is exactly
     what makes SignalWire/Twilio reject the send with 21212 'From invalid format'. The
     carrier requires E.164, so normalize both numbers before the send (the voice path
-    already does this; SMS didn't, which silently broke texting on a formatted number)."""
-    d = re.sub(r"\D", "", phone or "")
+    already does this; SMS didn't, which silently broke texting on a formatted number).
+
+    Returns "" when the input can't be a real dialable number, so callers can REFUSE
+    to send rather than hand the carrier a malformed 'To' (the 21217 'To invalid
+    format' reject). A garbage or truncated number never becomes a bogus '+123'."""
+    raw = (phone or "").strip()
+    d = re.sub(r"\D", "", raw)
     if len(d) == 11 and d.startswith("1"):
         return "+" + d
     if len(d) == 10:
         return "+1" + d
-    return ("+" + d) if d else ""
+    # An already-international number, but only if it was written with a leading '+'
+    # and is a plausible E.164 length — so a non-US lead still goes out, while a
+    # stray 7- or 13-digit blob is rejected instead of sent as '+<garbage>'.
+    if raw.startswith("+") and 11 <= len(d) <= 15:
+        return "+" + d
+    return ""
 
 
 def _sid() -> str:
@@ -107,9 +117,14 @@ def send_with_error(to: str, body: str, account: str = "personal") -> tuple[str 
     # E.164-normalize BOTH numbers — a From stored as "(978)…" is the 21212 "From
     # invalid format" reject; a To with formatting fails the same way (21211/21214).
     from_num = _e164(number_for(account))
-    to_num = _e164(to) or to
+    to_num = _e164(to)
     if not from_num:
         return None, f"no {telco.label()} 'from' number set"
+    # Refuse an unnormalizable recipient instead of sending it raw — a malformed
+    # 'To' is exactly the 21217 'To invalid format' reject, which otherwise leaves
+    # the text stuck in Drafted and retried forever.
+    if not to_num:
+        return None, f"invalid recipient number '{to}' — needs a 10-digit US phone"
     url = telco.api_url("Messages.json")
     data = {"To": to_num, "From": from_num, "Body": body}
     # Ask the carrier to report the REAL delivery outcome (delivered/undelivered/
@@ -132,8 +147,12 @@ def send_with_error(to: str, body: str, account: str = "personal") -> tuple[str 
                         "Re-check for a stray space/newline, or a mismatched/rotated token.)")
             elif code == 21608:
                 hint = " (Twilio TRIAL account — you can only text numbers you've verified. Upgrade the account to text leads.)"
-            elif code in (21211, 21214):
-                hint = " (invalid recipient number)"
+            elif code == 10000:
+                hint = (" (SignalWire is restricting sends to VERIFIED numbers — the project/number "
+                        "isn't fully enabled for outbound SMS yet. Verify or upgrade the SignalWire "
+                        "account and finish number/campaign registration to text leads.)")
+            elif code in (21211, 21214, 21217):
+                hint = " (invalid recipient number — check the lead's phone)"
             elif code == 21606:
                 hint = " (your 'from' number can't send SMS — use an SMS-capable number)"
             return None, f"{telco.label()} {code}: {msg}{hint}"

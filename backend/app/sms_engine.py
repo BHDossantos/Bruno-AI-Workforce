@@ -161,6 +161,18 @@ def _refresh_config(db: Session) -> None:
         pass
 
 
+# Carrier rejects that mean THIS recipient's number is unusable — retrying can't
+# help, so the draft is terminal. 21211/21214/21217 = invalid/badly-formatted 'To';
+# our own pre-send guard emits "invalid recipient number". Everything else (auth,
+# trial/unverified, non-SMS 'from') is an account/config fault that a retry fixes.
+_BAD_RECIPIENT_MARKERS = ("21211", "21214", "21217", "invalid recipient number")
+
+
+def _is_bad_recipient(reason: str | None) -> bool:
+    r = (reason or "").lower()
+    return any(m in r for m in _BAD_RECIPIENT_MARKERS)
+
+
 def send_sms_drafts(db: Session, *, limit: int = 25, account: str | None = None,
                     enforce_hours: bool = True) -> dict:
     """Send drafted texts in the operator's priority order: new HOT & uncontacted →
@@ -201,6 +213,13 @@ def send_sms_drafts(db: Session, *, limit: int = 25, account: str | None = None,
         else:
             failed += 1
             r = err or "SMS send failed"
+            # A permanently-bad recipient number will never succeed on retry —
+            # mark it Failed so it leaves the Drafted queue instead of being
+            # re-attempted every run and piling up in the draft box. Account /
+            # config errors (auth, unverified/trial, non-SMS 'from') stay Drafted
+            # so they go out the moment the account is fixed — no re-drafting.
+            if _is_bad_recipient(r):
+                m.status = "Failed"
             if r not in reasons:
                 reasons.append(r)
     db.commit()

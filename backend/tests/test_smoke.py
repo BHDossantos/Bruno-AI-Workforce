@@ -1535,6 +1535,43 @@ def test_sms_send_normalizes_from_and_to_to_e164(monkeypatch):
     assert captured["To"] == "+16175551234"      # was "(617) 555-1234"
 
 
+def test_sms_send_refuses_unnormalizable_recipient(monkeypatch):
+    """A recipient number we can't turn into a real E.164 must be REFUSED before the
+    carrier call — not sent raw. Sending garbage is the 21217 'To invalid format'
+    reject, which leaves the text stuck in Drafted and retried forever."""
+    from app.config import settings
+    from app.integrations import sms
+
+    monkeypatch.setattr(settings, "sms_provider", "signalwire", raising=False)
+    monkeypatch.setattr(settings, "signalwire_space_url", "x.signalwire.com", raising=False)
+    monkeypatch.setattr(settings, "signalwire_project_id", "proj", raising=False)
+    monkeypatch.setattr(settings, "signalwire_api_token", "PTtoken", raising=False)
+    monkeypatch.setattr(settings, "signalwire_from_number", "9788244228", raising=False)
+    monkeypatch.setattr(settings, "signalwire_insurance_number", "", raising=False)
+
+    called = {"n": 0}
+    def _fake_post(*a, **k):
+        called["n"] += 1
+        raise AssertionError("must not reach the carrier for a bad recipient")
+    monkeypatch.setattr(sms.httpx, "post", _fake_post)
+
+    sid, err = sms.send_with_error("555-1234", "hi", account="insurance")  # 7 digits
+    assert sid is None
+    assert err and "invalid recipient" in err.lower()
+    assert called["n"] == 0  # never hit the carrier
+
+
+def test_send_sms_drafts_marks_bad_number_failed(monkeypatch):
+    """A permanently-bad recipient leaves the Drafted queue (status -> Failed) so it
+    stops piling up and being retried; account/config faults stay Drafted to retry."""
+    from app import sms_engine
+    assert sms_engine._is_bad_recipient("SignalWire 21217: To invalid format")
+    assert sms_engine._is_bad_recipient("invalid recipient number '555' — needs a 10-digit US phone")
+    # Trial/verify and auth faults are NOT terminal — a retry sends them once fixed.
+    assert not sms_engine._is_bad_recipient("SignalWire 10000: to must send to a verified caller id")
+    assert not sms_engine._is_bad_recipient("SignalWire 20003: authentication failed")
+
+
 def test_plivo_backup_sms_provider_routing(monkeypatch):
     """The Plivo backup: texting is 'configured' if EITHER provider is connected, and
     send_with_error routes to Plivo when it's the selected provider (or, in 'auto',
