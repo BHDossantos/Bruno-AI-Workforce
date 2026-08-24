@@ -8537,3 +8537,90 @@ def test_everquote_cadence_calls_and_texts_once_per_wave(monkeypatch):
             db.query(Lead).filter(Lead.id == lid).delete(synchronize_session=False)
             db.commit()
         db.close()
+
+
+@requires_db
+def test_sms_diagnostics_shows_from_number_validity(client, auth_headers, monkeypatch):
+    """The SMS diagnostics endpoint reports the active provider and the real 'From'
+    number per account with an E.164 validity flag — so a send failure can be pinned
+    to config instead of guessed. Never returns the API token."""
+    import json
+    from app.config import settings
+    monkeypatch.setattr(settings, "sms_provider", "signalwire", raising=False)
+    monkeypatch.setattr(settings, "signalwire_space_url", "x.signalwire.com", raising=False)
+    monkeypatch.setattr(settings, "signalwire_project_id", "proj", raising=False)
+    monkeypatch.setattr(settings, "signalwire_api_token", "PTsecret", raising=False)
+    monkeypatch.setattr(settings, "signalwire_insurance_number", "(603) 930-8272", raising=False)
+    monkeypatch.setattr(settings, "signalwire_from_number", "", raising=False)
+
+    d = client.get("/sms/diagnostics", headers=auth_headers).json()
+    assert d["connected"] is True and d["provider"] == "SignalWire"
+    ins = d["accounts"]["insurance"]
+    assert ins["from_number_e164"] == "+16039308272"   # normalized from "(603) 930-8272"
+    assert ins["from_is_valid"] is True
+    assert d["signalwire"]["api_token_set"] is True
+    # The token itself must never be serialized.
+    assert "PTsecret" not in json.dumps(d)
+
+
+def test_everquote_norm_phone_formats():
+    """Every EverQuote phone shape normalizes to E.164; junk becomes None so the lead
+    falls back to email-only instead of a doomed text/call."""
+    from app.everquote import _norm_phone
+    assert _norm_phone("(603) 930-8272") == "+16039308272"
+    assert _norm_phone("603-930-8272") == "+16039308272"
+    assert _norm_phone("1-603-930-8272") == "+16039308272"
+    assert _norm_phone("6039308272.0") == "+16039308272"   # spreadsheet float artifact
+    assert _norm_phone("+1 603 930 8272") == "+16039308272"
+    assert _norm_phone("555-1234") is None                  # only 7 digits → email-only
+    assert _norm_phone("") is None
+    assert _norm_phone(None) is None
+
+
+@requires_db
+def test_everquote_import_normalizes_and_backfills_phones():
+    """Import stores phones in E.164; a junk phone lead is email-only (phone None);
+    and a re-import repairs a pre-existing lead saved with a bad format."""
+    from app import everquote
+    from app.database import SessionLocal
+    from app.models import Lead, Message
+
+    db = SessionLocal()
+    ids = []
+    try:
+        for e in ("eqph1@x.co", "eqph2@x.co", "eqstale@x.co"):
+            db.query(Lead).filter(Lead.email == e).delete(synchronize_session=False)
+        db.commit()
+        # A pre-existing EverQuote lead with a badly-formatted phone (simulating old data).
+        stale = Lead(segment="personal", category="EverQuote Auto", owner_name="Stale One",
+                     email="eqstale@x.co", phone="(978) 824-4228", status="New",
+                     intake={"source": "everquote"})
+        db.add(stale); db.flush(); ids.append(stale.id); db.commit()
+
+        rows = [
+            {"email": "eqph1@x.co", "phone": "(603) 930-8272", "vertical": "auto",
+             "first_name": "Val", "current_carrier": "", "city": "", "state": "", "zip": ""},
+            {"email": "eqph2@x.co", "phone": "555-1234", "vertical": "auto",  # junk → email only
+             "first_name": "Junk", "current_carrier": "", "city": "", "state": "", "zip": ""},
+        ]
+        # _extract normally builds these dicts; feed already-extracted shape via parse.
+        parsed = everquote.parse_csv(
+            "email,phone,first_name\n"
+            "eqph1@x.co,(603) 930-8272,Val\n"
+            "eqph2@x.co,555-1234,Junk\n")
+        res = everquote.import_rows(db, parsed)
+
+        v = db.query(Lead).filter(Lead.email == "eqph1@x.co").first()
+        j = db.query(Lead).filter(Lead.email == "eqph2@x.co").first()
+        ids += [v.id, j.id]
+        assert v.phone == "+16039308272"        # normalized on import
+        assert j.phone is None                   # junk → email-only
+        # Backfill repaired the pre-existing stale lead too.
+        db.refresh(stale)
+        assert stale.phone == "+19788244228"
+        assert res["phones_repaired"]["fixed"] >= 1
+    finally:
+        for lid in ids:
+            db.query(Message).filter(Message.entity_id == lid).delete(synchronize_session=False)
+            db.query(Lead).filter(Lead.id == lid).delete(synchronize_session=False)
+        db.commit(); db.close()

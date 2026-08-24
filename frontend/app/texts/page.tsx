@@ -17,6 +17,15 @@ function deliveryLabel(d?: string | null): string {
   return ` · ${d}`;
 }
 type ThreadDetail = { phone: string; name: string | null; messages: Msg[] };
+type SmsDiag = {
+  provider: string | null;
+  connected: boolean;
+  accounts: Record<string, { from_number_configured: string | null; from_number_e164: string | null; from_is_valid: boolean }>;
+  daily_cap: number;
+  sent_today: number;
+  send_window: string;
+  note: string;
+};
 
 function Texts() {
   const [active, setActive] = useState<string | null>(null);
@@ -26,8 +35,10 @@ function Texts() {
   const [newPhone, setNewPhone] = useState("");
   const [sendMsg, setSendMsg] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [showDiag, setShowDiag] = useState(false);
   const { data: setup } = useFetch<{ sms?: { configured: boolean; via: string | null; daily_cap?: number; window_start?: number; window_end?: number; timezone?: string } }>(
     () => api.get("/setup"), []);
+  const { data: diag } = useFetch<SmsDiag>(() => api.get<SmsDiag>("/sms/diagnostics"), []);
   const smsReady = setup?.sms?.configured ?? true;  // assume ok until we know
   const win = setup?.sms;
   const hours = win?.window_start != null && win?.window_end != null
@@ -99,6 +110,22 @@ function Texts() {
         </div>
       )}
       {sendMsg && <p className="mb-2 text-sm text-red-600">{sendMsg}</p>}
+      <div className="mb-3">
+        <button onClick={() => setShowDiag((v) => !v)} className="text-xs text-brand underline">
+          {showDiag ? "Hide" : "Show"} SMS setup check
+        </button>
+        {showDiag && diag && (
+          <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">
+            <div><b>Provider:</b> {diag.provider || "not connected"} · <b>Today:</b> {diag.sent_today}/{diag.daily_cap} · <b>Hours:</b> {diag.send_window}</div>
+            <div className="mt-1">
+              <b>Insurance “from” number:</b>{" "}
+              {diag.accounts?.insurance?.from_number_e164 || diag.accounts?.insurance?.from_number_configured || "— none set —"}{" "}
+              {diag.accounts?.insurance?.from_is_valid ? "✓ valid" : "✗ invalid format"}
+            </div>
+            <div className="mt-1 text-gray-500">{diag.note}</div>
+          </div>
+        )}
+      </div>
       <div className="flex h-[70vh] overflow-hidden rounded-xl border border-gray-200 bg-white">
         {/* Threads list */}
         <div className="w-72 shrink-0 overflow-y-auto border-r border-gray-200">

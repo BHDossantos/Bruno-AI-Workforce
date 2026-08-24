@@ -39,6 +39,21 @@ def _title(s: str | None) -> str:
     return " ".join(w.capitalize() for w in (s or "").split())
 
 
+def _norm_phone(raw) -> str | None:
+    """Normalize an EverQuote phone to E.164 (+1XXXXXXXXXX) at import, so every
+    downstream send uses a carrier-valid number instead of the reject-prone shapes
+    EverQuote/CSV exports produce — '(603) 930-8272', '603-930-8272', '1-603-...',
+    and the spreadsheet float artifact '6039308272.0'. Returns None when the value
+    isn't a real 10/11-digit US number, so the lead is stored WITHOUT a phone and
+    the send paths (SMS/call both require a phone) automatically fall back to
+    email-only — never a text or call to a malformed number."""
+    from .integrations.sms import _e164
+    s = str(raw or "").strip()
+    if s.endswith(".0"):        # '6039308272.0' from a spreadsheet export → drop it
+        s = s[:-2]
+    return _e164(s) or None
+
+
 def model_case(model: str | None) -> str:
     """Case a vehicle model the way people write it: real words title-cased
     (KONA→Kona, CAMRY→Camry, BLAZER→Blazer) but model codes kept upper
@@ -80,7 +95,7 @@ def _extract(row: dict) -> dict:
         "first_name": _title(row.get("first_name") or person.get("firstName")),
         "last_name": _title(row.get("last_name") or person.get("lastName")),
         "email": (row.get("email") or person.get("email") or "").strip().lower() or None,
-        "phone": (row.get("phone") or person.get("phone") or "").strip() or None,
+        "phone": _norm_phone(row.get("phone") or person.get("phone")),
         "city": _title(row.get("city") or (person.get("address") or {}).get("city")),
         "state": (row.get("state") or (person.get("address") or {}).get("state") or "").strip().upper(),
         "zip": (row.get("zip_code") or (person.get("address") or {}).get("zip") or "").strip(),
@@ -138,6 +153,9 @@ def import_rows(db: Session, rows: list[dict]) -> dict:
     """Create/refresh personal-auto leads from EverQuote rows. Dedupes by email."""
     imported = updated = skipped = 0
     lead_ids: list[str] = []
+    # Repair the WHOLE EverQuote back catalog to E.164 on every import (not just the
+    # rows in this file), so numbers first saved in a reject-prone format get fixed.
+    repaired = normalize_existing_phones(db)
     for f in rows:
         if not (f.get("email") or f.get("phone")):
             skipped += 1
@@ -158,7 +176,11 @@ def import_rows(db: Session, rows: list[dict]) -> dict:
         if existing:
             existing.intake = intake
             existing.reason = reason
-            if f["phone"] and not existing.phone:
+            # Converge the stored phone to the normalized E.164 form on every import
+            # (fixes a lead first saved with a reject-prone format). Clearing to None
+            # when the new value is invalid would lose a good number, so only ever
+            # upgrade to a valid normalized number.
+            if f["phone"] and existing.phone != f["phone"]:
                 existing.phone = f["phone"]
             # Keep them at the top of the queue on re-import (never downgrade a
             # lead that's already been scored/engaged higher).
@@ -201,9 +223,33 @@ def import_rows(db: Session, rows: list[dict]) -> dict:
         except Exception:  # pragma: no cover - sending must not break the import
             log.exception("EverQuote instant first-touch send failed")
     result = {"imported": imported, "updated": updated, "skipped": skipped,
-              "total": len(rows), "lead_ids": lead_ids, "drafted": drafted, "sent": sent}
+              "total": len(rows), "lead_ids": lead_ids, "drafted": drafted, "sent": sent,
+              "phones_repaired": repaired}
     log.info("EverQuote import: %s", result)
     return result
+
+
+def normalize_existing_phones(db: Session) -> dict:
+    """Repair stored phones on ALL EverQuote leads to E.164 — called on every import
+    so the back catalog is fixed too, not only the current file. A number that can't
+    be made into a valid 10/11-digit US number is cleared to None, so that lead
+    becomes email-only (no failed texts/calls to a malformed number, per the rule:
+    no valid 10-digit number → email only). Returns {fixed, cleared} counts."""
+    fixed = cleared = 0
+    for lead in (_everquote_leads(db)
+                 .filter(Lead.phone.isnot(None), Lead.phone != "").all()):
+        new = _norm_phone(lead.phone)
+        if new == lead.phone:
+            continue  # already valid E.164 — leave it
+        lead.phone = new
+        if new:
+            fixed += 1
+        else:
+            cleared += 1
+    if fixed or cleared:
+        db.commit()
+        log.info("EverQuote phone repair: fixed=%d cleared=%d", fixed, cleared)
+    return {"fixed": fixed, "cleared": cleared}
 
 
 def _flush_first_touch_now(db: Session) -> dict:
