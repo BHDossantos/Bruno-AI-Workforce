@@ -8699,3 +8699,44 @@ def test_cors_reflects_origin_not_wildcard_with_credentials(client):
     assert acao == origin, f"expected reflected origin, got {acao!r}"
     assert acao != "*"
     assert r.headers.get("access-control-allow-credentials") == "true"
+
+
+@requires_db
+def test_masked_phone_lead_gets_no_sms_draft():
+    """A lead with a masked/placeholder phone ("************") must never get an SMS
+    draft — it's reached by email only. A lead with a real number still does."""
+    from app import everquote
+    from app.database import SessionLocal
+    from app.models import Lead, Message
+
+    db = SessionLocal()
+    ids = []
+    try:
+        for e in ("maskonly@x.co", "realph@x.co"):
+            db.query(Lead).filter(Lead.email == e).delete(synchronize_session=False)
+        db.commit()
+        masked = Lead(segment="personal", category="EverQuote Auto", owner_name="Masked",
+                      email="maskonly@x.co", phone="************", status="New",
+                      intake={"source": "everquote", "everquote": {"vertical": "auto"}},
+                      reason="EverQuote auto lead")
+        real = Lead(segment="personal", category="EverQuote Auto", owner_name="Real",
+                    email="realph@x.co", phone="+16039308272", status="New",
+                    intake={"source": "everquote", "everquote": {"vertical": "auto"}},
+                    reason="EverQuote auto lead")
+        db.add_all([masked, real]); db.flush()
+        ids = [masked.id, real.id]
+        db.commit()
+
+        everquote.personalize_batch(db, lead_ids=[str(masked.id), str(real.id)], limit=10)
+
+        def sms_count(lid):
+            return db.query(Message).filter(
+                Message.channel == "sms", Message.entity_type == "lead",
+                Message.entity_id == lid).count()
+        assert sms_count(masked.id) == 0, "masked phone must not produce an SMS draft"
+        assert sms_count(real.id) >= 1, "real phone should produce an SMS draft"
+    finally:
+        for lid in ids:
+            db.query(Message).filter(Message.entity_id == lid).delete(synchronize_session=False)
+            db.query(Lead).filter(Lead.id == lid).delete(synchronize_session=False)
+        db.commit(); db.close()

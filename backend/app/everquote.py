@@ -446,15 +446,20 @@ def personalize_batch(db: Session, lead_ids: list[str] | None = None, limit: int
                 except Exception:  # one lead failing must not stop the batch
                     log.exception("batch personalize (email) failed for lead %s", lead.id)
                     failed += 1
-        # SMS draft (skip if already texted, no phone, or opted out). Stored as a
-        # Drafted sms Message so it shows in Texts and sends via /sms/send-drafts.
-        if queue_sms and lead.phone and str(lead.id) not in texted \
-                and not sms_engine.is_opted_out(db, lead.phone):
+        # SMS draft (skip if already texted, opted out, or the phone isn't a real,
+        # dialable US number). A masked/placeholder phone ("************" from a
+        # return/EverQuote lead) normalizes to None — we do NOT draft a text for it,
+        # so that lead is reached by email only (per the rule: don't phone a lead
+        # without a valid number). The normalized E.164 is stored so the send never
+        # hits a formatting reject.
+        phone_e164 = _norm_phone(lead.phone)
+        if queue_sms and phone_e164 and str(lead.id) not in texted \
+                and not sms_engine.is_opted_out(db, phone_e164):
             if pack is None:
                 pack = personalize(lead, use_ai=False)
             if pack.get("ok"):
                 db.add(Message(channel="sms", direction="outbound", entity_type="lead",
-                               entity_id=lead.id, to_email=lead.phone, from_account="insurance",
+                               entity_id=lead.id, to_email=phone_e164, from_account="insurance",
                                body=pack["sms"]["tailored"] or pack["sms"]["body"],
                                status="Drafted"))
                 texted.add(str(lead.id))

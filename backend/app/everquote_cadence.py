@@ -157,6 +157,12 @@ def run(db, per_run_limit: int = 1) -> dict:
     for lead in q.limit(max(per_run_limit * 8, 8)).all():
         if acted >= per_run_limit:
             break
+        # Skip a masked/invalid phone ("************") entirely — this cadence is
+        # phone-only (call + text); a lead without a real number is reached by
+        # email elsewhere, never dialed or texted here.
+        if not sms_int._e164(lead.phone):
+            skipped_blocked += 1
+            continue
         need_call = can_call and lead.id not in called and call_headroom > 0
         need_text = can_text and lead.id not in texted
         if not (need_call or need_text):
