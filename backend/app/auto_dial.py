@@ -111,11 +111,17 @@ def run(db, per_run_limit: int | None = None) -> dict:
 
     # Over-fetch: the cooldown + compliance filters thin the set, so pull more than
     # the run cap and stop once `run_cap` calls are actually placed.
+    from .integrations import sms as sms_int
     for lead in q.limit(max(run_cap * 6, 6)).all():
         if len(placed) >= run_cap:
             break
         if lead.id in recent:
             skipped_recent += 1
+            continue
+        # Skip a masked/invalid phone ("************" from a return/EverQuote lead)
+        # entirely — never dial a number that isn't a real, dialable US number.
+        if not sms_int._e164(lead.phone):
+            skipped_blocked += 1
             continue
         # Every call clears the Compliance & Governance gate first (opt-out/DNC,
         # licensing, contact-hours, daily cap) — and the decision is audit-logged.
