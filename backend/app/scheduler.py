@@ -267,6 +267,11 @@ def _run_linkedin_founder(db):
     return linkedin_founder.run(db)
 
 
+def _run_everquote_cadence(db):
+    from . import everquote_cadence
+    return everquote_cadence.run(db, per_run_limit=1)
+
+
 def _run_auto_dial(db):
     # per_run_limit=1 → one call per minute (paced, human), starting at 8am; the
     # daily total is still bounded by AUTO_DIAL_DAILY_CAP.
@@ -296,6 +301,12 @@ _JOBS: dict[str, tuple] = {
     # places 1 and stops once today's cap is hit. Gated by Outreach Autopilot +
     # compliance rails (opt-out, 8am-9pm window, daily cap, cooldown).
     "auto_dial":        (_run_auto_dial, "* 8-20 * * *"),
+    # EverQuote priority cadence: call AND text every EverQuote lead TWICE a day —
+    # a morning wave (from 8am ET) and an afternoon wave (from 3pm ET). Runs every
+    # minute in-window (one lead/run, paced); the module self-gates to the two waves
+    # and dedupes against all outbound activity so each lead gets at most one call +
+    # one text per wave (= two of each per day). EverQuote leads only.
+    "everquote_cadence": (_run_everquote_cadence, "* 8-20 * * *"),
     # Draft the first-touch email + SMS for EverQuote leads that don't have one yet
     # (the opener flush_drafts sends). Hourly around the clock so a lead imported at
     # any hour — including overnight — has its opener queued and ready to send the

@@ -1535,6 +1535,43 @@ def test_sms_send_normalizes_from_and_to_to_e164(monkeypatch):
     assert captured["To"] == "+16175551234"      # was "(617) 555-1234"
 
 
+def test_sms_send_refuses_unnormalizable_recipient(monkeypatch):
+    """A recipient number we can't turn into a real E.164 must be REFUSED before the
+    carrier call — not sent raw. Sending garbage is the 21217 'To invalid format'
+    reject, which leaves the text stuck in Drafted and retried forever."""
+    from app.config import settings
+    from app.integrations import sms
+
+    monkeypatch.setattr(settings, "sms_provider", "signalwire", raising=False)
+    monkeypatch.setattr(settings, "signalwire_space_url", "x.signalwire.com", raising=False)
+    monkeypatch.setattr(settings, "signalwire_project_id", "proj", raising=False)
+    monkeypatch.setattr(settings, "signalwire_api_token", "PTtoken", raising=False)
+    monkeypatch.setattr(settings, "signalwire_from_number", "9788244228", raising=False)
+    monkeypatch.setattr(settings, "signalwire_insurance_number", "", raising=False)
+
+    called = {"n": 0}
+    def _fake_post(*a, **k):
+        called["n"] += 1
+        raise AssertionError("must not reach the carrier for a bad recipient")
+    monkeypatch.setattr(sms.httpx, "post", _fake_post)
+
+    sid, err = sms.send_with_error("555-1234", "hi", account="insurance")  # 7 digits
+    assert sid is None
+    assert err and "invalid recipient" in err.lower()
+    assert called["n"] == 0  # never hit the carrier
+
+
+def test_send_sms_drafts_marks_bad_number_failed(monkeypatch):
+    """A permanently-bad recipient leaves the Drafted queue (status -> Failed) so it
+    stops piling up and being retried; account/config faults stay Drafted to retry."""
+    from app import sms_engine
+    assert sms_engine._is_bad_recipient("SignalWire 21217: To invalid format")
+    assert sms_engine._is_bad_recipient("invalid recipient number '555' — needs a 10-digit US phone")
+    # Trial/verify and auth faults are NOT terminal — a retry sends them once fixed.
+    assert not sms_engine._is_bad_recipient("SignalWire 10000: to must send to a verified caller id")
+    assert not sms_engine._is_bad_recipient("SignalWire 20003: authentication failed")
+
+
 def test_plivo_backup_sms_provider_routing(monkeypatch):
     """The Plivo backup: texting is 'configured' if EITHER provider is connected, and
     send_with_error routes to Plivo when it's the selected provider (or, in 'auto',
@@ -8422,3 +8459,81 @@ def test_outbound_bcc_copies_owner_on_every_email(monkeypatch):
     captured.clear()
     resend.send_with_error("boss@example.com", "Hi", "<p>body</p>")
     assert "bcc" not in captured["json"]
+
+
+def test_everquote_cadence_wave_windows():
+    """The two daily waves open at 8am (morning) and 3pm (afternoon) ET, and close
+    at the 9pm legal cutoff — outside those hours there is no wave."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from app import everquote_cadence as eqc
+    et = ZoneInfo("America/New_York")
+    assert eqc.current_wave(datetime(2026, 8, 24, 7, 30, tzinfo=et)) is None   # before 8am
+    assert eqc.current_wave(datetime(2026, 8, 24, 8, 0, tzinfo=et)) == "am"
+    assert eqc.current_wave(datetime(2026, 8, 24, 14, 59, tzinfo=et)) == "am"
+    assert eqc.current_wave(datetime(2026, 8, 24, 15, 0, tzinfo=et)) == "pm"
+    assert eqc.current_wave(datetime(2026, 8, 24, 20, 30, tzinfo=et)) == "pm"
+    assert eqc.current_wave(datetime(2026, 8, 24, 21, 0, tzinfo=et)) is None    # after 9pm
+
+
+@requires_db
+def test_everquote_cadence_calls_and_texts_once_per_wave(monkeypatch):
+    """Each cadence run reaches an EverQuote lead on BOTH channels, then dedupes: a
+    second run in the same wave places nothing (so a lead gets one call + one text
+    per wave = two of each per day). EverQuote leads only."""
+    from datetime import datetime, timezone
+    from app import control, everquote_cadence as eqc, sms_engine
+    from app.database import SessionLocal
+    from app.integrations import sms as sms_int, voice
+    from app.models import Lead, Message
+
+    # Autopilot on; both channels "connected".
+    monkeypatch.setattr(control, "is_paused_safe", lambda db: False)
+    monkeypatch.setattr(control, "get_mode", lambda db: "auto")
+    monkeypatch.setattr(control, "outreach_autopilot", lambda db: True)
+    monkeypatch.setattr(voice, "is_configured", lambda: True)
+    monkeypatch.setattr(voice, "voicemail_configured", lambda: True)
+    monkeypatch.setattr(voice, "place_auto_call", lambda phone, lid: ("CALLSID", None))
+    monkeypatch.setattr(sms_int, "is_configured", lambda: True)
+    monkeypatch.setattr(eqc, "current_wave", lambda now=None: "am")
+    # Compliance gate always allows.
+    from app import compliance
+    monkeypatch.setattr(compliance, "gate", lambda *a, **k: type("D", (), {"allowed": True, "rule": None})())
+
+    # A fake send_text that records a SENT sms Message (mirrors the real one) so the
+    # per-wave dedup can see it on the next run.
+    def _fake_send_text(db, *, entity_type, entity_id, phone, body, account="insurance", enforce_hours=True):
+        db.add(Message(channel="sms", direction="outbound", entity_type=entity_type,
+                       entity_id=entity_id, to_email=phone, from_account=account,
+                       body=body, status="Sent", provider_id="SMSSID",
+                       sent_at=datetime.now(timezone.utc)))
+        db.commit()
+        return "SMSSID"
+    monkeypatch.setattr(sms_engine, "send_text", _fake_send_text)
+
+    db = SessionLocal()
+    lid = None
+    try:
+        db.query(Lead).filter(Lead.email == "eqcadence@x.co").delete(synchronize_session=False)
+        db.commit()
+        lead = Lead(segment="personal", category="EverQuote Auto", owner_name="Dana Doe",
+                    email="eqcadence@x.co", phone="+15550009876", status="New")
+        db.add(lead); db.flush(); lid = lead.id; db.commit()
+
+        r1 = eqc.run(db, per_run_limit=5)
+        assert r1.get("wave") == "am"
+        assert r1["calls"] >= 1 and r1["texts"] >= 1
+
+        # Same wave again → this lead is already done on both channels.
+        r2 = eqc.run(db, per_run_limit=5)
+        called_again = db.query(Message).filter(
+            Message.entity_id == lid, Message.channel == "call").count()
+        texted = db.query(Message).filter(
+            Message.entity_id == lid, Message.channel == "sms").count()
+        assert called_again == 1 and texted == 1   # not doubled within the wave
+    finally:
+        if lid is not None:
+            db.query(Message).filter(Message.entity_id == lid).delete(synchronize_session=False)
+            db.query(Lead).filter(Lead.id == lid).delete(synchronize_session=False)
+            db.commit()
+        db.close()
