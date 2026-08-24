@@ -322,7 +322,7 @@ class Settings(BaseSettings):
     # number that isn't A2P 10DLC-registered (the same number-reputation issue that
     # sends the calls to voicemail). 200/day is an aggressive-but-survivable step for a
     # standard number; going higher needs A2P 10DLC brand/campaign registration first.
-    sms_daily_send_cap: int = 200          # max texts per day across all numbers
+    sms_daily_send_cap: int = 500          # max texts per day across all numbers
     sms_send_window_start: int = 8         # earliest local hour to text (TCPA: 8am)
     sms_send_window_end: int = 21          # latest local hour to text (TCPA: 9pm)
     sms_timezone: str = "America/New_York"  # recipient tz (NH/MA/FL are all Eastern)
