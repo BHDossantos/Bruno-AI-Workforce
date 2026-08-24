@@ -8685,3 +8685,17 @@ def test_heal_draft_recipients_fixes_recovers_and_retires():
             db.query(Message).filter(Message.id == m.id).delete(synchronize_session=False)
         db.query(Lead).filter(Lead.email == "healrec@x.co").delete(synchronize_session=False)
         db.commit(); db.close()
+
+
+def test_cors_reflects_origin_not_wildcard_with_credentials(client):
+    """A wildcard 'Access-Control-Allow-Origin: *' is INVALID when credentials are
+    allowed — the browser rejects it and every frontend fetch fails ('can't reach
+    the backend') even though the API is healthy. CORS must reflect the caller's
+    Origin so it's valid alongside Allow-Credentials: true."""
+    origin = "https://bruno-ai-workforce-front-xyz.northamerica-northeast1.run.app"
+    r = client.get("/health", headers={"Origin": origin})
+    assert r.status_code == 200
+    acao = r.headers.get("access-control-allow-origin")
+    assert acao == origin, f"expected reflected origin, got {acao!r}"
+    assert acao != "*"
+    assert r.headers.get("access-control-allow-credentials") == "true"
