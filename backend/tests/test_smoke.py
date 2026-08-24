@@ -8624,3 +8624,15 @@ def test_everquote_import_normalizes_and_backfills_phones():
             db.query(Message).filter(Message.entity_id == lid).delete(synchronize_session=False)
             db.query(Lead).filter(Lead.id == lid).delete(synchronize_session=False)
         db.commit(); db.close()
+
+
+def test_sms_e164_strips_spreadsheet_float_artifact():
+    """A phone stored by a spreadsheet as a float ('6039308272.0') must normalize to
+    E.164 at SEND time, not be rejected as invalid — this is what still failed old
+    drafts after the import-time fix. Dot-separated numbers keep working."""
+    from app.integrations.sms import _e164
+    assert _e164("6039308272.0") == "+16039308272"
+    assert _e164("16039308272.0") == "+16039308272"
+    assert _e164("603.930.8272") == "+16039308272"   # dots as separators, not a float
+    assert _e164("(603) 930-8272") == "+16039308272"
+    assert _e164("555.0") == ""                       # still junk → refused

@@ -27,6 +27,10 @@ def _e164(phone: str | None) -> str:
     to send rather than hand the carrier a malformed 'To' (the 21217 'To invalid
     format' reject). A garbage or truncated number never becomes a bogus '+123'."""
     raw = (phone or "").strip()
+    # Spreadsheet exports store a phone as a float — '6039308272.0'. Drop that trailing
+    # '.0' (only when it's a decimal suffix, not a dot-separated number like
+    # '603.930.8272') so a real 10-digit number isn't misread as a bogus 11-digit one.
+    raw = re.sub(r"\.0+$", "", raw)
     d = re.sub(r"\D", "", raw)
     if len(d) == 11 and d.startswith("1"):
         return "+" + d
