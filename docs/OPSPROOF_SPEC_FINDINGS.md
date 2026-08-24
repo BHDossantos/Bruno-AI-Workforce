@@ -143,25 +143,50 @@ before the register is used with a customer.
 
 ---
 
-## 4. The stack commits a pre-revenue team to three toolchains
+## 4. The backend service language was never justified by an ADR
 
-**Severity: low — a cost to accept knowingly, not a defect.**
+**Severity: low — a cost to accept knowingly, not a defect. ANALYSIS DELIVERED —
+see `adr/ADR-0001-backend-service-language.md` (status: proposed).**
 
-§10.4 specifies React/Next.js/TypeScript, Go services, and Python/FastAPI for AI
-services.
+### Correction to how this was originally raised
 
-The Python island for AI services is well justified — that is where the ecosystem
-is, and §9's evaluation framework depends on it. The part worth deciding explicitly
-is **Go and TypeScript both on the backend**. That is three language toolchains,
-three CI paths, three dependency-audit and vulnerability-management surfaces (against
-§13.7's requirements), three sets of coding standards under §16.6, and three hiring
-profiles — carried by the founding team in §18.3, before revenue.
+This finding first described the stack as committing to "**Go *and* TypeScript on
+the backend**." **That was wrong.** Checking §10.4 precisely: TypeScript appears
+exactly once in the entire specification, for the web application only. Go covers
+the 16 services in `services/`; Python covers `ai-gateway` and the
+data/evaluation stack. The split is frontend / backend / AI — conventional, and
+defensible on its face. There is no second backend language.
 
-**Proposed resolution.** Not a rewrite — an ADR under §16.3 that states the case for
-Go *and* TypeScript on the backend explicitly, or consolidates to two languages
-before Gate A. Making the call late is far more expensive than making it now: by
-Gate A the tenant model, event contracts and connector framework are all written in
-whatever was chosen.
+The overstatement mattered, because it framed the decision as correcting an
+anomaly when the real question is a sound default worth confirming rather than
+inheriting.
+
+### The finding, restated correctly
+
+§10.4 itself says the stack is "a default, not a religion" and that changes
+require an ADR covering operational cost, security, portability, hiring and
+migration impact. No such ADR exists for the backend language. The genuine
+question: **is Go right for the 16 services, given this team?** — weighed against
+consolidating onto TypeScript (one language across web and services) or Python
+(one language with the AI stack). Three toolchains in one monorepo is still a real
+cost under §13.7's dependency-audit requirements and §16.6's coding standards,
+carried by the founding team in §18.3 before revenue.
+
+**Resolution.** `ADR-0001` sets out all three options against §10.4's five axes
+and stops short of choosing — the decision belongs to the Head of
+Engineering/CTO under §18.4. Its central finding: the strongest argument for Go is
+**the customer-side collector**, and it is a *security* argument rather than an
+ergonomic one. That component runs inside the customer's Kubernetes cluster and
+must clear a regulated buyer's third-party security review, which
+`OPSPROOF_STRATEGY.md` §5 identifies as the real gate on every deal. A single
+static binary with no language runtime is a materially easier review than a Node
+or Python runtime plus its transitive dependency tree. The ADR also records that a
+**split outcome is legitimate** — Go for the collector and ingestion path, another
+language elsewhere.
+
+Making the call late is far more expensive than making it now: by Gate A the
+tenant model, event contracts, connector framework and authorization model are all
+implemented in whatever was chosen.
 
 ---
 
@@ -172,7 +197,7 @@ whatever was chosen.
 | 1 | ~~Hypothesis engine lacks `not_observed` state~~ | Correctness | **Resolved — Amendment A1** |
 | 2 | Evidence Vault name collides with Kosli | Commercial / legal | Head of Product |
 | 3 | ~~Standards register missing AI Act dates and Annex III scope note~~ | Completeness | **Resolved — Amendment A2** |
-| 4 | Three backend toolchains, no ADR | Engineering economics | Head of Engineering/CTO |
+| 4 | ~~Three backend toolchains, no ADR~~ Backend service language never justified by ADR | Engineering economics | **Analysis in ADR-0001; decision open** |
 
 None of these blocks Gate A.
 
@@ -187,6 +212,9 @@ register is used with a customer.
 **Finding 2** must be resolved before any customer-facing material is produced —
 it needs a product-naming decision, not research.
 
-**Finding 4** needs an engineering decision recorded as an ADR before Gate A,
-since by then the tenant model, event contracts and connector framework are all
-written in whatever was chosen.
+**Finding 4** — `ADR-0001` now sets out the options, the evidence and the
+consequences. The decision itself is open and belongs to the Head of
+Engineering/CTO under §18.4; it must be taken before Gate A, since by then the
+tenant model, event contracts, connector framework and authorization model are all
+implemented in whatever was chosen. Note the correction recorded in that finding:
+the original "Go and TypeScript both on the backend" framing was inaccurate.
