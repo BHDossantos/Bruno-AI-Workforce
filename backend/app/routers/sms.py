@@ -18,6 +18,52 @@ _read = require_role("admin", "operator", "viewer")
 _write = require_role("admin", "operator")
 
 
+@router.get("/sms/diagnostics")
+def diagnostics(db: Session = Depends(get_db), _=Depends(_read)):
+    """Show EXACTLY what the app will send to the carrier — the active provider and
+    the real 'From' number it uses per account (and whether that number is valid
+    E.164) — so a send failure can be pinned to a specific cause instead of guessed.
+    Phone numbers are not secrets; API tokens are never returned."""
+    from .. import runtime_config
+    from ..config import settings
+    from ..integrations import telco
+    try:
+        runtime_config.apply_to_settings(db)  # reflect numbers saved in Setup
+    except Exception:
+        pass
+    prov = telco.provider("sms")
+    accounts = {}
+    for acct in ("insurance", "personal"):
+        raw = sms.number_for(acct)
+        e164 = sms._e164(raw)
+        accounts[acct] = {
+            "from_number_configured": raw or None,
+            "from_number_e164": e164 or None,
+            "from_is_valid": bool(e164),
+        }
+    return {
+        "provider": telco.label("sms") if prov else None,
+        "connected": bool(prov),
+        # Which SignalWire number fields are set (values shown — they're not secret).
+        "signalwire": {
+            "space_url": (settings.signalwire_space_url or "") or None,
+            "project_id_set": bool((settings.signalwire_project_id or "").strip()),
+            "api_token_set": bool((settings.signalwire_api_token or "").strip()),
+            "from_number": (settings.signalwire_from_number or "") or None,
+            "insurance_number": (settings.signalwire_insurance_number or "") or None,
+        },
+        "accounts": accounts,
+        "daily_cap": settings.sms_daily_send_cap,
+        "sent_today": sms_engine.sms_sent_today(db),
+        "send_window": f"{settings.sms_send_window_start}:00-{settings.sms_send_window_end}:00 "
+                       f"{settings.sms_timezone}",
+        "note": ("If a send fails with 'to must send to a verified caller id' while the "
+                 "From number here is valid and owned in your SignalWire project, the "
+                 "block is on the destination — the number/campaign needs 10DLC "
+                 "registration completed in SignalWire for unrestricted US sending."),
+    }
+
+
 class SmsSend(BaseModel):
     to: str
     message: str

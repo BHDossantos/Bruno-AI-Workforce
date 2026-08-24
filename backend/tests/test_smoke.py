@@ -8537,3 +8537,27 @@ def test_everquote_cadence_calls_and_texts_once_per_wave(monkeypatch):
             db.query(Lead).filter(Lead.id == lid).delete(synchronize_session=False)
             db.commit()
         db.close()
+
+
+@requires_db
+def test_sms_diagnostics_shows_from_number_validity(client, auth_headers, monkeypatch):
+    """The SMS diagnostics endpoint reports the active provider and the real 'From'
+    number per account with an E.164 validity flag — so a send failure can be pinned
+    to config instead of guessed. Never returns the API token."""
+    import json
+    from app.config import settings
+    monkeypatch.setattr(settings, "sms_provider", "signalwire", raising=False)
+    monkeypatch.setattr(settings, "signalwire_space_url", "x.signalwire.com", raising=False)
+    monkeypatch.setattr(settings, "signalwire_project_id", "proj", raising=False)
+    monkeypatch.setattr(settings, "signalwire_api_token", "PTsecret", raising=False)
+    monkeypatch.setattr(settings, "signalwire_insurance_number", "(603) 930-8272", raising=False)
+    monkeypatch.setattr(settings, "signalwire_from_number", "", raising=False)
+
+    d = client.get("/sms/diagnostics", headers=auth_headers).json()
+    assert d["connected"] is True and d["provider"] == "SignalWire"
+    ins = d["accounts"]["insurance"]
+    assert ins["from_number_e164"] == "+16039308272"   # normalized from "(603) 930-8272"
+    assert ins["from_is_valid"] is True
+    assert d["signalwire"]["api_token_set"] is True
+    # The token itself must never be serialized.
+    assert "PTsecret" not in json.dumps(d)
