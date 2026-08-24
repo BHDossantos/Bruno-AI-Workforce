@@ -8624,3 +8624,64 @@ def test_everquote_import_normalizes_and_backfills_phones():
             db.query(Message).filter(Message.entity_id == lid).delete(synchronize_session=False)
             db.query(Lead).filter(Lead.id == lid).delete(synchronize_session=False)
         db.commit(); db.close()
+
+
+def test_sms_e164_strips_spreadsheet_float_artifact():
+    """A phone stored by a spreadsheet as a float ('6039308272.0') must normalize to
+    E.164 at SEND time, not be rejected as invalid — this is what still failed old
+    drafts after the import-time fix. Dot-separated numbers keep working."""
+    from app.integrations.sms import _e164
+    assert _e164("6039308272.0") == "+16039308272"
+    assert _e164("16039308272.0") == "+16039308272"
+    assert _e164("603.930.8272") == "+16039308272"   # dots as separators, not a float
+    assert _e164("(603) 930-8272") == "+16039308272"
+    assert _e164("555.0") == ""                       # still junk → refused
+
+
+@requires_db
+def test_heal_draft_recipients_fixes_recovers_and_retires():
+    """The 'send pending' pre-heal: a formatted/'.0' number is normalized in place, a
+    junk draft whose lead now has a good phone is recovered, and a junk draft with no
+    recoverable number is retired (Failed → email-only) so it stops reappearing."""
+    from app import sms_engine
+    from app.database import SessionLocal
+    from app.models import Lead, Message
+
+    db = SessionLocal()
+    made = []
+    try:
+        # A lead whose phone was since fixed to a good number.
+        lead = Lead(segment="personal", category="EverQuote Auto", owner_name="Rec Over",
+                    email="healrec@x.co", phone="+16039308272", status="New",
+                    intake={"source": "everquote"})
+        db.add(lead); db.flush()
+        drafts = [
+            Message(channel="sms", direction="outbound", status="Drafted",
+                    to_email="(617) 555-1234", body="a", from_account="insurance"),   # formatted → fixed
+            Message(channel="sms", direction="outbound", status="Drafted",
+                    to_email="6039308272.0", body="b", from_account="insurance"),      # .0 → fixed
+            Message(channel="sms", direction="outbound", status="Drafted",
+                    to_email="junk123", entity_type="lead", entity_id=lead.id,
+                    body="c", from_account="insurance"),                                # recover from lead
+            Message(channel="sms", direction="outbound", status="Drafted",
+                    to_email="555", body="d", from_account="insurance"),               # retire
+        ]
+        for m in drafts:
+            db.add(m)
+        db.flush()
+        made = [lead.id] + [m.id for m in drafts]
+        db.commit()
+
+        res = sms_engine.heal_draft_recipients(db, account="insurance")
+        for m in drafts:
+            db.refresh(m)
+        assert drafts[0].to_email == "+16175551234" and drafts[0].status == "Drafted"
+        assert drafts[1].to_email == "+16039308272" and drafts[1].status == "Drafted"
+        assert drafts[2].to_email == "+16039308272" and drafts[2].status == "Drafted"  # recovered
+        assert drafts[3].status == "Failed"                                            # retired
+        assert res["fixed"] >= 2 and res["recovered"] >= 1 and res["retired"] >= 1
+    finally:
+        for m in drafts:
+            db.query(Message).filter(Message.id == m.id).delete(synchronize_session=False)
+        db.query(Lead).filter(Lead.email == "healrec@x.co").delete(synchronize_session=False)
+        db.commit(); db.close()
