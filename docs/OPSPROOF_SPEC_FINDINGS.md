@@ -12,7 +12,9 @@ are corrections; one is a naming conflict the spec cannot resolve on its own.
 
 ## 1. The hypothesis engine has no "absence of evidence" rule — a broken connector can exonerate the guilty change
 
-**Severity: high.** This is a correctness defect in the product's core claim.
+**Severity: high. RESOLVED — Amendment A1** in `OPSPROOF_EXECUTION_SPEC.md`
+(sections 7.10, 8.5, P0-16). The finding is kept below as the rationale for that
+amendment. This was a correctness defect in the product's core claim.
 
 §8.5 (incident hypothesis evidence score) and §7.10 (Hypothesis Workspace) define
 supporting and contradicting evidence, but nothing in the spec distinguishes:
@@ -32,7 +34,15 @@ resulting hypothesis is presented with the same visual confidence as one built o
 complete data. §8.3's data-confidence score correctly handles this at the
 *assessment* level; the hypothesis engine has no equivalent.
 
-**Proposed resolution.** Add to §8.5:
+**Where it bit, concretely.** Two components in §8.5's scoring table carried the
+defect. *Corroborating telemetry* (15 points) scored **zero** when telemetry was
+merely unavailable — indistinguishable from telemetry that was available and
+showed nothing. And the *contradictory evidence penalty* (up to −25) had no
+precondition on source health, so silence from a degraded source could be read as
+argument against the hypothesis. Together they could cost a correct hypothesis up
+to 40 points for the sole reason that a connector was down.
+
+**Resolution as shipped (Amendment A1).** Added to §8.5:
 
 - Evidence for a hypothesis resolves to one of four states: `supporting`,
   `contradicting`, `not_observed`, `not_applicable`.
@@ -67,7 +77,7 @@ feature makes differentiation harder to articulate and concedes the frame. It is
 also a weak position if the name is ever asserted, and the spec's own front matter
 already flags that "OpsProof" itself requires trademark clearance.
 
-**Proposed resolution.** Rename the surface. `OPSPROOF_STRATEGY.md` uses **Control
+**Proposed resolution — still open.** Rename the surface. `OPSPROOF_STRATEGY.md` uses **Control
 Ledger**, which was the name selected when this conflict was first raised. Adopt it
 across the spec (§4.2, §7.12, §14.11, Appendix D, P0-19) or choose an alternative,
 but resolve it before any customer-facing material is produced. Roll the decision
@@ -81,7 +91,9 @@ patched.
 
 ## 3. The standards register should carry the AI Act's revised dates
 
-**Severity: low — the spec is not wrong, but it is less useful than it could be.**
+**Severity: low. RESOLVED — Amendment A2** in `OPSPROOF_EXECUTION_SPEC.md`
+(§13.9, Appendix J). The spec was not wrong; it was less useful than it could be.
+Kept below as the rationale for that amendment.
 
 §13.9's EU AI Act position is well-judged: it requires an AI-use inventory, requires
 legal analysis of classification, and commits to human oversight, transparency,
@@ -107,9 +119,11 @@ recorded as *scope undetermined, pending counsel* — not resolved in either
 direction. Claiming high-risk status the product does not have manufactures
 obligations it does not need; disclaiming it in writing is a legal opinion.
 
-**Proposed resolution.** Add the dates and the Annex III scope question to §13.9 and
-Appendix J, keeping the existing "obtain legal analysis" instruction as the operative
-requirement.
+**Resolution as shipped (Amendment A2).** §13.9 now carries a dated obligations
+table and states the Annex III position as *scope undetermined, pending counsel*,
+with the existing "obtain legal analysis" instruction preserved as the operative
+requirement. Appendix J is now a table with precise identifiers and per-row
+verification status.
 
 **Also verified and safe to cite in Appendix J:** NIST AI RMF (AI 100-1)
 Govern/Map/Measure/Manage with the Generative AI Profile **NIST AI 600-1** (July
@@ -129,25 +143,50 @@ before the register is used with a customer.
 
 ---
 
-## 4. The stack commits a pre-revenue team to three toolchains
+## 4. The backend service language was never justified by an ADR
 
-**Severity: low — a cost to accept knowingly, not a defect.**
+**Severity: low — a cost to accept knowingly, not a defect. ANALYSIS DELIVERED —
+see `adr/ADR-0001-backend-service-language.md` (status: proposed).**
 
-§10.4 specifies React/Next.js/TypeScript, Go services, and Python/FastAPI for AI
-services.
+### Correction to how this was originally raised
 
-The Python island for AI services is well justified — that is where the ecosystem
-is, and §9's evaluation framework depends on it. The part worth deciding explicitly
-is **Go and TypeScript both on the backend**. That is three language toolchains,
-three CI paths, three dependency-audit and vulnerability-management surfaces (against
-§13.7's requirements), three sets of coding standards under §16.6, and three hiring
-profiles — carried by the founding team in §18.3, before revenue.
+This finding first described the stack as committing to "**Go *and* TypeScript on
+the backend**." **That was wrong.** Checking §10.4 precisely: TypeScript appears
+exactly once in the entire specification, for the web application only. Go covers
+the 16 services in `services/`; Python covers `ai-gateway` and the
+data/evaluation stack. The split is frontend / backend / AI — conventional, and
+defensible on its face. There is no second backend language.
 
-**Proposed resolution.** Not a rewrite — an ADR under §16.3 that states the case for
-Go *and* TypeScript on the backend explicitly, or consolidates to two languages
-before Gate A. Making the call late is far more expensive than making it now: by
-Gate A the tenant model, event contracts and connector framework are all written in
-whatever was chosen.
+The overstatement mattered, because it framed the decision as correcting an
+anomaly when the real question is a sound default worth confirming rather than
+inheriting.
+
+### The finding, restated correctly
+
+§10.4 itself says the stack is "a default, not a religion" and that changes
+require an ADR covering operational cost, security, portability, hiring and
+migration impact. No such ADR exists for the backend language. The genuine
+question: **is Go right for the 16 services, given this team?** — weighed against
+consolidating onto TypeScript (one language across web and services) or Python
+(one language with the AI stack). Three toolchains in one monorepo is still a real
+cost under §13.7's dependency-audit requirements and §16.6's coding standards,
+carried by the founding team in §18.3 before revenue.
+
+**Resolution.** `ADR-0001` sets out all three options against §10.4's five axes
+and stops short of choosing — the decision belongs to the Head of
+Engineering/CTO under §18.4. Its central finding: the strongest argument for Go is
+**the customer-side collector**, and it is a *security* argument rather than an
+ergonomic one. That component runs inside the customer's Kubernetes cluster and
+must clear a regulated buyer's third-party security review, which
+`OPSPROOF_STRATEGY.md` §5 identifies as the real gate on every deal. A single
+static binary with no language runtime is a materially easier review than a Node
+or Python runtime plus its transitive dependency tree. The ADR also records that a
+**split outcome is legitimate** — Go for the collector and ingestion path, another
+language elsewhere.
+
+Making the call late is far more expensive than making it now: by Gate A the
+tenant model, event contracts, connector framework and authorization model are all
+implemented in whatever was chosen.
 
 ---
 
@@ -155,11 +194,27 @@ whatever was chosen.
 
 | # | Finding | Type | Proposed owner (§18.4) |
 |---|---|---|---|
-| 1 | Hypothesis engine lacks `not_observed` state | Correctness | Head of Data/AI |
+| 1 | ~~Hypothesis engine lacks `not_observed` state~~ | Correctness | **Resolved — Amendment A1** |
 | 2 | Evidence Vault name collides with Kosli | Commercial / legal | Head of Product |
-| 3 | Standards register missing AI Act dates and Annex III scope note | Completeness | Head of Security/Trust |
-| 4 | Three backend toolchains, no ADR | Engineering economics | Head of Engineering/CTO |
+| 3 | ~~Standards register missing AI Act dates and Annex III scope note~~ | Completeness | **Resolved — Amendment A2** |
+| 4 | ~~Three backend toolchains, no ADR~~ Backend service language never justified by ADR | Engineering economics | **Analysis in ADR-0001; decision open** |
 
-None of these blocks Gate A. Finding 1 must be resolved before Gate D
-(evidence-backed incident intelligence) ships, since it is a defect in that gate's
-core logic. Finding 2 must be resolved before any customer-facing material.
+None of these blocks Gate A.
+
+**Finding 1 — resolved by Amendment A1.** What remains is implementation: P0-16's
+gate now carries a degraded-source replay test that must pass before Gate D ships.
+
+**Finding 3 — resolved by Amendment A2**, with one item deliberately left open
+inside it: the OWASP LLM Top 10 2026 edition could not be retrieved and is marked
+unverified in Appendix J. Someone with access must diff it against §9.4 before the
+register is used with a customer.
+
+**Finding 2** must be resolved before any customer-facing material is produced —
+it needs a product-naming decision, not research.
+
+**Finding 4** — `ADR-0001` now sets out the options, the evidence and the
+consequences. The decision itself is open and belongs to the Head of
+Engineering/CTO under §18.4; it must be taken before Gate A, since by then the
+tenant model, event contracts, connector framework and authorization model are all
+implemented in whatever was chosen. Note the correction recorded in that finding:
+the original "Go and TypeScript both on the backend" framing was inaccurate.
