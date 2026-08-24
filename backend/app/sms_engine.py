@@ -173,6 +173,50 @@ def _is_bad_recipient(reason: str | None) -> bool:
     return any(m in r for m in _BAD_RECIPIENT_MARKERS)
 
 
+def heal_draft_recipients(db: Session, account: str | None = None, limit: int = 1000) -> dict:
+    """Repair the Drafted-SMS backlog BEFORE sending, so a bad number never keeps
+    reappearing in every 'send pending' run:
+
+      • normalize the stored recipient to E.164 in place (fixes numbers drafted in a
+        formatted / '6039308272.0' shape — the '21217 To invalid format' reject),
+      • if it still won't normalize, recover the lead's current phone (which may have
+        been fixed by a later import),
+      • if there's still no valid number, mark the draft Failed (email-only) so it
+        leaves the queue instead of failing on every send.
+
+    Returns {fixed, recovered, retired} counts. Idempotent and cheap."""
+    from .integrations import sms
+    from .models import Lead, Message
+    q = (db.query(Message).filter(
+        Message.channel == "sms", Message.direction == "outbound",
+        Message.status == "Drafted", Message.to_email.isnot(None)))
+    if account:
+        q = q.filter(Message.from_account == account)
+    fixed = recovered = retired = 0
+    for m in q.limit(limit).all():
+        clean = sms._e164(m.to_email)
+        if clean:
+            if clean != m.to_email:      # formatted / '.0' → store the clean E.164
+                m.to_email = clean
+                fixed += 1
+            continue
+        # Unusable as stored — try the lead's current (maybe since-fixed) phone.
+        new = None
+        if m.entity_type == "lead" and m.entity_id:
+            lead = db.get(Lead, m.entity_id)
+            if lead and lead.phone:
+                new = sms._e164(lead.phone)
+        if new:
+            m.to_email = new
+            recovered += 1
+        else:
+            m.status = "Failed"          # no valid number anywhere → email-only
+            retired += 1
+    if fixed or recovered or retired:
+        db.commit()
+    return {"fixed": fixed, "recovered": recovered, "retired": retired}
+
+
 def send_sms_drafts(db: Session, *, limit: int = 25, account: str | None = None,
                     enforce_hours: bool = True) -> dict:
     """Send drafted texts in the operator's priority order: new HOT & uncontacted →
@@ -186,6 +230,9 @@ def send_sms_drafts(db: Session, *, limit: int = 25, account: str | None = None,
     from . import lead_temperature
     from .integrations import sms
     from .models import Lead, Message
+    # Self-heal the whole Drafted backlog first (normalize / recover / retire bad
+    # numbers) so junk drafts clear in ONE run instead of erroring on every send.
+    healed = heal_draft_recipients(db, account=account)
     q = (db.query(Message)
          .outerjoin(Lead, and_(Message.entity_type == "lead", Message.entity_id == Lead.id))
          .filter(Message.channel == "sms", Message.direction == "outbound",
@@ -224,7 +271,7 @@ def send_sms_drafts(db: Session, *, limit: int = 25, account: str | None = None,
                 reasons.append(r)
     db.commit()
     return {"sent": sent, "failed": failed, "blocked": blocked,
-            "considered": len(msgs), "reasons": reasons[:3]}
+            "considered": len(msgs), "reasons": reasons[:3], "healed": healed}
 
 
 def send_text(db: Session, *, entity_type: str, entity_id, phone: str, body: str,
