@@ -119,9 +119,16 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Bruno AI Workforce", version="1.0.0", lifespan=lifespan)
 
+# Reflect the caller's Origin (via a match-all regex) instead of a literal "*".
+# A wildcard "*" is INVALID when allow_credentials=True — the browser rejects the
+# response, so every frontend fetch fails with "can't reach the backend" even
+# though the API is healthy (a direct visit to /health still works, since that
+# isn't a CORS request). allow_origin_regex echoes the real Origin, which IS valid
+# with credentials, so it stays fully permissive without the wildcard+credentials
+# conflict. (Starlette emits "*" for allow_origins=["*"]+credentials — the bug.)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten in production
+    allow_origin_regex=".*",  # permissive, but reflects Origin so credentials work
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
