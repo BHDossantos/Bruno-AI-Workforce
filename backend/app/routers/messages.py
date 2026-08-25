@@ -21,6 +21,54 @@ _read = require_role("admin", "operator", "viewer")
 _write = require_role("admin", "operator")
 
 
+@router.get("/emails/diagnostics")
+def email_diagnostics(db: Session = Depends(get_db), _=Depends(_read)):
+    """Show whether insurance/EverQuote emails are actually SENDING and whether the
+    owner BCC is on — so 'I never get a BCC' can be pinned to a cause instead of
+    guessed. Emails sent via Resend never appear in Gmail's Sent folder, so this is
+    the reliable place to see them. No secrets returned."""
+    from datetime import date, datetime, time, timezone
+    from sqlalchemy import func
+    from .. import control, runtime_config
+    from ..config import settings
+    from ..integrations import gmail, resend
+    try:
+        runtime_config.apply_to_settings(db)
+    except Exception:
+        pass
+    start = datetime.combine(date.today(), time.min, tzinfo=timezone.utc)
+
+    def _count(status):
+        q = db.query(func.count()).select_from(Message).filter(
+            Message.channel == "email", Message.direction == "outbound",
+            Message.from_account == "insurance", Message.status == status)
+        if status == "Sent":
+            q = q.filter(Message.sent_at >= start)
+        return q.scalar() or 0
+
+    last = (db.query(Message).filter(
+        Message.channel == "email", Message.direction == "outbound",
+        Message.from_account == "insurance", Message.status == "Sent")
+        .order_by(Message.sent_at.desc()).first())
+    return {
+        "sending_via": ("resend" if resend.is_configured()
+                        else ("gmail" if gmail.is_configured("insurance") else None)),
+        "resend_configured": resend.is_configured(),
+        "resend_from": resend.from_for("insurance") or None,
+        "gmail_insurance_configured": gmail.is_configured("insurance"),
+        "owner_bcc": (settings.outbound_bcc or "") or None,   # blank => BCC disabled
+        # If auto-send is off, insurance emails only DRAFT — nothing sends, nothing BCCs.
+        "auto_send_on": control.get_mode(db) == "auto" or control.outreach_autopilot(db),
+        "paused": control.is_paused_safe(db),
+        "insurance_sent_today": _count("Sent"),
+        "insurance_drafted_waiting": _count("Drafted"),
+        "last_insurance_email_at": last.sent_at.isoformat() if last and last.sent_at else None,
+        "note": ("Resend-sent emails do NOT appear in Gmail's Sent folder; the BCC copy "
+                 "lands in the owner's inbox (often Promotions/Spam). If auto_send_on is "
+                 "false, insurance emails only draft and never send."),
+    }
+
+
 class ReplyIn(BaseModel):
     to_email: str
     subject: str | None = None

@@ -8768,3 +8768,21 @@ def test_send_sms_drafts_never_reports_masked_numbers():
         for i in ids:
             db.query(Message).filter(Message.id == i).delete(synchronize_session=False)
         db.commit(); db.close()
+
+
+@requires_db
+def test_email_diagnostics_reports_send_status_and_bcc(client, auth_headers, monkeypatch):
+    """The email diagnostics endpoint reports how insurance email sends (resend/gmail),
+    the owner BCC address, whether auto-send is on, and sent/drafted counts — so a
+    missing BCC can be pinned to 'not sending' vs 'filtered'. Never leaks a token."""
+    import json
+    from app.config import settings
+    monkeypatch.setattr(settings, "outbound_bcc", "brunodossantos707@gmail.com", raising=False)
+    d = client.get("/emails/diagnostics", headers=auth_headers).json()
+    assert d["owner_bcc"] == "brunodossantos707@gmail.com"
+    assert "auto_send_on" in d and "insurance_sent_today" in d and "insurance_drafted_waiting" in d
+    assert "sending_via" in d
+    # A blank BCC must read as disabled (None), never crash.
+    monkeypatch.setattr(settings, "outbound_bcc", "", raising=False)
+    d2 = client.get("/emails/diagnostics", headers=auth_headers).json()
+    assert d2["owner_bcc"] is None
