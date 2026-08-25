@@ -68,10 +68,12 @@ function Texts() {
     setBulkBusy(true);
     setSendMsg(`Sending the next ${limit} drafted texts…`);
     try {
-      const r = await api.post<{ sent: number; failed: number; blocked: number; considered: number; reasons: string[] }>(
+      const r = await api.post<{ sent: number; failed: number; blocked: number; retired?: number; considered: number; reasons: string[] }>(
         "/sms/send-drafts", { limit });
       setSendMsg(
-        `✅ Sent ${r.sent} · ${r.failed} failed · ${r.blocked} held (of ${r.considered} drafts)` +
+        `✅ Sent ${r.sent} · ${r.failed} failed · ${r.blocked} held` +
+        (r.retired ? ` · ${r.retired} skipped (no valid phone → email only)` : "") +
+        ` (of ${r.considered} drafts)` +
         (r.reasons?.length ? ` — ${r.reasons.join(" | ")}` : "")
       );
       setRefresh((x) => x + 1);

@@ -8740,3 +8740,31 @@ def test_masked_phone_lead_gets_no_sms_draft():
             db.query(Message).filter(Message.entity_id == lid).delete(synchronize_session=False)
             db.query(Lead).filter(Lead.id == lid).delete(synchronize_session=False)
         db.commit(); db.close()
+
+
+@requires_db
+def test_send_sms_drafts_never_reports_masked_numbers():
+    """A backlog of masked-number drafts must NOT surface the 'invalid recipient'
+    error on send — they're retired (Failed → email-only) and never reported."""
+    from app import sms_engine
+    from app.database import SessionLocal
+    from app.models import Message
+
+    db = SessionLocal()
+    ids = []
+    try:
+        for _ in range(5):
+            m = Message(channel="sms", direction="outbound", status="Drafted",
+                        to_email="************", entity_type=None, entity_id=None,
+                        body="x", from_account="insurance")
+            db.add(m); db.flush(); ids.append(m.id)
+        db.commit()
+        res = sms_engine.send_sms_drafts(db, account="insurance", limit=50, enforce_hours=False)
+        joined = " ".join(res.get("reasons", []))
+        assert "invalid recipient" not in joined.lower(), f"masked numbers were reported: {joined}"
+        for i in ids:
+            assert db.get(Message, i).status == "Failed"
+    finally:
+        for i in ids:
+            db.query(Message).filter(Message.id == i).delete(synchronize_session=False)
+        db.commit(); db.close()
