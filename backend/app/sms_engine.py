@@ -242,9 +242,17 @@ def send_sms_drafts(db: Session, *, limit: int = 25, account: str | None = None,
     msgs = (q.order_by(*lead_temperature.send_priority_order(Lead, Message))
             .limit(max(1, min(limit, 50))).all())
 
-    sent = failed = blocked = 0
+    sent = failed = blocked = retired = 0
     reasons: list[str] = []
     for m in msgs:
+        # A recipient that can't be normalized (masked "************", junk) is not a
+        # send failure to report — retire it (Failed → email-only) and move on, so a
+        # large backlog of masked numbers can never surface the "invalid recipient"
+        # error again. This is the belt-and-suspenders guard behind heal_draft_recipients.
+        if not sms._e164(m.to_email):
+            m.status = "Failed"
+            retired += 1
+            continue
         reason = sms_block_reason(db, m.to_email, enforce_hours=enforce_hours, already_sent=sent)
         if reason:
             blocked += 1
@@ -270,7 +278,7 @@ def send_sms_drafts(db: Session, *, limit: int = 25, account: str | None = None,
             if r not in reasons:
                 reasons.append(r)
     db.commit()
-    return {"sent": sent, "failed": failed, "blocked": blocked,
+    return {"sent": sent, "failed": failed, "blocked": blocked, "retired": retired,
             "considered": len(msgs), "reasons": reasons[:3], "healed": healed}
 
 
