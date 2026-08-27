@@ -565,6 +565,29 @@ function Setup() {
           </p>
         </div>
 
+        {/* SendGrid — second email API, used ALONGSIDE Resend to raise the send limit */}
+        <div className="card">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">📨 SendGrid (second email sender — more volume)</h2>
+          </div>
+          <p className="mb-3 text-xs text-gray-500">
+            A <b>second</b> email API used <b>alongside Resend</b> — the app round-robins sends across
+            both, so the day’s volume splits between them and your <b>combined daily limit roughly
+            doubles</b> (each provider has its own quota) with automatic failover. From
+            sendgrid.com: create an <b>API key</b> (Settings → API Keys), then verify your sending
+            domain (Settings → <b>Sender Authentication</b>) so you can send from your own address.
+            Leave blank to keep sending on Resend only.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input className="input" type="password" placeholder="SendGrid API key (SG.…)"
+              value={form.sendgrid_api_key || ""} onChange={(e) => set("sendgrid_api_key", e.target.value)} />
+            <input className="input" placeholder="From (verified domain, e.g. b@dossantosinsurance.org)"
+              value={form.sendgrid_from_insurance || ""} onChange={(e) => set("sendgrid_from_insurance", e.target.value)} />
+            <input className="input" placeholder="Reply-to inbox (where replies land)"
+              value={form.sendgrid_reply_to || ""} onChange={(e) => set("sendgrid_reply_to", e.target.value)} />
+          </div>
+        </div>
+
         {/* Meta app — powers the one-click Facebook/Instagram connect button */}
         <div className="card">
           <div className="mb-2 flex items-center justify-between">

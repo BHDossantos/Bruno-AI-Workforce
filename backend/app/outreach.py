@@ -106,17 +106,59 @@ def _log(db: Session, actor: str, action: str, msg: Message, **detail) -> None:
                      entity_id=str(msg.id), detail=detail or None))
 
 
+def _configured_esps() -> list:
+    """Configured email ESPs (Resend + SendGrid) as interchangeable senders. Both
+    expose is_configured/from_for/replyto_for/send_with_error, so the dispatch code
+    treats them the same and can spread volume across whichever are connected."""
+    from .integrations import resend, sendgrid
+    esps = []
+    if resend.is_configured():
+        esps.append(resend)
+    if sendgrid.is_configured():
+        esps.append(sendgrid)
+    return esps
+
+
+def _rotate_key(to_email: str | None) -> int:
+    """A small stable integer per recipient, used to rotate which ESP goes first so
+    the day's sends SPREAD across Resend + SendGrid instead of hammering one."""
+    return sum(ord(c) for c in (to_email or ""))
+
+
+def _send_via_esps(to_email: str, subject: str | None, html: str | None,
+                   account: str, rotate: int = 0) -> tuple[str | None, str | None]:
+    """Send through the configured ESPs, rotated by `rotate` so volume spreads across
+    Resend + SendGrid — each has its own quota, so using both roughly doubles the
+    effective daily limit. Falls through to the next ESP if one fails. Returns
+    (message_id, error) with exactly one set; (None, None) when NO ESP is configured
+    (so the caller falls back to Gmail)."""
+    esps = _configured_esps()
+    if not esps:
+        return None, None
+    if rotate and len(esps) > 1:
+        i = rotate % len(esps)
+        esps = esps[i:] + esps[:i]
+    last_err = None
+    for esp in esps:
+        frm = esp.from_for(account)
+        mid, err = esp.send_with_error(to_email, subject or "", html or "",
+                                       from_email=frm, reply_to=esp.replyto_for(account, frm))
+        if mid:
+            return mid, None
+        last_err = err
+    return None, last_err
+
+
 def deliver(to_email: str, subject: str | None, body: str | None,
             account: str = "insurance") -> tuple[str | None, str | None]:
     """Deliver one email NOW via the best available channel, returning
     (message_id, error_reason).
 
-    Order: Resend first (modern API, best deliverability on your own domain), then
-    the account's Gmail mailbox. This is what the Outbox "Send" /
-    "Send next N" buttons use, so a working provider delivers even when a Gmail app
-    password is rejected.
+    Order: the ESP pool (Resend + SendGrid, round-robined to spread volume across
+    both and raise the daily limit), then the account's Gmail mailbox. This is what
+    the Outbox "Send" / "Send next N" buttons use, so a working provider delivers
+    even when another is down or over quota.
     """
-    from .integrations import resend
     cleaned = email_template.clean_body(body)
     # HARD GUARD: never send a blank email. An empty (or stripped-to-empty) body
     # would go out as a fully blank message — spammy and reputation-damaging (leads
@@ -125,31 +167,23 @@ def deliver(to_email: str, subject: str | None, body: str | None,
     if not (cleaned or "").strip():
         return None, "Not sent — the email body was empty (blank email blocked)."
     html = email_template.render(cleaned, account)
-    # 1) Resend — preferred (own-domain API, best deliverability).
-    if resend.is_configured():
-        from_email = resend.from_for(account)
-        reply_to = resend.replyto_for(account, from_email)
-        mid, err = resend.send_with_error(to_email, subject or "", html or "",
-                                          from_email=from_email, reply_to=reply_to)
-        if mid:
-            return mid, None
-        # Resend couldn't send — fall through to Gmail, else report why.
-        if not gmail.is_configured(account):
-            return None, err
-        _resend_err = err
-    else:
-        _resend_err = None
+    # 1) ESP pool — Resend + SendGrid, spread across both (higher combined limit).
+    mid, esp_err = _send_via_esps(to_email, subject, html, account,
+                                  rotate=_rotate_key(to_email))
+    if mid:
+        return mid, None
     # 2) The account's Gmail mailbox.
     if gmail.is_configured(account):
         return gmail.send_with_error(to_email, subject or "", body or "", account=account)
-    return None, (_resend_err
-                  or f"No delivery channel configured for '{account}' (connect Resend or a Gmail mailbox)")
+    return None, (esp_err
+                  or f"No delivery channel configured for '{account}' "
+                     "(connect Resend/SendGrid or a Gmail mailbox)")
 
 
 def can_deliver(account: str = "insurance") -> bool:
-    """True if any channel can deliver for this account (Resend or Gmail)."""
-    from .integrations import resend
-    return resend.is_configured() or gmail.is_configured(account)
+    """True if any channel can deliver for this account (Resend, SendGrid, or Gmail)."""
+    from .integrations import resend, sendgrid
+    return resend.is_configured() or sendgrid.is_configured() or gmail.is_configured(account)
 
 
 def _email_sent_today(db: Session) -> int:
@@ -304,11 +338,11 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
         db.commit()
         return msg
 
-    from .integrations import resend, sender
-    # A sender is anything that can deliver: Resend (own-domain API), a campaign
-    # engine (Instantly/Smartlead), or Gmail. Only draft if NONE is set up.
-    if not to_email or not (resend.is_configured() or gmail.is_configured(account)
-                            or sender.is_configured()):
+    from .integrations import resend, sender, sendgrid
+    # A sender is anything that can deliver: Resend or SendGrid (own-domain APIs), a
+    # campaign engine (Instantly/Smartlead), or Gmail. Only draft if NONE is set up.
+    if not to_email or not (resend.is_configured() or sendgrid.is_configured()
+                            or gmail.is_configured(account) or sender.is_configured()):
         return msg  # nothing to send to / no sender configured — keep as stored draft
     if not is_real_email(to_email):
         # Never email sample/placeholder data — keep it as a draft only.
@@ -379,16 +413,11 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
 
     html = email_template.render(body, account)  # consistent template + compliant footer
     if mode == "send":
-        # Provider ladder: Resend (own-domain API, best deliverability) → the account's
-        # Gmail. So a working provider sends even when another (e.g. a Gmail App
-        # Password) is broken. Previously Resend was SKIPPED here, so a set-up Resend
-        # was ignored and insurance mail fell to a dead Gmail login.
-        mid = send_err = None
-        if resend.is_configured():
-            r_from = resend.from_for(account)
-            mid, send_err = resend.send_with_error(
-                to_email, subject or "", html or "",
-                from_email=r_from, reply_to=resend.replyto_for(account, r_from))
+        # Provider ladder: the ESP pool (Resend + SendGrid, round-robined to spread
+        # the day's volume across both and raise the combined limit) → the account's
+        # Gmail. A working provider sends even when another is down or over quota.
+        # `_sent` rotates which ESP goes first, giving an even split across the day.
+        mid, send_err = _send_via_esps(to_email, subject, html, account, rotate=_sent)
         if not mid and gmail.is_configured(account):
             mid = gmail.send_message(to_email, subject or "", html or "", account=account)
         if mid:

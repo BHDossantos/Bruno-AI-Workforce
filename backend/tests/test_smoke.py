@@ -8786,3 +8786,61 @@ def test_email_diagnostics_reports_send_status_and_bcc(client, auth_headers, mon
     monkeypatch.setattr(settings, "outbound_bcc", "", raising=False)
     d2 = client.get("/emails/diagnostics", headers=auth_headers).json()
     assert d2["owner_bcc"] is None
+
+
+def test_sendgrid_send_includes_owner_bcc(monkeypatch):
+    """SendGrid send posts a valid v3 payload with the owner BCC (blind copy) and
+    returns the message id — mirroring the Resend path so both are interchangeable."""
+    from app.config import settings
+    from app.integrations import sendgrid
+    monkeypatch.setattr(settings, "sendgrid_api_key", "SG.testkey", raising=False)
+    monkeypatch.setattr(settings, "sendgrid_from_insurance", "b@dossantosinsurance.org", raising=False)
+    monkeypatch.setattr(settings, "outbound_bcc", "brunodossantos707@gmail.com", raising=False)
+    captured = {}
+    class _Resp:
+        status_code = 202
+        headers = {"X-Message-Id": "SG-msg-1"}
+    def _fake_post(url, json=None, headers=None, timeout=None):
+        captured["json"] = json; captured["url"] = url
+        return _Resp()
+    monkeypatch.setattr(sendgrid.httpx, "post", _fake_post)
+
+    assert sendgrid.is_configured()
+    mid, err = sendgrid.send_with_error("lead@x.co", "Hi", "<b>hi</b>")
+    assert err is None and mid == "SG-msg-1"
+    p = captured["json"]
+    assert p["from"]["email"] == "b@dossantosinsurance.org"
+    assert p["personalizations"][0]["to"][0]["email"] == "lead@x.co"
+    assert p["personalizations"][0]["bcc"][0]["email"] == "brunodossantos707@gmail.com"
+    # Never BCC the recipient themselves.
+    mid2, _ = sendgrid.send_with_error("brunodossantos707@gmail.com", "x", "<b>y</b>")
+    assert "bcc" not in captured["json"]["personalizations"][0]
+
+
+def test_email_esp_pool_spreads_and_failsover(monkeypatch):
+    """The ESP pool round-robins across Resend + SendGrid (spreading volume to raise
+    the combined limit) and fails over to the next provider when one errors."""
+    from app import outreach
+    from app.integrations import resend, sendgrid
+    for esp, tag in ((resend, "resend"), (sendgrid, "sendgrid")):
+        monkeypatch.setattr(esp, "is_configured", lambda: True)
+        monkeypatch.setattr(esp, "from_for", lambda a, _t=tag: f"{_t}@x.co")
+        monkeypatch.setattr(esp, "replyto_for", lambda a, f: f)
+
+    calls = []
+    def _mk(tag, ok):
+        def _send(to, subject, html, *, from_email=None, reply_to=None):
+            calls.append(tag)
+            return (f"{tag}-id", None) if ok else (None, f"{tag} failed")
+        return _send
+    monkeypatch.setattr(resend, "send_with_error", _mk("resend", True))
+    monkeypatch.setattr(sendgrid, "send_with_error", _mk("sendgrid", True))
+
+    # rotate=0 -> resend first; rotate=1 -> sendgrid first (spread across the day).
+    assert outreach._send_via_esps("a@x.co", "s", "h", "insurance", rotate=0)[0] == "resend-id"
+    assert outreach._send_via_esps("a@x.co", "s", "h", "insurance", rotate=1)[0] == "sendgrid-id"
+
+    # Failover: primary errors -> the other ESP delivers.
+    monkeypatch.setattr(resend, "send_with_error", _mk("resend", False))
+    mid, err = outreach._send_via_esps("a@x.co", "s", "h", "insurance", rotate=0)
+    assert mid == "sendgrid-id" and err is None

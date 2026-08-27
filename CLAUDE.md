@@ -29,7 +29,10 @@ the base branch.
 - **Cloud Run startup probe.** The port must open fast. All boot work (seed,
   warmups) runs in `main.py`'s `_post_boot()` background thread — never block the
   startup/lifespan path.
-- **Email path is Resend → Gmail** (SendGrid removed — don't reintroduce).
+- **Email path is an ESP pool → Gmail.** `outreach._send_via_esps` round-robins
+  across every configured ESP (Resend + SendGrid) to spread volume and raise the
+  combined daily limit, then falls back to the account's Gmail. (SendGrid was
+  re-added alongside Resend for capacity — both are first-class.)
   **Telephony is SignalWire** via the twilio-compat module (not Twilio).
 
 ## Where things live (backend/app)
