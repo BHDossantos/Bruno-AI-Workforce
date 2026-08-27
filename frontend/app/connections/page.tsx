@@ -172,6 +172,9 @@ function Connections() {
         )}
       </div>
 
+      {/* New Connection Setup — self-service, user-named connections */}
+      <NewConnectionSetup />
+
       {/* Catalog */}
       {Object.entries(byCat).map(([cat, items]) => (
         <div key={cat} className="mb-6">
@@ -352,6 +355,158 @@ function TokenHealth() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ── New Connection Setup ─────────────────────────────────────────────────────
+type CCField = { label: string; secret: boolean; value: string; has_value: boolean };
+type CustomConn = { id: string; category: string; name: string; notes: string | null; status: string; fields: CCField[] };
+type CCCategory = { key: string; label: string };
+type EditState = { id: string | null; category: string; name: string; notes: string; fields: CCField[] };
+
+function NewConnectionSetup() {
+  const [cats, setCats] = useState<CCCategory[]>([]);
+  const [conns, setConns] = useState<CustomConn[]>([]);
+  const [edit, setEdit] = useState<EditState | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function reload() {
+    try {
+      const r = await api.get<{ categories: CCCategory[]; connections: CustomConn[] }>("/custom-connections");
+      setCats(r.categories || []);
+      setConns(r.connections || []);
+    } catch { /* keep last */ }
+  }
+  useEffect(() => { reload(); }, []);
+
+  function openNew(category: string) {
+    setEdit({ id: null, category, name: "", notes: "",
+      fields: [{ label: "API Key", secret: true, value: "", has_value: false }] });
+  }
+  function openEdit(c: CustomConn) {
+    setEdit({ id: c.id, category: c.category, name: c.name, notes: c.notes || "",
+      fields: c.fields.map((f) => ({ ...f, value: f.secret ? "" : f.value })) });
+  }
+
+  async function save() {
+    if (!edit) return;
+    setBusy(true);
+    try {
+      const body = { category: edit.category, name: edit.name, notes: edit.notes,
+        fields: edit.fields.filter((f) => f.label.trim()).map((f) => ({ label: f.label, value: f.value, secret: f.secret })) };
+      if (edit.id) await api.put(`/custom-connections/${edit.id}`, body);
+      else await api.post("/custom-connections", body);
+      setEdit(null);
+      await reload();
+    } finally { setBusy(false); }
+  }
+  async function remove(id: string) {
+    if (!confirm("Delete this connection?")) return;
+    await api.del(`/custom-connections/${id}`);
+    setEdit(null);
+    await reload();
+  }
+
+  const byCat: Record<string, CustomConn[]> = {};
+  conns.forEach((c) => { (byCat[c.category] ||= []).push(c); });
+
+  return (
+    <div className="card mb-6 border-brand/30">
+      <div className="mb-1 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-gray-700">🧩 New Connection Setup</h2>
+      </div>
+      <p className="mb-4 text-xs text-gray-500">
+        Add any app yourself — pick a category, <b>name it</b>, and add whatever fields it needs
+        (mark a field 🔒 to encrypt it). Rename or edit anytime. Your existing connections above are
+        untouched; we&apos;ll migrate them here over time.
+      </p>
+
+      <div className="space-y-5">
+        {cats.map((cat) => (
+          <div key={cat.key}>
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">{cat.label}</h3>
+              <button onClick={() => openNew(cat.key)} className="text-xs text-brand hover:underline">+ Add connection</button>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {(byCat[cat.key] || []).map((c) => (
+                <button key={c.id} onClick={() => openEdit(c)}
+                        className="rounded-lg border border-gray-200 p-3 text-left hover:ring-2 hover:ring-brand/40">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium">{c.name}</span>
+                    <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700">{c.status}</span>
+                  </div>
+                  <p className="mt-1 truncate text-xs text-gray-500">
+                    {c.fields.length} field{c.fields.length === 1 ? "" : "s"}
+                    {c.fields.some((f) => f.secret) ? " · 🔒 secured" : ""}
+                  </p>
+                </button>
+              ))}
+              {!(byCat[cat.key] || []).length && (
+                <button onClick={() => openNew(cat.key)}
+                        className="rounded-lg border border-dashed border-gray-300 p-3 text-left text-xs text-gray-400 hover:border-brand hover:text-brand">
+                  + Add your first {cat.label} app
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {edit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setEdit(null)}>
+          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-semibold">{edit.id ? "Edit connection" : "New connection"}</h3>
+              <button onClick={() => setEdit(null)} className="text-gray-400 hover:text-gray-700">✕</button>
+            </div>
+            <div className="grid gap-3">
+              <label className="text-xs font-medium text-gray-600">App name
+                <input className="input mt-1" placeholder="e.g. Facebook, Klaviyo, Cal.com"
+                       value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} />
+              </label>
+              <label className="text-xs font-medium text-gray-600">Category
+                <select className="input mt-1" value={edit.category} onChange={(e) => setEdit({ ...edit, category: e.target.value })}>
+                  {cats.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+                </select>
+              </label>
+
+              <div className="text-xs font-medium text-gray-600">Fields</div>
+              {edit.fields.map((f, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <input className="input flex-1" placeholder="Label (e.g. API Key)" value={f.label}
+                         onChange={(e) => { const fs = [...edit.fields]; fs[i] = { ...f, label: e.target.value }; setEdit({ ...edit, fields: fs }); }} />
+                  <input className="input flex-1" type={f.secret ? "password" : "text"}
+                         placeholder={f.secret && f.has_value ? "•••• (leave blank to keep)" : "Value"} value={f.value}
+                         onChange={(e) => { const fs = [...edit.fields]; fs[i] = { ...f, value: e.target.value }; setEdit({ ...edit, fields: fs }); }} />
+                  <label className="flex shrink-0 items-center gap-1 text-xs text-gray-500" title="Encrypt this value">
+                    <input type="checkbox" checked={f.secret}
+                           onChange={(e) => { const fs = [...edit.fields]; fs[i] = { ...f, secret: e.target.checked }; setEdit({ ...edit, fields: fs }); }} />🔒
+                  </label>
+                  <button onClick={() => setEdit({ ...edit, fields: edit.fields.filter((_, j) => j !== i) })}
+                          className="shrink-0 text-gray-400 hover:text-red-600">✕</button>
+                </div>
+              ))}
+              <button onClick={() => setEdit({ ...edit, fields: [...edit.fields, { label: "", secret: false, value: "", has_value: false }] })}
+                      className="text-left text-xs text-brand hover:underline">+ Add field</button>
+
+              <label className="text-xs font-medium text-gray-600">Notes (optional)
+                <textarea className="input mt-1" rows={2} value={edit.notes}
+                          onChange={(e) => setEdit({ ...edit, notes: e.target.value })} />
+              </label>
+
+              <div className="mt-2 flex items-center justify-between">
+                <div>{edit.id && <button onClick={() => remove(edit.id!)} className="text-sm text-red-600 hover:underline">Delete</button>}</div>
+                <div className="flex gap-2">
+                  <button onClick={() => setEdit(null)} className="btn-ghost">Cancel</button>
+                  <button onClick={save} disabled={busy || !edit.name.trim()} className="btn">{busy ? "Saving…" : "Save"}</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

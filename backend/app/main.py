@@ -20,6 +20,7 @@ from .routers import (
     compliance,
     connections,
     control,
+    custom_connections,
     conversations,
     cron,
     decisions,
@@ -150,6 +151,7 @@ app.include_router(cron.router)
 app.include_router(export.router)
 app.include_router(imports.router)
 app.include_router(connections.router)
+app.include_router(custom_connections.router)
 app.include_router(profile.router)
 app.include_router(analytics.router)
 app.include_router(executive.router)
