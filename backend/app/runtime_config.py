@@ -107,6 +107,11 @@ FIELDS: dict[str, bool] = {
     "resend_from_insurance": False,
     "resend_reply_to": False,
     "resend_webhook_secret": True,  # optional Svix secret for the inbound webhook
+    # SendGrid — second email API, used alongside Resend to raise total send limit.
+    "sendgrid_api_key": True,
+    "sendgrid_from_email": False,
+    "sendgrid_from_insurance": False,
+    "sendgrid_reply_to": False,
     # Meta (Facebook/Instagram) app — powers the one-click Connect button.
     "facebook_app_id": False,
     "facebook_app_secret": True,

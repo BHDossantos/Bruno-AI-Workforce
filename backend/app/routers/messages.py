@@ -31,7 +31,7 @@ def email_diagnostics(db: Session = Depends(get_db), _=Depends(_read)):
     from sqlalchemy import func
     from .. import control, runtime_config
     from ..config import settings
-    from ..integrations import gmail, resend
+    from ..integrations import gmail, resend, sendgrid
     try:
         runtime_config.apply_to_settings(db)
     except Exception:
@@ -50,11 +50,18 @@ def email_diagnostics(db: Session = Depends(get_db), _=Depends(_read)):
         Message.channel == "email", Message.direction == "outbound",
         Message.from_account == "insurance", Message.status == "Sent")
         .order_by(Message.sent_at.desc()).first())
+    esps = [n for n, on in (("resend", resend.is_configured()),
+                            ("sendgrid", sendgrid.is_configured())) if on]
     return {
-        "sending_via": ("resend" if resend.is_configured()
+        # Round-robined across every configured ESP to raise the combined send limit;
+        # Gmail is the fallback when no ESP is set.
+        "sending_via": (" + ".join(esps) if esps
                         else ("gmail" if gmail.is_configured("insurance") else None)),
+        "esp_pool": esps,
         "resend_configured": resend.is_configured(),
         "resend_from": resend.from_for("insurance") or None,
+        "sendgrid_configured": sendgrid.is_configured(),
+        "sendgrid_from": sendgrid.from_for("insurance") or None,
         "gmail_insurance_configured": gmail.is_configured("insurance"),
         "owner_bcc": (settings.outbound_bcc or "") or None,   # blank => BCC disabled
         # If auto-send is off, insurance emails only DRAFT — nothing sends, nothing BCCs.

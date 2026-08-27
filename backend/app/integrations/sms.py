@@ -91,9 +91,13 @@ def active_provider() -> str | None:
     return "plivo" if plivo.is_configured() else None
 
 
-def number_for(account: str) -> str:
+def number_for(account: str, provider: str | None = None) -> str:
+    """The 'from' number for a carrier — SignalWire's or Twilio's, per `provider`
+    (defaults to the active one). Each carrier has its own numbers, so failover uses
+    the right one."""
     from . import telco
-    if telco.provider() == "signalwire":
+    prov = provider or telco.provider()
+    if prov == "signalwire":
         if account == "insurance" and settings.signalwire_insurance_number:
             return settings.signalwire_insurance_number
         return settings.signalwire_from_number or settings.signalwire_insurance_number
@@ -104,41 +108,21 @@ def number_for(account: str) -> str:
     return settings.twilio_from_number or settings.twilio_insurance_number
 
 
-def send_with_error(to: str, body: str, account: str = "personal") -> tuple[str | None, str | None]:
-    """Send an SMS, returning (message_sid, error_reason). Surfaces the REAL Twilio
-    error (e.g. trial-account 'unverified number', invalid recipient, non-SMS
-    number) instead of a bare None, so failures aren't all mislabeled 'not connected'."""
+def _send_once(prov: str, to_num: str, body: str, account: str) -> tuple[str | None, str | None]:
+    """Send via ONE carrier (`prov` = 'signalwire' | 'twilio'). Returns (sid, error)
+    with the carrier's REAL error so the caller can fail over or surface why."""
     from . import telco
-    if _use_plivo():
-        from . import plivo
-        return plivo.send_with_error(to, body, account)
-    if not telco.configured():
-        return None, "No SMS provider connected — add SignalWire or Twilio, or the Plivo backup, in Setup."
-    if not to:
-        return None, "no recipient phone"
-    if not body:
-        return None, "empty message"
-    # E.164-normalize BOTH numbers — a From stored as "(978)…" is the 21212 "From
-    # invalid format" reject; a To with formatting fails the same way (21211/21214).
-    from_num = _e164(number_for(account))
-    to_num = _e164(to)
+    from_num = _e164(number_for(account, prov))
     if not from_num:
-        return None, f"no {telco.label()} 'from' number set"
-    # Refuse an unnormalizable recipient instead of sending it raw — a malformed
-    # 'To' is exactly the 21217 'To invalid format' reject, which otherwise leaves
-    # the text stuck in Drafted and retried forever.
-    if not to_num:
-        return None, f"invalid recipient number '{to}' — needs a 10-digit US phone"
-    url = telco.api_url("Messages.json")
+        return None, f"no {telco.label('sms', prov)} 'from' number set"
     data = {"To": to_num, "From": from_num, "Body": body}
-    # Ask the carrier to report the REAL delivery outcome (delivered/undelivered/
-    # failed) to our webhook, so the app can show whether the text actually landed —
-    # not just that it was accepted. No callback set → we'd only ever know "handed off".
+    # Ask the carrier to report the REAL delivery outcome to our webhook.
     base = (settings.public_base_url or "").rstrip("/")
     if base:
         data["StatusCallback"] = f"{base}/sms/status"
     try:
-        resp = httpx.post(url, data=data, auth=telco.auth(), timeout=20)
+        resp = httpx.post(telco.api_url("Messages.json", "sms", prov), data=data,
+                          auth=telco.auth("sms", prov), timeout=20)
         if resp.status_code >= 400:
             try:
                 j = resp.json()
@@ -147,7 +131,7 @@ def send_with_error(to: str, body: str, account: str = "personal") -> tuple[str 
                 code, msg = resp.status_code, (resp.text or "")[:160]
             hint = ""
             if code == 20003:
-                hint = (f" (authentication failed — {telco.label()} is rejecting the credentials. "
+                hint = (f" (authentication failed — {telco.label('sms', prov)} is rejecting the credentials. "
                         "Re-check for a stray space/newline, or a mismatched/rotated token.)")
             elif code == 21608:
                 hint = " (Twilio TRIAL account — you can only text numbers you've verified. Upgrade the account to text leads.)"
@@ -159,11 +143,42 @@ def send_with_error(to: str, body: str, account: str = "personal") -> tuple[str 
                 hint = " (invalid recipient number — check the lead's phone)"
             elif code == 21606:
                 hint = " (your 'from' number can't send SMS — use an SMS-capable number)"
-            return None, f"{telco.label()} {code}: {msg}{hint}"
+            return None, f"{telco.label('sms', prov)} {code}: {msg}{hint}"
         return resp.json().get("sid"), None
     except Exception as exc:  # pragma: no cover - network guard
-        log.warning("SMS send failed (%s): %s", to, exc)
-        return None, f"{telco.label()} error: {str(exc)[:160]}"
+        log.warning("SMS send failed (%s via %s): %s", to_num, prov, exc)
+        return None, f"{telco.label('sms', prov)} error: {str(exc)[:160]}"
+
+
+def send_with_error(to: str, body: str, account: str = "personal") -> tuple[str | None, str | None]:
+    """Send an SMS, returning (message_sid, error_reason). Tries each connected
+    carrier in order (the sms_provider preference first) and FAILS OVER to the other
+    when the first rejects the send — so running Twilio + SignalWire together means a
+    text goes out on whichever one accepts it, instead of dying on the primary's
+    error (e.g. SignalWire's 10000)."""
+    from . import telco
+    if _use_plivo():
+        from . import plivo
+        return plivo.send_with_error(to, body, account)
+    if not to:
+        return None, "no recipient phone"
+    if not body:
+        return None, "empty message"
+    # Refuse an unnormalizable recipient BEFORE any carrier call — a malformed 'To'
+    # is the 21217 reject, and it would fail on every carrier anyway.
+    to_num = _e164(to)
+    if not to_num:
+        return None, f"invalid recipient number '{to}' — needs a 10-digit US phone"
+    providers = telco.sms_providers()
+    if not providers:
+        return None, "No SMS provider connected — add SignalWire or Twilio, or the Plivo backup, in Setup."
+    last_err = None
+    for prov in providers:
+        sid, err = _send_once(prov, to_num, body, account)
+        if sid:
+            return sid, None
+        last_err = err  # failover: try the next connected carrier
+    return None, last_err
 
 
 def send_sms(to: str, body: str, account: str = "personal") -> str | None:

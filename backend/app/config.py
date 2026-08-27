@@ -549,6 +549,13 @@ class Settings(BaseSettings):
     resend_from_email: str = ""                 # default sender (verified-domain address)
     resend_from_insurance: str = "b@dossantosinsurance.org"
     resend_reply_to: str = ""                   # where replies land (a monitored inbox)
+    # SendGrid — a SECOND email API used ALONGSIDE Resend. outreach round-robins
+    # sends across both configured ESPs so the day's volume is split, roughly
+    # doubling the effective sending limit (each ESP has its own quota) + redundancy.
+    sendgrid_api_key: str = ""
+    sendgrid_from_email: str = ""               # default sender (verified-domain address)
+    sendgrid_from_insurance: str = ""           # insurance sender (verified in SendGrid)
+    sendgrid_reply_to: str = ""                 # where replies land (a monitored inbox)
     # Optional Svix signing secret ("whsec_…") for the Resend inbound/event webhook.
     # When set, incoming webhook posts are signature-verified; when blank the endpoint
     # accepts them unauthenticated (same as the Twilio/Plivo inbound webhooks).

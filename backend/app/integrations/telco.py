@@ -66,38 +66,60 @@ def configured(channel: str = "sms") -> bool:
     return provider(channel) is not None
 
 
+def sms_providers() -> list[str]:
+    """Every connected Twilio-compatible SMS carrier, in send order: the one the
+    ``sms_provider`` setting prefers first, then the other. So a send can FAIL OVER
+    to the second carrier when the first rejects it (e.g. SignalWire's 10000) — the
+    whole point of running Twilio + SignalWire together."""
+    forced = (settings.sms_provider or "auto").strip().lower()
+    avail = []
+    if signalwire_configured():
+        avail.append("signalwire")
+    if _twilio_creds():
+        avail.append("twilio")
+    if forced in avail:                       # honor the explicit preference first
+        avail = [forced] + [p for p in avail if p != forced]
+    return avail
+
+
 def _space() -> str:
     """The bare SignalWire Space host — tolerates a pasted 'https://…/' form."""
     s = (settings.signalwire_space_url or "").strip()
     return s.replace("https://", "").replace("http://", "").strip("/")
 
 
-def account_sid(channel: str = "sms") -> str:
+def _prov(channel: str, prov: str | None) -> str | None:
+    """Resolve the carrier to build for: an explicit override (for failover), else
+    the channel's active provider."""
+    return prov or provider(channel)
+
+
+def account_sid(channel: str = "sms", prov: str | None = None) -> str:
     """The value that goes in the /Accounts/{…}/ path and the Basic-auth username."""
-    if provider(channel) == "signalwire":
+    if _prov(channel, prov) == "signalwire":
         return (settings.signalwire_project_id or "").strip()
     return (settings.twilio_account_sid or "").strip()
 
 
-def auth(channel: str = "sms") -> tuple[str, str]:
-    """Basic-auth pair for the active provider (whitespace-stripped — a stray space
+def auth(channel: str = "sms", prov: str | None = None) -> tuple[str, str]:
+    """Basic-auth pair for the (chosen) provider (whitespace-stripped — a stray space
     in a pasted credential is the classic cause of a 20003 'Authenticate' 401)."""
-    if provider(channel) == "signalwire":
-        return account_sid(channel), (settings.signalwire_api_token or "").strip()
-    return account_sid(channel), (settings.twilio_auth_token or "").strip()
+    if _prov(channel, prov) == "signalwire":
+        return account_sid(channel, prov), (settings.signalwire_api_token or "").strip()
+    return account_sid(channel, prov), (settings.twilio_auth_token or "").strip()
 
 
-def api_url(resource: str, channel: str = "sms") -> str:
+def api_url(resource: str, channel: str = "sms", prov: str | None = None) -> str:
     """Full Compatibility-API URL for a resource, e.g. 'Messages.json'/'Calls.json'."""
-    if provider(channel) == "signalwire":
+    if _prov(channel, prov) == "signalwire":
         return (f"https://{_space()}/api/laml/2010-04-01/Accounts/"
-                f"{account_sid(channel)}/{resource}")
-    return f"https://api.twilio.com/2010-04-01/Accounts/{account_sid(channel)}/{resource}"
+                f"{account_sid(channel, prov)}/{resource}")
+    return f"https://api.twilio.com/2010-04-01/Accounts/{account_sid(channel, prov)}/{resource}"
 
 
-def label(channel: str = "sms") -> str:
-    """Human name of the active provider — for error messages/status."""
-    return "SignalWire" if provider(channel) == "signalwire" else "Twilio"
+def label(channel: str = "sms", prov: str | None = None) -> str:
+    """Human name of the (chosen) provider — for error messages/status."""
+    return "SignalWire" if _prov(channel, prov) == "signalwire" else "Twilio"
 
 
 def diagnose(channel: str = "voice") -> dict:

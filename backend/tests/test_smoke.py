@@ -8786,3 +8786,97 @@ def test_email_diagnostics_reports_send_status_and_bcc(client, auth_headers, mon
     monkeypatch.setattr(settings, "outbound_bcc", "", raising=False)
     d2 = client.get("/emails/diagnostics", headers=auth_headers).json()
     assert d2["owner_bcc"] is None
+
+
+def test_sendgrid_send_includes_owner_bcc(monkeypatch):
+    """SendGrid send posts a valid v3 payload with the owner BCC (blind copy) and
+    returns the message id — mirroring the Resend path so both are interchangeable."""
+    from app.config import settings
+    from app.integrations import sendgrid
+    monkeypatch.setattr(settings, "sendgrid_api_key", "SG.testkey", raising=False)
+    monkeypatch.setattr(settings, "sendgrid_from_insurance", "b@dossantosinsurance.org", raising=False)
+    monkeypatch.setattr(settings, "outbound_bcc", "brunodossantos707@gmail.com", raising=False)
+    captured = {}
+    class _Resp:
+        status_code = 202
+        headers = {"X-Message-Id": "SG-msg-1"}
+    def _fake_post(url, json=None, headers=None, timeout=None):
+        captured["json"] = json; captured["url"] = url
+        return _Resp()
+    monkeypatch.setattr(sendgrid.httpx, "post", _fake_post)
+
+    assert sendgrid.is_configured()
+    mid, err = sendgrid.send_with_error("lead@x.co", "Hi", "<b>hi</b>")
+    assert err is None and mid == "SG-msg-1"
+    p = captured["json"]
+    assert p["from"]["email"] == "b@dossantosinsurance.org"
+    assert p["personalizations"][0]["to"][0]["email"] == "lead@x.co"
+    assert p["personalizations"][0]["bcc"][0]["email"] == "brunodossantos707@gmail.com"
+    # Never BCC the recipient themselves.
+    mid2, _ = sendgrid.send_with_error("brunodossantos707@gmail.com", "x", "<b>y</b>")
+    assert "bcc" not in captured["json"]["personalizations"][0]
+
+
+def test_email_esp_pool_spreads_and_failsover(monkeypatch):
+    """The ESP pool round-robins across Resend + SendGrid (spreading volume to raise
+    the combined limit) and fails over to the next provider when one errors."""
+    from app import outreach
+    from app.integrations import resend, sendgrid
+    for esp, tag in ((resend, "resend"), (sendgrid, "sendgrid")):
+        monkeypatch.setattr(esp, "is_configured", lambda: True)
+        monkeypatch.setattr(esp, "from_for", lambda a, _t=tag: f"{_t}@x.co")
+        monkeypatch.setattr(esp, "replyto_for", lambda a, f: f)
+
+    calls = []
+    def _mk(tag, ok):
+        def _send(to, subject, html, *, from_email=None, reply_to=None):
+            calls.append(tag)
+            return (f"{tag}-id", None) if ok else (None, f"{tag} failed")
+        return _send
+    monkeypatch.setattr(resend, "send_with_error", _mk("resend", True))
+    monkeypatch.setattr(sendgrid, "send_with_error", _mk("sendgrid", True))
+
+    # rotate=0 -> resend first; rotate=1 -> sendgrid first (spread across the day).
+    assert outreach._send_via_esps("a@x.co", "s", "h", "insurance", rotate=0)[0] == "resend-id"
+    assert outreach._send_via_esps("a@x.co", "s", "h", "insurance", rotate=1)[0] == "sendgrid-id"
+
+    # Failover: primary errors -> the other ESP delivers.
+    monkeypatch.setattr(resend, "send_with_error", _mk("resend", False))
+    mid, err = outreach._send_via_esps("a@x.co", "s", "h", "insurance", rotate=0)
+    assert mid == "sendgrid-id" and err is None
+
+
+def test_sms_failover_signalwire_to_twilio(monkeypatch):
+    """With BOTH carriers connected, a send rejected by the primary (SignalWire's
+    10000) automatically FAILS OVER to Twilio — so running both means a text goes out
+    on whichever accepts it, instead of dying on the primary's error."""
+    from app.config import settings
+    from app.integrations import sms
+    # Both carriers connected; SignalWire preferred (so it's tried first).
+    monkeypatch.setattr(settings, "sms_provider", "signalwire", raising=False)
+    monkeypatch.setattr(settings, "signalwire_space_url", "x.signalwire.com", raising=False)
+    monkeypatch.setattr(settings, "signalwire_project_id", "proj", raising=False)
+    monkeypatch.setattr(settings, "signalwire_api_token", "PTtok", raising=False)
+    monkeypatch.setattr(settings, "signalwire_insurance_number", "+18005551000", raising=False)
+    monkeypatch.setattr(settings, "twilio_account_sid", "AC123", raising=False)
+    monkeypatch.setattr(settings, "twilio_auth_token", "tok", raising=False)
+    monkeypatch.setattr(settings, "twilio_insurance_number", "+18338547055", raising=False)
+    monkeypatch.setattr(settings, "public_base_url", "", raising=False)
+
+    seen = []
+    class _Resp:
+        def __init__(self, code, body): self.status_code = code; self._b = body
+        def json(self): return self._b
+    def _fake_post(url, data=None, auth=None, timeout=None):
+        seen.append(url)
+        if "signalwire.com" in url:
+            return _Resp(400, {"code": 10000, "message": "To must send to a verified caller id"})
+        return _Resp(201, {"sid": "SMtwilio"})   # api.twilio.com accepts
+    monkeypatch.setattr(sms.httpx, "post", _fake_post)
+
+    sid, err = sms.send_with_error("(603) 555-1234", "hello", account="insurance")
+    assert err is None and sid == "SMtwilio", (sid, err)
+    # SignalWire was tried first, then Twilio (failover).
+    assert any("signalwire.com" in u for u in seen) and any("api.twilio.com" in u for u in seen)
+    # From used Twilio's number on the second attempt.
+    # (data From is set per-provider inside _send_once — the twilio call succeeded.)
