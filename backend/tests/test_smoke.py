@@ -8844,3 +8844,39 @@ def test_email_esp_pool_spreads_and_failsover(monkeypatch):
     monkeypatch.setattr(resend, "send_with_error", _mk("resend", False))
     mid, err = outreach._send_via_esps("a@x.co", "s", "h", "insurance", rotate=0)
     assert mid == "sendgrid-id" and err is None
+
+
+def test_sms_failover_signalwire_to_twilio(monkeypatch):
+    """With BOTH carriers connected, a send rejected by the primary (SignalWire's
+    10000) automatically FAILS OVER to Twilio — so running both means a text goes out
+    on whichever accepts it, instead of dying on the primary's error."""
+    from app.config import settings
+    from app.integrations import sms
+    # Both carriers connected; SignalWire preferred (so it's tried first).
+    monkeypatch.setattr(settings, "sms_provider", "signalwire", raising=False)
+    monkeypatch.setattr(settings, "signalwire_space_url", "x.signalwire.com", raising=False)
+    monkeypatch.setattr(settings, "signalwire_project_id", "proj", raising=False)
+    monkeypatch.setattr(settings, "signalwire_api_token", "PTtok", raising=False)
+    monkeypatch.setattr(settings, "signalwire_insurance_number", "+18005551000", raising=False)
+    monkeypatch.setattr(settings, "twilio_account_sid", "AC123", raising=False)
+    monkeypatch.setattr(settings, "twilio_auth_token", "tok", raising=False)
+    monkeypatch.setattr(settings, "twilio_insurance_number", "+18338547055", raising=False)
+    monkeypatch.setattr(settings, "public_base_url", "", raising=False)
+
+    seen = []
+    class _Resp:
+        def __init__(self, code, body): self.status_code = code; self._b = body
+        def json(self): return self._b
+    def _fake_post(url, data=None, auth=None, timeout=None):
+        seen.append(url)
+        if "signalwire.com" in url:
+            return _Resp(400, {"code": 10000, "message": "To must send to a verified caller id"})
+        return _Resp(201, {"sid": "SMtwilio"})   # api.twilio.com accepts
+    monkeypatch.setattr(sms.httpx, "post", _fake_post)
+
+    sid, err = sms.send_with_error("(603) 555-1234", "hello", account="insurance")
+    assert err is None and sid == "SMtwilio", (sid, err)
+    # SignalWire was tried first, then Twilio (failover).
+    assert any("signalwire.com" in u for u in seen) and any("api.twilio.com" in u for u in seen)
+    # From used Twilio's number on the second attempt.
+    # (data From is set per-provider inside _send_once — the twilio call succeeded.)
