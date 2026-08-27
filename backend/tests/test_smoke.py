@@ -8880,3 +8880,40 @@ def test_sms_failover_signalwire_to_twilio(monkeypatch):
     assert any("signalwire.com" in u for u in seen) and any("api.twilio.com" in u for u in seen)
     # From used Twilio's number on the second attempt.
     # (data From is set per-provider inside _send_once — the twilio call succeeded.)
+
+
+@requires_db
+def test_custom_connections_crud_and_secret_handling(client, auth_headers):
+    """New Connection Setup: create a user-named connection with a secret + plain
+    field; secrets are never returned; editing with a blank secret keeps the stored
+    value; delete removes it."""
+    import json
+    body = {"category": "messaging", "name": "My Twilio",
+            "notes": "primary sms",
+            "fields": [{"label": "Account SID", "value": "AC123", "secret": True},
+                       {"label": "From", "value": "+18338547055", "secret": False}]}
+    created = client.post("/custom-connections", json=body, headers=auth_headers).json()
+    cid = created["id"]
+    assert created["name"] == "My Twilio" and created["category"] == "messaging"
+    sid_field = next(f for f in created["fields"] if f["label"] == "Account SID")
+    assert sid_field["secret"] and sid_field["value"] == "" and sid_field["has_value"] is True  # secret hidden
+    from_field = next(f for f in created["fields"] if f["label"] == "From")
+    assert from_field["value"] == "+18338547055"  # non-secret shown
+    # The raw secret must never appear in the response payload.
+    assert "AC123" not in json.dumps(created)
+
+    # Rename, resubmitting the secret field BLANK → secret is preserved.
+    edit = {"category": "messaging", "name": "My Twilio (main)", "notes": "primary sms",
+            "fields": [{"label": "Account SID", "value": "", "secret": True},
+                       {"label": "From", "value": "+18338547055", "secret": False}]}
+    updated = client.put(f"/custom-connections/{cid}", json=edit, headers=auth_headers).json()
+    assert updated["name"] == "My Twilio (main)"
+    assert next(f for f in updated["fields"] if f["label"] == "Account SID")["has_value"] is True
+
+    listing = client.get("/custom-connections", headers=auth_headers).json()
+    assert any(c["id"] == cid for c in listing["connections"])
+    assert any(cat["key"] == "messaging" for cat in listing["categories"])
+
+    client.delete(f"/custom-connections/{cid}", headers=auth_headers)
+    listing2 = client.get("/custom-connections", headers=auth_headers).json()
+    assert not any(c["id"] == cid for c in listing2["connections"])

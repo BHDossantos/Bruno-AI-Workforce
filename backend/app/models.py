@@ -482,6 +482,30 @@ class Connection(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class CustomConnection(Base):
+    """A self-service, user-defined connection — the "New Connection Setup" area.
+
+    Unlike ``Connection`` (which maps to a hardcoded provider in the registry), this
+    is fully generic: the user picks a category, names the app themselves ("Facebook",
+    "Klaviyo", …), and defines whatever fields it needs. So adding an app is a form
+    entry, not a code change. A NEW table — safe under create_all (no ALTER).
+
+    ``fields`` holds field METADATA only ([{label, secret}], preserving order + which
+    are secret); ``values_enc`` is the Fernet-encrypted JSON {label: value} for every
+    value, so secrets are encrypted at rest and never returned to the client.
+    """
+    __tablename__ = "custom_connections"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    category: Mapped[str] = mapped_column(String, nullable=False, index=True)  # social_media | email | crm | …
+    name: Mapped[str] = mapped_column(String, nullable=False)                  # user's app label
+    notes: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String, default="configured")          # configured | error | disabled
+    fields: Mapped[list | None] = mapped_column(JSONB)                         # [{label, secret}] — no secret values
+    values_enc: Mapped[str | None] = mapped_column(Text)                       # Fernet-encrypted JSON {label: value}
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now())
+
+
 class BrandProfile(Base):
     """Single-row profile of the user's brand/account that tailors ALL AI content
     (Instagram calendar, music package, outreach tone). Editable in the UI."""
