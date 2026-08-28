@@ -8553,14 +8553,25 @@ def test_sms_diagnostics_shows_from_number_validity(client, auth_headers, monkey
     monkeypatch.setattr(settings, "signalwire_insurance_number", "(603) 930-8272", raising=False)
     monkeypatch.setattr(settings, "signalwire_from_number", "", raising=False)
 
+    # Twilio voice caller-ID configured for the calling side.
+    monkeypatch.setattr(settings, "voice_provider", "twilio", raising=False)
+    monkeypatch.setattr(settings, "twilio_account_sid", "AC1", raising=False)
+    monkeypatch.setattr(settings, "twilio_auth_token", "AUTHsecret", raising=False)
+    monkeypatch.setattr(settings, "twilio_voice_number", "(833) 854-7055", raising=False)
+    monkeypatch.setattr(settings, "producer_callback", "(603) 930-8272", raising=False)
+
     d = client.get("/sms/diagnostics", headers=auth_headers).json()
     assert d["connected"] is True and d["provider"] == "SignalWire"
     ins = d["accounts"]["insurance"]
     assert ins["from_number_e164"] == "+16039308272"   # normalized from "(603) 930-8272"
     assert ins["from_is_valid"] is True
     assert d["signalwire"]["api_token_set"] is True
-    # The token itself must never be serialized.
-    assert "PTsecret" not in json.dumps(d)
+    # Voice block: caller-ID normalizes, callback set, twilio auth shown only as set.
+    assert d["voice"]["caller_id_e164"] == "+18338547055" and d["voice"]["caller_id_valid"] is True
+    assert d["voice"]["callback_set"] is True
+    assert d["twilio"]["auth_token_set"] is True and d["twilio"]["account_sid_set"] is True
+    # No secret token (SMS or voice) is ever serialized.
+    assert "PTsecret" not in json.dumps(d) and "AUTHsecret" not in json.dumps(d)
 
 
 def test_everquote_norm_phone_formats():
@@ -8817,9 +8828,9 @@ def test_sendgrid_send_includes_owner_bcc(monkeypatch):
     assert "bcc" not in captured["json"]["personalizations"][0]
 
 
-def test_email_esp_pool_spreads_and_failsover(monkeypatch):
-    """The ESP pool round-robins across Resend + SendGrid (spreading volume to raise
-    the combined limit) and fails over to the next provider when one errors."""
+def test_email_esp_pool_resend_primary_sendgrid_overflow(monkeypatch):
+    """Email prefers Resend (high daily quota) and only overflows to SendGrid (low
+    quota) when Resend fails — Resend primary, SendGrid failover, not a 50/50 split."""
     from app import outreach
     from app.integrations import resend, sendgrid
     for esp, tag in ((resend, "resend"), (sendgrid, "sendgrid")):
@@ -8833,16 +8844,17 @@ def test_email_esp_pool_spreads_and_failsover(monkeypatch):
             calls.append(tag)
             return (f"{tag}-id", None) if ok else (None, f"{tag} failed")
         return _send
+
+    # Resend healthy → EVERY send goes through Resend; SendGrid is never touched.
     monkeypatch.setattr(resend, "send_with_error", _mk("resend", True))
     monkeypatch.setattr(sendgrid, "send_with_error", _mk("sendgrid", True))
+    for addr in ("a@x.co", "b@x.co", "c@x.co"):
+        assert outreach._send_via_esps(addr, "s", "h", "insurance")[0] == "resend-id"
+    assert calls == ["resend", "resend", "resend"] and "sendgrid" not in calls
 
-    # rotate=0 -> resend first; rotate=1 -> sendgrid first (spread across the day).
-    assert outreach._send_via_esps("a@x.co", "s", "h", "insurance", rotate=0)[0] == "resend-id"
-    assert outreach._send_via_esps("a@x.co", "s", "h", "insurance", rotate=1)[0] == "sendgrid-id"
-
-    # Failover: primary errors -> the other ESP delivers.
+    # Resend over quota / erroring → overflow to SendGrid.
     monkeypatch.setattr(resend, "send_with_error", _mk("resend", False))
-    mid, err = outreach._send_via_esps("a@x.co", "s", "h", "insurance", rotate=0)
+    mid, err = outreach._send_via_esps("a@x.co", "s", "h", "insurance")
     assert mid == "sendgrid-id" and err is None
 
 
