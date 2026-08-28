@@ -26,7 +26,7 @@ def diagnostics(db: Session = Depends(get_db), _=Depends(_read)):
     Phone numbers are not secrets; API tokens are never returned."""
     from .. import runtime_config
     from ..config import settings
-    from ..integrations import telco
+    from ..integrations import telco, twilio_voice, voice
     try:
         runtime_config.apply_to_settings(db)  # reflect numbers saved in Setup
     except Exception:
@@ -41,6 +41,18 @@ def diagnostics(db: Session = Depends(get_db), _=Depends(_read)):
             "from_number_e164": e164 or None,
             "from_is_valid": bool(e164),
         }
+    # Voice (calling) side — the outbound caller-ID + bridge number the dialer uses.
+    v_num = twilio_voice._voice_number()
+    v_e164 = sms._e164(v_num)
+    voice_info = {
+        "connected": voice.is_configured(),
+        "provider": telco.label("voice") if telco.provider("voice") else None,
+        "caller_id": v_num or None,
+        "caller_id_e164": v_e164 or None,
+        "caller_id_valid": bool(v_e164),
+        "callback_set": bool((settings.producer_callback or settings.producer_cell or "").strip()),
+        "voicemail_recorded": voice.voicemail_configured(),
+    }
     return {
         "provider": telco.label("sms") if prov else None,
         "connected": bool(prov),
@@ -52,6 +64,15 @@ def diagnostics(db: Session = Depends(get_db), _=Depends(_read)):
             "from_number": (settings.signalwire_from_number or "") or None,
             "insurance_number": (settings.signalwire_insurance_number or "") or None,
         },
+        # Twilio fields (values shown are not secret; tokens are only shown as set/unset).
+        "twilio": {
+            "account_sid_set": bool((settings.twilio_account_sid or "").strip()),
+            "auth_token_set": bool((settings.twilio_auth_token or "").strip()),
+            "from_number": (settings.twilio_from_number or "") or None,
+            "insurance_number": (settings.twilio_insurance_number or "") or None,
+            "voice_number": (settings.twilio_voice_number or "") or None,
+        },
+        "voice": voice_info,
         "accounts": accounts,
         "daily_cap": settings.sms_daily_send_cap,
         "sent_today": sms_engine.sms_sent_today(db),

@@ -8553,14 +8553,25 @@ def test_sms_diagnostics_shows_from_number_validity(client, auth_headers, monkey
     monkeypatch.setattr(settings, "signalwire_insurance_number", "(603) 930-8272", raising=False)
     monkeypatch.setattr(settings, "signalwire_from_number", "", raising=False)
 
+    # Twilio voice caller-ID configured for the calling side.
+    monkeypatch.setattr(settings, "voice_provider", "twilio", raising=False)
+    monkeypatch.setattr(settings, "twilio_account_sid", "AC1", raising=False)
+    monkeypatch.setattr(settings, "twilio_auth_token", "AUTHsecret", raising=False)
+    monkeypatch.setattr(settings, "twilio_voice_number", "(833) 854-7055", raising=False)
+    monkeypatch.setattr(settings, "producer_callback", "(603) 930-8272", raising=False)
+
     d = client.get("/sms/diagnostics", headers=auth_headers).json()
     assert d["connected"] is True and d["provider"] == "SignalWire"
     ins = d["accounts"]["insurance"]
     assert ins["from_number_e164"] == "+16039308272"   # normalized from "(603) 930-8272"
     assert ins["from_is_valid"] is True
     assert d["signalwire"]["api_token_set"] is True
-    # The token itself must never be serialized.
-    assert "PTsecret" not in json.dumps(d)
+    # Voice block: caller-ID normalizes, callback set, twilio auth shown only as set.
+    assert d["voice"]["caller_id_e164"] == "+18338547055" and d["voice"]["caller_id_valid"] is True
+    assert d["voice"]["callback_set"] is True
+    assert d["twilio"]["auth_token_set"] is True and d["twilio"]["account_sid_set"] is True
+    # No secret token (SMS or voice) is ever serialized.
+    assert "PTsecret" not in json.dumps(d) and "AUTHsecret" not in json.dumps(d)
 
 
 def test_everquote_norm_phone_formats():
