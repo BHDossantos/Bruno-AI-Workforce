@@ -8481,7 +8481,7 @@ def test_everquote_cadence_calls_and_texts_once_per_wave(monkeypatch):
     """Each cadence run reaches an EverQuote lead on BOTH channels, then dedupes: a
     second run in the same wave places nothing (so a lead gets one call + one text
     per wave = two of each per day). EverQuote leads only."""
-    from datetime import datetime, timezone
+    from datetime import datetime, timedelta, timezone
     from app import control, everquote_cadence as eqc, sms_engine
     from app.database import SessionLocal
     from app.integrations import sms as sms_int, voice
@@ -8496,6 +8496,13 @@ def test_everquote_cadence_calls_and_texts_once_per_wave(monkeypatch):
     monkeypatch.setattr(voice, "place_auto_call", lambda phone, lid: ("CALLSID", None))
     monkeypatch.setattr(sms_int, "is_configured", lambda: True)
     monkeypatch.setattr(eqc, "current_wave", lambda now=None: "am")
+    # Pin the dedup boundary to match the pinned wave. run() otherwise derives it from
+    # the real clock (8am in the recipient tz, today), so a run before 8am local resolves
+    # the wave start into the FUTURE — the per-wave dedup window then matches nothing and
+    # the second run re-places the call. Production can't hit this (run() returns early
+    # when current_wave() is None), but a test that forces the wave must force this too.
+    monkeypatch.setattr(eqc, "_wave_start_utc",
+                        lambda wave, now=None: datetime.now(timezone.utc) - timedelta(seconds=1))
     # Compliance gate always allows.
     from app import compliance
     monkeypatch.setattr(compliance, "gate", lambda *a, **k: type("D", (), {"allowed": True, "rule": None})())
