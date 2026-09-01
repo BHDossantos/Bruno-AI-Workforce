@@ -169,8 +169,9 @@ three consequences.
 
 ## 4. The backend service language was never justified by an ADR
 
-**Severity: low — a cost to accept knowingly, not a defect. ANALYSIS DELIVERED —
-see `adr/ADR-0001-backend-service-language.md` (status: proposed).**
+**Severity: low. CLOSED — `adr/ADR-0001-backend-service-language.md` is
+**accepted**: Option A, Go remains the language for `services/` and
+`connectors/`. The specification's §10.4 stands as written.**
 
 ### Correction to how this was originally raised
 
@@ -221,7 +222,7 @@ implemented in whatever was chosen.
 | 1 | ~~Hypothesis engine lacks `not_observed` state~~ | Correctness | **Resolved — Amendment A1** |
 | 2 | Evidence Vault name collides with Kosli | Commercial / legal | Head of Product |
 | 3 | ~~Standards register missing AI Act dates and Annex III scope note~~ | Completeness | **Resolved — Amendment A2** |
-| 4 | ~~Three backend toolchains, no ADR~~ Backend service language never justified by ADR | Engineering economics | **Analysis in ADR-0001; decision open** |
+| 4 | ~~Backend service language never justified by ADR~~ | Engineering economics | **Closed — ADR-0001 accepted (Option A)** |
 
 None of these blocks Gate A.
 
@@ -236,9 +237,10 @@ register is used with a customer.
 **Finding 2** must be resolved before any customer-facing material is produced —
 it needs a product-naming decision, not research.
 
-**Finding 4** — `ADR-0001` now sets out the options, the evidence and the
-consequences. The decision itself is open and belongs to the Head of
-Engineering/CTO under §18.4; it must be taken before Gate A, since by then the
-tenant model, event contracts, connector framework and authorization model are all
-implemented in whatever was chosen. Note the correction recorded in that finding:
-the original "Go and TypeScript both on the backend" framing was inaccurate.
+**Finding 4 — closed.** `ADR-0001` is accepted at Option A: Go stays. The
+deciding argument was the customer-side collector's third-party security review,
+not developer ergonomics. Two obligations now follow and are tracked in the ADR:
+Go codegen from the OpenAPI/protobuf contracts must exist from the **first**
+service, and §16.6 coding standards must cover all three languages **before
+Gate A**. Note the correction recorded in that finding: the original "Go and
+TypeScript both on the backend" framing was inaccurate.
