@@ -87,6 +87,30 @@ into the existing trademark clearance workstream rather than treating it separat
 name. That is deliberate — it is the open item, not an inconsistency to be silently
 patched.
 
+### Clearance evidence gathered (not a clearance opinion)
+
+Collected to inform the decision. **None of this is legal advice, and none of it
+substitutes for a proper trademark search by counsel** — which the spec's own
+front matter already requires before external launch.
+
+| Check | Result |
+|---|---|
+| General web/trademark search for an existing "OpsProof" product or mark | **Nothing surfaced.** Adjacent marks exist in the same naming space (OpsLevel, Opsani, OpsStream, OPSWAT, Opsware) but no "OpsProof". Absence from a general search is weak evidence, not clearance. |
+| `opsproof.com` | **Registered** — resolves to AWS addresses in ranges commonly used for registrar parking. Could not load the page to confirm (egress-blocked here), so "parked" is inferred, not observed. |
+| `opsproof.io` | **Registered** — same pattern. |
+| `opsproof.eu` | **Registered** — resolves to a single non-AWS address. |
+| `opsproof.ai` | **No A record** — consistent with unregistered or registered-but-unused. |
+
+**What this changes.** The name looks unclaimed as a *product*, which is the
+useful signal. But the three most natural domains are already registered, so
+acquiring `opsproof.com` is a purchase negotiation rather than a registration —
+that is a cost and a timeline to know about before committing the name to
+collateral, not a reason to abandon it.
+
+This evidence bears on the *product name*. It does not touch the separate
+question in this finding, which is the **surface name** — Evidence Vault versus
+Control Ledger. That one is unaffected and still open.
+
 ---
 
 ## 3. The standards register should carry the AI Act's revised dates
@@ -133,13 +157,13 @@ criteria, 31 A + 24 AA), with WCAG 3.0 still a Working Draft not expected to rea
 Recommendation before ~2028, so 2.2 AA remains the correct target · **SLSA v1.0**
 Build Track under OpenSSF, operationalizing SSDF practices PS.1–PS.3.
 
-**One item could not be verified.** The **OWASP Top 10 for LLM Applications** is
-cited generically in §13.9. The edition I was able to confirm is **2025 (v2.0),
-published 18 November 2024** (LLM01 Prompt Injection → LLM10 Unbounded Consumption).
-A **2026 edition has since been published**, but `genai.owasp.org` is blocked by this
-environment's egress proxy and I will not paraphrase a list I have not read. Someone
-with access should diff the 2026 edition against §9.4's prompt-injection controls
-before the register is used with a customer.
+**The OWASP item is now closed — Amendment A3.** It was left open by A2 because
+`genai.owasp.org` is egress-blocked here and I would not paraphrase a list I had
+not read. The list was subsequently verified against the project's own repository
+(`GenAI-Security-Project/GenAI-LLM-Top10`), which is reachable. The **2026
+edition, published 4 August 2026**, is now cited in Appendix J with the full list,
+and the diff against §9.4 has been performed rather than deferred — see A3 for its
+three consequences.
 
 ---
 
