@@ -506,6 +506,20 @@ class CustomConnection(Base):
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now())
 
 
+class PlacesSearchLog(Base):
+    """One row per Google Places Text Search request we actually send — the ledger
+    behind the cost guardrails in integrations/places.py. Text Search bills PER
+    request at Google's most expensive tier, so we (a) skip a "query in area" already
+    searched within places_query_cooldown_days, and (b) hard-stop for the calendar
+    month once places_monthly_request_cap requests are logged. A NEW table — safe
+    under create_all (no ALTER)."""
+    __tablename__ = "places_search_log"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    query_key: Mapped[str] = mapped_column(String, nullable=False, index=True)  # normalized "query in area"
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True)
+
+
 class BrandProfile(Base):
     """Single-row profile of the user's brand/account that tailors ALL AI content
     (Instagram calendar, music package, outreach tone). Editable in the UI."""

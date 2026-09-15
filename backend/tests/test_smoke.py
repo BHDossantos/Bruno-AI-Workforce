@@ -3946,6 +3946,77 @@ def test_places_source_disabled_without_key():
     assert email_finder.clean_email("hero@2x.png") is None
 
 
+def test_places_disabled_by_default_even_with_key(monkeypatch):
+    """Places is OFF unless explicitly enabled — a connected key alone must NOT
+    resume the (expensive, per-request) Text Search sweep. Guards against a stray
+    GOOGLE_PLACES_API_KEY silently running the bill back up."""
+    from app.config import settings
+    from app.integrations import places
+    monkeypatch.setattr(settings, "google_places_api_key", "test-key", raising=False)
+    monkeypatch.setattr(settings, "places_enabled", False, raising=False)
+    assert places.is_configured() is False
+    assert places.fetch_commercial_leads(10) == []
+    assert places.fetch_restaurants(10) == []
+    # Explicitly enabling it flips the gate on.
+    monkeypatch.setattr(settings, "places_enabled", True, raising=False)
+    assert places.is_configured() is True
+
+
+def test_places_cost_gate_cooldown_and_monthly_cap(client, monkeypatch):
+    """The two cost guardrails on Google Places Text Search (billed PER request): a
+    per-'query in area' cooldown skips a sweep already run, and a hard monthly request
+    cap backstops a runaway. Both are enforced in _search via _may_search, and only a
+    search that actually fires the network call is logged/billed."""
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.integrations import places
+    from app.models import PlacesSearchLog
+
+    monkeypatch.setattr(settings, "google_places_api_key", "test-key", raising=False)
+    monkeypatch.setattr(settings, "places_enabled", True, raising=False)
+    monkeypatch.setattr(settings, "places_query_cooldown_days", 30, raising=False)
+    monkeypatch.setattr(settings, "places_monthly_request_cap", 2, raising=False)
+
+    # Never hit the network — count how many searches actually fire.
+    calls = {"n": 0}
+
+    def _fake_post(url, **kw):
+        calls["n"] += 1
+
+        class _R:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {"places": [{"displayName": {"text": "X"}}]}
+
+        return _R()
+
+    monkeypatch.setattr(places.httpx, "post", _fake_post)
+
+    # Clean slate for this month's ledger.
+    db = SessionLocal()
+    db.query(PlacesSearchLog).delete()
+    db.commit()
+    db.close()
+
+    # 1) First search for a query fires + is logged.
+    assert places._search("plumbers in TestlandA") and calls["n"] == 1
+    # 2) Same query again within the cooldown → skipped, no second network call.
+    assert places._search("plumbers in TestlandA") == [] and calls["n"] == 1
+    # 3) A different query fires (2nd request) — now at the monthly cap of 2.
+    assert places._search("dentists in TestlandB") and calls["n"] == 2
+    # 4) A brand-new query is blocked by the monthly cap (fails closed, no call).
+    assert places._search("gyms in TestlandC") == [] and calls["n"] == 2
+
+    db = SessionLocal()
+    # Only the two searches that actually fired were logged/billed.
+    assert db.query(PlacesSearchLog).count() == 2
+    db.query(PlacesSearchLog).delete()
+    db.commit()
+    db.close()
+
+
 def test_leads_search_statewide_not_by_city():
     """No narrow city list by default: every source sweeps whole STATES. Google
     Places honors the per-business scope (e.g. insurance NH/MA/FL) statewide,

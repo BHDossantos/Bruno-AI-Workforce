@@ -92,6 +92,18 @@ class Settings(BaseSettings):
     hubspot_api_key: str = ""
     apollo_api_key: str = ""
     google_places_api_key: str = ""  # free $200/mo credit; adds real business leads
+    # Google Places cost guardrails. Text Search bills PER REQUEST at Google's most
+    # expensive tier (we ask for phone + website), and the sweep re-runs the same 14
+    # queries × areas every pass — which ran up ~$2.5k/mo. So Places is OFF by default:
+    # EverQuote is the first-class lead source, and turning Places on is a deliberate
+    # env change (PLACES_ENABLED=true), not an accidental UI toggle. When on:
+    #  • never re-search the same "query in area" within places_query_cooldown_days
+    #    (its results are already imported as leads), and
+    #  • hard-stop for the calendar month once places_monthly_request_cap requests are
+    #    sent — a backstop so a runaway sweep can never bill more than ~cap × tier.
+    places_enabled: bool = False
+    places_query_cooldown_days: int = 30
+    places_monthly_request_cap: int = 500
     instantly_api_key: str = ""
 
     # Jobs sourcing (Indeed via the JSearch aggregator on RapidAPI, or any
