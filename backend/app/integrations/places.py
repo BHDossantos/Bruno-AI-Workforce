@@ -1,12 +1,17 @@
 """Real-lead sourcing via Google Places API (Text Search).
 
-Google gives a recurring free credit that covers this volume. Places returns the
-business's real website, from which we extract a contact email via email_finder.
-Key-gated: active only when GOOGLE_PLACES_API_KEY is set.
+Places returns the business's real website, from which we extract a contact email
+via email_finder. But Text Search bills PER REQUEST at Google's most expensive tier
+(we ask for phone + website), and the sweep re-runs the same 14 queries × areas every
+pass — which ran up ~$2.5k/mo. So Places is OFF unless PLACES_ENABLED=true, and when
+on it's guarded two ways (see _may_search): a per-"query in area" cooldown skips a
+sweep already run recently, and a hard monthly request cap backstops a runaway.
+Key-gated: active only when GOOGLE_PLACES_API_KEY is set AND places_enabled is on.
 """
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
@@ -26,7 +31,47 @@ _SCRAPE_BUDGET = 60
 
 
 def is_configured() -> bool:
-    return bool(settings.google_places_api_key)
+    # Both gates: the key must exist AND Places must be explicitly enabled. Off by
+    # default so a stray key can never resume the expensive sweep on its own.
+    return bool(settings.google_places_api_key) and bool(settings.places_enabled)
+
+
+def _may_search(query_key: str) -> bool:
+    """Cost gate for ONE Text Search request. Returns True (and logs the request) only
+    when both guardrails pass: the monthly request cap isn't hit, and this exact
+    "query in area" wasn't already searched within the cooldown window. Uses its own
+    short-lived session; on any DB error it fails CLOSED (skip) — a missed sweep is
+    cheap, an unmetered one is not."""
+    from ..database import SessionLocal
+    from ..models import PlacesSearchLog
+    from sqlalchemy import func as _func
+
+    try:
+        with SessionLocal() as db:
+            # (a) Monthly cap — count requests logged since the 1st of this month (UTC).
+            cap = max(0, int(settings.places_monthly_request_cap or 0))
+            month_start = datetime.now(timezone.utc).replace(
+                day=1, hour=0, minute=0, second=0, microsecond=0)
+            used = (db.query(_func.count()).select_from(PlacesSearchLog)
+                    .filter(PlacesSearchLog.created_at >= month_start).scalar() or 0)
+            if cap and used >= cap:
+                log.warning("Places monthly request cap reached (%s) — skipping search", cap)
+                return False
+            # (b) Per-query cooldown — skip if this exact sweep ran within the window.
+            cooldown = max(0, int(settings.places_query_cooldown_days or 0))
+            if cooldown:
+                cutoff = datetime.now(timezone.utc) - timedelta(days=cooldown)
+                recent = (db.query(PlacesSearchLog)
+                          .filter(PlacesSearchLog.query_key == query_key,
+                                  PlacesSearchLog.created_at >= cutoff).first())
+                if recent:
+                    return False
+            db.add(PlacesSearchLog(query_key=query_key))
+            db.commit()
+            return True
+    except Exception as exc:  # pragma: no cover - DB guard; fail closed to protect spend
+        log.warning("Places cost gate unavailable (%s) — skipping search to be safe", exc)
+        return False
 
 
 def _areas(scope: str | None = None) -> list[str]:
@@ -44,6 +89,9 @@ def _areas(scope: str | None = None) -> list[str]:
 
 
 def _search(query: str, max_results: int = 20) -> list[dict]:
+    # Cost gate: skip (and don't bill) a query on cooldown or over the monthly cap.
+    if not _may_search(query):
+        return []
     headers = {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": settings.google_places_api_key,

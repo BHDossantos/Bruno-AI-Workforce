@@ -21,6 +21,10 @@ type SmsDiag = {
   provider: string | null;
   connected: boolean;
   accounts: Record<string, { from_number_configured: string | null; from_number_e164: string | null; from_is_valid: boolean }>;
+  voice?: {
+    connected: boolean; provider: string | null; caller_id: string | null;
+    caller_id_e164: string | null; caller_id_valid: boolean; callback_set: boolean; voicemail_recorded: boolean;
+  };
   daily_cap: number;
   sent_today: number;
   send_window: string;
@@ -114,16 +118,28 @@ function Texts() {
       {sendMsg && <p className="mb-2 text-sm text-red-600">{sendMsg}</p>}
       <div className="mb-3">
         <button onClick={() => setShowDiag((v) => !v)} className="text-xs text-brand underline">
-          {showDiag ? "Hide" : "Show"} SMS setup check
+          {showDiag ? "Hide" : "Show"} SMS + Voice setup check
         </button>
         {showDiag && diag && (
           <div className="mt-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">
+            <div className="font-semibold text-gray-600">📱 Texting</div>
             <div><b>Provider:</b> {diag.provider || "not connected"} · <b>Today:</b> {diag.sent_today}/{diag.daily_cap} · <b>Hours:</b> {diag.send_window}</div>
-            <div className="mt-1">
+            <div className="mt-0.5">
               <b>Insurance “from” number:</b>{" "}
               {diag.accounts?.insurance?.from_number_e164 || diag.accounts?.insurance?.from_number_configured || "— none set —"}{" "}
               {diag.accounts?.insurance?.from_is_valid ? "✓ valid" : "✗ invalid format"}
             </div>
+            {diag.voice && (
+              <>
+                <div className="mt-2 font-semibold text-gray-600">📞 Calling</div>
+                <div><b>Provider:</b> {diag.voice.provider || "not connected"} · <b>Voicemail:</b> {diag.voice.voicemail_recorded ? "recorded ✓" : "not recorded"} · <b>Your cell (bridge):</b> {diag.voice.callback_set ? "set ✓" : "✗ missing"}</div>
+                <div className="mt-0.5">
+                  <b>Caller-ID number:</b>{" "}
+                  {diag.voice.caller_id_e164 || diag.voice.caller_id || "— none set —"}{" "}
+                  {diag.voice.caller_id_valid ? "✓ valid" : "✗ invalid format"}
+                </div>
+              </>
+            )}
             <div className="mt-1 text-gray-500">{diag.note}</div>
           </div>
         )}

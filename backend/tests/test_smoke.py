@@ -3946,6 +3946,93 @@ def test_places_source_disabled_without_key():
     assert email_finder.clean_email("hero@2x.png") is None
 
 
+def test_places_disabled_by_default_even_with_key(monkeypatch):
+    """Places is OFF unless explicitly enabled — a connected key alone must NOT
+    resume the (expensive, per-request) Text Search sweep. Guards against a stray
+    GOOGLE_PLACES_API_KEY silently running the bill back up."""
+    from app.config import settings
+    from app.integrations import places
+    monkeypatch.setattr(settings, "google_places_api_key", "test-key", raising=False)
+    monkeypatch.setattr(settings, "places_enabled", False, raising=False)
+    assert places.is_configured() is False
+    assert places.fetch_commercial_leads(10) == []
+    assert places.fetch_restaurants(10) == []
+    # Explicitly enabling it flips the gate on.
+    monkeypatch.setattr(settings, "places_enabled", True, raising=False)
+    assert places.is_configured() is True
+
+
+def test_places_cost_gate_cooldown_and_monthly_cap(client, monkeypatch):
+    """The two cost guardrails on Google Places Text Search (billed PER request): a
+    per-'query in area' cooldown skips a sweep already run, and a hard monthly request
+    cap backstops a runaway. Both are enforced in _search via _may_search, and only a
+    search that actually fires the network call is logged/billed."""
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.integrations import places
+    from app.models import PlacesSearchLog
+
+    monkeypatch.setattr(settings, "google_places_api_key", "test-key", raising=False)
+    monkeypatch.setattr(settings, "places_enabled", True, raising=False)
+    monkeypatch.setattr(settings, "places_query_cooldown_days", 30, raising=False)
+    monkeypatch.setattr(settings, "places_monthly_request_cap", 2, raising=False)
+
+    # Never hit the network — count how many searches actually fire.
+    calls = {"n": 0}
+
+    def _fake_post(url, **kw):
+        calls["n"] += 1
+
+        class _R:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {"places": [{"displayName": {"text": "X"}}]}
+
+        return _R()
+
+    monkeypatch.setattr(places.httpx, "post", _fake_post)
+
+    # Clean slate for this month's ledger.
+    db = SessionLocal()
+    db.query(PlacesSearchLog).delete()
+    db.commit()
+    db.close()
+
+    # 1) First search for a query fires + is logged.
+    assert places._search("plumbers in TestlandA") and calls["n"] == 1
+    # 2) Same query again within the cooldown → skipped, no second network call.
+    assert places._search("plumbers in TestlandA") == [] and calls["n"] == 1
+    # 3) A different query fires (2nd request) — now at the monthly cap of 2.
+    assert places._search("dentists in TestlandB") and calls["n"] == 2
+    # 4) A brand-new query is blocked by the monthly cap (fails closed, no call).
+    assert places._search("gyms in TestlandC") == [] and calls["n"] == 2
+
+    db = SessionLocal()
+    # Only the two searches that actually fired were logged/billed.
+    assert db.query(PlacesSearchLog).count() == 2
+    db.query(PlacesSearchLog).delete()
+    db.commit()
+    db.close()
+
+
+def test_public_base_url_autofills_from_render(monkeypatch):
+    """On Render each web service gets its own public URL as RENDER_EXTERNAL_URL, so
+    call/SMS webhooks (which need an absolute base) work with no manual step. The
+    Settings validator adopts it only when PUBLIC_BASE_URL isn't set explicitly."""
+    from app.config import Settings
+
+    # No explicit PUBLIC_BASE_URL → adopt Render's injected URL.
+    monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
+    monkeypatch.setenv("RENDER_EXTERNAL_URL", "https://bruno-backend-abc.onrender.com")
+    assert Settings().public_base_url == "https://bruno-backend-abc.onrender.com"
+
+    # An explicit PUBLIC_BASE_URL always wins over the Render fallback.
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://my-own-domain.com")
+    assert Settings().public_base_url == "https://my-own-domain.com"
+
+
 def test_leads_search_statewide_not_by_city():
     """No narrow city list by default: every source sweeps whole STATES. Google
     Places honors the per-business scope (e.g. insurance NH/MA/FL) statewide,
@@ -8553,14 +8640,25 @@ def test_sms_diagnostics_shows_from_number_validity(client, auth_headers, monkey
     monkeypatch.setattr(settings, "signalwire_insurance_number", "(603) 930-8272", raising=False)
     monkeypatch.setattr(settings, "signalwire_from_number", "", raising=False)
 
+    # Twilio voice caller-ID configured for the calling side.
+    monkeypatch.setattr(settings, "voice_provider", "twilio", raising=False)
+    monkeypatch.setattr(settings, "twilio_account_sid", "AC1", raising=False)
+    monkeypatch.setattr(settings, "twilio_auth_token", "AUTHsecret", raising=False)
+    monkeypatch.setattr(settings, "twilio_voice_number", "(833) 854-7055", raising=False)
+    monkeypatch.setattr(settings, "producer_callback", "(603) 930-8272", raising=False)
+
     d = client.get("/sms/diagnostics", headers=auth_headers).json()
     assert d["connected"] is True and d["provider"] == "SignalWire"
     ins = d["accounts"]["insurance"]
     assert ins["from_number_e164"] == "+16039308272"   # normalized from "(603) 930-8272"
     assert ins["from_is_valid"] is True
     assert d["signalwire"]["api_token_set"] is True
-    # The token itself must never be serialized.
-    assert "PTsecret" not in json.dumps(d)
+    # Voice block: caller-ID normalizes, callback set, twilio auth shown only as set.
+    assert d["voice"]["caller_id_e164"] == "+18338547055" and d["voice"]["caller_id_valid"] is True
+    assert d["voice"]["callback_set"] is True
+    assert d["twilio"]["auth_token_set"] is True and d["twilio"]["account_sid_set"] is True
+    # No secret token (SMS or voice) is ever serialized.
+    assert "PTsecret" not in json.dumps(d) and "AUTHsecret" not in json.dumps(d)
 
 
 def test_everquote_norm_phone_formats():
@@ -8817,9 +8915,9 @@ def test_sendgrid_send_includes_owner_bcc(monkeypatch):
     assert "bcc" not in captured["json"]["personalizations"][0]
 
 
-def test_email_esp_pool_spreads_and_failsover(monkeypatch):
-    """The ESP pool round-robins across Resend + SendGrid (spreading volume to raise
-    the combined limit) and fails over to the next provider when one errors."""
+def test_email_esp_pool_resend_primary_sendgrid_overflow(monkeypatch):
+    """Email prefers Resend (high daily quota) and only overflows to SendGrid (low
+    quota) when Resend fails — Resend primary, SendGrid failover, not a 50/50 split."""
     from app import outreach
     from app.integrations import resend, sendgrid
     for esp, tag in ((resend, "resend"), (sendgrid, "sendgrid")):
@@ -8833,16 +8931,17 @@ def test_email_esp_pool_spreads_and_failsover(monkeypatch):
             calls.append(tag)
             return (f"{tag}-id", None) if ok else (None, f"{tag} failed")
         return _send
+
+    # Resend healthy → EVERY send goes through Resend; SendGrid is never touched.
     monkeypatch.setattr(resend, "send_with_error", _mk("resend", True))
     monkeypatch.setattr(sendgrid, "send_with_error", _mk("sendgrid", True))
+    for addr in ("a@x.co", "b@x.co", "c@x.co"):
+        assert outreach._send_via_esps(addr, "s", "h", "insurance")[0] == "resend-id"
+    assert calls == ["resend", "resend", "resend"] and "sendgrid" not in calls
 
-    # rotate=0 -> resend first; rotate=1 -> sendgrid first (spread across the day).
-    assert outreach._send_via_esps("a@x.co", "s", "h", "insurance", rotate=0)[0] == "resend-id"
-    assert outreach._send_via_esps("a@x.co", "s", "h", "insurance", rotate=1)[0] == "sendgrid-id"
-
-    # Failover: primary errors -> the other ESP delivers.
+    # Resend over quota / erroring → overflow to SendGrid.
     monkeypatch.setattr(resend, "send_with_error", _mk("resend", False))
-    mid, err = outreach._send_via_esps("a@x.co", "s", "h", "insurance", rotate=0)
+    mid, err = outreach._send_via_esps("a@x.co", "s", "h", "insurance")
     assert mid == "sendgrid-id" and err is None
 
 

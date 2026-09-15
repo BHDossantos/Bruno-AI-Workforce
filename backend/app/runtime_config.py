@@ -232,7 +232,10 @@ def status(db) -> dict:
             "address": settings.savorymind_gmail_address or "",
         },
         "apollo": {"configured": apollo.is_configured()},
-        "google_places": {"configured": places.is_configured()},
+        # "configured" = the key is connected; "enabled" = Places sourcing is actually
+        # ON (off by default — Text Search is billed per request, so it's opt-in).
+        "google_places": {"configured": bool(settings.google_places_api_key),
+                          "enabled": bool(settings.places_enabled)},
         "sms": {"configured": sms.is_configured() or bridge_on,
                 "via": sms.active_provider() or ("bridge" if bridge_on else None),
                 # Surface the compliance guardrails so the Texts UI can show the

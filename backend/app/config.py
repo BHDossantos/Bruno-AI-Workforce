@@ -1,6 +1,8 @@
 """Application configuration loaded from environment variables."""
+import os
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -92,6 +94,18 @@ class Settings(BaseSettings):
     hubspot_api_key: str = ""
     apollo_api_key: str = ""
     google_places_api_key: str = ""  # free $200/mo credit; adds real business leads
+    # Google Places cost guardrails. Text Search bills PER REQUEST at Google's most
+    # expensive tier (we ask for phone + website), and the sweep re-runs the same 14
+    # queries × areas every pass — which ran up ~$2.5k/mo. So Places is OFF by default:
+    # EverQuote is the first-class lead source, and turning Places on is a deliberate
+    # env change (PLACES_ENABLED=true), not an accidental UI toggle. When on:
+    #  • never re-search the same "query in area" within places_query_cooldown_days
+    #    (its results are already imported as leads), and
+    #  • hard-stop for the calendar month once places_monthly_request_cap requests are
+    #    sent — a backstop so a runaway sweep can never bill more than ~cap × tier.
+    places_enabled: bool = False
+    places_query_cooldown_days: int = 30
+    places_monthly_request_cap: int = 500
     instantly_api_key: str = ""
 
     # Jobs sourcing (Indeed via the JSearch aggregator on RapidAPI, or any
@@ -226,7 +240,11 @@ class Settings(BaseSettings):
     # (cold automated SMS violates TCPA). No-ops if unconfigured.
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
-    twilio_from_number: str = ""          # default sending number (E.164, e.g. +1617...)
+    # Toll-free +1 (833) 854-7055 — the number registered in Twilio for BOTH SMS and
+    # voice. Baked in as the default so texts/calls go out from it without touching
+    # Setup. SMS from this number is live only once Twilio Toll-Free Verification is
+    # approved (voice works immediately); until then SMS is rate-limited carrier-side.
+    twilio_from_number: str = "+18338547055"   # default sending number (E.164)
     twilio_insurance_number: str = ""     # optional separate number for insurance
     # Backup SMS provider (Plivo) — a Twilio-compatible carrier. When Twilio is down
     # or your account is deactivated, connect Plivo and texting keeps working with no
@@ -241,7 +259,10 @@ class Settings(BaseSettings):
     # Voice provider for calling: "auto" (Plivo if connected, else Twilio/SignalWire),
     # "plivo", "vonage", "twilio", "signalwire", or "sip". Lets calling move between
     # carriers when a number's carrier reputation is filtering calls to voicemail.
-    voice_provider: str = "auto"
+    # Forced to "twilio" so the auto-dialer places calls from the verified toll-free
+    # (+18338547055) instead of SignalWire (whose 10DLC is still pending). Safe: when
+    # Twilio creds aren't connected, provider() falls back to SignalWire automatically.
+    voice_provider: str = "twilio"
     # Self-hosted SIP softswitch (FreeSWITCH) — "build our own" origination. Instead
     # of a CPaaS HTTP API, we run FreeSWITCH ourselves and bring our own carrier (a
     # SIP trunk). The backend originates calls over the Event Socket (ESL) and serves
@@ -289,14 +310,17 @@ class Settings(BaseSettings):
     whatsapp_cloud_phone_number_id: str = ""
     whatsapp_cloud_token: str = ""
     # ── Twilio Voice (calling) ────────────────────────────────────────────────
-    # Caller-ID number for outbound calls (Voice-enabled Twilio number). Falls
-    # back to the insurance/default SMS number when blank.
-    twilio_voice_number: str = ""
+    # Caller-ID number for outbound calls (Voice-enabled Twilio number). Defaults to
+    # the toll-free +18338547055 (voice is enabled on it now); falls back to the
+    # insurance/default SMS number when blank.
+    twilio_voice_number: str = "+18338547055"
     # Record calls + play a "this call may be recorded" notice (MA/FL are
     # two-party-consent states, so the notice is required when recording).
     call_recording_enabled: bool = True
-    # Public base URL of THIS backend, so Twilio can reach our TwiML/status
-    # webhooks (e.g. https://ai-workforce-...run.app). Set in the deploy env.
+    # Public base URL of THIS backend, so Twilio/SignalWire can reach our TwiML/
+    # status webhooks (e.g. https://bruno-backend.onrender.com). Set in the deploy
+    # env; on Render it auto-fills from RENDER_EXTERNAL_URL (see the validator below),
+    # so calls/SMS webhooks work out of the box with no manual post-deploy step.
     public_base_url: str = ""
     # Browser softphone (Twilio Voice JS SDK) — needs an API Key + a TwiML App
     # whose Voice URL points at {public_base_url}/calls/twiml/outbound.
@@ -604,6 +628,19 @@ class Settings(BaseSettings):
     # separated, case-insensitive. Override via env to add/remove.
     contacts_outreach_exclude: str = (
         "brianadossantos@gmail.com,salasb2006@yahoo.com,brianadossantosawx@statefarm.com")
+
+    @model_validator(mode="after")
+    def _default_public_base_url(self) -> "Settings":
+        """Auto-fill public_base_url from Render's injected RENDER_EXTERNAL_URL when
+        it isn't set explicitly. Render gives each web service its own public URL as
+        RENDER_EXTERNAL_URL at runtime, so call/SMS webhooks (which need an absolute
+        base URL) work immediately after a blueprint deploy — no manual step. An
+        explicit PUBLIC_BASE_URL still wins."""
+        if not (self.public_base_url or "").strip():
+            render_url = os.environ.get("RENDER_EXTERNAL_URL", "").strip()
+            if render_url:
+                self.public_base_url = render_url
+        return self
 
 
 @lru_cache

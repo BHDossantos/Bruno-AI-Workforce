@@ -1,26 +1,34 @@
-# Render Blueprint — one-click 24/7 deploy of the Bruno AI Workforce backend.
-# In Render: New → Blueprint → connect this repo. It creates the Postgres DB and
-# the backend web service. Fill the `sync: false` secrets in the dashboard.
-# Deploy the frontend separately on Vercel (set NEXT_PUBLIC_API_URL to the
-# backend URL Render gives you).
+# Render Blueprint — one-click 24/7 deploy of the whole Bruno AI Workforce app.
 #
-# NOTE: the scheduler (daily agents + follow-ups) only runs while the service is
-# awake. Render's free web tier sleeps on inactivity — use the Starter plan
-# ($7/mo) for true always-on 24/7 automation.
+#   In Render:  New → Blueprint → connect this repo → Apply.
+#   It creates: the Postgres DB, the backend web service, and the frontend.
+#   Then fill the `sync: false` secrets in each service's Environment tab.
+#
+# Cost (starting point): backend Starter $7/mo + frontend Free + DB Free = ~$7/mo.
+# See the two ⚠️ notes below before you rely on it long-term.
+#
+# NOTE: the scheduler (daily agents, auto-dial, follow-ups) only runs while the
+# backend is awake — so the backend MUST be on a paid plan (Starter+), never Free
+# (Free sleeps on inactivity and the automation stops). PUBLIC_BASE_URL auto-fills
+# from Render's RENDER_EXTERNAL_URL, so call/SMS webhooks work with no manual step.
 
 databases:
   - name: bruno-db
     databaseName: bruno_ai
     user: bruno
+    # ⚠️ Free Postgres on Render is DELETED after 90 days (and is small). You just
+    # lost a DB to a billing lapse — to avoid a repeat, switch this to a paid plan
+    # (e.g. "basic-256mb", ~$7/mo) so your leads/history persist.
     plan: free
 
 services:
+  # ── Backend (FastAPI + scheduler) ─────────────────────────────────────────
   - type: web
     name: bruno-backend
     runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
-    plan: starter          # use "starter" for always-on; "free" sleeps
+    plan: starter          # MUST stay paid/awake — the scheduler runs in-process
     healthCheckPath: /health
     autoDeploy: true
     envVars:
@@ -36,19 +44,37 @@ services:
         generateValue: true
       - key: ADMIN_EMAIL
         value: brunodossantos707@gmail.com
+      # Google Places lead-sourcing stays OFF (it billed ~$2.5k/mo on Cloud). Leave
+      # false; only set true after the cooldown/monthly-cap guardrails are proven.
+      - key: PLACES_ENABLED
+        value: "false"
       # --- secrets: set these in the Render dashboard (Environment tab) ---
+      # ENCRYPTION_KEY is the Fernet key that decrypts every credential saved via the
+      # in-app Setup page — generate a NEW one (fresh DB) and keep it stable.
       - { key: ENCRYPTION_KEY, sync: false }
       - { key: ADMIN_PASSWORD, sync: false }
       - { key: OPENAI_API_KEY, sync: false }
       - { key: OPENAI_MODEL, value: gpt-4o }
-      - { key: APOLLO_API_KEY, sync: false }
-      - { key: JOBS_API_KEY, sync: false }
-      - { key: JOBS_API_HOST, value: jsearch.p.rapidapi.com }
-      - { key: HUBSPOT_API_KEY, sync: false }
-      - { key: GMAIL_OUTBOUND_MODE, value: send }
-      - { key: GMAIL_DAILY_SEND_CAP, value: "50" }
+      # Email: Resend primary + SendGrid overflow (both optional — or connect in Setup).
+      - { key: RESEND_API_KEY, sync: false }
+      - { key: SENDGRID_API_KEY, sync: false }
+      # Everything else (Twilio/SignalWire creds, EverQuote, Gmail, etc.) is entered
+      # in the in-app Setup page after launch — no need to list every key here.
       - { key: GMAIL_ADDRESS, value: brunodossantos707@gmail.com }
-      - { key: GOOGLE_TOKEN_JSON, sync: false }
-      - { key: INSURANCE_GMAIL_ADDRESS, value: bruno@thrustinsurance.com }
-      - { key: INSURANCE_GOOGLE_TOKEN_JSON, sync: false }
+      - { key: GMAIL_APP_PASSWORD, sync: false }
       - { key: REPORT_TO_EMAIL, value: brunodossantos707@gmail.com }
+
+  # ── Frontend (Next.js) ────────────────────────────────────────────────────
+  - type: web
+    name: bruno-frontend
+    runtime: docker
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    plan: free             # OK to sleep — it's just the dashboard UI (slow 1st load)
+    autoDeploy: true
+    envVars:
+      # ⚠️ Next bakes NEXT_PUBLIC_* at BUILD time, and the backend URL isn't known
+      # until the backend deploys once. So: deploy first, copy the backend's Render
+      # URL (https://bruno-backend-XXXX.onrender.com), paste it here in the frontend
+      # service's Environment tab, then redeploy the frontend. One-time step.
+      - { key: NEXT_PUBLIC_API_URL, sync: false }

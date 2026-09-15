@@ -107,39 +107,29 @@ def _log(db: Session, actor: str, action: str, msg: Message, **detail) -> None:
 
 
 def _configured_esps() -> list:
-    """Configured email ESPs (Resend + SendGrid) as interchangeable senders. Both
-    expose is_configured/from_for/replyto_for/send_with_error, so the dispatch code
-    treats them the same and can spread volume across whichever are connected."""
+    """Configured email ESPs in PREFERENCE order — Resend first (primary), then
+    SendGrid (overflow/failover). Resend's daily quota is far higher (≈2000/day vs
+    SendGrid's ≈100/day free), so it should carry the bulk; SendGrid only takes a
+    send when Resend rejects it (over quota / error). Both expose the same interface
+    (is_configured/from_for/replyto_for/send_with_error) so they're interchangeable."""
     from .integrations import resend, sendgrid
     esps = []
     if resend.is_configured():
-        esps.append(resend)
+        esps.append(resend)        # primary
     if sendgrid.is_configured():
-        esps.append(sendgrid)
+        esps.append(sendgrid)      # secondary / overflow
     return esps
 
 
-def _rotate_key(to_email: str | None) -> int:
-    """A small stable integer per recipient, used to rotate which ESP goes first so
-    the day's sends SPREAD across Resend + SendGrid instead of hammering one."""
-    return sum(ord(c) for c in (to_email or ""))
-
-
 def _send_via_esps(to_email: str, subject: str | None, html: str | None,
-                   account: str, rotate: int = 0) -> tuple[str | None, str | None]:
-    """Send through the configured ESPs, rotated by `rotate` so volume spreads across
-    Resend + SendGrid — each has its own quota, so using both roughly doubles the
-    effective daily limit. Falls through to the next ESP if one fails. Returns
-    (message_id, error) with exactly one set; (None, None) when NO ESP is configured
-    (so the caller falls back to Gmail)."""
-    esps = _configured_esps()
-    if not esps:
-        return None, None
-    if rotate and len(esps) > 1:
-        i = rotate % len(esps)
-        esps = esps[i:] + esps[:i]
+                   account: str) -> tuple[str | None, str | None]:
+    """Send through the configured ESPs in preference order (Resend primary → SendGrid
+    overflow). Tries the primary first and only falls through to the next when it
+    fails (e.g. Resend over its daily quota), so the high-limit provider carries the
+    volume and the low-limit one is a backup. Returns (message_id, error) with exactly
+    one set; (None, None) when NO ESP is configured (caller falls back to Gmail)."""
     last_err = None
-    for esp in esps:
+    for esp in _configured_esps():
         frm = esp.from_for(account)
         mid, err = esp.send_with_error(to_email, subject or "", html or "",
                                        from_email=frm, reply_to=esp.replyto_for(account, frm))
@@ -168,8 +158,7 @@ def deliver(to_email: str, subject: str | None, body: str | None,
         return None, "Not sent — the email body was empty (blank email blocked)."
     html = email_template.render(cleaned, account)
     # 1) ESP pool — Resend + SendGrid, spread across both (higher combined limit).
-    mid, esp_err = _send_via_esps(to_email, subject, html, account,
-                                  rotate=_rotate_key(to_email))
+    mid, esp_err = _send_via_esps(to_email, subject, html, account)
     if mid:
         return mid, None
     # 2) The account's Gmail mailbox.
@@ -417,7 +406,7 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
         # the day's volume across both and raise the combined limit) → the account's
         # Gmail. A working provider sends even when another is down or over quota.
         # `_sent` rotates which ESP goes first, giving an even split across the day.
-        mid, send_err = _send_via_esps(to_email, subject, html, account, rotate=_sent)
+        mid, send_err = _send_via_esps(to_email, subject, html, account)
         if not mid and gmail.is_configured(account):
             mid = gmail.send_message(to_email, subject or "", html or "", account=account)
         if mid:
