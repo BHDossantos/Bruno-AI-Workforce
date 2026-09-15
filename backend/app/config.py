@@ -1,6 +1,8 @@
 """Application configuration loaded from environment variables."""
+import os
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -315,8 +317,10 @@ class Settings(BaseSettings):
     # Record calls + play a "this call may be recorded" notice (MA/FL are
     # two-party-consent states, so the notice is required when recording).
     call_recording_enabled: bool = True
-    # Public base URL of THIS backend, so Twilio can reach our TwiML/status
-    # webhooks (e.g. https://ai-workforce-...run.app). Set in the deploy env.
+    # Public base URL of THIS backend, so Twilio/SignalWire can reach our TwiML/
+    # status webhooks (e.g. https://bruno-backend.onrender.com). Set in the deploy
+    # env; on Render it auto-fills from RENDER_EXTERNAL_URL (see the validator below),
+    # so calls/SMS webhooks work out of the box with no manual post-deploy step.
     public_base_url: str = ""
     # Browser softphone (Twilio Voice JS SDK) — needs an API Key + a TwiML App
     # whose Voice URL points at {public_base_url}/calls/twiml/outbound.
@@ -624,6 +628,19 @@ class Settings(BaseSettings):
     # separated, case-insensitive. Override via env to add/remove.
     contacts_outreach_exclude: str = (
         "brianadossantos@gmail.com,salasb2006@yahoo.com,brianadossantosawx@statefarm.com")
+
+    @model_validator(mode="after")
+    def _default_public_base_url(self) -> "Settings":
+        """Auto-fill public_base_url from Render's injected RENDER_EXTERNAL_URL when
+        it isn't set explicitly. Render gives each web service its own public URL as
+        RENDER_EXTERNAL_URL at runtime, so call/SMS webhooks (which need an absolute
+        base URL) work immediately after a blueprint deploy — no manual step. An
+        explicit PUBLIC_BASE_URL still wins."""
+        if not (self.public_base_url or "").strip():
+            render_url = os.environ.get("RENDER_EXTERNAL_URL", "").strip()
+            if render_url:
+                self.public_base_url = render_url
+        return self
 
 
 @lru_cache

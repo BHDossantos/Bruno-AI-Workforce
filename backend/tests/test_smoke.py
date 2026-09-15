@@ -4017,6 +4017,22 @@ def test_places_cost_gate_cooldown_and_monthly_cap(client, monkeypatch):
     db.close()
 
 
+def test_public_base_url_autofills_from_render(monkeypatch):
+    """On Render each web service gets its own public URL as RENDER_EXTERNAL_URL, so
+    call/SMS webhooks (which need an absolute base) work with no manual step. The
+    Settings validator adopts it only when PUBLIC_BASE_URL isn't set explicitly."""
+    from app.config import Settings
+
+    # No explicit PUBLIC_BASE_URL → adopt Render's injected URL.
+    monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
+    monkeypatch.setenv("RENDER_EXTERNAL_URL", "https://bruno-backend-abc.onrender.com")
+    assert Settings().public_base_url == "https://bruno-backend-abc.onrender.com"
+
+    # An explicit PUBLIC_BASE_URL always wins over the Render fallback.
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://my-own-domain.com")
+    assert Settings().public_base_url == "https://my-own-domain.com"
+
+
 def test_leads_search_statewide_not_by_city():
     """No narrow city list by default: every source sweeps whole STATES. Google
     Places honors the per-business scope (e.g. insurance NH/MA/FL) statewide,
