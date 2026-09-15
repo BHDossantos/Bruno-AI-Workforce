@@ -226,7 +226,11 @@ class Settings(BaseSettings):
     # (cold automated SMS violates TCPA). No-ops if unconfigured.
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
-    twilio_from_number: str = ""          # default sending number (E.164, e.g. +1617...)
+    # Toll-free +1 (833) 854-7055 — the number registered in Twilio for BOTH SMS and
+    # voice. Baked in as the default so texts/calls go out from it without touching
+    # Setup. SMS from this number is live only once Twilio Toll-Free Verification is
+    # approved (voice works immediately); until then SMS is rate-limited carrier-side.
+    twilio_from_number: str = "+18338547055"   # default sending number (E.164)
     twilio_insurance_number: str = ""     # optional separate number for insurance
     # Backup SMS provider (Plivo) — a Twilio-compatible carrier. When Twilio is down
     # or your account is deactivated, connect Plivo and texting keeps working with no
@@ -241,7 +245,10 @@ class Settings(BaseSettings):
     # Voice provider for calling: "auto" (Plivo if connected, else Twilio/SignalWire),
     # "plivo", "vonage", "twilio", "signalwire", or "sip". Lets calling move between
     # carriers when a number's carrier reputation is filtering calls to voicemail.
-    voice_provider: str = "auto"
+    # Forced to "twilio" so the auto-dialer places calls from the verified toll-free
+    # (+18338547055) instead of SignalWire (whose 10DLC is still pending). Safe: when
+    # Twilio creds aren't connected, provider() falls back to SignalWire automatically.
+    voice_provider: str = "twilio"
     # Self-hosted SIP softswitch (FreeSWITCH) — "build our own" origination. Instead
     # of a CPaaS HTTP API, we run FreeSWITCH ourselves and bring our own carrier (a
     # SIP trunk). The backend originates calls over the Event Socket (ESL) and serves
@@ -289,9 +296,10 @@ class Settings(BaseSettings):
     whatsapp_cloud_phone_number_id: str = ""
     whatsapp_cloud_token: str = ""
     # ── Twilio Voice (calling) ────────────────────────────────────────────────
-    # Caller-ID number for outbound calls (Voice-enabled Twilio number). Falls
-    # back to the insurance/default SMS number when blank.
-    twilio_voice_number: str = ""
+    # Caller-ID number for outbound calls (Voice-enabled Twilio number). Defaults to
+    # the toll-free +18338547055 (voice is enabled on it now); falls back to the
+    # insurance/default SMS number when blank.
+    twilio_voice_number: str = "+18338547055"
     # Record calls + play a "this call may be recorded" notice (MA/FL are
     # two-party-consent states, so the notice is required when recording).
     call_recording_enabled: bool = True
