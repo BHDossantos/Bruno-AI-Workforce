@@ -31,7 +31,10 @@ RUN python -m playwright install chromium || true
 COPY . .
 
 EXPOSE 8000
+# Bind to the platform-assigned port. Render (and most PaaS) inject $PORT and probe
+# THAT port for the health check; a hardcoded 8000 makes the probe time out and the
+# deploy fail even though the app is up. Fall back to 8000 for local/compose runs.
 HEALTHCHECK --interval=30s --timeout=5s --retries=5 \
-    CMD curl -fsS http://localhost:8000/health || exit 1
+    CMD curl -fsS http://localhost:${PORT:-8000}/health || exit 1
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
