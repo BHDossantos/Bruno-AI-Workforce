@@ -3,16 +3,26 @@ FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends gcc curl \
+# Build tools + curl, plus Chromium's OS libraries. We install these libs
+# EXPLICITLY instead of via Playwright's `playwright install --with-deps`, because
+# --with-deps pulls font packages (ttf-unifont, ttf-ubuntu-font-family) that aren't
+# in Debian slim's repos and hard-fail the image build.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc curl \
+    libnss3 libnspr4 libdbus-1-3 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+    libdrm2 libxcb1 libxkbcommon0 libatspi2.0-0 libx11-6 libxcomposite1 \
+    libxdamage1 libxext6 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 \
+    libcairo2 libasound2 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install the Chromium browser + its OS deps so the Application Autopilot /
-# auto-apply engine can drive a real browser in production. Without this, browser
-# automation degrades to "assist" mode (prepares packages, never auto-submits).
-RUN python -m playwright install --with-deps chromium
+# Chromium browser for the OPTIONAL browser-automation (auto-apply) engine — its OS
+# libraries are apt-installed above, so we install only the browser binary (no
+# --with-deps). `|| true` keeps a browser-download hiccup from ever failing the
+# deploy: without the browser, automation just degrades to "assist" mode.
+RUN python -m playwright install chromium || true
 
 COPY . .
 
