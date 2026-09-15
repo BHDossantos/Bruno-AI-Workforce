@@ -1,4 +1,8 @@
-FROM python:3.12-slim
+# Pin Debian bookworm: the unversioned `-slim` tag floats to the newest Debian
+# (trixie), which renamed the Chromium runtime libs with a `t64` suffix
+# (libasound2 -> libasound2t64, etc.) so the apt install below can't find them.
+# Bookworm keeps the names this Dockerfile installs.
+FROM python:3.12-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app
