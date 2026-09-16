@@ -41,11 +41,17 @@ The owner's standing direction:
   an existing table is NOT** applied automatically in production. If a change
   needs a column, make it a new table or add an explicit, idempotent migration
   step — and call it out loudly in the PR.
-- **Cloud Run startup probe.** The container must open its port fast. All boot
-  work (seeding, warmups) runs in the `_post_boot()` background thread — never
-  block the lifespan/startup path, or the deploy fails the 4-minute probe.
-- **Email path is Resend → Gmail.** SendGrid is fully removed; do not reintroduce
-  it. Telephony is **SignalWire** (via the twilio-compat module), not Twilio.
+- **Startup probe / health check.** The container must open its port fast. All
+  boot work (seeding, warmups) runs in the `_post_boot()` background thread — never
+  block the lifespan/startup path, or the deploy times out its health check. The
+  app is deployed on **Render** now (see `docs/RENDER_DEPLOY.md`), not Google Cloud;
+  it binds `$PORT` (Render assigns it) and `public_base_url` auto-fills from
+  `RENDER_EXTERNAL_URL`.
+- **Email path is an ESP pool → Gmail.** Resend is primary (~2000/day), **SendGrid**
+  is overflow/failover (~100/day), then the account's Gmail. Both ESPs are
+  first-class — do NOT remove SendGrid. **Telephony is Twilio** as primary (the
+  verified toll-free +18338547055, via the twilio-compat module), with SignalWire as
+  fallback — do NOT switch telephony back to SignalWire-only.
 - **Backend**: FastAPI + SQLAlchemy + Postgres in `backend/app`. **Frontend**:
   Next.js + TypeScript in `frontend`. Run tests from `backend/`.
 - Match the surrounding code's style, naming, and comment density. Read like the
@@ -94,12 +100,13 @@ don't work, nothing else matters. On every run, verify and harden:
 4. **Auto, not manual.** The whole point is hands-free. Ensure the scheduler sends
    without a human (Outreach Autopilot / auto mode) and never silently stalls.
 
-### EPIC 0.5 — Cut the Google Cloud cost (see docs/COST_OPTIMIZATION.md)
+### EPIC 0.5 — Cloud cost (RESOLVED: migrated off Google to Render)
 
-The owner pays ~$1,000/mo and wants it down. The likely driver is the Cloud SQL
-tier/HA (provisioned outside the repo). Follow `docs/COST_OPTIMIZATION.md`: the
-backend's always-on instance is required for the scheduler (do NOT scale it to
-zero); the savings are in right-sizing Cloud SQL. Surface/track this until resolved.
+DONE — the app was migrated off Google Cloud (billing lapsed; the $2.5k/mo driver
+was the Google Places API, now off by default) to **Render** at ~$7–14/mo. See
+`docs/RENDER_DEPLOY.md`. Do NOT reintroduce Google Cloud / Cloud SQL / Cloud Run
+config or re-enable Places sourcing. If anything cost-related remains, it's keeping
+the Render backend always-on for the scheduler and the DB off Render's free tier.
 
 ### EPIC 1 — Config-driven Business/Brand registry (the big "plug-and-play" win)
 
