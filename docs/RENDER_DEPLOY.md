@@ -48,6 +48,22 @@ Call/SMS webhooks need no configuration: `PUBLIC_BASE_URL` auto-fills from Rende
 
 So a durable setup is ~**$14/mo** (backend + paid DB), still a fraction of Google.
 
+## Backups — so a lost DB never wipes you out again
+
+You just lost everything because the data lived only in one place. Don't repeat it —
+use both layers:
+
+1. **Automatic daily backups (managed):** upgrade `bruno-db` to a **paid plan**, then
+   in the database's **Settings → Backups**, Render keeps automatic daily backups with
+   point-in-time recovery. This is the real safety net and needs no code. (The free DB
+   has no backups — another reason not to leave it free.)
+2. **On-demand portable backup (host-independent):** hit **`GET /export/backup`** (admin
+   only) to download a **full gzipped JSON snapshot of every table** — leads, clients,
+   conversation history, connected credentials (encrypted), all of it. Keep a copy on
+   your computer / cloud drive periodically; it restores anywhere, on any host, so you
+   are never locked to one provider's billing again. `GET /export/backup/summary` shows
+   the row counts first.
+
 ## Keep Places OFF
 
 `PLACES_ENABLED=false` is set in the blueprint on purpose — Google Places Text

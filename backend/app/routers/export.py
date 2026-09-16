@@ -1,17 +1,41 @@
-"""CSV export of leads / jobs / restaurants for spreadsheets and offline review."""
+"""CSV export of leads / jobs / restaurants for spreadsheets and offline review,
+plus a full portable database backup (admin only)."""
 import csv
 import io
+from datetime import date
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from .. import db_backup
 from ..database import get_db
 from ..models import Client, Job, Lead, Restaurant
 from ..security import require_role
 
 router = APIRouter(prefix="/export", tags=["export"])
 _read = require_role("admin", "operator", "viewer")
+_admin = require_role("admin")
+
+
+@router.get("/backup")
+def export_backup(_=Depends(_admin)):
+    """Full, portable database backup — a gzipped JSON snapshot of EVERY table you
+    can download and keep anywhere, independent of the host. Admin only, because it
+    contains all data (encrypted credentials included). Automatic daily snapshots
+    come from the managed Postgres plan; this is the on-demand copy you control."""
+    data = db_backup.dump_gz()
+    filename = f"bruno-backup-{date.today().isoformat()}.json.gz"
+    return StreamingResponse(
+        iter([data]), media_type="application/gzip",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@router.get("/backup/summary")
+def export_backup_summary(_=Depends(_admin)):
+    """Row count per table — a quick 'what's in the backup' check without downloading."""
+    return db_backup.summary()
 
 
 def _csv(rows: list[dict], columns: list[str], filename: str) -> StreamingResponse:
