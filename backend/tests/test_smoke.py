@@ -4033,6 +4033,42 @@ def test_public_base_url_autofills_from_render(monkeypatch):
     assert Settings().public_base_url == "https://my-own-domain.com"
 
 
+def test_db_backup_dump_and_summary(client):
+    """The portable backup is a gzipped JSON snapshot of every table (host-independent,
+    no pg_dump). It must round-trip and include core + newly-added tables so a restore
+    is complete."""
+    import gzip
+    import json as _json
+
+    from app import db_backup
+
+    blob = db_backup.dump_gz()
+    assert isinstance(blob, bytes) and len(blob) > 0
+    data = _json.loads(gzip.decompress(blob))
+    assert data["version"] == 1 and data["generated_at"]
+    # Core + a couple of newer tables are all captured.
+    for t in ("users", "leads", "settings", "places_search_log"):
+        assert t in data["tables"], f"backup missing table {t}"
+    summ = db_backup.summary()
+    assert "users" in summ and isinstance(summ["users"], int)
+
+
+def test_export_backup_endpoint_admin(client, auth_headers):
+    """GET /export/backup streams the gzipped backup as a dated download, admin-only."""
+    import gzip
+    import json as _json
+
+    r = client.get("/export/backup", headers=auth_headers)
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/gzip")
+    assert "bruno-backup-" in r.headers.get("content-disposition", "")
+    data = _json.loads(gzip.decompress(r.content))
+    assert "tables" in data and "users" in data["tables"]
+    # Summary endpoint returns per-table counts.
+    s = client.get("/export/backup/summary", headers=auth_headers)
+    assert s.status_code == 200 and "users" in s.json()
+
+
 def test_leads_search_statewide_not_by_city():
     """No narrow city list by default: every source sweeps whole STATES. Google
     Places honors the per-business scope (e.g. insurance NH/MA/FL) statewide,
