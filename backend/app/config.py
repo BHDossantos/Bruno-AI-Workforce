@@ -251,7 +251,11 @@ class Settings(BaseSettings):
     # code change. sms_provider: "twilio" | "plivo" | "signalwire" | "auto" (auto =
     # whichever is connected; SignalWire preferred, then Twilio). "twilio" forces
     # Twilio. See app/integrations/plivo.py and app/integrations/telco.py.
-    sms_provider: str = "auto"
+    # Forced to "twilio" so SMS always goes out on the verified toll-free
+    # (+18338547055) and can never drift to SignalWire (separate 10DLC approval) if
+    # its creds get reconnected. Safe: provider() falls back to whatever IS connected
+    # when Twilio creds are absent.
+    sms_provider: str = "twilio"
     plivo_auth_id: str = ""
     plivo_auth_token: str = ""
     plivo_from_number: str = ""           # Plivo sending number (E.164, e.g. +1617...)
