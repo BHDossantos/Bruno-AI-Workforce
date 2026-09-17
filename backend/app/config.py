@@ -382,14 +382,15 @@ class Settings(BaseSettings):
     # (never-called first) each day — churning a 100-lead list at 80/day cycles every
     # ~1.25 days. Raise it to space calls further apart.
     auto_dial_cooldown_days: int = 1
-    # Transfer a LIVE answer to the producer's cell? OFF by default: EVERY answered call
-    # leaves the recorded voicemail drop, which is what reliably lands with the lead. The
-    # transfer path depends on the producer's cell actually ringing AND on the carrier's
-    # machine-detection being right — and SignalWire frequently reports 'unknown', which
-    # we treat as human, so 'on' silently sent most voicemails into a doomed transfer
-    # instead of dropping the message. Turn on (AUTO_DIAL_TRANSFER_ENABLED=true) once the
-    # producer's line reliably rings, to connect live pickups. Matches Plivo/Vonage/SIP.
-    auto_dial_transfer_enabled: bool = False
+    # Transfer a LIVE answer to the producer's cell? ON — the owner's rule: a human
+    # answer transfers to the producer (bridged + recorded), a machine/voicemail gets
+    # the producer's recorded voicemail drop. This relies on the carrier's
+    # machine-detection being reliable; it is on Twilio (the current primary), so
+    # transfers are safe. If a transfer to the cell isn't answered, the live lead still
+    # hears a callback promise + the recorded voicemail (see amd_transfer-result), so a
+    # misdetected machine never dead-airs. Set AUTO_DIAL_TRANSFER_ENABLED=false to revert
+    # to voicemail-only (e.g. on a carrier with flaky AMD).
+    auto_dial_transfer_enabled: bool = True
 
     # Gmail (outbound + inbound). Two accounts: "personal" (default, used by all
     # agents) and "insurance" (used by the Insurance agent). Each authenticates
