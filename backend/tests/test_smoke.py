@@ -1683,7 +1683,7 @@ def test_signalwire_telco_routing(monkeypatch):
 def test_plivo_voice_provider_and_dispatch(monkeypatch):
     """Plivo is a second voice provider: when voice_provider routes to Plivo, the
     dispatcher places calls via Plivo's Call API, and its XML drops the recorded
-    voicemail (transfer off by default) or connects a live answer when enabled."""
+    voicemail (transfer off) or connects a live answer when enabled."""
     from app.config import settings
     from app.integrations import plivo_voice, voice
 
@@ -1719,7 +1719,7 @@ def test_plivo_voice_provider_and_dispatch(monkeypatch):
     assert captured["json"]["to"] == "+19782541435" and captured["json"]["from"] == "+16035551234"
     assert captured["json"]["machine_detection"] == "true" and captured["auth"] == ("MA123", "tok")
 
-    # AMD XML: transfer OFF (default) → recorded drop, no Dial — even a live human.
+    # AMD XML: transfer OFF (explicitly set) → recorded drop, no Dial — even a live human.
     monkeypatch.setattr(settings, "auto_dial_transfer_enabled", False, raising=False)
     xml = plivo_voice.amd_xml("human", "lead-1")
     assert "<Play>https://cdn/vm.mp3</Play>" in xml and "<Dial" not in xml
@@ -1773,7 +1773,7 @@ def test_vonage_voice_provider_and_dispatch(monkeypatch):
     assert captured["json"]["to"][0]["number"] == "19782541435"   # E.164 without '+'
     assert captured["json"]["from"]["number"] == "16035551234"
 
-    # NCCO: transfer OFF (default) → stream the recorded voicemail, no connect.
+    # NCCO: transfer OFF (explicitly set) → stream the recorded voicemail, no connect.
     monkeypatch.setattr(settings, "auto_dial_transfer_enabled", False, raising=False)
     assert vonage_voice.amd_ncco(None, "lead-1") == [
         {"action": "stream", "streamUrl": ["https://cdn/vm.mp3"]}]
@@ -1859,7 +1859,7 @@ def test_sip_softswitch_provider_and_dispatch(monkeypatch):
     # Auto-call runs answering-machine detection on the answered leg.
     assert "execute_on_answer=amd" in captured["cmd"]
 
-    # HTTAPI: transfer OFF (default) → play the recorded voicemail, no bridge.
+    # HTTAPI: transfer OFF (explicitly set) → play the recorded voicemail, no bridge.
     monkeypatch.setattr(settings, "auto_dial_transfer_enabled", False, raising=False)
     amd = sip_voice.amd_work("human", "lead-1")
     assert '<playback file="https://cdn/vm.wav"/>' in amd and "bridge" not in amd
