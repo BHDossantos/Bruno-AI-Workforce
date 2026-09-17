@@ -37,7 +37,7 @@ type CallHealth = {
     transfers_to: string; transfers_to_pretty: string;
     caller_id_pretty: string; rings_source: string;
   };
-  setup?: { public_base_url?: string | null };
+  setup?: { public_base_url?: string | null; blockers?: string[]; ready_to_dial?: boolean };
   today: { placed: number; connected: number; missed: number; dialing: number; connect_rate: number };
   week: { placed: number; connected: number; missed: number; dialing: number; connect_rate: number };
 };
@@ -154,22 +154,36 @@ export default function WorkListPage() {
       />
 
       {/* Calling health — provider, today's calls, connect rate. */}
-      {callHealth && (callHealth.configured || callHealth.today.placed > 0) && (
+      {callHealth && (
         <div className="mb-4 rounded-xl border border-gray-200 bg-white p-4">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
             <span className="font-semibold text-gray-700">📞 Calling</span>
             <span className="text-gray-500">via <b className="text-gray-700">{callHealth.provider || "not connected"}</b></span>
-            <span>Today: <b>{callHealth.today.placed}</b> placed</span>
-            <span>✅ <b>{callHealth.today.connected}</b> connected</span>
-            <span>📴 <b>{callHealth.today.missed}</b> voicemail/missed</span>
-            <span>Connect rate: <b>{callHealth.today.connect_rate}%</b></span>
-            {callHealth.daily_cap > 0 && (
-              <span className="text-gray-400">{callHealth.remaining_today ?? 0} of {callHealth.daily_cap} left today</span>
-            )}
-            {!callHealth.voicemail_ready && (
-              <span className="ml-auto rounded-lg bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">No voicemail drop recorded</span>
+            {callHealth.configured && (
+              <>
+                <span>Today: <b>{callHealth.today.placed}</b> placed</span>
+                <span>✅ <b>{callHealth.today.connected}</b> connected</span>
+                <span>📴 <b>{callHealth.today.missed}</b> voicemail/missed</span>
+                <span>Connect rate: <b>{callHealth.today.connect_rate}%</b></span>
+                {callHealth.daily_cap > 0 && (
+                  <span className="text-gray-400">{callHealth.remaining_today ?? 0} of {callHealth.daily_cap} left today</span>
+                )}
+                {!callHealth.voicemail_ready && (
+                  <span className="ml-auto rounded-lg bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">No voicemail drop recorded</span>
+                )}
+              </>
             )}
           </div>
+          {/* Not ready → show EXACTLY what's missing (this panel used to hide entirely
+              when calling wasn't set up, so you couldn't see why). */}
+          {!(callHealth.setup?.ready_to_dial ?? callHealth.configured) && (callHealth.setup?.blockers?.length ?? 0) > 0 && (
+            <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <b>Not ready to dial yet — add these on Setup → Calling:</b>
+              <ul className="ml-5 mt-1 list-disc">
+                {callHealth.setup!.blockers!.map((b, i) => (<li key={i}>{b}</li>))}
+              </ul>
+            </div>
+          )}
           {callHealth.dial_targets?.rings_first_pretty && (
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-gray-100 pt-3 text-sm">
               <span>📱 Clicking <b>Call</b> rings <b className="text-gray-900">{callHealth.dial_targets.rings_first_pretty}</b> first, then connects the lead.</span>
