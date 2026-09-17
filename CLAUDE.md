@@ -56,6 +56,27 @@ We're moving to a **config-driven Business/Brand registry** so adding a business
 is a form entry, not a code change — same plug-and-play goal for API connections.
 Prefer registry-driven over hard-coded whenever you touch this area.
 
+## Engineering direction (owner's standing directive)
+
+Build every change toward: **maximum automation, streamlined, minimum technical
+debt, minimum refactoring, service-oriented.** Concretely:
+
+- **Automate by default.** Prefer scheduler/agent-driven, hands-free flows over
+  anything that needs a human to click. If a task recurs, wire it into the
+  scheduler, not a manual step.
+- **Service-oriented boundaries (microservice discipline, monolith cost).** Keep
+  each domain — SMS, voice, email, leads, connections, cadence, conversation
+  engine — a clean, self-contained module with a narrow public interface and its
+  own tests; no cross-module tangling. Do NOT decompose the monolith into
+  separately deployed services (that's a large refactor and contradicts the
+  minimum-refactoring rule) unless the owner explicitly scopes it.
+- **Plug-and-play, config-driven.** Connections and businesses are registry/config
+  entries, never hard-coded (see Known direction). New provider/business = a form
+  entry, not a code change.
+- **Minimum refactoring / minimum debt.** Small, reversible increments. Leave code
+  cleaner than you found it, but never a big-bang rewrite; fix debt in-place as you
+  touch an area.
+
 ## House rules
 
 - Draft PRs; the owner merges. One concern per PR. Tests green before opening.

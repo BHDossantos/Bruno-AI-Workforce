@@ -12,6 +12,17 @@ The owner's standing direction:
 > efficient, streamlined and autonomous — mostly connections plug-and-play, not
 > hard-coded — and making the app easy to navigate."
 
+> "Everything as automated as possible, streamlined, minimum technical debt,
+> minimum refactoring, and treated as microservices going forward."
+
+Apply the second directive as **service-oriented discipline inside the monolith**:
+keep each domain (SMS, voice, email, leads, connections, cadence) a clean,
+self-contained module with a narrow interface and its own tests — but do NOT
+decompose into separately deployed services (that is a large refactor, which
+violates "minimum refactoring"). Automate by default (scheduler/agent-driven, not
+manual), keep connections config-driven/plug-and-play, and fix debt in small,
+reversible increments as you touch an area. See CLAUDE.md → "Engineering direction".
+
 ## Non-negotiable operating rules
 
 1. **Draft PRs only. Never merge. Never push to `main`.** Every change goes on a
