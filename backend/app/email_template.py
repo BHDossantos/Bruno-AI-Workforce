@@ -74,22 +74,38 @@ def _phone_line() -> str:
     return " &nbsp;&nbsp; ".join(parts)
 
 
+def _with_photo(text: str) -> str:
+    """Put the producer's headshot to the LEFT of the signature text (a round 64px
+    photo), so outreach feels like it's from a real person. Uses a table so it holds
+    up across email clients. No photo set → the text signature, unchanged."""
+    url = (settings.producer_photo_url or "").strip()
+    if not url:
+        return text
+    photo = (f'<img src="{url}" alt="{settings.producer_name}" width="64" height="64" '
+             'style="width:64px;height:64px;border-radius:50%;object-fit:cover;display:block">')
+    return ('<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>'
+            f'<td valign="top">{photo}</td>'
+            f'<td valign="top" style="padding-left:12px">{text}</td>'
+            '</tr></table>')
+
+
 def _signature(account: str) -> str:
-    """Per-account signature block with click-to-call phone numbers."""
+    """Per-account signature block with click-to-call phone numbers (+ the producer's
+    photo when one is configured)."""
     if account == "insurance":
         title = f" | {settings.producer_title}" if settings.producer_title else ""
-        return (
+        return _with_photo(
             f'<strong>{settings.insurance_business_name or "Thrust Insurance"}</strong><br>'
             f'{settings.producer_name}{title}<br>'
             f'{_phone_line()}'
         )
     if account == "savorymind":
-        return (
+        return _with_photo(
             '<strong>SavoryMind</strong> tastes better!<br>'
             f'{settings.producer_name} | <br>'
             f'{_phone_line()}'
         )
-    return (
+    return _with_photo(
         'Best regards,<br>'
         '<strong>Bruno Dos Santos, MBA, MSIT</strong> | IT &amp; Cloud Leader<br>'
         'Cell: <a href="tel:+16039308272" style="color:#6d28d9;text-decoration:none">(603) 930-8272</a>'

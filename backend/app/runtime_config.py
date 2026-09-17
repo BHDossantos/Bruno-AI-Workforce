@@ -50,6 +50,7 @@ FIELDS: dict[str, bool] = {
     "sales_commission_pct": False,     # commission % on annual premium (Performance)
     "sales_monthly_revenue_goal": False,  # monthly commission goal (Performance)
     "producer_voicemail_url": False,   # recorded voicemail drop (auto-dialer plays it)
+    "producer_photo_url": False,       # headshot shown in the email signature
     "twilio_api_key_sid": False,       # browser softphone: API Key SID
     "twilio_api_key_secret": True,     # browser softphone: API Key secret
     "twilio_twiml_app_sid": False,     # browser softphone: TwiML App SID

@@ -160,6 +160,10 @@ class Settings(BaseSettings):
     #   Bruno Dossantos | insurance agent
     #   phone# (978) 824-4228   Cell# 16039308272
     producer_title: str = "insurance agent"
+    # Producer headshot shown in the email signature (a hosted image URL). Rendered
+    # as a small round photo next to the name/phones so outreach feels personal.
+    # Blank → signature shows no photo (text only).
+    producer_photo_url: str = ""
     # Main line shown on outreach — the SignalWire number that greets callers and
     # forwards to the cell (so a lead who calls the email's number reaches Bruno).
     producer_office_phone: str = "(978) 824-4228"

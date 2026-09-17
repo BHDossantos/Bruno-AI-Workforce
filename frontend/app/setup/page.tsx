@@ -697,6 +697,14 @@ function Setup() {
               value={form.email_header_image || ""} onChange={(e) => set("email_header_image", e.target.value)} />
           </div>
           <div className="mt-3 border-t border-gray-100 pt-3">
+            <div className="mb-1 text-sm font-medium text-gray-700">🧑 Your photo (email signature)</div>
+            <p className="mb-2 text-xs text-gray-500">
+              Paste a hosted image URL of your headshot — it shows as a round photo next to your name in every email signature, so outreach feels personal. A square photo works best. Leave blank for a text-only signature.
+            </p>
+            <input className="input w-full" placeholder="https://your-site.com/your-photo.jpg"
+              value={form.producer_photo_url || ""} onChange={(e) => set("producer_photo_url", e.target.value)} />
+          </div>
+          <div className="mt-3 border-t border-gray-100 pt-3">
             <div className="mb-1 text-sm font-medium text-gray-700">📩 Copy me on every email (BCC)</div>
             <p className="mb-2 text-xs text-gray-500">
               Every email sent to a customer is blind-copied to this address, so you get a copy of
