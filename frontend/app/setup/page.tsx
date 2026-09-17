@@ -926,9 +926,11 @@ function Setup() {
             <Badge ok={!!data.calling?.configured} />
           </div>
           <p className="mb-3 text-xs text-gray-500">
-            Click “Call” on a lead → Twilio rings <b>your phone</b>, then connects the lead (recorded, with a consent notice; AI notes post to the timeline). Uses your Twilio account above. Enter <b>your cell</b> as the callback number. For browser calling (when your phone’s dead), add a Twilio <b>API Key</b> (SID + Secret) and a <b>TwiML App SID</b> whose Voice URL is <code>…/calls/twiml/outbound</code>.
+            Click “Call” on a lead → Twilio rings <b>your phone</b>, then connects the lead (recorded, with a consent notice; AI notes post to the timeline). Enter your <b>Twilio Account SID + Auth Token</b> (your Twilio account login — the same one powers both calls and texts) and <b>your cell</b> as the callback number. Browser calling (optional, for when your phone’s dead) also needs a Twilio <b>API Key</b> (SID + Secret) and a <b>TwiML App SID</b>.
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
+            <SecretInput className="input" placeholder="Twilio Account SID (AC…)" field="twilio_account_sid" form={form} set={set} saved={data?.secrets_set} />
+            <SecretInput className="input" placeholder="Twilio Auth Token" field="twilio_auth_token" form={form} set={set} saved={data?.secrets_set} />
             <input className="input" placeholder="Your cell to ring +1 617 555 1234"
               value={form.producer_callback || ""} onChange={(e) => set("producer_callback", e.target.value)} />
             <input className="input" placeholder="Caller-ID / Voice number (optional)"
