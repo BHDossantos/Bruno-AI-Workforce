@@ -124,11 +124,26 @@ def dial_targets() -> dict:
     }
 
 
+def _config_gap() -> str | None:
+    """The SPECIFIC missing piece for bridge calling, so the UI can name the exact
+    fix instead of a generic 'not connected'. Returns None when fully configured."""
+    from . import telco
+    if not telco.configured("voice"):
+        return ("Telephony isn't connected — add your Twilio Account SID and Auth "
+                "Token in Setup (both are required; the Auth Token field shows blank "
+                "on reload, so re-enter it).")
+    if not _voice_number():
+        return "No caller-ID number set — add your Twilio voice number in Setup."
+    if not _callback_number():
+        return ("No callback number — add YOUR cell in E.164 form (e.g. +16035551234) "
+                "in Setup → Calling; it rings first, then connects the lead.")
+    return None
+
+
 def is_configured() -> bool:
     """Bridge calling: a Twilio-compatible carrier (Twilio or SignalWire) + a
     caller-ID number + a phone to ring you back on (callback or cell)."""
-    from . import telco
-    return bool(telco.configured("voice") and _voice_number() and _callback_number())
+    return _config_gap() is None
 
 
 def browser_configured() -> bool:
@@ -210,7 +225,7 @@ def place_bridge_call(lead_phone: str, lead_id: str | None) -> tuple[str | None,
     """Ring the producer's phone; on answer, Twilio bridges to the lead. Returns
     (call_sid, error)."""
     if not is_configured():
-        return None, "Calling not connected — add Twilio + your callback number on Setup."
+        return None, _config_gap() or "Calling not connected — check Setup → Calling."
     base = _base_url()
     if not base:
         return None, "PUBLIC_BASE_URL is not set, so Twilio can't reach the call webhooks."
@@ -442,7 +457,7 @@ def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, s
     /calls/twiml/amd, which transfers a human to your phone or drops your voicemail on
     a machine. Returns (call_sid, error)."""
     if not is_configured():
-        return None, "Calling not connected — add Twilio + your callback number on Setup."
+        return None, _config_gap() or "Calling not connected — check Setup → Calling."
     base = _base_url()
     if not base:
         return None, "PUBLIC_BASE_URL is not set, so Twilio can't reach the call webhooks."
