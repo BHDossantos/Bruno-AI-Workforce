@@ -5,7 +5,32 @@ import { api } from "@/lib/api";
 import { AuthGate, PageHeader, useFetch, LoadState } from "@/components/ui";
 
 type Area = { configured: boolean; address?: string };
+
+// Standardized credential input: secrets are never sent back to the browser, so a
+// blank field is ambiguous ("unset" or "hidden?"). This shows a consistent
+// "✓ saved — leave blank to keep" placeholder when a value is already stored (from
+// /setup's `secrets_set` map), and blank means keep it. Single <input> — a drop-in
+// with no layout change.
+function SecretInput({ field, placeholder, className = "input", form, set, saved }: {
+  field: string; placeholder: string; className?: string;
+  form: Record<string, string>; set: (k: string, v: string) => void;
+  saved?: Record<string, boolean>;
+}) {
+  const isSet = !!saved?.[field];
+  return (
+    <input
+      className={className}
+      type="password"
+      autoComplete="off"
+      placeholder={isSet ? `✓ saved — leave blank to keep (${placeholder})` : placeholder}
+      value={form[field] || ""}
+      onChange={(e) => set(field, e.target.value)}
+    />
+  );
+}
+
 type Status = {
+  secrets_set?: Record<string, boolean>;
   ai?: { configured: boolean; model: string };
   gmail_personal: Area; gmail_insurance: Area; gmail_insurance_backup?: Area;
   gmail_bnb?: Area; gmail_savorymind?: Area;
@@ -392,8 +417,7 @@ function Setup() {
             </div>
           )}
           <div className="grid gap-2 sm:grid-cols-2">
-            <input className="input" type="password" placeholder="OpenAI API key (sk-…)"
-              value={form.openai_api_key || ""} onChange={(e) => set("openai_api_key", e.target.value)} />
+            <SecretInput className="input" placeholder="OpenAI API key (sk-…)" field="openai_api_key" form={form} set={set} saved={data?.secrets_set} />
             <input className="input" placeholder={data.ai?.model || "Model (default gpt-4o)"}
               value={form.openai_model || ""} onChange={(e) => set("openai_model", e.target.value)} />
           </div>
@@ -421,8 +445,7 @@ function Setup() {
           <div className="grid gap-2 sm:grid-cols-2">
             <input className="input" placeholder={data.gmail_personal.address || "you@gmail.com"}
               value={form.gmail_address || ""} onChange={(e) => set("gmail_address", e.target.value)} />
-            <input className="input" type="password" placeholder="16-character App Password"
-              value={form.gmail_app_password || ""} onChange={(e) => set("gmail_app_password", e.target.value)} />
+            <SecretInput className="input" placeholder="16-character App Password" field="gmail_app_password" form={form} set={set} saved={data?.secrets_set} />
           </div>
         </div>
 
@@ -440,8 +463,7 @@ function Setup() {
           <div className="grid gap-2 sm:grid-cols-2">
             <input className="input" placeholder={data.gmail_insurance.address || "you@youragency.com"}
               value={form.insurance_gmail_address || ""} onChange={(e) => set("insurance_gmail_address", e.target.value)} />
-            <input className="input" type="password" placeholder="16-character App Password"
-              value={form.insurance_gmail_app_password || ""} onChange={(e) => set("insurance_gmail_app_password", e.target.value)} />
+            <SecretInput className="input" placeholder="16-character App Password" field="insurance_gmail_app_password" form={form} set={set} saved={data?.secrets_set} />
           </div>
           <label className="mt-3 flex items-start gap-2 rounded-lg bg-gray-50 p-3 text-xs text-gray-600">
             <input type="checkbox" className="mt-0.5" checked={!!control?.insurance_relay}
@@ -465,8 +487,7 @@ function Setup() {
           <div className="grid gap-2 sm:grid-cols-2">
             <input className="input" placeholder={data.gmail_insurance_backup?.address || "you@second-agency.com"}
               value={form.insurance_backup_gmail_address || ""} onChange={(e) => set("insurance_backup_gmail_address", e.target.value)} />
-            <input className="input" type="password" placeholder="16-character App Password"
-              value={form.insurance_backup_gmail_app_password || ""} onChange={(e) => set("insurance_backup_gmail_app_password", e.target.value)} />
+            <SecretInput className="input" placeholder="16-character App Password" field="insurance_backup_gmail_app_password" form={form} set={set} saved={data?.secrets_set} />
           </div>
         </div>
 
@@ -484,8 +505,7 @@ function Setup() {
           <div className="grid gap-2 sm:grid-cols-2">
             <input className="input" placeholder={data.gmail_bnb?.address || "braxandbrie@gmail.com"}
               value={form.bnb_gmail_address || ""} onChange={(e) => set("bnb_gmail_address", e.target.value)} />
-            <input className="input" type="password" placeholder="16-character App Password"
-              value={form.bnb_gmail_app_password || ""} onChange={(e) => set("bnb_gmail_app_password", e.target.value)} />
+            <SecretInput className="input" placeholder="16-character App Password" field="bnb_gmail_app_password" form={form} set={set} saved={data?.secrets_set} />
           </div>
         </div>
 
@@ -502,8 +522,7 @@ function Setup() {
           <div className="grid gap-2 sm:grid-cols-2">
             <input className="input" placeholder={data.gmail_savorymind?.address || "taste@savorymindfood.com"}
               value={form.savorymind_gmail_address || ""} onChange={(e) => set("savorymind_gmail_address", e.target.value)} />
-            <input className="input" type="password" placeholder="16-character App Password"
-              value={form.savorymind_gmail_app_password || ""} onChange={(e) => set("savorymind_gmail_app_password", e.target.value)} />
+            <SecretInput className="input" placeholder="16-character App Password" field="savorymind_gmail_app_password" form={form} set={set} saved={data?.secrets_set} />
           </div>
         </div>
 
@@ -521,12 +540,10 @@ function Setup() {
             email step to use it. When connected, this replaces Gmail sending automatically.
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
-            <input className="input" type="password" placeholder="Instantly API key"
-              value={form.instantly_api_key || ""} onChange={(e) => set("instantly_api_key", e.target.value)} />
+            <SecretInput className="input" placeholder="Instantly API key" field="instantly_api_key" form={form} set={set} saved={data?.secrets_set} />
             <input className="input" placeholder="Instantly campaign ID"
               value={form.instantly_campaign_id || ""} onChange={(e) => set("instantly_campaign_id", e.target.value)} />
-            <input className="input" type="password" placeholder="Smartlead API key"
-              value={form.smartlead_api_key || ""} onChange={(e) => set("smartlead_api_key", e.target.value)} />
+            <SecretInput className="input" placeholder="Smartlead API key" field="smartlead_api_key" form={form} set={set} saved={data?.secrets_set} />
             <input className="input" placeholder="Smartlead campaign ID"
               value={form.smartlead_campaign_id || ""} onChange={(e) => set("smartlead_campaign_id", e.target.value)} />
           </div>
@@ -546,14 +563,12 @@ function Setup() {
             replies reach you.
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
-            <input className="input" type="password" placeholder="Resend API key (re_…)"
-              value={form.resend_api_key || ""} onChange={(e) => set("resend_api_key", e.target.value)} />
+            <SecretInput className="input" placeholder="Resend API key (re_…)" field="resend_api_key" form={form} set={set} saved={data?.secrets_set} />
             <input className="input" placeholder="From (verified domain, e.g. b@dossantosinsurance.org)"
               value={form.resend_from_insurance || ""} onChange={(e) => set("resend_from_insurance", e.target.value)} />
             <input className="input" placeholder="Reply-to inbox (where replies land)"
               value={form.resend_reply_to || ""} onChange={(e) => set("resend_reply_to", e.target.value)} />
-            <input className="input" type="password" placeholder="Webhook signing secret (whsec_… — optional)"
-              value={form.resend_webhook_secret || ""} onChange={(e) => set("resend_webhook_secret", e.target.value)} />
+            <SecretInput className="input" placeholder="Webhook signing secret (whsec_… — optional)" field="resend_webhook_secret" form={form} set={set} saved={data?.secrets_set} />
           </div>
           <p className="mt-2 text-xs text-gray-500">
             <b>Two-way email (auto-save replies to the CRM):</b> in Resend → <b>Webhooks</b>, add an
@@ -579,8 +594,7 @@ function Setup() {
             Leave blank to keep sending on Resend only.
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
-            <input className="input" type="password" placeholder="SendGrid API key (SG.…)"
-              value={form.sendgrid_api_key || ""} onChange={(e) => set("sendgrid_api_key", e.target.value)} />
+            <SecretInput className="input" placeholder="SendGrid API key (SG.…)" field="sendgrid_api_key" form={form} set={set} saved={data?.secrets_set} />
             <input className="input" placeholder="From (verified domain, e.g. b@dossantosinsurance.org)"
               value={form.sendgrid_from_insurance || ""} onChange={(e) => set("sendgrid_from_insurance", e.target.value)} />
             <input className="input" placeholder="Reply-to inbox (where replies land)"
@@ -603,8 +617,7 @@ function Setup() {
           <div className="grid gap-2 sm:grid-cols-2">
             <input className="input" placeholder={data.meta_app?.app_id || "Facebook App ID"}
               value={form.facebook_app_id || ""} onChange={(e) => set("facebook_app_id", e.target.value)} />
-            <input className="input" type="password" placeholder="Facebook App Secret"
-              value={form.facebook_app_secret || ""} onChange={(e) => set("facebook_app_secret", e.target.value)} />
+            <SecretInput className="input" placeholder="Facebook App Secret" field="facebook_app_secret" form={form} set={set} saved={data?.secrets_set} />
             <input className="input sm:col-span-2" placeholder={data.meta_app?.redirect_uri || "Redirect URI — https://<backend>/connections/meta/oauth/callback"}
               value={form.meta_redirect_uri || ""} onChange={(e) => set("meta_redirect_uri", e.target.value)} />
           </div>
@@ -625,8 +638,7 @@ function Setup() {
           <div className="grid gap-2 sm:grid-cols-2">
             <input className="input" placeholder={data.tiktok_app?.client_key || "TikTok Client Key"}
               value={form.tiktok_client_key || ""} onChange={(e) => set("tiktok_client_key", e.target.value)} />
-            <input className="input" type="password" placeholder="TikTok Client Secret"
-              value={form.tiktok_client_secret || ""} onChange={(e) => set("tiktok_client_secret", e.target.value)} />
+            <SecretInput className="input" placeholder="TikTok Client Secret" field="tiktok_client_secret" form={form} set={set} saved={data?.secrets_set} />
             <input className="input sm:col-span-2" placeholder={data.tiktok_app?.redirect_uri || "Redirect URI — https://<backend>/connections/tiktok/oauth/callback"}
               value={form.tiktok_redirect_uri || ""} onChange={(e) => set("tiktok_redirect_uri", e.target.value)} />
           </div>
@@ -725,8 +737,7 @@ function Setup() {
             Best source for BnB Global + commercial insurance volume: real companies with verified emails and firmographics.
             Get a key at apollo.io → Settings → API.
           </p>
-          <input className="input w-full" type="password" placeholder="Apollo API key"
-            value={form.apollo_api_key || ""} onChange={(e) => set("apollo_api_key", e.target.value)} />
+          <SecretInput className="input w-full" placeholder="Apollo API key" field="apollo_api_key" form={form} set={set} saved={data?.secrets_set} />
         </div>
 
         {/* Google Places */}
@@ -738,8 +749,7 @@ function Setup() {
           <p className="mb-3 text-xs text-gray-500">
             Adds real local businesses with contact data (free $200/mo credit). Google Cloud Console → enable Places API → create a key.
           </p>
-          <input className="input w-full" type="password" placeholder="Google Places API key"
-            value={form.google_places_api_key || ""} onChange={(e) => set("google_places_api_key", e.target.value)} />
+          <SecretInput className="input w-full" placeholder="Google Places API key" field="google_places_api_key" form={form} set={set} saved={data?.secrets_set} />
         </div>
 
         {/* Carrier routing — texting and calling choose their carrier INDEPENDENTLY */}
@@ -792,10 +802,8 @@ function Setup() {
             Powers the Texts page. From twilio.com → Console: Account SID, Auth Token, and your Twilio phone number (E.164, e.g. +16175551234). The insurance number is optional — leave it blank to text from the main number.
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
-            <input className="input" type="password" placeholder="Account SID"
-              value={form.twilio_account_sid || ""} onChange={(e) => set("twilio_account_sid", e.target.value)} />
-            <input className="input" type="password" placeholder="Auth Token"
-              value={form.twilio_auth_token || ""} onChange={(e) => set("twilio_auth_token", e.target.value)} />
+            <SecretInput className="input" placeholder="Account SID" field="twilio_account_sid" form={form} set={set} saved={data?.secrets_set} />
+            <SecretInput className="input" placeholder="Auth Token" field="twilio_auth_token" form={form} set={set} saved={data?.secrets_set} />
             <input className="input" placeholder="Main number +1 555 123 4567"
               value={form.twilio_from_number || ""} onChange={(e) => set("twilio_from_number", e.target.value)} />
             <input className="input" placeholder="Insurance number (optional)"
@@ -821,10 +829,8 @@ function Setup() {
           <div className="grid gap-2 sm:grid-cols-2">
             <input className="input" placeholder="Plivo number +1 555 123 4567 (Voice + SMS)"
               value={form.plivo_from_number || ""} onChange={(e) => set("plivo_from_number", e.target.value)} />
-            <input className="input" type="password" placeholder="Plivo Auth ID"
-              value={form.plivo_auth_id || ""} onChange={(e) => set("plivo_auth_id", e.target.value)} />
-            <input className="input" type="password" placeholder="Plivo Auth Token"
-              value={form.plivo_auth_token || ""} onChange={(e) => set("plivo_auth_token", e.target.value)} />
+            <SecretInput className="input" placeholder="Plivo Auth ID" field="plivo_auth_id" form={form} set={set} saved={data?.secrets_set} />
+            <SecretInput className="input" placeholder="Plivo Auth Token" field="plivo_auth_token" form={form} set={set} saved={data?.secrets_set} />
           </div>
         </div>
 
@@ -871,8 +877,7 @@ function Setup() {
               value={form.sip_esl_host || ""} onChange={(e) => set("sip_esl_host", e.target.value)} />
             <input className="input" placeholder="ESL port (default 8021)"
               value={form.sip_esl_port || ""} onChange={(e) => set("sip_esl_port", e.target.value)} />
-            <input className="input" type="password" placeholder="ESL password (from event_socket.conf)"
-              value={form.sip_esl_password || ""} onChange={(e) => set("sip_esl_password", e.target.value)} />
+            <SecretInput className="input" placeholder="ESL password (from event_socket.conf)" field="sip_esl_password" form={form} set={set} saved={data?.secrets_set} />
             <input className="input" placeholder="Gateway name (bruno_trunk)"
               value={form.sip_gateway || ""} onChange={(e) => set("sip_gateway", e.target.value)} />
             <input className="input sm:col-span-2" placeholder="Caller-ID / trunk number +1 978 679 8009"
@@ -908,8 +913,7 @@ function Setup() {
               value={form.signalwire_space_url || ""} onChange={(e) => set("signalwire_space_url", e.target.value)} />
             <input className="input" placeholder="Project ID (UUID)"
               value={form.signalwire_project_id || ""} onChange={(e) => set("signalwire_project_id", e.target.value)} />
-            <input className="input" type="password" placeholder="API token (PT…)"
-              value={form.signalwire_api_token || ""} onChange={(e) => set("signalwire_api_token", e.target.value)} />
+            <SecretInput className="input" placeholder="API token (PT…)" field="signalwire_api_token" form={form} set={set} saved={data?.secrets_set} />
             <input className="input" placeholder="Number +1 978 824 4228 (SMS + Voice)"
               value={form.signalwire_from_number || ""} onChange={(e) => set("signalwire_from_number", e.target.value)} />
           </div>
@@ -931,8 +935,7 @@ function Setup() {
               value={form.twilio_voice_number || ""} onChange={(e) => set("twilio_voice_number", e.target.value)} />
             <input className="input" placeholder="API Key SID (browser calling)"
               value={form.twilio_api_key_sid || ""} onChange={(e) => set("twilio_api_key_sid", e.target.value)} />
-            <input className="input" type="password" placeholder="API Key Secret (browser calling)"
-              value={form.twilio_api_key_secret || ""} onChange={(e) => set("twilio_api_key_secret", e.target.value)} />
+            <SecretInput className="input" placeholder="API Key Secret (browser calling)" field="twilio_api_key_secret" form={form} set={set} saved={data?.secrets_set} />
             <input className="input" placeholder="TwiML App SID (browser calling)"
               value={form.twilio_twiml_app_sid || ""} onChange={(e) => set("twilio_twiml_app_sid", e.target.value)} />
           </div>
@@ -972,8 +975,7 @@ function Setup() {
             <div className="grid gap-2 sm:grid-cols-2">
               <input className="input" placeholder="Phone Number ID"
                 value={form.whatsapp_cloud_phone_number_id || ""} onChange={(e) => set("whatsapp_cloud_phone_number_id", e.target.value)} />
-              <input className="input" type="password" placeholder="Access token"
-                value={form.whatsapp_cloud_token || ""} onChange={(e) => set("whatsapp_cloud_token", e.target.value)} />
+              <SecretInput className="input" placeholder="Access token" field="whatsapp_cloud_token" form={form} set={set} saved={data?.secrets_set} />
             </div>
           </div>
           <div className="rounded-lg border border-gray-100 p-3">
@@ -998,8 +1000,7 @@ function Setup() {
           <p className="mb-3 text-xs text-gray-500">
             Live roles from the top job boards via JSearch. Get a free key at rapidapi.com → JSearch → subscribe → copy the X-RapidAPI-Key. Without it, only free remote boards are searched.
           </p>
-          <input className="input w-full" type="password" placeholder="JSearch / RapidAPI key"
-            value={form.jobs_api_key || ""} onChange={(e) => set("jobs_api_key", e.target.value)} />
+          <SecretInput className="input w-full" placeholder="JSearch / RapidAPI key" field="jobs_api_key" form={form} set={set} saved={data?.secrets_set} />
         </div>
 
         <button className="btn" onClick={save} disabled={busy}>{busy ? "Saving…" : "Save & connect"}</button>

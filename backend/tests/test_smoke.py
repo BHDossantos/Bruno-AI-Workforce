@@ -7000,11 +7000,16 @@ def test_setup_connect_status_and_save(client, auth_headers):
     """The in-app setup page reports connection status and applies a saved key."""
     from app.config import settings
     s = client.get("/setup", headers=auth_headers).json()
-    assert set(s) == {"ai", "gmail_personal", "gmail_insurance", "gmail_insurance_backup",
-                      "gmail_bnb", "gmail_savorymind",
+    assert set(s) == {"secrets_set", "ai", "gmail_personal", "gmail_insurance",
+                      "gmail_insurance_backup", "gmail_bnb", "gmail_savorymind",
                       "apollo", "google_places", "sms", "whatsapp", "calling", "jobs_api", "instantly",
                       "smartlead", "resend", "meta_app", "tiktok_app", "booking",
                       "contacts_outreach_exclude", "newsletter_banners"}
+    # Per-secret "is a value stored" map: booleans only, keyed by secret field,
+    # never the secret value itself.
+    assert isinstance(s["secrets_set"], dict)
+    assert "twilio_auth_token" in s["secrets_set"]
+    assert all(isinstance(v, bool) for v in s["secrets_set"].values())
     assert s["apollo"]["configured"] is False
     # SMS compliance guardrails are surfaced so the Texts UI shows the real window/cap.
     assert {"daily_cap", "window_start", "window_end", "timezone"} <= set(s["sms"])

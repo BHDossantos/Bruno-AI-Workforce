@@ -193,6 +193,21 @@ def save(db, field: str, value: str) -> bool:
     return True
 
 
+def _secrets_set(db) -> dict:
+    """For every SECRET field, whether a non-empty value is stored (env, DB, or a
+    baked default) — WITHOUT returning the value. Lets the Setup UI show a consistent
+    'saved / not set' state per credential instead of a blank field that looks unset."""
+    import os
+    out: dict = {}
+    for field, is_secret in FIELDS.items():
+        if not is_secret:
+            continue
+        val = (os.environ.get(field.upper()) or _stored(db, field)
+               or getattr(settings, field, "") or "")
+        out[field] = bool(str(val).strip())
+    return out
+
+
 def status(db) -> dict:
     """Connection status — booleans + non-secret addresses only, never secrets."""
     from .integrations import (apollo, gmail, instantly, jobs_api, places, resend,
@@ -202,6 +217,9 @@ def status(db) -> dict:
     bridge_on = bool(settings.bridge_token)
     from .ai import client as ai_client
     return {
+        # Per-secret "is a value stored" map (no values) so the Setup UI shows a
+        # consistent saved/not-set state for every credential field.
+        "secrets_set": _secrets_set(db),
         # The AI brain: whether drafts are really AI-generated vs. stub output.
         "ai": {"configured": ai_client.is_live(),
                "model": settings.openai_model or ""},
