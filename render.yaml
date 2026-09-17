@@ -70,7 +70,7 @@ services:
     runtime: docker
     dockerfilePath: ./frontend/Dockerfile
     dockerContext: ./frontend
-    plan: free             # OK to sleep — it's just the dashboard UI (slow 1st load)
+    plan: starter          # always-on — free tier slept and 502'd on cold wake
     autoDeploy: true
     envVars:
       # ⚠️ Next bakes NEXT_PUBLIC_* at BUILD time, and the backend URL isn't known
