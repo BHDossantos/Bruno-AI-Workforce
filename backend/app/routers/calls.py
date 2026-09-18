@@ -157,6 +157,7 @@ def calling_health(db: Session = Depends(get_db), _=Depends(_read)):
     from datetime import date, timedelta
     from sqlalchemy import func
 
+    from .. import sms_engine
     from ..config import settings
     start = datetime.combine(date.today(), datetime.min.time(), tzinfo=timezone.utc)
     week = start - timedelta(days=6)
@@ -205,6 +206,14 @@ def calling_health(db: Session = Depends(get_db), _=Depends(_read)):
         "transfer_enabled": bool(settings.auto_dial_transfer_enabled),
         "daily_cap": cap,
         "remaining_today": max(0, cap - today["placed"]) if cap else None,
+        # Auto-dial window, anchored to the owner's tz so answered-call transfers never
+        # ring overnight. "open" = we'd place calls right now.
+        "call_window": {
+            "start": settings.call_send_window_start,
+            "end": settings.call_send_window_end,
+            "timezone": settings.call_timezone,
+            "open": sms_engine.in_call_window(),
+        },
         "today": today,
         "week": week_stats,
     }

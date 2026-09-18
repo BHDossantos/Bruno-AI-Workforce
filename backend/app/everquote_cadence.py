@@ -33,11 +33,15 @@ from .models import Lead, Message
 
 log = logging.getLogger("bruno.everquote_cadence")
 
-# When each wave opens, in the operator's local (recipient) timezone. The morning
-# wave runs from 8am until the afternoon wave opens at 3pm; the afternoon wave runs
-# from 3pm until the legal 9pm cutoff.
+# When each wave opens/closes, in the operator's local (recipient) timezone. The
+# morning wave runs from 8am until the afternoon wave opens at 3pm; the afternoon
+# wave runs from 3pm to the 9pm legal cutoff. This is only the dedup/scheduling
+# ENVELOPE — each individual touch is still compliance-gated per channel (calls
+# 8am-5pm ET, texts 8am-8pm ET), so a wave staying open to 9pm never sends outside
+# a channel's own window.
 _AM_HOUR = 8
 _PM_HOUR = 15
+_PM_END_HOUR = 21
 
 _CALL_MARKER = "📞 EverQuote cadence"
 
@@ -54,7 +58,7 @@ def current_wave(now: datetime | None = None) -> str | None:
     local = (now or datetime.now(timezone.utc)).astimezone(_tz())
     if _AM_HOUR <= local.hour < _PM_HOUR:
         return "am"
-    if _PM_HOUR <= local.hour < settings.sms_send_window_end:
+    if _PM_HOUR <= local.hour < _PM_END_HOUR:
         return "pm"
     return None
 

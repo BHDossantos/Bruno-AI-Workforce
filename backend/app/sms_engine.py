@@ -62,20 +62,32 @@ def sms_sent_today(db: Session) -> int:
         Message.sent_at >= start).scalar() or 0
 
 
-def _now_local(now: datetime | None = None) -> datetime:
+def _now_local(now: datetime | None = None, tz: str | None = None) -> datetime:
     now = now or datetime.now(timezone.utc)
+    tz = tz or settings.sms_timezone or "America/New_York"
     try:
         from zoneinfo import ZoneInfo
-        return now.astimezone(ZoneInfo(settings.sms_timezone or "America/New_York"))
-    except Exception:  # tzdata missing (e.g. slim image) — approximate US Eastern
-        return now.astimezone(timezone(timedelta(hours=-5)))
+        return now.astimezone(ZoneInfo(tz))
+    except Exception:  # tzdata missing — approximate (Europe ≈ UTC+1, else US Eastern)
+        offset = 1 if str(tz).startswith("Europe") else -5
+        return now.astimezone(timezone(timedelta(hours=offset)))
 
 
 def in_send_window(now: datetime | None = None) -> bool:
     """True if the current recipient-local hour is inside the legal texting
-    window (default 8am-9pm)."""
+    window (default 8am-8pm ET, i.e. up to 2am Rome)."""
     hour = _now_local(now).hour
     return settings.sms_send_window_start <= hour < settings.sms_send_window_end
+
+
+def in_call_window(now: datetime | None = None) -> bool:
+    """True if it's inside the auto-dial window (default 2pm-11pm Rome). This window
+    is anchored to the OWNER's timezone, not the recipient's: answered calls transfer
+    to the producer's cell in Italy, so the dialer must never place calls that could
+    ring him overnight. 2pm-11pm Rome ≈ 8am-5pm ET — inside the US legal window for
+    his (all-Eastern) leads."""
+    hour = _now_local(now, settings.call_timezone).hour
+    return settings.call_send_window_start <= hour < settings.call_send_window_end
 
 
 def sms_block_reason(db: Session, phone: str, *, enforce_hours: bool = True,

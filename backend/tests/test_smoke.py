@@ -7642,6 +7642,25 @@ def test_auto_dial_in_scheduler_plan_and_insurance_mode(monkeypatch):
     assert "auto_dial" in jobs                                       # kept in insurance mode
 
 
+def test_call_window_separate_from_texting_window(monkeypatch):
+    """The auto-dial window (default 8am-5pm ET) is its own setting, decided by
+    call_timezone/call_send_window_* — independent of the OUTBOUND texting window —
+    so calls can stop at 5pm ET while texts still run to 8pm ET. 8am-5pm ET also maps
+    to 2pm-11pm Rome, so answered-call transfers never reach the owner overnight."""
+    from datetime import datetime, timezone
+    from app import sms_engine
+    from app.config import settings
+    monkeypatch.setattr(settings, "call_timezone", "America/New_York", raising=False)
+    monkeypatch.setattr(settings, "call_send_window_start", 8, raising=False)
+    monkeypatch.setattr(settings, "call_send_window_end", 17, raising=False)
+    # 16:00 UTC = 12:00 EDT — inside 8-17.
+    assert sms_engine.in_call_window(datetime(2026, 7, 1, 16, tzinfo=timezone.utc))
+    # 22:00 UTC = 18:00 EDT (6pm) — past 5pm, so calls stop even though texts may run.
+    assert not sms_engine.in_call_window(datetime(2026, 7, 1, 22, tzinfo=timezone.utc))
+    # 11:00 UTC = 07:00 EDT (7am) — before 8am, closed.
+    assert not sms_engine.in_call_window(datetime(2026, 7, 1, 11, tzinfo=timezone.utc))
+
+
 def test_auto_dial_paced_one_per_run_and_daily_cap(monkeypatch):
     """Paced mode: per_run_limit=1 places exactly ONE call per invocation (so the
     scheduler's every-minute tick = one call per minute), and the daily cap halts it
@@ -7668,6 +7687,7 @@ def test_auto_dial_paced_one_per_run_and_daily_cap(monkeypatch):
     monkeypatch.setattr(voice, "is_configured", lambda: True)
     monkeypatch.setattr(voice, "voicemail_configured", lambda: True)
     monkeypatch.setattr(sms_engine, "in_send_window", lambda now=None: True)
+    monkeypatch.setattr(sms_engine, "in_call_window", lambda now=None: True)
     monkeypatch.setattr(settings, "auto_dial_enabled", True, raising=False)
     monkeypatch.setattr(settings, "auto_dial_daily_cap", 3, raising=False)
     monkeypatch.setattr(voice, "place_auto_call",
@@ -7788,6 +7808,7 @@ def test_auto_dial_daily_pass_calls_hottest_respects_cooldown_optout_and_dead(mo
     monkeypatch.setattr(voice, "is_configured", lambda: True)
     monkeypatch.setattr(voice, "voicemail_configured", lambda: True)
     monkeypatch.setattr(sms_engine, "in_send_window", lambda now=None: True)
+    monkeypatch.setattr(sms_engine, "in_call_window", lambda now=None: True)
     monkeypatch.setattr(settings, "auto_dial_enabled", True, raising=False)
     monkeypatch.setattr(settings, "auto_dial_daily_cap", 3, raising=False)
 

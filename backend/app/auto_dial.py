@@ -75,7 +75,7 @@ def run(db, per_run_limit: int | None = None) -> dict:
 
     if not voice.is_configured():
         return {"skipped": "calling not connected"}
-    if not sms_engine.in_send_window():   # reuse the shared 8am-9pm legal window
+    if not sms_engine.in_call_window():   # owner-tz window (2pm-11pm Rome) so no overnight transfers
         return {"skipped": "outside calling hours"}
 
     cap = max(0, settings.auto_dial_daily_cap)

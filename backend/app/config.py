@@ -355,9 +355,19 @@ class Settings(BaseSettings):
     # sends the calls to voicemail). 200/day is an aggressive-but-survivable step for a
     # standard number; going higher needs A2P 10DLC brand/campaign registration first.
     sms_daily_send_cap: int = 500          # max texts per day across all numbers
-    sms_send_window_start: int = 8         # earliest local hour to text (TCPA: 8am)
-    sms_send_window_end: int = 21          # latest local hour to text (TCPA: 9pm)
+    sms_send_window_start: int = 8         # earliest local hour for OUTBOUND texts (8am ET)
+    sms_send_window_end: int = 20          # latest local hour for OUTBOUND texts (8pm ET)
     sms_timezone: str = "America/New_York"  # recipient tz (NH/MA/FL are all Eastern)
+    # In-thread REPLIES to a lead who texted us are NOT window-gated (a reply can go
+    # 24h): the send path passes enforce_hours=False for a human/auto reply in an
+    # existing conversation. The window above only bounds autonomous/bulk OUTBOUND.
+    #
+    # Auto-dial window: 8am-5pm ET. Anchored to the recipient's (Eastern) tz so it's
+    # always inside the US legal calling window; it also maps to 2pm-11pm Rome, so
+    # answered-call transfers never ring the owner (in Italy) overnight.
+    call_timezone: str = "America/New_York"  # window tz for placing auto-dial calls
+    call_send_window_start: int = 8          # earliest local hour to auto-dial (8am ET)
+    call_send_window_end: int = 17           # latest local hour to auto-dial (5pm ET)
     # SMS follow-up: text leads who were emailed but never replied, N days later —
     # a second, higher-response channel. OFF by default (needs A2P 10DLC first);
     # flip on in Setup once texting is approved. The manual 'Text non-repliers'
