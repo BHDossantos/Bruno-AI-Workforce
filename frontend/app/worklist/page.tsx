@@ -38,9 +38,23 @@ type CallHealth = {
     caller_id_pretty: string; rings_source: string;
   };
   setup?: { public_base_url?: string | null; blockers?: string[]; ready_to_dial?: boolean };
+  call_window?: { start: number; end: number; timezone: string; open: boolean };
   today: { placed: number; connected: number; missed: number; dialing: number; connect_rate: number };
   week: { placed: number; connected: number; missed: number; dialing: number; connect_rate: number };
 };
+
+// 8 -> "8am", 17 -> "5pm", 0 -> "12am", 12 -> "12pm" — for the auto-dial window label.
+function fmtHour(h: number): string {
+  const hr = ((h % 24) + 24) % 24;
+  if (hr === 0) return "12am";
+  if (hr === 12) return "12pm";
+  return hr < 12 ? `${hr}am` : `${hr - 12}pm`;
+}
+function tzAbbr(tz: string): string {
+  if (tz === "America/New_York") return "ET";
+  if (tz === "Europe/Rome") return "Rome";
+  return tz;
+}
 
 const STATUSES = ["New", "Contacted", "Quoted", "Closed Won", "Closed Lost"];
 const FILTERS: { key: string; label: string }[] = [
@@ -95,6 +109,8 @@ export default function WorkListPage() {
   const [showGaps, setShowGaps] = useState(false);
   const [webhook, setWebhook] = useState<{ verdict: string; ok: boolean } | null>(null);
   const [wchecking, setWchecking] = useState(false);
+  const [dialMsg, setDialMsg] = useState<{ ok: boolean; message: string } | null>(null);
+  const [dialing, setDialing] = useState(false);
 
   async function checkCallSetup() {
     setWchecking(true); setWebhook(null);
@@ -103,6 +119,20 @@ export default function WorkListPage() {
       setWebhook({ ok: r.ok, verdict: r.verdict });
     } catch (e) { setWebhook({ ok: false, verdict: String(e) }); }
     finally { setWchecking(false); }
+  }
+
+  // Kick the auto-dial pass right now instead of waiting for the next minute tick.
+  // The endpoint either starts calls or returns the exact reason it can't (outside
+  // hours / not configured / paused / no eligible leads), so this doubles as a "why
+  // isn't my phone ringing?" check.
+  async function startAutoDial() {
+    setDialing(true); setDialMsg(null);
+    try {
+      const r = await api.post<{ ok: boolean; message: string }>("/calls/auto-dial-run");
+      setDialMsg({ ok: r.ok, message: r.message });
+      setTick((t) => t + 1);  // refresh the calling-health numbers
+    } catch (e) { setDialMsg({ ok: false, message: e instanceof Error ? e.message : String(e) }); }
+    finally { setDialing(false); }
   }
 
   // Per-lead action state: a status message + a busy flag, keyed by lead id.
@@ -191,7 +221,23 @@ export default function WorkListPage() {
               <span className="text-xs text-gray-400">Not your phone? Fix “Your cell to ring” on Setup → Calling.</span>
             </div>
           )}
+          {callHealth.call_window && (
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-gray-100 pt-3 text-sm">
+              <span>🕑 Auto-dial hours: <b className="text-gray-900">{fmtHour(callHealth.call_window.start)}–{fmtHour(callHealth.call_window.end)} {tzAbbr(callHealth.call_window.timezone)}</b></span>
+              <span className={callHealth.call_window.open ? "text-emerald-700" : "text-gray-400"}>
+                {callHealth.call_window.open ? "● open now — calls go out" : "○ closed now — calls resume in-window"}
+              </span>
+              <span className="text-xs text-gray-400">Texts run to 8pm ET; replies anytime.</span>
+            </div>
+          )}
           <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-gray-100 pt-3 text-sm">
+            <button
+              className="rounded-lg bg-brand-dark px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+              disabled={dialing || !(callHealth.setup?.ready_to_dial ?? callHealth.configured)}
+              onClick={startAutoDial}
+            >
+              {dialing ? "Starting…" : "▶️ Start auto-dialing now"}
+            </button>
             <button className="btn-ghost text-sm" disabled={wchecking} onClick={checkCallSetup}>
               {wchecking ? "Checking…" : "🩺 Why didn’t my phone ring? Test call setup"}
             </button>
@@ -199,6 +245,11 @@ export default function WorkListPage() {
               <span className="text-xs text-gray-400">Webhook: {callHealth.setup?.public_base_url || "PUBLIC_BASE_URL not set"}</span>
             )}
           </div>
+          {dialMsg && (
+            <div className={`mt-2 rounded-lg border px-3 py-2 text-sm ${dialMsg.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-300 bg-amber-50 text-amber-900"}`}>
+              {dialMsg.message}
+            </div>
+          )}
           {webhook && (
             <div className={`mt-2 rounded-lg border px-3 py-2 text-sm ${webhook.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-700"}`}>
               {webhook.verdict}

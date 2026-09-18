@@ -270,7 +270,11 @@ def status(db) -> dict:
                     "via": voice.active(),                           # plivo | signalwire | twilio | None
                     "browser": twilio_voice.browser_configured(),    # softphone
                     "recording": settings.call_recording_enabled,
-                    "callback_set": bool(settings.producer_callback)},
+                    "callback_set": bool(settings.producer_callback),
+                    # Auto-dial window, anchored to the owner's tz (no overnight transfers).
+                    "window_start": settings.call_send_window_start,
+                    "window_end": settings.call_send_window_end,
+                    "timezone": settings.call_timezone},
         "jobs_api": {"configured": jobs_api.is_configured()},
         # Meta app for the one-click Facebook/Instagram connect button.
         "meta_app": {

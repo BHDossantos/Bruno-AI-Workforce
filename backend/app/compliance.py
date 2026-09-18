@@ -158,15 +158,22 @@ def evaluate(db: Session, *, channel: str, phone: str | None = None,
     if state and licensed and state.strip().lower() not in licensed:
         return Decision(BLOCK, "unlicensed", f"not licensed to sell in {state}")
 
-    # Contact-hour window + daily cap apply to live channels (calls/texts).
+    # Contact-hour window + daily cap apply to live channels (calls/texts). Calls and
+    # texts have SEPARATE windows: calls run the owner-scheduled window (default
+    # 8am-5pm ET), texts the longer texting window (default 8am-8pm ET).
     if channel in _LIVE_CHANNELS:
         from . import sms_engine
-        if enforce_hours and not sms_engine.in_send_window():
-            noun = "calling" if channel == "call" else "texting"
+        if channel == "call":
+            in_window = sms_engine.in_call_window()
+            noun, w_start, w_end, w_tz = ("calling", settings.call_send_window_start,
+                                          settings.call_send_window_end, settings.call_timezone)
+        else:
+            in_window = sms_engine.in_send_window()
+            noun, w_start, w_end, w_tz = ("texting", settings.sms_send_window_start,
+                                          settings.sms_send_window_end, settings.sms_timezone)
+        if enforce_hours and not in_window:
             return Decision(BLOCK, "contact_hours",
-                            f"outside {noun} hours "
-                            f"({settings.sms_send_window_start}:00-"
-                            f"{settings.sms_send_window_end}:00 {settings.sms_timezone})")
+                            f"outside {noun} hours ({w_start}:00-{w_end}:00 {w_tz})")
         if channel == "sms":
             if sms_engine.sms_sent_today(db) + already_sent >= settings.sms_daily_send_cap:
                 return Decision(BLOCK, "daily_cap",
