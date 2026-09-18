@@ -18,6 +18,10 @@ listed here. Anything not so marked is verbatim v1.0.
       position was sound and is preserved; this adds the deadlines a buyer's risk
       function asks about and precise document identifiers.
 
+  A3  OWASP LLM Top 10 2026 diff applied (section 9.4, Appendix J). Closes the
+      unverified register row left open by A2. The 2026 edition was published
+      4 August 2026; two of its changes bear directly on this product.
+
 This file is the AUTHORITATIVE specification for product, design, architecture,
 data, AI, security, testing and commercial decisions.
 
@@ -1712,6 +1716,17 @@ Commit messages, pull-request descriptions, tickets, logs, alerts, runbooks and 
 - Prohibit model-created arbitrary URLs, shell commands or SQL from executing directly.
 - Scan outputs for secret-like material, instructions to bypass controls and scope expansion.
 - Test multilingual, encoded, indirect and cross-document injection patterns.
+- **[Amendment A3]** Treat the whole assembled context as exposable, not just the
+  system prompt. Retrieved policy text, control descriptions, runbook content,
+  tool schemas and workflow rules must not be reproducible in output to a user
+  who is not authorized for the underlying source. Authorization is already
+  applied before query and before result assembly (section 9.3); this extends the
+  same test to generated output, including summaries and paraphrase.
+- **[Amendment A3]** When any non-text input enters scope — incident screenshots,
+  attachments, diagrams — extend injection testing to cross-modal payloads
+  (instructions embedded in an image or audio track, where text-layer filters do
+  not look). Not applicable while ingestion is metadata-only per section 13.6;
+  required before the first non-text source is accepted.
 - Record injection detections without exposing sensitive payloads to broad users.
 
 ### 9.5 Structured output contracts
@@ -5243,11 +5258,28 @@ can be checked rather than taken on trust. Verification status is recorded per r
 | NIST AI RMF Generative AI Profile | **NIST AI 600-1**, July 2024 | Cross-sectoral GAI profile; 12 risk categories mapped to the AI RMF core. |
 | NIST Secure Software Development Framework | **NIST SP 800-218** (SSDF v1.1) | Practice groups PO / PS / PW / RV. |
 | SSDF for generative AI | **NIST SP 800-218A** | Read *with* SP 800-218, not as a substitute. Adds training-data integrity, model-artifact protection, prompt-injection and data-poisoning response. |
-| OWASP Top 10 for LLM Applications | **2025 edition (v2.0)**, published 18 November 2024 | LLM01 Prompt Injection through LLM10 Unbounded Consumption. **Unverified:** a 2026 edition has since been published and was not retrievable at the time of writing. Diff it against section 9.4's prompt-injection controls before this register is used with a customer. |
+| OWASP Top 10 for LLM and GenAI | **2026 edition**, published 4 August 2026 | Verified against the project's own repository. Current list: LLM01 Prompt Injection · LLM02 Sensitive Information Disclosure · LLM03 Excessive Agency · LLM04 Supply Chain · LLM05 Data and Model Poisoning · LLM06 Unbounded Consumption · LLM07 Misinformation · LLM08 Hidden Context Exposure · LLM09 Vector and Embedding Weaknesses · LLM10 Improper Output Handling. Supersedes the 2025 v2.0 edition (18 November 2024). See the diff note below. |
 | OpenTelemetry | Specification and semantic conventions | Applied where relevant to section 10.13. |
 | WCAG | **2.2**, W3C Recommendation, 5 October 2023 | Level AA conformance is 55 success criteria (31 Level A + 24 Level AA). WCAG 3.0 remains a Working Draft and is not expected to reach Recommendation before approximately 2028, so **2.2 AA is the target** — see section 14.19. |
 | SLSA | **v1.0** Build Track, OpenSSF | Operationalizes SSDF practices PS.1-PS.3 with build provenance. |
 | ISO/IEC 27001 and SOC 2 | As commercial maturity requires | Certification only via accredited assessment. |
+
+**[Amendment A3] OWASP 2026 diff against this specification.** Eight of the ten
+entries moved and one was renamed. Three consequences for OpsProof:
+
+- **LLM03 Excessive Agency rose from sixth to third.** This is the single entry
+  most relevant to this product, and the design already answers it: section 9.1's
+  prohibited AI uses, the deterministic-engines-decide rule, and remediation as a
+  reviewable pull request rather than a production mutation. No change required —
+  but this is the entry to lead with in a customer security conversation, because
+  it is now near the top of the list and the answer is strong.
+- **LLM07 System Prompt Leakage was renamed LLM08 Hidden Context Exposure** and
+  re-scoped from the prompt field to the whole context, explicitly including
+  retrieved policy text, tool schemas and workflow rules. That is precisely what
+  section 9.3 retrieves. Section 9.4 gains a control for it.
+- **Cross-modal injection is new in scope** (payloads inside images or audio).
+  Not applicable while ingestion is metadata-only, and recorded in section 9.4 as
+  a precondition for accepting any non-text source.
 
 The existence of a reference does not create a product claim. Security, legal and compliance owners map applicable requirements to actual controls and evidence.
 
