@@ -111,6 +111,8 @@ export default function WorkListPage() {
   const [wchecking, setWchecking] = useState(false);
   const [dialMsg, setDialMsg] = useState<{ ok: boolean; message: string } | null>(null);
   const [dialing, setDialing] = useState(false);
+  const [vmMsg, setVmMsg] = useState<{ ok: boolean; message: string } | null>(null);
+  const [vmBusy, setVmBusy] = useState(false);
 
   async function checkCallSetup() {
     setWchecking(true); setWebhook(null);
@@ -133,6 +135,18 @@ export default function WorkListPage() {
       setTick((t) => t + 1);  // refresh the calling-health numbers
     } catch (e) { setDialMsg({ ok: false, message: e instanceof Error ? e.message : String(e) }); }
     finally { setDialing(false); }
+  }
+
+  // Ring your phone so you can record the voicemail drop in your OWN voice. Until this
+  // is recorded, machine/voicemail answers get a spoken fallback instead of your voice.
+  async function recordVoicemail() {
+    setVmBusy(true); setVmMsg(null);
+    try {
+      const r = await api.post<{ ok: boolean; message: string }>("/calls/record-voicemail");
+      setVmMsg({ ok: r.ok, message: r.message });
+      setTick((t) => t + 1);  // refresh voicemail_ready after it saves
+    } catch (e) { setVmMsg({ ok: false, message: e instanceof Error ? e.message : String(e) }); }
+    finally { setVmBusy(false); }
   }
 
   // Per-lead action state: a status message + a busy flag, keyed by lead id.
@@ -198,9 +212,6 @@ export default function WorkListPage() {
                 {callHealth.daily_cap > 0 && (
                   <span className="text-gray-400">{callHealth.remaining_today ?? 0} of {callHealth.daily_cap} left today</span>
                 )}
-                {!callHealth.voicemail_ready && (
-                  <span className="ml-auto rounded-lg bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">No voicemail drop recorded</span>
-                )}
               </>
             )}
           </div>
@@ -238,6 +249,13 @@ export default function WorkListPage() {
             >
               {dialing ? "Starting…" : "▶️ Start auto-dialing now"}
             </button>
+            <button
+              className={`text-sm ${callHealth.voicemail_ready ? "btn-ghost" : "rounded-lg bg-amber-500 px-3 py-2 font-medium text-white hover:opacity-90"} disabled:opacity-50`}
+              disabled={vmBusy || !callHealth.configured}
+              onClick={recordVoicemail}
+            >
+              {vmBusy ? "Calling your phone…" : callHealth.voicemail_ready ? "🎙️ Re-record my voicemail" : "🎙️ Record my voicemail drop"}
+            </button>
             <button className="btn-ghost text-sm" disabled={wchecking} onClick={checkCallSetup}>
               {wchecking ? "Checking…" : "🩺 Why didn’t my phone ring? Test call setup"}
             </button>
@@ -245,6 +263,19 @@ export default function WorkListPage() {
               <span className="text-xs text-gray-400">Webhook: {callHealth.setup?.public_base_url || "PUBLIC_BASE_URL not set"}</span>
             )}
           </div>
+          {/* Voicemail drop status — this is the recording leads hear on a machine / no-answer. */}
+          <div className="mt-2 text-sm">
+            {callHealth.voicemail_ready ? (
+              <span className="text-emerald-700">✅ Your recorded voicemail is set — it plays automatically when a call reaches voicemail or a machine answers.</span>
+            ) : (
+              <span className="text-amber-800">⚠️ No voicemail recorded yet — until you record it, voicemail/no-answer calls hear a computer-spoken fallback, not your voice. Click <b>Record my voicemail drop</b>.</span>
+            )}
+          </div>
+          {vmMsg && (
+            <div className={`mt-2 rounded-lg border px-3 py-2 text-sm ${vmMsg.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-300 bg-amber-50 text-amber-900"}`}>
+              {vmMsg.message}
+            </div>
+          )}
           {dialMsg && (
             <div className={`mt-2 rounded-lg border px-3 py-2 text-sm ${dialMsg.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-300 bg-amber-50 text-amber-900"}`}>
               {dialMsg.message}
