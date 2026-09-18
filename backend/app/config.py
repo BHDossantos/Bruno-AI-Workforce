@@ -158,15 +158,15 @@ class Settings(BaseSettings):
     # insurance_business_name). Shown as:
     #   Thrust Insurance
     #   Bruno Dossantos | insurance agent
-    #   phone# (978) 824-4228   Cell# 16039308272
+    #   phone# (833) 854-7055   Cell# 16039308272
     producer_title: str = "insurance agent"
     # Producer headshot shown in the email signature (a hosted image URL). Rendered
     # as a small round photo next to the name/phones so outreach feels personal.
     # Blank → signature shows no photo (text only).
     producer_photo_url: str = ""
-    # Main line shown on outreach — the SignalWire number that greets callers and
+    # Main line shown on outreach — the business toll-free that greets callers and
     # forwards to the cell (so a lead who calls the email's number reaches Bruno).
-    producer_office_phone: str = "(978) 824-4228"
+    producer_office_phone: str = "(833) 854-7055"
     producer_cell: str = "16039308272"
     # Sales performance — commission on new business (annual premium %) and the
     # monthly commission goal, both editable in Setup. Goal 0 hides goal-vs-actual.
@@ -597,7 +597,7 @@ class Settings(BaseSettings):
     # doubling the effective sending limit (each ESP has its own quota) + redundancy.
     sendgrid_api_key: str = ""
     sendgrid_from_email: str = ""               # default sender (verified-domain address)
-    sendgrid_from_insurance: str = ""           # insurance sender (verified in SendGrid)
+    sendgrid_from_insurance: str = "b@dossantosinsurance.org"  # insurance sender (verify domain in SendGrid)
     sendgrid_reply_to: str = ""                 # where replies land (a monitored inbox)
     # Optional Svix signing secret ("whsec_…") for the Resend inbound/event webhook.
     # When set, incoming webhook posts are signature-verified; when blank the endpoint
