@@ -8422,6 +8422,42 @@ def test_send_email_drafts_holds_back_blank_drafts(client, monkeypatch):
 
 
 @requires_db
+def test_send_email_drafts_never_emails_sms_drafts(monkeypatch):
+    """An SMS draft stores the recipient PHONE in to_email; send_email_drafts must
+    NOT pick it up and deliver the text body as an email to that number (regression:
+    texts were arriving as emails addressed to +1...)."""
+    from app import outreach
+    from app.database import SessionLocal
+    from app.integrations import resend
+    from app.models import Message
+
+    delivered: list[str] = []
+    monkeypatch.setattr(resend, "is_configured", lambda: True)
+    monkeypatch.setattr(outreach, "can_deliver", lambda a=None: True)
+    monkeypatch.setattr(outreach, "deliver",
+                        lambda to, *a, **k: (delivered.append(to) or ("mid-1", None)))
+
+    db = SessionLocal()
+    sms_id = None
+    try:
+        db.query(Message).filter(Message.to_email == "+15551234567").delete(
+            synchronize_session=False)
+        sms = Message(channel="sms", direction="outbound", to_email="+15551234567",
+                      from_account="insurance", body="Hi — reply STOP to opt out",
+                      status="Drafted")
+        db.add(sms); db.commit(); sms_id = sms.id
+        outreach.send_email_drafts(db, limit=200, account="insurance")
+        assert "+15551234567" not in delivered          # the text was NOT emailed
+        db.expire_all()
+        assert db.get(Message, sms_id).status == "Drafted"  # left for the SMS sender
+    finally:
+        if sms_id is not None:
+            db.query(Message).filter(Message.id == sms_id).delete(synchronize_session=False)
+            db.commit()
+        db.close()
+
+
+@requires_db
 def test_linkedin_founder_posts_once_daily_with_gates(monkeypatch):
     """The daily LinkedIn founder post: publishes ONE image post/day via the LinkedIn
     API, logs it as a bnbglobal/linkedin ContentItem, then no-ops the rest of the day —

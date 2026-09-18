@@ -234,7 +234,11 @@ def send_email_drafts(db: Session, *, limit: int = 25, account: str | None = Non
 
     q = (db.query(Message)
          .outerjoin(Lead, and_(Message.entity_type == "lead", Message.entity_id == Lead.id))
-         .filter(Message.direction == "outbound", Message.to_email.isnot(None),
+         # channel=="email" ONLY — SMS drafts store the recipient PHONE in to_email, so
+         # without this filter the email sender would deliver the text body to the phone
+         # number as if it were an email address (a text arriving as an email).
+         .filter(Message.channel == "email",
+                 Message.direction == "outbound", Message.to_email.isnot(None),
                  Message.status.in_(["Drafted", "Approved"])))
     if account:
         q = q.filter(Message.from_account == account)
