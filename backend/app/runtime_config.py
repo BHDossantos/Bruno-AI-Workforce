@@ -51,6 +51,12 @@ FIELDS: dict[str, bool] = {
     "sales_monthly_revenue_goal": False,  # monthly commission goal (Performance)
     "producer_voicemail_url": False,   # recorded voicemail drop (auto-dialer plays it)
     "producer_photo_url": False,       # headshot shown in the email signature
+    # Email-signature identity (all editable in Setup → Email signature).
+    "producer_name": False,            # name shown in the signature
+    "producer_title": False,           # title after the name (e.g. "insurance agent")
+    "producer_office_phone": False,    # main phone shown on outreach (formatted)
+    "insurance_business_name": False,  # brand name at the top of the insurance signature
+    "personal_business_name": False,   # brand name for the non-insurance signature
     "twilio_api_key_sid": False,       # browser softphone: API Key SID
     "twilio_api_key_secret": True,     # browser softphone: API Key secret
     "twilio_twiml_app_sid": False,     # browser softphone: TwiML App SID
@@ -296,6 +302,26 @@ def status(db) -> dict:
             "insurance": settings.calendar_link_insurance or "",
             "bnb": settings.calendar_link_bnb or "",
             "savorymind": settings.calendar_link_savorymind or "",
+        },
+        # Email-signature identity (not secret) — returned so Setup can show current
+        # values as placeholders and let the owner edit them without a redeploy.
+        "signature": {
+            "producer_name": settings.producer_name or "",
+            "producer_title": settings.producer_title or "",
+            "producer_office_phone": settings.producer_office_phone or "",
+            "producer_cell": settings.producer_cell or "",
+            "insurance_business_name": settings.insurance_business_name or "",
+            "personal_business_name": settings.personal_business_name or "",
+            "producer_photo_url": settings.producer_photo_url or "",
+        },
+        # The "from" address each business sends as (not secret) — insurance vs the
+        # default/other business, per ESP. Setup shows these so they're easy to change.
+        "email_from": {
+            "insurance_resend": settings.resend_from_insurance or "",
+            "insurance_sendgrid": settings.sendgrid_from_insurance or "",
+            "default_resend": settings.resend_from_email or "",
+            "default_sendgrid": settings.sendgrid_from_email or "",
+            "bcc": settings.outbound_bcc or "",
         },
         # Not secret — the admin's own exclude list. Returned so Setup can
         # show/edit it (it's a plain comma list of emails, not a credential).

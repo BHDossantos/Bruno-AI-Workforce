@@ -43,6 +43,15 @@ type Status = {
   booking?: { default: string; insurance: string; bnb: string; savorymind: string };
   contacts_outreach_exclude?: string;
   newsletter_banners?: { insurance: string; bnb: string; savorymind: string; music: string };
+  signature?: {
+    producer_name: string; producer_title: string; producer_office_phone: string;
+    producer_cell: string; insurance_business_name: string; personal_business_name: string;
+    producer_photo_url: string;
+  };
+  email_from?: {
+    insurance_resend: string; insurance_sendgrid: string;
+    default_resend: string; default_sendgrid: string; bcc: string;
+  };
 };
 type MailboxHealth = {
   outbound_mode: string;
@@ -546,6 +555,59 @@ function Setup() {
             <SecretInput className="input" placeholder="Smartlead API key" field="smartlead_api_key" form={form} set={set} saved={data?.secrets_set} />
             <input className="input" placeholder="Smartlead campaign ID"
               value={form.smartlead_campaign_id || ""} onChange={(e) => set("smartlead_campaign_id", e.target.value)} />
+          </div>
+        </div>
+
+        {/* Email signature — the identity block on every outbound email */}
+        <div className="card">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">✍️ Email signature</h2>
+          </div>
+          <p className="mb-3 text-xs text-gray-500">
+            The name, title, business and phone numbers shown at the bottom of every outbound email.
+            The current value is shown in each box as a hint — <b>type to change it, leave blank to keep it</b>.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input className="input" placeholder={data.signature?.insurance_business_name || "Insurance business name (e.g. Thrust Insurance)"}
+              value={form.insurance_business_name || ""} onChange={(e) => set("insurance_business_name", e.target.value)} />
+            <input className="input" placeholder={data.signature?.producer_name || "Your name (e.g. Bruno Dossantos)"}
+              value={form.producer_name || ""} onChange={(e) => set("producer_name", e.target.value)} />
+            <input className="input" placeholder={data.signature?.producer_title || "Your title (e.g. insurance agent)"}
+              value={form.producer_title || ""} onChange={(e) => set("producer_title", e.target.value)} />
+            <input className="input" placeholder={data.signature?.producer_office_phone || "Main phone (e.g. (833) 854-7055)"}
+              value={form.producer_office_phone || ""} onChange={(e) => set("producer_office_phone", e.target.value)} />
+            <input className="input" placeholder={data.signature?.producer_cell || "Cell (e.g. 16039308272)"}
+              value={form.producer_cell || ""} onChange={(e) => set("producer_cell", e.target.value)} />
+            <input className="input" placeholder={data.signature?.producer_photo_url || "Headshot image URL (optional)"}
+              value={form.producer_photo_url || ""} onChange={(e) => set("producer_photo_url", e.target.value)} />
+            <input className="input sm:col-span-2" placeholder={data.signature?.personal_business_name || "Other-business name (non-insurance signature, optional)"}
+              value={form.personal_business_name || ""} onChange={(e) => set("personal_business_name", e.target.value)} />
+          </div>
+        </div>
+
+        {/* Sending "from" address — per business (insurance vs. the other business) */}
+        <div className="card">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">📧 Sending address (per business)</h2>
+          </div>
+          <p className="mb-3 text-xs text-gray-500">
+            The <b>From</b> address each business sends as. To send from your own domain (e.g.{" "}
+            <code>b@dossantosinsurance.org</code>) the domain must be <b>verified</b> in Resend/SendGrid
+            (their Domains → add the DNS records). Until an email API is connected with a verified domain,
+            insurance emails fall back to Gmail and show the Gmail address instead. Current value shown as a
+            hint — type to change, leave blank to keep. A blind copy of every send goes to the BCC address.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input className="input" placeholder={data.email_from?.insurance_resend || "Insurance From — Resend (e.g. b@dossantosinsurance.org)"}
+              value={form.resend_from_insurance || ""} onChange={(e) => set("resend_from_insurance", e.target.value)} />
+            <input className="input" placeholder={data.email_from?.insurance_sendgrid || "Insurance From — SendGrid (same address)"}
+              value={form.sendgrid_from_insurance || ""} onChange={(e) => set("sendgrid_from_insurance", e.target.value)} />
+            <input className="input" placeholder={data.email_from?.default_resend || "Other-business From — Resend"}
+              value={form.resend_from_email || ""} onChange={(e) => set("resend_from_email", e.target.value)} />
+            <input className="input" placeholder={data.email_from?.default_sendgrid || "Other-business From — SendGrid"}
+              value={form.sendgrid_from_email || ""} onChange={(e) => set("sendgrid_from_email", e.target.value)} />
+            <input className="input sm:col-span-2" placeholder={data.email_from?.bcc || "BCC every email to (e.g. brunodossantos707@gmail.com)"}
+              value={form.outbound_bcc || ""} onChange={(e) => set("outbound_bcc", e.target.value)} />
           </div>
         </div>
 
