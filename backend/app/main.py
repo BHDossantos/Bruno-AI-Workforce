@@ -82,12 +82,16 @@ def _post_boot() -> None:
         log.exception("Startup seed() failed — check DATABASE_URL / Cloud SQL connection")
     try:
         from .database import SessionLocal
-        from . import business_registry, client_goal, runtime_config, selfcheck
+        from . import business_registry, client_goal, outreach, runtime_config, selfcheck
         _db = SessionLocal()
         try:
             runtime_config.apply_to_settings(_db)  # load any in-app-connected creds
             client_goal.apply_overrides(_db)        # restore autoscaled outreach volume
             business_registry.seed_defaults(_db)    # seed the business/brand registry (mirrors settings)
+            try:
+                outreach.purge_placeholder_records(_db)  # drop synthetic example.com data (no bounces/API waste)
+            except Exception:
+                log.exception("Placeholder purge on boot failed")
             selfcheck.run(_db)  # verify core features + auto-correct safe issues on boot
         finally:
             _db.close()

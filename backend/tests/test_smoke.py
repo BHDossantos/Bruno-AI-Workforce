@@ -767,9 +767,14 @@ def test_all_agents_registered():
 def test_sync_licensing_targets_and_prompt():
     """The music growth team includes sync licensing — supervisor targets + pitch prompt."""
     from app.ai.prompts import SYNC_PITCH
+    from app.config import settings
     from app.integrations import providers
-    rows = providers.fetch_sync_targets(4)
-    assert rows and all(r.get("email") and r.get("kind") for r in rows)
+    settings.allow_synthetic_fallback = True  # exercise the synthetic-target mechanism
+    try:
+        rows = providers.fetch_sync_targets(4)
+        assert rows and all(r.get("email") and r.get("kind") for r in rows)
+    finally:
+        settings.allow_synthetic_fallback = False
     # Prompt formats with the call site's exact keys (guards KeyError).
     SYNC_PITCH.format(name="X Sync", kind="TV music supervisor", focus="dramas",
                       contact="A. Reed", memory="")
@@ -777,16 +782,22 @@ def test_sync_licensing_targets_and_prompt():
 
 # ── Home + Auto lead finders (real feeders, no fabricated consumers) ─────────
 def test_no_synthetic_personal_insurance_leads():
-    """The fake-homeowner junk is gone: with SYNTHETIC_INSURANCE_LEADS off (the
-    default), personal-lines sourcing never fabricates individuals — better empty
-    than junk. Commercial still tops up synthetically so that pipeline keeps flowing."""
+    """No fabricated leads in production: with the synthetic fallback OFF by default,
+    neither personal nor commercial sourcing invents @example.com rows offline — better
+    empty than junk that wastes ESP quota and bounces. The top-up still exists behind
+    the flag for demos."""
     from app.config import settings
     assert settings.synthetic_insurance_leads is False
-    # No real source + no synthetic → personal returns nothing (not fake @example.com rows).
+    assert settings.allow_synthetic_fallback is False  # production default: real data only
+    # No real source + no synthetic → both segments return nothing (not fake rows).
     assert providers.fetch_insurance_leads("personal", 20) == []
-    # Commercial is unaffected — synthetic top-up still fills it for demos/tests.
-    commercial = providers.fetch_insurance_leads("commercial", 5)
-    assert len(commercial) == 5
+    assert providers.fetch_insurance_leads("commercial", 5) == []
+    # The synthetic top-up mechanism still works when explicitly enabled (demos/tests).
+    settings.allow_synthetic_fallback = True
+    try:
+        assert len(providers.fetch_insurance_leads("commercial", 5)) == 5
+    finally:
+        settings.allow_synthetic_fallback = False
 
 
 def test_home_and_auto_feeders_gated_offline():
@@ -3813,6 +3824,53 @@ def test_emails_never_sent_to_placeholder_addresses():
         assert outreach.is_real_email(bad) is False
 
 
+def test_deliver_refuses_placeholder_addresses(monkeypatch):
+    """deliver() is the single chokepoint — it must refuse a placeholder address before
+    any ESP/Gmail call, so no example.com send ever burns quota or bounces."""
+    from app import outreach
+    from app.integrations import resend
+    called = {"esp": False}
+    monkeypatch.setattr(resend, "is_configured", lambda: True)
+    monkeypatch.setattr(outreach, "_send_via_esps",
+                        lambda *a, **k: (called.__setitem__("esp", True) or ("mid", None)))
+    mid, err = outreach.deliver("fake@example.com", "Hi", "Real body here", account="insurance")
+    assert mid is None and err and "placeholder" in err.lower()
+    assert called["esp"] is False  # never reached the sender
+
+
+@requires_db
+def test_purge_placeholder_records_removes_synthetic_data(monkeypatch):
+    """purge_placeholder_records() deletes fabricated example.com leads and suppresses
+    their pending drafts, leaving real records untouched."""
+    from app import outreach
+    from app.database import SessionLocal
+    from app.models import Lead, Message
+
+    db = SessionLocal()
+    real_id = fake_id = draft_id = None
+    try:
+        real = Lead(segment="commercial", company_name="Acme Co", email="owner@acme.com", status="New")
+        fake = Lead(segment="commercial", company_name="Fake LLC",
+                    email="joe-commercial1@example.com", status="New")
+        db.add_all([real, fake]); db.commit()
+        real_id, fake_id = real.id, fake.id
+        draft = Message(channel="email", direction="outbound", to_email="joe-commercial1@example.com",
+                        from_account="insurance", subject="Hi", body="Hello", status="Drafted")
+        db.add(draft); db.commit(); draft_id = draft.id
+
+        res = outreach.purge_placeholder_records(db)
+        assert res["leads"] >= 1 and res["drafts_suppressed"] >= 1
+        db.expire_all()
+        assert db.get(Lead, fake_id) is None            # fabricated lead deleted
+        assert db.get(Lead, real_id) is not None         # real lead untouched
+        assert db.get(Message, draft_id).status == "Suppressed"  # its draft never sends
+    finally:
+        for mid_, model in ((draft_id, Message), (real_id, Lead), (fake_id, Lead)):
+            if mid_ is not None:
+                db.query(model).filter(model.id == mid_).delete(synchronize_session=False)
+        db.commit(); db.close()
+
+
 def test_real_only_mode_emits_no_synthetic_data():
     from app.config import settings
     from app.integrations import providers
@@ -3825,7 +3883,7 @@ def test_real_only_mode_emits_no_synthetic_data():
         assert providers.fetch_jobs(60) == []
         assert providers.fetch_playlists(50) == []
     finally:
-        settings.allow_synthetic_fallback = True
+        settings.allow_synthetic_fallback = False  # production default
 
 
 def test_osm_lead_engine_offline_behavior():
@@ -4090,9 +4148,16 @@ def test_leads_search_statewide_not_by_city():
 
 
 def test_providers_fallback_meets_targets_without_keys():
-    assert len(providers.fetch_insurance_leads("commercial", 100)) == 100
-    assert len(providers.fetch_restaurants(100)) == 100
-    assert len(providers.fetch_jobs(60)) == 60
+    # Synthetic fallback is OFF in production (no fabricated example.com data); this
+    # test exercises the fallback MECHANISM, so enable it explicitly.
+    from app.config import settings
+    settings.allow_synthetic_fallback = True
+    try:
+        assert len(providers.fetch_insurance_leads("commercial", 100)) == 100
+        assert len(providers.fetch_restaurants(100)) == 100
+        assert len(providers.fetch_jobs(60)) == 60
+    finally:
+        settings.allow_synthetic_fallback = False
 
 
 # ── Connect-any-account platform (no DB) ─────────────────────────────────────
@@ -7004,7 +7069,8 @@ def test_setup_connect_status_and_save(client, auth_headers):
                       "gmail_insurance_backup", "gmail_bnb", "gmail_savorymind",
                       "apollo", "google_places", "sms", "whatsapp", "calling", "jobs_api", "instantly",
                       "smartlead", "resend", "meta_app", "tiktok_app", "booking",
-                      "contacts_outreach_exclude", "newsletter_banners"}
+                      "contacts_outreach_exclude", "newsletter_banners",
+                      "signature", "email_from"}
     # Per-secret "is a value stored" map: booleans only, keyed by secret field,
     # never the secret value itself.
     assert isinstance(s["secrets_set"], dict)
@@ -7349,12 +7415,17 @@ def test_telco_texting_and_calling_use_independent_carriers():
 def test_education_partners_target_schools_not_generic_businesses():
     """The foundation's school agent sources real education institutions, not
     generic commercial leads (synthetic fallback stays education-categorized)."""
+    from app.config import settings
     from app.integrations import providers
-    rows = providers.fetch_education_partners(5, scope="global")
-    assert rows, "should always produce at least synthetic institutions"
-    assert all(r["segment"] == "school_partner" for r in rows)
-    assert all(r.get("category") in providers.EDUCATION_CATEGORIES
-               or r.get("industry") == "Education" for r in rows)
+    settings.allow_synthetic_fallback = True  # exercise the synthetic-institution fallback
+    try:
+        rows = providers.fetch_education_partners(5, scope="global")
+        assert rows, "should produce at least synthetic institutions when enabled"
+        assert all(r["segment"] == "school_partner" for r in rows)
+        assert all(r.get("category") in providers.EDUCATION_CATEGORIES
+                   or r.get("industry") == "Education" for r in rows)
+    finally:
+        settings.allow_synthetic_fallback = False
 
 
 @requires_db
@@ -8376,8 +8447,10 @@ def test_deliver_blocks_blank_email():
     """A blank/whitespace/None body must NEVER be sent — it goes out as a fully empty
     email that makes leads reply 'I got 2 blank emails from you'."""
     from app import outreach
+    # A real (deliverable) domain so this exercises the BLANK guard, not the
+    # placeholder guard (example.com is refused earlier as sample data).
     for body in ("", "   ", "\n\n", None):
-        mid, err = outreach.deliver("lead@example.com", "Hi", body)
+        mid, err = outreach.deliver("lead@acme.com", "Hi", body)
         assert mid is None and "empty" in (err or "").lower()
 
 
@@ -8404,14 +8477,14 @@ def test_send_email_drafts_holds_back_blank_drafts(client, monkeypatch):
     db = SessionLocal()
     mid = None
     try:
-        db.query(Message).filter(Message.to_email == "blanktest@example.com").delete(
+        db.query(Message).filter(Message.to_email == "blanktest@acme.com").delete(
             synchronize_session=False)
-        m = Message(channel="email", direction="outbound", to_email="blanktest@example.com",
+        m = Message(channel="email", direction="outbound", to_email="blanktest@acme.com",
                     from_account="insurance", subject="Hi", body="   ", status="Drafted")
         db.add(m); db.commit(); mid = m.id
         res = outreach.send_email_drafts(db, limit=200, account="insurance")
         assert res.get("skipped_blank", 0) >= 1
-        assert "blanktest@example.com" not in delivered   # the blank was NOT sent
+        assert "blanktest@acme.com" not in delivered   # the blank was NOT sent
         db.expire_all()
         assert db.get(Message, mid).status == "Needs Review"
     finally:

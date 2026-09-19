@@ -121,8 +121,10 @@ class Settings(BaseSettings):
     # links. Disabled in tests so they never hit the network.
     enable_free_jobs: bool = True
     # When False, agents use ONLY live-sourced data (no synthetic top-up to hit
-    # target counts). Set False in production once real sourcing is in place.
-    allow_synthetic_fallback: bool = True
+    # target counts). OFF in production: fabricated leads carry example.com emails
+    # that waste ESP quota and bounce (delivery-error mail). Flip on only to demo
+    # against an empty DB.
+    allow_synthetic_fallback: bool = False
     # Insurance-specific gate: even when the global synthetic fallback is on for
     # other businesses, NEVER fabricate insurance leads (fake homeowners/partners
     # are pure junk that buries the real book). Flip on only to demo an empty DB.
