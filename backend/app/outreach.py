@@ -6,6 +6,7 @@ Used by the agents (first touch) and the follow-up engine.
 """
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timezone
 
 from sqlalchemy import func
@@ -15,6 +16,8 @@ from . import email_template
 from .config import settings
 from .integrations import gmail
 from .models import ActionLog, Lead, Message, Restaurant
+
+log = logging.getLogger("bruno.outreach")
 
 
 def _bump_contact(db: Session, entity_type: str | None, entity_id) -> None:
@@ -68,6 +71,43 @@ def is_real_email(addr: str | None) -> bool:
     if domain in _PLACEHOLDER_DOMAINS:
         return False
     return not any(domain.endswith(s) for s in _PLACEHOLDER_SUFFIXES)
+
+
+def purge_placeholder_records(db: Session) -> dict:
+    """Remove synthetic/sample data with placeholder emails (example.com, .test, …):
+    suppress any pending drafts to them and delete the fake Lead/Contact/Restaurant
+    rows. These were fabricated to top up lead counts; they can't receive mail (they
+    bounce) and only waste ESP quota. Idempotent — a no-op once the book is clean.
+    Best-effort and safe to run on every boot."""
+    from sqlalchemy import or_
+    from .models import Contact, Lead, Message, Restaurant
+
+    def _email_is_placeholder(col):
+        pats = [col.ilike(f"%@{d}") for d in _PLACEHOLDER_DOMAINS]
+        pats += [col.ilike(f"%{s}") for s in _PLACEHOLDER_SUFFIXES]
+        return or_(*pats)
+
+    result = {"drafts_suppressed": 0, "leads": 0, "contacts": 0, "restaurants": 0}
+    try:
+        # 1) Suppress pending outbound drafts to placeholder addresses (never send).
+        result["drafts_suppressed"] = (
+            db.query(Message)
+            .filter(Message.direction == "outbound",
+                    Message.status.in_(["Drafted", "Approved"]),
+                    _email_is_placeholder(Message.to_email))
+            .update({Message.status: "Suppressed"}, synchronize_session=False))
+        # 2) Delete the fabricated records themselves (placeholder emails are fake).
+        for key, model in (("leads", Lead), ("contacts", Contact), ("restaurants", Restaurant)):
+            result[key] = (db.query(model)
+                           .filter(_email_is_placeholder(model.email))
+                           .delete(synchronize_session=False))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    if any(result.values()):
+        log.info("Placeholder purge: %s", result)
+    return result
 
 
 def _day_start():
@@ -149,6 +189,12 @@ def deliver(to_email: str, subject: str | None, body: str | None,
     the Outbox "Send" / "Send next N" buttons use, so a working provider delivers
     even when another is down or over quota.
     """
+    # HARD GUARD: never send to a placeholder/sample address (example.com, .test, …).
+    # These are synthetic/demo records; delivering to them wastes ESP quota and
+    # generates bounce/delivery-error mail. Refuse at the single delivery chokepoint
+    # so EVERY caller (flush, Outbox button, EverQuote flush, sales agent) is covered.
+    if not is_real_email(to_email):
+        return None, "Not sent — placeholder/sample address (e.g. example.com), never delivered."
     cleaned = email_template.clean_body(body)
     # HARD GUARD: never send a blank email. An empty (or stripped-to-empty) body
     # would go out as a fully blank message — spammy and reputation-damaging (leads
@@ -245,9 +291,17 @@ def send_email_drafts(db: Session, *, limit: int = 25, account: str | None = Non
     msgs = (q.order_by(*lead_temperature.send_priority_order(Lead, Message))
             .limit(batch).all())
 
-    sent = failed = skipped_blank = 0
+    sent = failed = skipped_blank = suppressed_fake = 0
     errors: list[str] = []
     for m in msgs:
+        # Placeholder/sample recipients (example.com, .test, …) are synthetic demo
+        # data — pull them OUT of the queue entirely (status → "Suppressed") so they
+        # never send, never bounce, and never retry every flush burning API calls.
+        if not is_real_email(m.to_email):
+            m.status = "Suppressed"
+            suppressed_fake += 1
+            failed += 1  # held back = not sent; keep sent+failed==considered
+            continue
         # Never send a blank email. Pull empty-body drafts OUT of the send queue
         # (status → "Needs Review") so they don't go out blank or retry forever, and
         # are visible for a real draft to be written.
@@ -275,8 +329,11 @@ def send_email_drafts(db: Session, *, limit: int = 25, account: str | None = Non
                 errors.append(err)
     if skipped_blank:
         errors.append(f"{skipped_blank} blank draft(s) held back for review (not sent).")
+    if suppressed_fake:
+        errors.append(f"{suppressed_fake} placeholder/sample address(es) suppressed (never sent).")
     db.commit()
     return {"sent": sent, "failed": failed, "skipped_blank": skipped_blank,
+            "suppressed_fake": suppressed_fake,
             "considered": len(msgs), "errors": errors[:3],
             "daily_cap": cap, "sent_today": _email_sent_today(db)}
 
