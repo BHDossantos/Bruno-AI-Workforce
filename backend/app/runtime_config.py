@@ -152,6 +152,16 @@ FIELDS: dict[str, bool] = {
     "email_header_image": False,
     # BCC copy of every outbound customer email to the owner (blank disables).
     "outbound_bcc": False,
+    # Calling & texting schedule — fully editable in Setup → Schedule (days + hours +
+    # timezone, per channel). Emails are never gated by these.
+    "call_send_days": False,
+    "call_send_window_start": False,
+    "call_send_window_end": False,
+    "call_timezone": False,
+    "sms_send_days": False,
+    "sms_send_window_start": False,
+    "sms_send_window_end": False,
+    "sms_timezone": False,
 }
 
 
@@ -282,6 +292,18 @@ def status(db) -> dict:
                     "window_end": settings.call_send_window_end,
                     "timezone": settings.call_timezone},
         "jobs_api": {"configured": jobs_api.is_configured()},
+        # Calling & texting schedule (not secret) — current values so Setup can show
+        # and edit days/hours/timezone per channel. Emails are not gated by this.
+        "schedule": {
+            "call": {"days": settings.call_send_days or "",
+                     "start": int(settings.call_send_window_start),
+                     "end": int(settings.call_send_window_end),
+                     "timezone": settings.call_timezone or ""},
+            "text": {"days": settings.sms_send_days or "",
+                     "start": int(settings.sms_send_window_start),
+                     "end": int(settings.sms_send_window_end),
+                     "timezone": settings.sms_timezone or ""},
+        },
         # Meta app for the one-click Facebook/Instagram connect button.
         "meta_app": {
             "configured": bool(settings.facebook_app_id and settings.facebook_app_secret

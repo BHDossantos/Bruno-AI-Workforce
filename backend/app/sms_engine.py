@@ -73,29 +73,43 @@ def _now_local(now: datetime | None = None, tz: str | None = None) -> datetime:
         return now.astimezone(timezone(timedelta(hours=offset)))
 
 
-def _is_sunday(local: datetime) -> bool:
-    """Sunday in the given local time. Python weekday(): Mon=0 … Sun=6."""
-    return local.weekday() == 6
+_DAY_INDEX = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+
+
+def allowed_weekdays(days_csv: str | None) -> set[int]:
+    """Parse a 'Mon,Tue,…' schedule string into a set of weekday indices (Mon=0…Sun=6).
+    Tolerant of spacing/case/full names. An empty/blank list means EVERY day, so a
+    misconfiguration never silently halts all outreach."""
+    out: set[int] = set()
+    for part in (days_csv or "").split(","):
+        k = part.strip().lower()[:3]
+        if k in _DAY_INDEX:
+            out.add(_DAY_INDEX[k])
+    return out or set(_DAY_INDEX.values())
+
+
+def _day_ok(local: datetime, days_csv: str | None) -> bool:
+    return local.weekday() in allowed_weekdays(days_csv)
 
 
 def in_send_window(now: datetime | None = None) -> bool:
-    """True if it's inside the OUTBOUND texting window (default 8am-8pm ET, i.e. up to
-    2am Rome). Texts run Monday-Saturday only — never Sundays (owner's rule)."""
+    """True if it's a permitted texting day AND hour. Days + hours are set in Setup →
+    Schedule (default Mon-Sat, 8am-8pm ET). The window only bounds autonomous/bulk
+    OUTBOUND texts — in-thread replies are never gated."""
     local = _now_local(now)
-    if settings.call_text_skip_sunday and _is_sunday(local):
+    if not _day_ok(local, settings.sms_send_days):
         return False
-    return settings.sms_send_window_start <= local.hour < settings.sms_send_window_end
+    return int(settings.sms_send_window_start) <= local.hour < int(settings.sms_send_window_end)
 
 
 def in_call_window(now: datetime | None = None) -> bool:
-    """True if it's inside the auto-dial window (default 8am-5pm ET = 2pm-11pm Rome),
-    Monday-Saturday only — never Sundays (owner's rule). The window is anchored to the
-    call timezone so answered-call transfers never ring the owner (in Italy) overnight,
-    while staying inside the US legal window for his (all-Eastern) leads."""
+    """True if it's a permitted calling day AND hour. Days + hours are set in Setup →
+    Schedule (default Mon-Sat, 8am-5pm ET). Anchored to the call timezone so
+    answered-call transfers never ring the owner overnight."""
     local = _now_local(now, settings.call_timezone)
-    if settings.call_text_skip_sunday and _is_sunday(local):
+    if not _day_ok(local, settings.call_send_days):
         return False
-    return settings.call_send_window_start <= local.hour < settings.call_send_window_end
+    return int(settings.call_send_window_start) <= local.hour < int(settings.call_send_window_end)
 
 
 def sms_block_reason(db: Session, phone: str, *, enforce_hours: bool = True,

@@ -7070,7 +7070,7 @@ def test_setup_connect_status_and_save(client, auth_headers):
                       "apollo", "google_places", "sms", "whatsapp", "calling", "jobs_api", "instantly",
                       "smartlead", "resend", "meta_app", "tiktok_app", "booking",
                       "contacts_outreach_exclude", "newsletter_banners",
-                      "signature", "email_from"}
+                      "signature", "email_from", "schedule"}
     # Per-secret "is a value stored" map: booleans only, keyed by secret field,
     # never the secret value itself.
     assert isinstance(s["secrets_set"], dict)
@@ -7732,31 +7732,41 @@ def test_call_window_separate_from_texting_window(monkeypatch):
     assert not sms_engine.in_call_window(datetime(2026, 7, 1, 11, tzinfo=timezone.utc))
 
 
-def test_calls_and_texts_skip_sunday_emails_unaffected(monkeypatch):
-    """Calls and texts run Mon-Sat only — never Sundays — while the hour is in-window.
-    Emails don't use these windows, so they stay 7-days-a-week."""
+def test_calls_and_texts_customizable_days(monkeypatch):
+    """Days are fully configurable per channel via call_send_days / sms_send_days.
+    Default Mon-Sat excludes Sunday; a custom/empty list changes what's allowed.
+    Emails don't use these windows, so they stay 7-days-a-week regardless."""
     from datetime import datetime, timezone
     from app import sms_engine
     from app.config import settings
-    monkeypatch.setattr(settings, "call_text_skip_sunday", True, raising=False)
     monkeypatch.setattr(settings, "call_timezone", "America/New_York", raising=False)
     monkeypatch.setattr(settings, "call_send_window_start", 8, raising=False)
     monkeypatch.setattr(settings, "call_send_window_end", 17, raising=False)
     monkeypatch.setattr(settings, "sms_timezone", "America/New_York", raising=False)
     monkeypatch.setattr(settings, "sms_send_window_start", 8, raising=False)
     monkeypatch.setattr(settings, "sms_send_window_end", 20, raising=False)
-    # 2026-09-20 is a Sunday; 16:00 UTC = 12:00 EDT (mid-window) — both closed.
+    monkeypatch.setattr(settings, "call_send_days", "Mon,Tue,Wed,Thu,Fri,Sat", raising=False)
+    monkeypatch.setattr(settings, "sms_send_days", "Mon,Tue,Wed,Thu,Fri,Sat", raising=False)
+    # 2026-09-20 is a Sunday; 16:00 UTC = 12:00 EDT (mid-window) — closed (not in Mon-Sat).
     sunday_noon = datetime(2026, 9, 20, 16, tzinfo=timezone.utc)
-    assert sms_engine._now_local(sunday_noon).weekday() == 6  # sanity: it's Sunday in ET
+    assert sms_engine._now_local(sunday_noon).weekday() == 6  # sanity: Sunday in ET
     assert sms_engine.in_call_window(sunday_noon) is False
     assert sms_engine.in_send_window(sunday_noon) is False
-    # 2026-09-21 is a Monday; same hour — both open again.
+    # 2026-09-21 is a Monday; same hour — both open.
     monday_noon = datetime(2026, 9, 21, 16, tzinfo=timezone.utc)
     assert sms_engine.in_call_window(monday_noon) is True
     assert sms_engine.in_send_window(monday_noon) is True
-    # With the rule disabled, Sunday is allowed (in-hours).
-    monkeypatch.setattr(settings, "call_text_skip_sunday", False, raising=False)
+    # Custom: weekends-only calls → Sunday now open, Monday closed.
+    monkeypatch.setattr(settings, "call_send_days", "Sat,Sun", raising=False)
     assert sms_engine.in_call_window(sunday_noon) is True
+    assert sms_engine.in_call_window(monday_noon) is False
+    # Empty list = every day (never silently halts outreach).
+    monkeypatch.setattr(settings, "call_send_days", "", raising=False)
+    assert sms_engine.in_call_window(sunday_noon) is True
+    # Hours stored as STRINGS (as runtime_config saves them) still compare correctly.
+    monkeypatch.setattr(settings, "call_send_window_start", "8", raising=False)
+    monkeypatch.setattr(settings, "call_send_window_end", "17", raising=False)
+    assert sms_engine.in_call_window(monday_noon) is True
 
 
 def test_auto_dial_paced_one_per_run_and_daily_cap(monkeypatch):

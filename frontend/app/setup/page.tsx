@@ -52,6 +52,10 @@ type Status = {
     insurance_resend: string; insurance_sendgrid: string;
     default_resend: string; default_sendgrid: string; bcc: string;
   };
+  schedule?: {
+    call: { days: string; start: number; end: number; timezone: string };
+    text: { days: string; start: number; end: number; timezone: string };
+  };
 };
 type MailboxHealth = {
   outbound_mode: string;
@@ -71,6 +75,76 @@ function Badge({ ok }: { ok: boolean }) {
     <span className={`badge ${ok ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
       {ok ? "Connected" : "Not connected"}
     </span>
+  );
+}
+
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const _canon = (d: string) => d.trim().toLowerCase().slice(0, 3);
+function fmtHourLabel(h: number): string {
+  const hr = ((h % 24) + 24) % 24;
+  if (hr === 0) return "12am";
+  if (hr === 12) return "12pm";
+  return hr < 12 ? `${hr}am` : `${hr - 12}pm`;
+}
+
+type SchedSet = (field: string, value: string) => void;
+
+/** Day + hour + timezone editor for one channel (calls or texts). Reads the current
+ *  saved values from `status`, reflects edits into the shared `form` so Save persists
+ *  them. Empty selection would mean "every day" server-side; we keep at least the
+ *  current set visible. */
+function ScheduleEditor({ label, prefix, cur, form, set }: {
+  label: string; prefix: "call" | "sms";
+  cur: { days: string; start: number; end: number; timezone: string };
+  form: Record<string, string>; set: SchedSet;
+}) {
+  const daysField = `${prefix}_send_days`;
+  const startField = `${prefix}_send_window_start`;
+  const endField = `${prefix}_send_window_end`;
+  const tzField = `${prefix}_timezone`;
+  const rawDays = form[daysField] ?? cur.days;
+  const selected = new Set(rawDays.split(",").map(_canon).filter(Boolean));
+  const setDays = (arr: string[]) => set(daysField, DAYS.filter((d) => arr.includes(d)).join(","));
+  const toggle = (d: string) => {
+    const s = new Set(selected);
+    s.has(_canon(d)) ? s.delete(_canon(d)) : s.add(_canon(d));
+    setDays(DAYS.filter((x) => s.has(_canon(x))));
+  };
+  const startVal = form[startField] ?? String(cur.start);
+  const endVal = form[endField] ?? String(cur.end);
+  return (
+    <div className="rounded-lg border border-gray-200 p-3">
+      <div className="mb-2 text-sm font-medium text-gray-700">{label}</div>
+      <div className="mb-2 flex flex-wrap gap-1">
+        {DAYS.map((d) => (
+          <button key={d} type="button" onClick={() => toggle(d)}
+            className={`rounded px-2.5 py-1 text-xs font-medium ${selected.has(_canon(d))
+              ? "bg-brand-dark text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+            {d}
+          </button>
+        ))}
+        <span className="mx-1 text-gray-300">|</span>
+        <button type="button" onClick={() => setDays(["Mon", "Tue", "Wed", "Thu", "Fri"])}
+          className="rounded px-2 py-1 text-xs text-brand-dark hover:underline">Weekdays</button>
+        <button type="button" onClick={() => setDays(["Sat", "Sun"])}
+          className="rounded px-2 py-1 text-xs text-brand-dark hover:underline">Weekends</button>
+        <button type="button" onClick={() => setDays([...DAYS])}
+          className="rounded px-2 py-1 text-xs text-brand-dark hover:underline">Every day</button>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <label className="text-gray-500">From</label>
+        <input type="number" min={0} max={23} className="input w-20" value={startVal}
+          onChange={(e) => set(startField, e.target.value)} />
+        <label className="text-gray-500">to</label>
+        <input type="number" min={0} max={23} className="input w-20" value={endVal}
+          onChange={(e) => set(endField, e.target.value)} />
+        <span className="text-xs text-gray-400">
+          ({fmtHourLabel(Number(startVal))}–{fmtHourLabel(Number(endVal))}, 24-hour)
+        </span>
+        <input className="input w-48" placeholder={cur.timezone || "America/New_York"}
+          value={form[tzField] || ""} onChange={(e) => set(tzField, e.target.value)} />
+      </div>
+    </div>
   );
 }
 
@@ -555,6 +629,25 @@ function Setup() {
             <SecretInput className="input" placeholder="Smartlead API key" field="smartlead_api_key" form={form} set={set} saved={data?.secrets_set} />
             <input className="input" placeholder="Smartlead campaign ID"
               value={form.smartlead_campaign_id || ""} onChange={(e) => set("smartlead_campaign_id", e.target.value)} />
+          </div>
+        </div>
+
+        {/* Calling & texting schedule — pick the days + hours yourself, no code change */}
+        <div className="card">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">📅 Calling &amp; texting schedule</h2>
+          </div>
+          <p className="mb-3 text-xs text-gray-500">
+            Choose exactly which <b>days</b> and <b>hours</b> auto-calls and texts go out — tap days
+            or use a preset (Weekdays / Weekends / Every day). Hours are 24-hour, in the timezone shown.
+            <b> Emails are not affected</b> — they send 7 days a week. In-thread text <b>replies</b> also
+            ignore this. Changes save when you hit <b>Save</b> below.
+          </p>
+          <div className="grid gap-3">
+            <ScheduleEditor label="📞 Auto-calls" prefix="call" form={form} set={set}
+              cur={data.schedule?.call ?? { days: "Mon,Tue,Wed,Thu,Fri,Sat", start: 8, end: 17, timezone: "America/New_York" }} />
+            <ScheduleEditor label="💬 Texts (outbound)" prefix="sms" form={form} set={set}
+              cur={data.schedule?.text ?? { days: "Mon,Tue,Wed,Thu,Fri,Sat", start: 8, end: 20, timezone: "America/New_York" }} />
           </div>
         </div>
 
