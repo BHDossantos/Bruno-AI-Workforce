@@ -234,11 +234,11 @@ export default function WorkListPage() {
           )}
           {callHealth.call_window && (
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-gray-100 pt-3 text-sm">
-              <span>🕑 Auto-dial hours: <b className="text-gray-900">{fmtHour(callHealth.call_window.start)}–{fmtHour(callHealth.call_window.end)} {tzAbbr(callHealth.call_window.timezone)}</b></span>
+              <span>🕑 Auto-dial hours: <b className="text-gray-900">{fmtHour(callHealth.call_window.start)}–{fmtHour(callHealth.call_window.end)} {tzAbbr(callHealth.call_window.timezone)}</b> <span className="text-gray-500">(Mon–Sat)</span></span>
               <span className={callHealth.call_window.open ? "text-emerald-700" : "text-gray-400"}>
-                {callHealth.call_window.open ? "● open now — calls go out" : "○ closed now — calls resume in-window"}
+                {callHealth.call_window.open ? "● open now — calls go out" : "○ closed now — no calls (off-hours or Sunday)"}
               </span>
-              <span className="text-xs text-gray-400">Texts run to 8pm ET; replies anytime.</span>
+              <span className="text-xs text-gray-400">Texts run to 8pm ET, Mon–Sat; replies anytime. Emails send 7 days.</span>
             </div>
           )}
           <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-gray-100 pt-3 text-sm">
