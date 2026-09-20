@@ -370,10 +370,13 @@ class Settings(BaseSettings):
     call_timezone: str = "America/New_York"  # window tz for placing auto-dial calls
     call_send_window_start: int = 8          # earliest local hour to auto-dial (8am ET)
     call_send_window_end: int = 17           # latest local hour to auto-dial (5pm ET)
-    # Calls AND texts run Monday-Saturday only — never on Sundays (owner's rule).
-    # Weekday is judged in each channel's own window timezone. Emails are NOT gated
-    # by this: outreach email sends 7 days a week.
-    call_text_skip_sunday: bool = True
+    # Which weekdays calls / texts may go out — a comma list of Mon..Sun, fully
+    # editable in Setup → Schedule (presets: weekdays, weekends, every day, custom).
+    # Default Mon-Sat (no Sundays). Weekday is judged in each channel's own window
+    # timezone. Emails are NOT gated by this — outreach email sends 7 days a week.
+    # An empty list is treated as "all days" so outreach never silently halts.
+    call_send_days: str = "Mon,Tue,Wed,Thu,Fri,Sat"
+    sms_send_days: str = "Mon,Tue,Wed,Thu,Fri,Sat"
     # SMS follow-up: text leads who were emailed but never replied, N days later —
     # a second, higher-response channel. OFF by default (needs A2P 10DLC first);
     # flip on in Setup once texting is approved. The manual 'Text non-repliers'
