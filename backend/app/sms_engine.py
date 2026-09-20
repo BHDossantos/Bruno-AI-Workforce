@@ -73,21 +73,29 @@ def _now_local(now: datetime | None = None, tz: str | None = None) -> datetime:
         return now.astimezone(timezone(timedelta(hours=offset)))
 
 
+def _is_sunday(local: datetime) -> bool:
+    """Sunday in the given local time. Python weekday(): Mon=0 … Sun=6."""
+    return local.weekday() == 6
+
+
 def in_send_window(now: datetime | None = None) -> bool:
-    """True if the current recipient-local hour is inside the legal texting
-    window (default 8am-8pm ET, i.e. up to 2am Rome)."""
-    hour = _now_local(now).hour
-    return settings.sms_send_window_start <= hour < settings.sms_send_window_end
+    """True if it's inside the OUTBOUND texting window (default 8am-8pm ET, i.e. up to
+    2am Rome). Texts run Monday-Saturday only — never Sundays (owner's rule)."""
+    local = _now_local(now)
+    if settings.call_text_skip_sunday and _is_sunday(local):
+        return False
+    return settings.sms_send_window_start <= local.hour < settings.sms_send_window_end
 
 
 def in_call_window(now: datetime | None = None) -> bool:
-    """True if it's inside the auto-dial window (default 2pm-11pm Rome). This window
-    is anchored to the OWNER's timezone, not the recipient's: answered calls transfer
-    to the producer's cell in Italy, so the dialer must never place calls that could
-    ring him overnight. 2pm-11pm Rome ≈ 8am-5pm ET — inside the US legal window for
-    his (all-Eastern) leads."""
-    hour = _now_local(now, settings.call_timezone).hour
-    return settings.call_send_window_start <= hour < settings.call_send_window_end
+    """True if it's inside the auto-dial window (default 8am-5pm ET = 2pm-11pm Rome),
+    Monday-Saturday only — never Sundays (owner's rule). The window is anchored to the
+    call timezone so answered-call transfers never ring the owner (in Italy) overnight,
+    while staying inside the US legal window for his (all-Eastern) leads."""
+    local = _now_local(now, settings.call_timezone)
+    if settings.call_text_skip_sunday and _is_sunday(local):
+        return False
+    return settings.call_send_window_start <= local.hour < settings.call_send_window_end
 
 
 def sms_block_reason(db: Session, phone: str, *, enforce_hours: bool = True,
