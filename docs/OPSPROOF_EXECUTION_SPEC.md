@@ -22,6 +22,13 @@ listed here. Anything not so marked is verbatim v1.0.
       unverified register row left open by A2. The 2026 edition was published
       4 August 2026; two of its changes bear directly on this product.
 
+  A4  Evidence surface renamed Evidence Vault -> Proof Ledger (Gate F, section
+      7.12, section 14.11, P0-19, P2 backlog). Closes finding 2 in
+      OPSPROOF_SPEC_FINDINGS.md: Evidence Vault is a competitor's shipped feature
+      name for the same use case and the same buyer. Only the surface name
+      changed; "evidence item", "evidence packet" and the Evidence Service keep
+      their names, since those are domain terms rather than the surface.
+
 This file is the AUTHORITATIVE specification for product, design, architecture,
 data, AI, security, testing and commercial decisions.
 
@@ -386,7 +393,7 @@ Exit evidence
 - Unsafe or ambiguous requests fail closed.
 - Failed verification creates a visible escalation path rather than a false success state.
 
-#### Gate F - Evidence Vault and enterprise governance
+#### Gate F - Proof Ledger and enterprise governance
 
 Objective: make operational evidence searchable, exportable and defensible for risk and audit stakeholders.
 
@@ -1325,7 +1332,14 @@ Provide the shared model needed to calculate blast radius, retrieve relevant cha
 - A user can edit the proposed pull request in Git without breaking evidence linkage.
 - The final deployed diff is compared with the proposed diff and discrepancies are recorded.
 
-### 7.12 Evidence Vault
+### 7.12 Proof Ledger
+
+**[Amendment A4]** Renamed from "Evidence Vault", which is a competitor's shipped
+feature name for the same use case and the same buyer. Do not reintroduce it.
+The rename is to the *surface* only: an **evidence item** is still an evidence
+item, an **evidence packet** is still an evidence packet, and the **Evidence
+Service** (section 10.5) keeps its name — those are domain terms, and renaming
+them would churn the API and event contracts for no gain.
 
 #### Functional requirements
 
@@ -3306,7 +3320,7 @@ Right decision column
 - Any mismatch between proposed and deployed diff is prominent.
 - Failure states provide a safe manual path and preserve evidence.
 
-### 14.11 Evidence Vault screens
+### 14.11 Proof Ledger screens
 
 #### Evidence search
 
@@ -4458,7 +4472,7 @@ Includes Incident Intelligence plus:
 
 Includes platform packages plus:
 
-- Evidence Vault and advanced packet templates.
+- Proof Ledger and advanced packet templates.
 - Auditor workspace.
 - Advanced identity/SCIM.
 - Private connectivity and deployment options.
@@ -4727,7 +4741,7 @@ Gate
 - OpsProof cannot merge or deploy.
 - Deployed diff discrepancy is detected.
 
-#### P0-19 Evidence Vault and packet
+#### P0-19 Proof Ledger and packet
 
 Outcome: customer can search, package, export and validate operational evidence.
 
