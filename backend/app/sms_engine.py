@@ -350,6 +350,7 @@ def record_inbound(db: Session, *, phone: str, body: str) -> Message:
     msg = Message(channel="sms", direction="inbound", to_email=phone, body=body, status=cls["status"])
     # Best-effort link + apply the classified status (leads/restaurants advance).
     key = _norm_phone(phone)
+    who = phone
     for model, etype in ((Lead, "lead"), (Restaurant, "restaurant")):
         if not key:
             break
@@ -357,9 +358,40 @@ def record_inbound(db: Session, *, phone: str, body: str) -> Message:
                     if _norm_phone(r.phone) == key), None)
         if row:
             msg.entity_type, msg.entity_id = etype, row.id
+            who = (getattr(row, "owner_name", None) or getattr(row, "company_name", None)
+                   or getattr(row, "name", None) or phone)
             if row.status not in ("Closed Won", "Closed Lost"):
                 row.status = cls["status"]
             break
     db.add(msg)
     db.commit()
+    _forward_reply_to_owner(who, phone, body)
     return msg
+
+
+def _forward_reply_to_owner(who: str, from_phone: str, body: str) -> None:
+    """Text the producer's cell when a lead replies, so replies reach his phone (the
+    toll-free is the app's number, so replies otherwise only land in the app). He
+    still replies from the app. Best-effort: a forward hiccup must never fail the
+    inbound recording, and we never forward a message that came from his own cell."""
+    if not settings.forward_replies_to_cell:
+        return
+    cell = _e164_or_blank(settings.producer_cell)
+    if not cell or _norm_phone(from_phone) == _norm_phone(settings.producer_cell):
+        return
+    try:
+        from .integrations import sms as sms_int
+        if not sms_int.is_configured():
+            return
+        note = (body or "").strip().replace("\n", " ")
+        if len(note) > 300:
+            note = note[:297] + "…"
+        text = f"📱 Lead reply from {who} ({from_phone}): {note}\n— reply in the app"
+        sms_int.send_with_error(cell, text, account="insurance")
+    except Exception:  # pragma: no cover - notification is best-effort
+        log.debug("reply forward to owner cell failed", exc_info=True)
+
+
+def _e164_or_blank(phone: str | None) -> str:
+    from .integrations import sms as sms_int
+    return sms_int._e164(phone) or ""

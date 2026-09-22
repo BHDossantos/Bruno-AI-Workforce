@@ -170,6 +170,11 @@ class Settings(BaseSettings):
     # forwards to the cell (so a lead who calls the email's number reaches Bruno).
     producer_office_phone: str = "(833) 854-7055"
     producer_cell: str = "16039308272"
+    # Forward every inbound LEAD text reply to the producer's cell as a notification,
+    # so replies actually reach the owner's phone (the toll-free is the app's number,
+    # so replies land in the app, not on his cell). Owner still replies from the app.
+    # Not window/day-gated — a reply notification should arrive whenever it comes in.
+    forward_replies_to_cell: bool = True
     # Sales performance — commission on new business (annual premium %) and the
     # monthly commission goal, both editable in Setup. Goal 0 hides goal-vs-actual.
     sales_commission_pct: float = 12.0

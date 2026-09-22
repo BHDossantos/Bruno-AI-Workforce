@@ -5433,6 +5433,36 @@ def test_sms_inbound_webhook_and_threads(client, auth_headers):
 
 
 @requires_db
+def test_inbound_reply_forwards_to_owner_cell(monkeypatch):
+    """A lead's text reply is forwarded to the producer's cell (the toll-free is the
+    app's number, so replies otherwise only land in the app). A reply that came FROM
+    the producer's own cell is never forwarded (no loop)."""
+    from app import sms_engine
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.integrations import sms as sms_int
+    monkeypatch.setattr(settings, "forward_replies_to_cell", True, raising=False)
+    monkeypatch.setattr(settings, "producer_cell", "16039308272", raising=False)
+    monkeypatch.setattr(sms_int, "is_configured", lambda: True)
+    sent: list[tuple[str, str]] = []
+    monkeypatch.setattr(sms_int, "send_with_error",
+                        lambda to, body, account="personal": (sent.append((to, body)) or ("sid", None)))
+    db = SessionLocal()
+    try:
+        sms_engine.record_inbound(db, phone="+15557778888", body="Yes, please call me")
+        assert sent, "reply should have been forwarded to the owner's cell"
+        to, body = sent[-1]
+        assert sms_int._e164(to) == "+16039308272"      # went to the producer cell
+        assert "Yes, please call me" in body            # includes the lead's message
+        # A message from the producer's OWN cell is not forwarded back to himself.
+        sent.clear()
+        sms_engine.record_inbound(db, phone="+16039308272", body="test to self")
+        assert sent == []
+    finally:
+        db.close()
+
+
+@requires_db
 def test_sms_opt_out_and_bulk_send_drafts(client, auth_headers):
     """A STOP text opts a number out (a hard legal line); the compliance guard
     then holds it, and the paced bulk 'send-drafts' reports sent/failed/blocked
