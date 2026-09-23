@@ -4843,6 +4843,53 @@ def test_analytics_funnel_is_monotonic():
     assert f["Replied"] == 3             # Replied, Interested, Closed Won
 
 
+@requires_db
+def test_outreach_summary_counts_and_actions(client, auth_headers):
+    """The dashboard summary counts email/text/call sends + replies, and surfaces a
+    lead who replied 'Interested' (e.g. asked for a call) as an outstanding action."""
+    from datetime import datetime, timezone
+    from app.database import SessionLocal
+    from app.models import Lead, Message
+
+    db = SessionLocal()
+    ids = []
+    try:
+        lead = Lead(segment="commercial", company_name="Reply Co",
+                    owner_name="Dana Reply", email="dana@replyco.test",
+                    phone="+15556667777", status="Interested")
+        db.add(lead); db.commit(); ids.append((Lead, lead.id))
+        now = datetime.now(timezone.utc)
+        rows = [
+            Message(channel="email", direction="outbound", from_account="insurance",
+                    to_email="dana@replyco.test", status="Sent", sent_at=now),
+            Message(channel="sms", direction="outbound", from_account="insurance",
+                    to_email="+15556667777", status="Sent", sent_at=now),
+            Message(channel="call", direction="outbound", from_account="insurance",
+                    to_email="+15556667777", status="Sent", sent_at=now),
+            Message(channel="sms", direction="inbound", entity_type="lead", entity_id=lead.id,
+                    to_email="+15556667777", body="Yes! Can you call me to set an appointment?",
+                    status="Interested"),
+        ]
+        db.add_all(rows); db.commit()
+        for m in rows:
+            ids.append((Message, m.id))
+
+        s = client.get("/analytics/outreach-summary", headers=auth_headers).json()
+        assert s["sent"]["today"]["email"] >= 1
+        assert s["sent"]["today"]["sms"] >= 1
+        assert s["sent"]["today"]["call"] >= 1
+        assert s["replies"]["today"] >= 1
+        # The interested reply is an outstanding action, named + linked to the lead.
+        mine = [a for a in s["actions"] if a["name"] == "Dana Reply"]
+        assert mine and mine[0]["status"] == "Interested"
+        assert "appointment" in mine[0]["snippet"].lower()
+        assert mine[0]["link"] == f"/leads/{lead.id}"
+    finally:
+        for model, _id in reversed(ids):
+            db.query(model).filter(model.id == _id).delete(synchronize_session=False)
+        db.commit(); db.close()
+
+
 def test_crm_token_falls_back_to_env_without_connection():
     from app.config import settings
     from app.integrations import crm
