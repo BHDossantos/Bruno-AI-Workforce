@@ -4937,10 +4937,22 @@ def test_version_reports_build_sha(client, monkeypatch):
 @requires_db
 def test_full_daily_cycle_hits_targets(client, auth_headers):
     """Run every agent and assert the daily success-criteria targets are met."""
-    resp = client.post("/agents/run-all", headers=auth_headers)
-    assert resp.status_code == 200
-
     from app.config import settings
+
+    # Live sourcing is disabled in tests (see conftest), so every target asserted
+    # below is only reachable through the synthetic top-up. Production defaults that
+    # OFF — fabricated records carry example.com addresses that bounce and burn ESP
+    # quota — and earlier tests in this module leave the flag at that default, so the
+    # cycle has to enable it explicitly. Restore the PREVIOUS value, not the literal
+    # default: pinning it here is what made this test order-dependent to begin with.
+    prev_synthetic = settings.allow_synthetic_fallback
+    settings.allow_synthetic_fallback = True
+    try:
+        resp = client.post("/agents/run-all", headers=auth_headers)
+        assert resp.status_code == 200
+    finally:
+        settings.allow_synthetic_fallback = prev_synthetic
+
     batch = settings.lead_batch_size
 
     summary = client.get("/dashboard/summary", headers=auth_headers).json()
