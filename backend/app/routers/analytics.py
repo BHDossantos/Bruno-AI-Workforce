@@ -94,6 +94,83 @@ def overview(db: Session = Depends(get_db), _=Depends(_read)):
     }
 
 
+# Inbound statuses that mean a human still owes the lead something (a reply, a call,
+# an appointment) — the "outstanding actions" for the dashboard.
+_ACTION_STATUSES = ("Interested", "Follow-up Needed")
+
+
+@router.get("/outreach-summary")
+def outreach_summary(db: Session = Depends(get_db), _=Depends(_read)):
+    """Dashboard summary: how many emails / texts / calls went out (today + this
+    week), how many replies came back, and the outstanding actions — leads who
+    replied (e.g. asked for a call or an appointment) and still need a human."""
+    now = datetime.now(timezone.utc)
+    today_start = datetime.combine(now.date(), datetime.min.time(), tzinfo=timezone.utc)
+    week_start = today_start - timedelta(days=6)
+
+    def _sent(channel: str, since: datetime) -> int:
+        return db.query(func.count()).select_from(Message).filter(
+            Message.channel == channel, Message.direction == "outbound",
+            Message.sent_at.isnot(None), Message.sent_at >= since).scalar() or 0
+
+    def _replies(since: datetime) -> int:
+        return db.query(func.count()).select_from(Message).filter(
+            Message.direction == "inbound", Message.created_at >= since).scalar() or 0
+
+    sent = {
+        "today": {"email": _sent("email", today_start), "sms": _sent("sms", today_start),
+                  "call": _sent("call", today_start)},
+        "week": {"email": _sent("email", week_start), "sms": _sent("sms", week_start),
+                 "call": _sent("call", week_start)},
+    }
+
+    # Outstanding actions: the latest inbound reply per lead that still needs a human,
+    # newest first. Linked to a lead/restaurant so we can name it and deep-link.
+    lead_names = {lid: _lead_name_from(nm, cn) for lid, nm, cn in
+                  db.query(Lead.id, Lead.owner_name, Lead.company_name).all()}
+    rest_names = {rid: nm for rid, nm in db.query(Restaurant.id, Restaurant.name).all()}
+    recent = (db.query(Message)
+              .filter(Message.direction == "inbound",
+                      Message.status.in_(_ACTION_STATUSES),
+                      Message.created_at >= today_start - timedelta(days=30))
+              .order_by(Message.created_at.desc()).limit(200).all())
+    actions = []
+    seen: set = set()
+    for m in recent:
+        dedup = (m.entity_type, str(m.entity_id)) if m.entity_id else ("phone", m.to_email)
+        if dedup in seen:
+            continue
+        seen.add(dedup)
+        if m.entity_type == "lead" and m.entity_id in lead_names:
+            name, link = lead_names[m.entity_id], f"/leads/{m.entity_id}"
+        elif m.entity_type == "restaurant" and m.entity_id in rest_names:
+            name, link = rest_names[m.entity_id], f"/restaurants"
+        else:
+            name, link = (m.to_email or "Unknown"), "/inbox"
+        snippet = (m.body or "").strip().replace("\n", " ")
+        actions.append({
+            "name": name or "Lead",
+            "channel": m.channel or "sms",
+            "status": m.status,
+            "snippet": snippet[:140] + ("…" if len(snippet) > 140 else ""),
+            "received_at": (m.created_at or now).isoformat(),
+            "link": link,
+        })
+        if len(actions) >= 20:
+            break
+
+    return {
+        "sent": sent,
+        "replies": {"today": _replies(today_start), "week": _replies(week_start)},
+        "actions": actions,
+        "actions_count": len(actions),
+    }
+
+
+def _lead_name_from(owner: str | None, company: str | None) -> str:
+    return (owner or company or "Lead")
+
+
 @router.get("/growth")
 def growth(db: Session = Depends(get_db), _=Depends(_read)):
     """Content & audience growth across every platform: follower trend per

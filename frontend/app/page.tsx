@@ -44,6 +44,15 @@ const CENTER_ICON: Record<string, string> = {
   wealth: "💰", business: "🏢", influence: "📣", personal: "💪", life_ops: "🗂️",
 };
 
+type ChanCounts = { email: number; sms: number; call: number };
+type OutreachAction = { name: string; channel: string; status: string; snippet: string; received_at: string; link: string };
+type OutreachSummary = {
+  sent: { today: ChanCounts; week: ChanCounts };
+  replies: { today: number; week: number };
+  actions: OutreachAction[];
+  actions_count: number;
+};
+
 function money(n: number) {
   return n >= 1000 ? `$${(n / 1000).toFixed(n >= 100000 ? 0 : 1)}k` : `$${n}`;
 }
@@ -56,6 +65,7 @@ function Home() {
   const { data: mission } = useFetch<Mission>(() => api.get<Mission>("/mission/control"), [refresh]);
   const { data: brands } = useFetch<Brand[]>(() => api.get<Brand[]>("/mission/brands"), [refresh]);
   const { data: cgoal } = useFetch<ClientGoal>(() => api.get<ClientGoal>("/clients/goal"), [refresh]);
+  const { data: outreach } = useFetch<OutreachSummary>(() => api.get<OutreachSummary>("/analytics/outreach-summary"), [refresh]);
   const [running, setRunning] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
@@ -126,6 +136,58 @@ function Home() {
           <div className="mt-3 h-2 overflow-hidden rounded bg-white">
             <div className={`h-full rounded ${cgoal.on_track ? "bg-emerald-500" : "bg-brand"}`}
                  style={{ width: `${Math.min(100, cgoal.target ? (cgoal.won_today / cgoal.target) * 100 : 0)}%` }} />
+          </div>
+        </div>
+      )}
+
+      {/* Outreach summary — sent counts, replies, and who's waiting on you */}
+      {outreach && (
+        <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">Outreach summary</div>
+            <Link href="/analytics" className="text-sm font-medium text-brand">Full analytics →</Link>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {([
+              ["📧 Emails", outreach.sent.today.email, outreach.sent.week.email],
+              ["💬 Texts", outreach.sent.today.sms, outreach.sent.week.sms],
+              ["📞 Calls", outreach.sent.today.call, outreach.sent.week.call],
+              ["↩️ Replies", outreach.replies.today, outreach.replies.week],
+            ] as [string, number, number][]).map(([label, today, week]) => (
+              <div key={label} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                <div className="text-xs text-gray-500">{label}</div>
+                <div className="mt-0.5 text-2xl font-bold">{today}<span className="text-sm font-normal text-gray-400"> today</span></div>
+                <div className="text-xs text-gray-400">{week} this week</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Outstanding actions — leads who replied and need a call/appointment/answer */}
+          <div className="mt-4">
+            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
+              🔔 Needs your action
+              <span className={`badge ${outreach.actions_count > 0 ? "bg-amber-100 text-amber-800" : "bg-gray-100 text-gray-500"}`}>
+                {outreach.actions_count}
+              </span>
+            </div>
+            {outreach.actions.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-gray-200 px-3 py-2 text-sm text-gray-400">
+                No replies waiting — you&apos;re all caught up.
+              </div>
+            ) : (
+              <ul className="divide-y divide-gray-100 rounded-lg border border-gray-100">
+                {outreach.actions.map((a, i) => (
+                  <li key={i}>
+                    <Link href={a.link} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm hover:bg-gray-50">
+                      <span>{a.channel === "sms" ? "💬" : a.channel === "call" ? "📞" : "📧"}</span>
+                      <b className="text-gray-900">{a.name}</b>
+                      <span className="badge bg-amber-100 text-amber-800">{a.status}</span>
+                      <span className="min-w-0 flex-1 truncate text-gray-500">{a.snippet}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
       )}
