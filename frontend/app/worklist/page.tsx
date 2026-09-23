@@ -376,7 +376,7 @@ export default function WorkListPage() {
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Link href={`/leads/${l.id}`} className="font-semibold text-brand-dark hover:underline">
+                  <Link href={`/leads/detail?id=${l.id}`} className="font-semibold text-brand-dark hover:underline">
                     {leadName(l)}
                   </Link>
                   <TempBadge t={l.temperature} />

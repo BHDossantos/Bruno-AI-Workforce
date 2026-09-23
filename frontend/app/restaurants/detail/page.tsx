@@ -1,12 +1,13 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { AuthGate, PageHeader, useFetch, LoadState } from "@/components/ui";
 import { CrmEditor, type CrmData } from "@/components/CrmEditor";
 
 function RestaurantProfile() {
-  const { id } = useParams<{ id: string }>();
+  const id = useSearchParams().get("id") || "";
   const { data, loading, error, reload } = useFetch<CrmData>(
     () => api.get<CrmData>(`/restaurants/${id}/crm`), [id]);
   const name = (data?.profile?.restaurant_profile as Record<string, unknown> | undefined)?.name as string | undefined;
@@ -21,5 +22,10 @@ function RestaurantProfile() {
 }
 
 export default function Page() {
-  return <AuthGate><RestaurantProfile /></AuthGate>;
+  // See the note in app/leads/detail — same static-route pattern.
+  return (
+    <Suspense fallback={null}>
+      <AuthGate><RestaurantProfile /></AuthGate>
+    </Suspense>
+  );
 }

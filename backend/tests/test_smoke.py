@@ -4883,7 +4883,7 @@ def test_outreach_summary_counts_and_actions(client, auth_headers):
         mine = [a for a in s["actions"] if a["name"] == "Dana Reply"]
         assert mine and mine[0]["status"] == "Interested"
         assert "appointment" in mine[0]["snippet"].lower()
-        assert mine[0]["link"] == f"/leads/{lead.id}"
+        assert mine[0]["link"] == f"/leads/detail?id={lead.id}"
     finally:
         for model, _id in reversed(ids):
             db.query(model).filter(model.id == _id).delete(synchronize_session=False)
