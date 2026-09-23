@@ -117,12 +117,13 @@ Still to produce, and they need real screens rather than placeholders:
 - **Android** — a debug APK on every relevant push (proves it compiles), and a
   release `.aab` on manual dispatch, signed when the keystore secrets are present.
   Targets SDK 36, which satisfies Play's current target-API requirement.
-- **iOS** — compiles unsigned on `main` and on demand, which verifies the Xcode
-  project and the bundled assets. Producing an uploadable `.ipa` needs an Apple
-  distribution certificate, so that step is added once the account exists.
+- **iOS** — compiles unsigned, which verifies the Xcode project, its Swift
+  package dependencies and the bundled assets. Producing an uploadable `.ipa`
+  needs an Apple distribution certificate, so that step is added once the
+  account exists.
 
-The macOS runner costs ten times what Linux does, which is why the iOS job does
-not run on every branch push.
+Both run on every change to `mobile/` or `frontend/`. The repository is public,
+so Actions minutes — the macOS runner included — are free.
 
 ## 7. Order of work
 

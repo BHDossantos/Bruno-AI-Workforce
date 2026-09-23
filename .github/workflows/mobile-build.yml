@@ -1,8 +1,7 @@
 name: Mobile build
 
 # Builds the App Store / Google Play binaries from the same frontend the web app
-# uses. Runs only when something that affects them changes, because the macOS
-# runner bills at ten times the Linux rate.
+# uses. Path-filtered so unrelated backend work does not spin up two runners.
 on:
   push:
     paths:
@@ -108,10 +107,6 @@ jobs:
 
   ios:
     name: iOS (archive)
-    # A macOS runner bills at ten times the Linux rate, so the iOS compile runs on
-    # main and on demand rather than on every branch push. The Android job below
-    # catches anything that breaks the shared web bundle first.
-    if: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
     runs-on: macos-latest
     timeout-minutes: 45
     env:
