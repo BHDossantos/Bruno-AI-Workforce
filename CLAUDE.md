@@ -5,7 +5,9 @@ calls, and logs structured conversation outcomes — across several businesses.
 
 - **Backend**: FastAPI + SQLAlchemy + Postgres — `backend/app`
 - **Frontend**: Next.js + TypeScript + Tailwind — `frontend`
-- **Deploy**: GitHub Actions → Google Cloud Run + Cloud SQL
+- **Deploy**: Render, from `render.yaml` (Docker blueprint: Postgres + backend +
+  frontend). `cloudbuild.*.yaml` and `deploy/` are the old Google Cloud path, kept
+  only for reference — do NOT reintroduce Cloud Run / Cloud SQL.
 
 ## Run the checks
 
@@ -26,22 +28,31 @@ the base branch.
   existing ones. New table = safe. New column on an existing table = NOT applied
   in prod automatically; use a new table or an explicit idempotent migration and
   flag it loudly.
-- **Cloud Run startup probe.** The port must open fast. All boot work (seed,
-  warmups) runs in `main.py`'s `_post_boot()` background thread — never block the
-  startup/lifespan path.
+- **Startup probe.** The port must open fast, and it must be the port Render
+  assigns (`$PORT`) — a container listening on a hardcoded port fails the health
+  check and the deploy times out. All boot work (seed, warmups) runs in
+  `main.py`'s `_post_boot()` background thread — never block the startup/lifespan
+  path.
 - **Email path is an ESP pool → Gmail.** `outreach._send_via_esps` sends in
   preference order — Resend primary (≈2000/day), SendGrid overflow/failover
   (≈100/day) — only falling to the next when one errors, then to the account's
   Gmail. (SendGrid was
   re-added alongside Resend for capacity — both are first-class.)
-  **Telephony is SignalWire** via the twilio-compat module (not Twilio).
+- **Telephony is Twilio**, on the verified toll-free, with SignalWire as the
+  fallback. Both speak the identical REST + TwiML API, so `integrations/telco.py`
+  builds one request either way. The carrier is chosen PER CHANNEL —
+  `sms_provider` for texting, `voice_provider` for calling, both defaulting to
+  `twilio` — so one channel can move without dragging the other. Do NOT switch
+  telephony back to SignalWire-only.
 
 ## Where things live (backend/app)
 
 - `outreach.py` — the email send ladder. `deliver()` (Outbox) and
-  `dispatch_email()` (Send buttons / EverQuote / autopilot) both go Resend → Gmail.
+  `dispatch_email()` (Send buttons / EverQuote / autopilot) both go through the
+  ESP pool → Gmail.
 - `integrations/` — `gmail.py` (per-business mailbox routing), `resend.py`,
-  `voice.py` + `twilio_voice.py` (SignalWire), `sms.py`, `telco.py`.
+  `voice.py` + `twilio_voice.py`, `sms.py`, `telco.py` (picks Twilio vs
+  SignalWire per channel).
 - `conversation_engine.py` + `routers/conversations.py` — structured call logging,
   dashboard, renewal pipeline, weekly learnings.
 - `models.py` — all tables. `config.py` — settings (many per-business defaults).
