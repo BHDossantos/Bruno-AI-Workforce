@@ -423,7 +423,11 @@ def amd_twiml(answered_by: str | None, lead_id: str | None) -> str:
     base = _base_url()
     if settings.auto_dial_transfer_enabled and _amd_is_human(answered_by):
         num = _transfer_number()   # transfer a live answer to the producer's cell
-        attrs = f' callerId="{_e164(_voice_number())}" timeout="25"'
+        # answerOnBridge: while YOUR cell rings, the lead hears real ringback (not dead
+        # silence), so they stay on the line — and the call is only marked answered once
+        # you pick up. Without it a lead sits in silence during the ring and hangs up,
+        # so you answer to a dead line ("transfer connects but it's silent").
+        attrs = f' answerOnBridge="true" callerId="{_e164(_voice_number())}" timeout="25"'
         if settings.call_recording_enabled and base:
             attrs += (' record="record-from-answer-dual"'
                       f' recordingStatusCallback="{base}/calls/recording'

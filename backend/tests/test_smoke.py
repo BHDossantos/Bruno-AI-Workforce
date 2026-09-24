@@ -7742,6 +7742,9 @@ def test_auto_dial_transfers_human_and_drops_recorded_voicemail(monkeypatch):
     for ab in ("human", "unknown", ""):
         xml = voice.amd_twiml(ab, "lead-1")
         assert "<Dial" in xml and "+16039308272" in xml and 'callerId="+19781112222"' in xml
+        # answerOnBridge: the lead hears ringback (not dead silence) while your cell
+        # rings, so they stay on the line until you answer — the "silent transfer" fix.
+        assert 'answerOnBridge="true"' in xml
 
     # Transfers OFF (the safe default) → even a live human answer gets the voicemail,
     # NOT a doomed transfer to a cell that may not ring. This is the SignalWire path
