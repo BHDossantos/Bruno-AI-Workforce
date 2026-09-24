@@ -7847,6 +7847,13 @@ def test_calls_and_texts_customizable_days(monkeypatch):
     monkeypatch.setattr(settings, "call_send_window_start", "8", raising=False)
     monkeypatch.setattr(settings, "call_send_window_end", "17", raising=False)
     assert sms_engine.in_call_window(monday_noon) is True
+    # A malformed/blank stored hour must NEVER raise — it falls back to the default,
+    # so a bad setting can't 500 /calls/health and take the whole Calling panel down.
+    for bad in ("", "  ", "abc", None):
+        monkeypatch.setattr(settings, "call_send_window_start", bad, raising=False)
+        assert sms_engine.in_call_window(monday_noon) is True   # defaults to 8, still open
+        monkeypatch.setattr(settings, "sms_send_window_start", bad, raising=False)
+        assert isinstance(sms_engine.in_send_window(monday_noon), bool)  # no crash
 
 
 def test_auto_dial_paced_one_per_run_and_daily_cap(monkeypatch):

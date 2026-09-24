@@ -227,6 +227,7 @@ def _secrets_set(db) -> dict:
 
 def status(db) -> dict:
     """Connection status — booleans + non-secret addresses only, never secrets."""
+    from . import sms_engine
     from .integrations import (apollo, gmail, instantly, jobs_api, places, resend,
                                smartlead, sms, twilio_voice, voice,
                                whatsapp_cloud)
@@ -296,12 +297,12 @@ def status(db) -> dict:
         # and edit days/hours/timezone per channel. Emails are not gated by this.
         "schedule": {
             "call": {"days": settings.call_send_days or "",
-                     "start": int(settings.call_send_window_start),
-                     "end": int(settings.call_send_window_end),
+                     "start": sms_engine._hour(settings.call_send_window_start, 8),
+                     "end": sms_engine._hour(settings.call_send_window_end, 17),
                      "timezone": settings.call_timezone or ""},
             "text": {"days": settings.sms_send_days or "",
-                     "start": int(settings.sms_send_window_start),
-                     "end": int(settings.sms_send_window_end),
+                     "start": sms_engine._hour(settings.sms_send_window_start, 8),
+                     "end": sms_engine._hour(settings.sms_send_window_end, 20),
                      "timezone": settings.sms_timezone or ""},
         },
         # Meta app for the one-click Facebook/Instagram connect button.
