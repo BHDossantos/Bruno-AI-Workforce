@@ -6586,12 +6586,21 @@ def test_objective_tuning_and_global_search(client, auth_headers):
     assert r.status_code == 200 and abs(r.json()["weight"] - 0.95) < 1e-6
     assert client.patch("/objectives/nope", headers=auth_headers, json={"weight": 1}).status_code == 404
 
-    # Global search spans CRM + memory.
+    # Global search spans leads + CRM + memory.
     client.post("/crm", headers=auth_headers, json={"name": "Searchable Sam", "kind": "advisor"})
     res = client.get("/search?q=Searchable", headers=auth_headers).json()
-    assert "contacts" in res and "memories" in res
+    assert "leads" in res and "contacts" in res and "memories" in res
     assert any("Searchable" in c["name"] for c in res["contacts"])
-    assert client.get("/search?q=", headers=auth_headers).json() == {"contacts": [], "memories": []}
+    assert client.get("/search?q=", headers=auth_headers).json() == {"leads": [], "contacts": [], "memories": []}
+
+    # Imported leads (name/company/phone) are findable from the global search bar.
+    import io
+    csv = ("email,company_name,owner_name,phone,category,segment\n"
+           ",Tauer Trucking LLC,Bob Tauer,+16175559911,DOT Leads MA,commercial\n")
+    client.post("/import/leads", headers=auth_headers,
+                files={"file": ("dot.csv", io.BytesIO(csv.encode()), "text/csv")})
+    hits = client.get("/search?q=Tauer", headers=auth_headers).json()["leads"]
+    assert any("Tauer" in (h["company_name"] or "") or "Tauer" in (h["owner_name"] or "") for h in hits)
 
 
 @requires_db
