@@ -610,10 +610,23 @@ def send_quote_intake(lead_id: str, body: IntakeSendIn, db: Session = Depends(ge
     return {"ok": True, "channel": body.channel, "text": text}
 
 
+@router.get("/categories")
+def lead_categories(db: Session = Depends(get_db),
+                    _=Depends(require_role("admin", "operator", "viewer"))):
+    """Distinct lead categories with counts (newest-used first-ish, by count desc) so
+    the Leads filter and Import UI can offer them — e.g. "DOT Leads MA". Config-driven:
+    whatever categories exist in the book show up, no hardcoding."""
+    rows = (db.query(Lead.category, func.count().label("n"))
+            .filter(Lead.category.isnot(None), Lead.category != "")
+            .group_by(Lead.category).order_by(func.count().desc()).all())
+    return [{"category": c, "count": int(n)} for c, n in rows]
+
+
 @router.get("", response_model=list[LeadOut])
 def list_leads(segment: str | None = None, status: str | None = None,
                temperature: str | None = None, line: str | None = None,
-               state: str | None = None, sort: str | None = None, limit: int = 200,
+               state: str | None = None, category: str | None = None,
+               sort: str | None = None, limit: int = 200,
                db: Session = Depends(get_db), _=Depends(require_role("admin", "operator", "viewer"))):
     from .. import lead_temperature
     from ..insurance_lines import COMMERCIAL, HOME, LIFE, line_for
@@ -622,6 +635,9 @@ def list_leads(segment: str | None = None, status: str | None = None,
         q = q.filter(Lead.segment == segment)
     if status:
         q = q.filter(Lead.status == status)
+    if category:
+        # Filter by lead category (e.g. "DOT Leads MA"), case-insensitive exact match.
+        q = q.filter(func.lower(func.coalesce(Lead.category, "")) == category.strip().lower())
     if state:
         # EverQuote leads carry their state in the intake detail (leads have no
         # state column). Match on that so "MA/NH/FL" actually narrows the list.
