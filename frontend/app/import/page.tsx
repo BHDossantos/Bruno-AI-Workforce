@@ -7,6 +7,7 @@ import { AuthGate, PageHeader } from "@/components/ui";
 function Importer() {
   const [type, setType] = useState("leads");
   const [file, setFile] = useState<File | null>(null);
+  const [category, setCategory] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
 
@@ -17,6 +18,7 @@ function Importer() {
     try {
       const fd = new FormData();
       fd.append("file", file);
+      if (type === "leads" && category.trim()) fd.append("category", category.trim());
       const res = await fetch(`${API_URL}/import/${type}`, {
         method: "POST",
         headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {},
@@ -34,7 +36,8 @@ function Importer() {
       } else {
         const page = type === "bnb" ? "BnB Global" : type === "restaurants" ? "SavoryMind" : "Insurance Leads";
         const dupPart = updated ? ` (${updated} already on file were updated, not duplicated)` : "";
-        setResult(`✅ Imported ${imported} new lead${imported === 1 ? "" : "s"}${dupPart}, skipped ${data.skipped_no_email} with no email. The AI writes & sends the outreach automatically, paced under your daily cap — no waiting on this screen. To start a batch now, click “Send all pending” on the ${page} page.`);
+        const skipped = data.skipped_no_contact ?? data.skipped_no_email ?? 0;
+        setResult(`✅ Imported ${imported} new lead${imported === 1 ? "" : "s"}${dupPart}, skipped ${skipped} with no email or phone. The AI writes & sends the outreach automatically, paced under your daily cap — no waiting on this screen. To start a batch now, click “Send all pending” on the ${page} page.`);
       }
     } catch (e) {
       setResult(`❌ ${e}`);
@@ -56,6 +59,21 @@ function Importer() {
             <option value="contacts">Import contacts (Google/iPhone → warm insurance intro)</option>
           </select>
         </div>
+        {type === "leads" && (
+          <div>
+            <label className="text-sm font-medium text-gray-700">Category (optional)</label>
+            <input list="lead-categories" value={category} onChange={(e) => setCategory(e.target.value)}
+                   placeholder="e.g. DOT Leads MA"
+                   className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2" />
+            <datalist id="lead-categories">
+              <option value="DOT Leads MA" />
+              <option value="EverQuote" />
+              <option value="Commercial" />
+              <option value="Referral Partner" />
+            </datalist>
+            <p className="mt-1 text-xs text-gray-500">Tags this whole upload (e.g. <b>DOT Leads MA</b>) so you can filter to it on the Call List. Rows with their own category keep it.</p>
+          </div>
+        )}
         <div>
           <label className="text-sm font-medium text-gray-700">Contact file (CSV or iPhone .vcf)</label>
           <input type="file" accept=".csv,.vcf,text/csv,text/vcard,text/x-vcard"
@@ -64,7 +82,7 @@ function Importer() {
           <p className="mt-1 text-xs text-gray-500">
             {type === "contacts"
               ? "Upload a Google/Outlook/LinkedIn CSV export OR an iPhone/iCloud vCard (.vcf — Contacts app → Export). Each contact lands in the CRM AND as a Personal insurance lead, and gets a warm insurance intro automatically (family/opt-out excluded)."
-              : <>CSV or .vcf. Required column for CSV: <b>email</b>. Optional: company_name, owner_name, phone, website, linkedin, industry, segment, category.{" "}
+              : <>CSV or .vcf. Each row needs an <b>email OR a phone</b> (phone-only lists like DOT carriers import as call/text leads). Optional: company_name, owner_name, phone, website, linkedin, industry, segment, category.{" "}
                   <a className="text-brand hover:underline" href={`${API_URL}/import/template/${type}.csv`} target="_blank" rel="noreferrer">Download template</a></>}
           </p>
         </div>

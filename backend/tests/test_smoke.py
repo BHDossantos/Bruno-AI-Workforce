@@ -5778,6 +5778,40 @@ def test_csv_import_leads_recognizes_google_export_headers(client, auth_headers)
 
 
 @requires_db
+def test_import_phone_only_leads_with_category_and_filter(client, auth_headers):
+    """DOT-style lists have NO email — only company/owner/phone. They must import as
+    call leads (not silently skipped), the Import UI's category tags the whole upload,
+    and the Leads filter + categories endpoint surface them."""
+    from app.database import SessionLocal
+    from app.models import Lead
+    db = SessionLocal()
+    phones = ["+15550100001", "+15550100002"]
+    try:
+        db.query(Lead).filter(Lead.phone.in_(phones)).delete(synchronize_session=False)
+        db.commit()
+        csv_data = ("company_name,owner_name,phone\n"
+                    "Alkat Logistics,Yaroslav K,+15550100001\n"
+                    "Bone Route Transport,Paul Bone,+15550100002\n")
+        r = client.post("/import/leads", headers=auth_headers,
+                        data={"category": "DOT Leads MA", "segment": "commercial"},
+                        files={"file": ("dot.csv", csv_data, "text/csv")})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["imported"] == 2 and body.get("skipped_no_contact", 0) == 0  # phone-only accepted
+
+        cats = client.get("/leads/categories", headers=auth_headers).json()
+        assert any(c["category"] == "DOT Leads MA" and c["count"] >= 2 for c in cats)
+
+        filtered = client.get("/leads?category=DOT%20Leads%20MA&limit=300", headers=auth_headers).json()
+        got = {l["phone"] for l in filtered}
+        assert set(phones) <= got
+        assert all(l.get("category") == "DOT Leads MA" for l in filtered if l["phone"] in phones)
+    finally:
+        db.query(Lead).filter(Lead.phone.in_(phones)).delete(synchronize_session=False)
+        db.commit(); db.close()
+
+
+@requires_db
 def test_import_defers_ai_and_paced_sender_drafts_lazily(client, auth_headers, monkeypatch):
     """Import must be FAST: it inserts leads WITHOUT writing the AI email or sending
     (that used to run one AI call per row inline and time out big lists). The paced

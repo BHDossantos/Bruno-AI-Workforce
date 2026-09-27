@@ -206,9 +206,29 @@ def _existing_lead(db: Session, email: str, *, consulting: bool):
     return q.order_by(Lead.created_at.asc()).first()
 
 
-def process_leads_csv(db: Session, rows: list[dict]) -> dict:
-    """Import insurance leads FAST. Expected columns: email (required), company_name,
-    owner_name, phone, website, linkedin, industry, segment, category.
+def _existing_lead_by_phone(db: Session, phone: str):
+    """Find an insurance lead already in the book with this phone (last-10-digits
+    match), so re-importing a phone-only list (e.g. DOT carriers, no emails) updates
+    instead of duplicating."""
+    digits = "".join(ch for ch in str(phone or "") if ch.isdigit())[-10:]
+    if len(digits) < 10:
+        return None
+    for lead in (db.query(Lead).filter(Lead.phone.isnot(None), Lead.phone != "",
+                                       Lead.segment != "consulting").all()):
+        if "".join(ch for ch in (lead.phone or "") if ch.isdigit())[-10:] == digits:
+            return lead
+    return None
+
+
+def process_leads_csv(db: Session, rows: list[dict], *, default_category: str | None = None,
+                      default_segment: str | None = None) -> dict:
+    """Import insurance leads FAST. Expected columns: company_name, owner_name, phone,
+    website, linkedin, industry, segment, category, and email (email OR phone required —
+    phone-only lists like DOT carriers import as call/text leads).
+
+    ``default_category`` / ``default_segment`` tag the WHOLE upload (used by the Import
+    UI's category picker, e.g. "DOT Leads") — applied to any row that doesn't carry its
+    own value, so the operator can label a list in one click instead of editing the CSV.
 
     This only parses + inserts the leads (a quick DB write) and returns immediately —
     it does NOT write the AI email or send during the upload. Writing the cold email
@@ -217,28 +237,36 @@ def process_leads_csv(db: Session, rows: list[dict]) -> dict:
     9:30am/3:30pm cron and the manual 'Send pending' action). A 2,000-row list now
     imports in a second instead of timing out the request.
 
-    Re-importing the same list is safe: a row whose email already exists UPDATES that
-    lead (refreshing any newly-provided fields) instead of creating a duplicate."""
+    Re-importing the same list is safe: a row whose email (or phone, when email-less)
+    already exists UPDATES that lead instead of creating a duplicate."""
+    default_category = (default_category or "").strip() or None
+    default_segment = (default_segment or "").strip().lower() or None
     imported = updated = skipped = 0
     for row in rows:
         # Match ANY email-column naming (not just a literal "email" header), so a
         # file exported from Google/Outlook/etc. and imported as "leads" doesn't
         # silently import 0 rows just because the header isn't exactly "email".
         email = _g(row, "email", "email_address", *_EMAIL_KEYS)
-        if not email:
+        phone = _g(row, "phone", *_PHONE_KEYS)
+        # A lead needs SOME way to reach it — email OR phone. Phone-only lists (DOT
+        # carriers, purchased call lists) are legitimate call/text leads; only skip a
+        # row with neither.
+        if not email and not phone:
             skipped += 1
             continue
-        segment = (_g(row, "segment") or "commercial").lower()
-        category = _g(row, "category", "industry") or "Commercial"
+        segment = (_g(row, "segment") or default_segment or "commercial").lower()
+        category = _g(row, "category", "industry") or default_category or "Commercial"
         company = _g(row, "company_name", "company", "business", "business_name", *_COMPANY_KEYS)
         owner = _g(row, "owner_name", "owner", "name", *_FULLNAME_KEYS, *_FIRST_KEYS)
-        phone = _g(row, "phone", *_PHONE_KEYS)
-        existing = _existing_lead(db, email, consulting=False)
+        existing = (_existing_lead(db, email, consulting=False) if email
+                    else _existing_lead_by_phone(db, phone))
         if existing:
             # Refresh newly-provided fields; never clobber existing data with blanks.
             existing.company_name = company or existing.company_name
             existing.owner_name = owner or existing.owner_name
             existing.phone = phone or existing.phone
+            existing.email = existing.email or (email or None)
+            existing.category = existing.category or category
             existing.website = _g(row, "website") or existing.website
             existing.linkedin = _g(row, "linkedin") or existing.linkedin
             existing.industry = _g(row, "industry") or existing.industry
@@ -247,7 +275,7 @@ def process_leads_csv(db: Session, rows: list[dict]) -> dict:
         reason = (f"{category} businesses typically need liability, property and professional coverage."
                   if segment == "commercial" else f"{category} prospects often need home/auto/life coverage.")
         lead = Lead(segment=segment, category=category, company_name=company,
-                    owner_name=owner, email=email,
+                    owner_name=owner, email=email or None,
                     phone=phone, website=_g(row, "website"),
                     linkedin=_g(row, "linkedin"), industry=_g(row, "industry"),
                     reason=reason, score=80, status="New")
@@ -260,7 +288,7 @@ def process_leads_csv(db: Session, rows: list[dict]) -> dict:
              imported, updated, skipped)
     # sent is always 0 here — outreach goes out on the paced sender, not the upload.
     return {"imported": imported, "updated": updated, "sent": 0, "queued": imported,
-            "skipped_no_email": skipped}
+            "skipped_no_contact": skipped, "skipped_no_email": skipped}
 
 
 def _first_name(full: str | None, default: str = "there") -> str:

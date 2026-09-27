@@ -82,6 +82,7 @@ const FILTER_KEY = "worklist_filters";
 export default function WorkListPage() {
   const [temp, setTemp] = useState("");
   const [stateF, setStateF] = useState("");
+  const [catF, setCatF] = useState("");
   const [sortBy, setSortBy] = useState("score");
   const [q, setQ] = useState("");
   const [tick, setTick] = useState(0);
@@ -92,18 +93,21 @@ export default function WorkListPage() {
       const s = JSON.parse(localStorage.getItem(FILTER_KEY) || "{}");
       if (s.temp) setTemp(s.temp);
       if (s.state) setStateF(s.state);
+      if (s.cat) setCatF(s.cat);
       if (s.sort) setSortBy(s.sort);
       if (s.q) setQ(s.q);
     } catch { /* ignore malformed storage */ }
   }, []);
   useEffect(() => {
-    try { localStorage.setItem(FILTER_KEY, JSON.stringify({ temp, state: stateF, sort: sortBy, q })); }
+    try { localStorage.setItem(FILTER_KEY, JSON.stringify({ temp, state: stateF, cat: catF, sort: sortBy, q })); }
     catch { /* ignore */ }
-  }, [temp, stateF, sortBy, q]);
+  }, [temp, stateF, catF, sortBy, q]);
   const { data, loading, error, reload } = useFetch<Lead[]>(
-    () => api.get<Lead[]>(`/leads?limit=300&sort=${sortBy}${temp ? `&temperature=${temp}` : ""}${stateF ? `&state=${stateF}` : ""}`),
-    [temp, stateF, sortBy, tick]
+    () => api.get<Lead[]>(`/leads?limit=300&sort=${sortBy}${temp ? `&temperature=${temp}` : ""}${stateF ? `&state=${stateF}` : ""}${catF ? `&category=${encodeURIComponent(catF)}` : ""}`),
+    [temp, stateF, catF, sortBy, tick]
   );
+  const { data: categories } = useFetch<{ category: string; count: number }[]>(
+    () => api.get<{ category: string; count: number }[]>("/leads/categories"), [tick]);
   const { data: coverage } = useFetch<Coverage>(() => api.get<Coverage>("/leads/coverage"), [tick]);
   const { data: callHealth } = useFetch<CallHealth>(() => api.get<CallHealth>("/calls/health"), [tick]);
   const [showGaps, setShowGaps] = useState(false);
@@ -344,6 +348,19 @@ export default function WorkListPage() {
           <option value="NH">NH</option>
           <option value="FL">FL</option>
         </select>
+        {(categories?.length ?? 0) > 0 && (
+          <select
+            value={catF}
+            onChange={(e) => setCatF(e.target.value)}
+            className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700"
+            title="Filter by category"
+          >
+            <option value="">All categories</option>
+            {categories!.map((c) => (
+              <option key={c.category} value={c.category}>{c.category} ({c.count})</option>
+            ))}
+          </select>
+        )}
         <select
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value)}
