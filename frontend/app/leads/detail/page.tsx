@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useParams } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { AuthGate, PageHeader, useFetch, LoadState } from "@/components/ui";
 import { CrmEditor, type CrmData } from "@/components/CrmEditor";
@@ -39,7 +39,7 @@ function fmt(at: string | null) {
 }
 
 function Profile() {
-  const { id } = useParams<{ id: string }>();
+  const id = useSearchParams().get("id") || "";
   const [tick, setTick] = useState(0);
   const { data, loading, error, reload } = useFetch<Profile>(
     () => api.get<Profile>(`/leads/${id}/profile`), [id, tick]);
@@ -314,5 +314,11 @@ function Counter({ icon, label, n }: { icon: string; label: string; n: number })
 }
 
 export default function Page() {
-  return <AuthGate><Profile /></AuthGate>;
+  // useSearchParams needs a Suspense boundary to prerender — the page is a
+  // static route now (/leads/detail?id=…) so the lead id arrives client-side.
+  return (
+    <Suspense fallback={null}>
+      <AuthGate><Profile /></AuthGate>
+    </Suspense>
+  );
 }

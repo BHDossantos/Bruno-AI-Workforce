@@ -474,7 +474,7 @@ function Setup() {
               </div>
             )}
             {twRes.lead_id && (
-              <a href={`/leads/${twRes.lead_id}`} className="inline-block text-brand underline">
+              <a href={`/leads/detail?id=${twRes.lead_id}`} className="inline-block text-brand underline">
                 Open the test profile →
               </a>
             )}

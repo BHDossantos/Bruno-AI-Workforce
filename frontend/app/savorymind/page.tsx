@@ -96,7 +96,7 @@ function SavoryMind() {
             {(data || []).map((r) => (
               <tr key={r.id} className="border-t border-gray-100">
                 <td className="td"><span className="badge bg-brand/10 text-brand-dark">{r.fit_score}</span></td>
-                <td className="td"><Link href={`/restaurants/${r.id}`} className="font-medium text-brand hover:underline">{r.name}</Link><div className="text-xs text-gray-400">{r.owner_manager}</div></td>
+                <td className="td"><Link href={`/restaurants/detail?id=${r.id}`} className="font-medium text-brand hover:underline">{r.name}</Link><div className="text-xs text-gray-400">{r.owner_manager}</div></td>
                 <td className="td">{r.cuisine}<div className="text-xs text-gray-400">{r.city}</div></td>
                 <td className="td"><TempBadge t={r.temperature} /></td>
                 <td className="td text-xs">{r.email}<br />{r.instagram}</td>
