@@ -4937,10 +4937,22 @@ def test_version_reports_build_sha(client, monkeypatch):
 @requires_db
 def test_full_daily_cycle_hits_targets(client, auth_headers):
     """Run every agent and assert the daily success-criteria targets are met."""
-    resp = client.post("/agents/run-all", headers=auth_headers)
-    assert resp.status_code == 200
-
     from app.config import settings
+
+    # Live sourcing is disabled in tests (see conftest), so every target asserted
+    # below is only reachable through the synthetic top-up. Production defaults that
+    # OFF — fabricated records carry example.com addresses that bounce and burn ESP
+    # quota — and earlier tests in this module leave the flag at that default, so the
+    # cycle has to enable it explicitly. Restore the PREVIOUS value, not the literal
+    # default: pinning it here is what made this test order-dependent to begin with.
+    prev_synthetic = settings.allow_synthetic_fallback
+    settings.allow_synthetic_fallback = True
+    try:
+        resp = client.post("/agents/run-all", headers=auth_headers)
+        assert resp.status_code == 200
+    finally:
+        settings.allow_synthetic_fallback = prev_synthetic
+
     batch = settings.lead_batch_size
 
     summary = client.get("/dashboard/summary", headers=auth_headers).json()
@@ -8863,7 +8875,7 @@ def test_everquote_cadence_calls_and_texts_once_per_wave(monkeypatch):
     """Each cadence run reaches an EverQuote lead on BOTH channels, then dedupes: a
     second run in the same wave places nothing (so a lead gets one call + one text
     per wave = two of each per day). EverQuote leads only."""
-    from datetime import datetime, timezone
+    from datetime import datetime, timedelta, timezone
     from app import control, everquote_cadence as eqc, sms_engine
     from app.database import SessionLocal
     from app.integrations import sms as sms_int, voice
@@ -8878,6 +8890,13 @@ def test_everquote_cadence_calls_and_texts_once_per_wave(monkeypatch):
     monkeypatch.setattr(voice, "place_auto_call", lambda phone, lid: ("CALLSID", None))
     monkeypatch.setattr(sms_int, "is_configured", lambda: True)
     monkeypatch.setattr(eqc, "current_wave", lambda now=None: "am")
+    # Pin the dedup boundary to match the pinned wave. run() otherwise derives it from
+    # the real clock (8am in the recipient tz, today), so a run before 8am local resolves
+    # the wave start into the FUTURE — the per-wave dedup window then matches nothing and
+    # the second run re-places the call. Production can't hit this (run() returns early
+    # when current_wave() is None), but a test that forces the wave must force this too.
+    monkeypatch.setattr(eqc, "_wave_start_utc",
+                        lambda wave, now=None: datetime.now(timezone.utc) - timedelta(seconds=1))
     # Compliance gate always allows.
     from app import compliance
     monkeypatch.setattr(compliance, "gate", lambda *a, **k: type("D", (), {"allowed": True, "rule": None})())
