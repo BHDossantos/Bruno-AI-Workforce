@@ -5,11 +5,16 @@ import { API_URL, getToken } from "@/lib/api";
 import { AuthGate, PageHeader } from "@/components/ui";
 
 function Importer() {
-  const [type, setType] = useState("leads");
+  // The dropdown value may encode a preset category as "leads|<Category>" so a
+  // ready-made list type (e.g. DOT Leads) tags the whole upload with one pick.
+  const [sel, setSel] = useState("leads");
   const [file, setFile] = useState<File | null>(null);
   const [category, setCategory] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
+  const type = sel.split("|")[0];
+  const presetCat = sel.includes("|") ? sel.split("|").slice(1).join("|") : "";
+  const effCategory = (presetCat || category).trim();
 
   async function upload() {
     if (!file) return;
@@ -18,7 +23,7 @@ function Importer() {
     try {
       const fd = new FormData();
       fd.append("file", file);
-      if (type === "leads" && category.trim()) fd.append("category", category.trim());
+      if (type === "leads" && effCategory) fd.append("category", effCategory);
       const res = await fetch(`${API_URL}/import/${type}`, {
         method: "POST",
         headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {},
@@ -52,14 +57,21 @@ function Importer() {
       <div className="card max-w-xl space-y-4">
         <div>
           <label className="text-sm font-medium text-gray-700">List type</label>
-          <select value={type} onChange={(e) => setType(e.target.value)} className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2">
+          <select value={sel} onChange={(e) => setSel(e.target.value)} className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2">
             <option value="leads">Import insurance leads (Thrust Insurance)</option>
+            <option value="leads|DOT Leads MA">Import DOT Leads (MA — trucking / motor carriers)</option>
             <option value="bnb">Import BNB leads (B&amp;B Global — consulting)</option>
             <option value="restaurants">Import SavoryMind leads (restaurants)</option>
             <option value="contacts">Import contacts (Google/iPhone → warm insurance intro)</option>
           </select>
         </div>
-        {type === "leads" && (
+        {type === "leads" && presetCat && (
+          <p className="rounded bg-brand/5 px-3 py-2 text-sm text-gray-700">
+            These will be tagged <b>{presetCat}</b> and imported as commercial call leads (phone-only is fine).
+            Filter to them anytime with the <b>{presetCat}</b> category on the Call List.
+          </p>
+        )}
+        {type === "leads" && !presetCat && (
           <div>
             <label className="text-sm font-medium text-gray-700">Category (optional)</label>
             <input list="lead-categories" value={category} onChange={(e) => setCategory(e.target.value)}
@@ -71,7 +83,7 @@ function Importer() {
               <option value="Commercial" />
               <option value="Referral Partner" />
             </datalist>
-            <p className="mt-1 text-xs text-gray-500">Tags this whole upload (e.g. <b>DOT Leads MA</b>) so you can filter to it on the Call List. Rows with their own category keep it.</p>
+            <p className="mt-1 text-xs text-gray-500">Tags this whole upload so you can filter to it on the Call List. Rows with their own category keep it.</p>
           </div>
         )}
         <div>
