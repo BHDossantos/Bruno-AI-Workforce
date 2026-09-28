@@ -33,6 +33,10 @@ order of magnitude below the entry ACV in §7.
 
 Open findings raised against the spec: `OPSPROOF_SPEC_FINDINGS.md`.
 
+**Naming note.** The evidence surface is the **Proof Ledger**. Kosli's equivalent
+is called Evidence Vault; every mention of that term in this document refers to
+*their* product, never ours.
+
 ---
 
 ## 0. The one idea
@@ -132,9 +136,9 @@ RCA stays in the product. It is not the pitch.
 | **Change Control** | Platform/SRE, change manager | "Is this change safe to ship, and what controls does it need?" |
 | **Live Incident Room** | SRE on call | "Which recent change most likely caused this, and what is the evidence?" |
 | **Remediation Center** | Service owner + approver | "What is the repair, its blast radius, and who signs it off?" |
-| **Control Ledger** *(renamed)* | Risk, audit, resilience | "Show me every change to this service, who approved it, and whether controls were bypassed." |
+| **Proof Ledger** *(renamed)* | Risk, audit, resilience | "Show me every change to this service, who approved it, and whether controls were bypassed." |
 
-The Control Ledger is the surface that justifies the price. The other three
+The Proof Ledger is the surface that justifies the price. The other three
 are how the data gets into it honestly.
 
 **Non-negotiable design rule:** every conclusion shows its evidence. A
@@ -165,7 +169,7 @@ parameters, Art. 17 requires:
 | Changes are tested and finalised | Test evidence linked; missing tests recorded as a control gap, not silently passed |
 
 DORA Art. 17–23 (ICT-related incident management, classification and reporting)
-maps to the Live Incident Room and Control Ledger: incident timeline,
+maps to the Live Incident Room and Proof Ledger: incident timeline,
 classification inputs, root-cause evidence, remediation and closure.
 
 **Read that separation-of-duties line again.** It is a *technical* control that
@@ -356,11 +360,14 @@ constrains where the first customer comes from.
 
 - [ ] **Name and domain clearance** for "OpsProof" — trademark search in EU/US
       software classes, domain availability.
-- [x] **Rename the evidence surface** — decided: **Control Ledger**. "Evidence
-      Vault" is Kosli's shipped feature name. **Still open in the spec**, which
-      uses Evidence Vault throughout (§4.2, §7.12, §14.11, Appendix D, P0-19);
-      tracked as finding 2 in `OPSPROOF_SPEC_FINDINGS.md`. Fold into the
-      trademark clearance item above rather than running it separately.
+- [x] **Rename the evidence surface** — **done: Proof Ledger.** "Evidence Vault"
+      is Kosli's shipped feature name for the same use case and the same buyer.
+      Applied across the specification by Amendment A4 (Gate F, §7.12, §14.11,
+      P0-19, P2 backlog); finding 2 in `OPSPROOF_SPEC_FINDINGS.md` is closed.
+      Two risks were accepted knowingly and are recorded there: "proof" is a
+      strong word in a regulated sale, and the name compounds if OpsProof itself
+      is renamed after trademark clearance — so keep it inside the clearance item
+      above rather than treating it as settled independently.
 - [ ] **Resolve the "DORA" collision.** To an engineer, DORA means *DevOps
       Research and Assessment* metrics; to the buyer it means the *regulation*.
       Never use the word unqualified in collateral — write "DORA (Regulation
