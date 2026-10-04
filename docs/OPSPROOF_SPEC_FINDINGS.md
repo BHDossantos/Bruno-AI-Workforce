@@ -61,10 +61,12 @@ visible).
 
 ## 2. "Evidence Vault" is a competitor's shipped product name
 
-**Severity: medium — commercial and legal, not technical.**
+**Severity: medium. CLOSED — the surface is now the `Proof Ledger`**, applied
+across the specification by Amendment A4 (Gate F, §7.12, §14.11, P0-19, P2
+backlog). Kept below as the rationale for that rename.
 
-The spec uses **Evidence Vault** as a first-class product surface throughout: Gate F
-(§4.2), §7.12, §14.11, Appendix D, and epic P0-19.
+The spec used **Evidence Vault** as a first-class product surface throughout: Gate F
+(§4.2), §7.12, §14.11, and epic P0-19.
 
 **Kosli ships a feature called Evidence Vault.** Kosli is SDLC governance for
 regulated software delivery — recording every change from commit to production and
@@ -77,15 +79,34 @@ feature makes differentiation harder to articulate and concedes the frame. It is
 also a weak position if the name is ever asserted, and the spec's own front matter
 already flags that "OpsProof" itself requires trademark clearance.
 
-**Proposed resolution — still open.** Rename the surface. `OPSPROOF_STRATEGY.md` uses **Control
-Ledger**, which was the name selected when this conflict was first raised. Adopt it
-across the spec (§4.2, §7.12, §14.11, Appendix D, P0-19) or choose an alternative,
-but resolve it before any customer-facing material is produced. Roll the decision
-into the existing trademark clearance workstream rather than treating it separately.
+**Resolution as shipped (Amendment A4): `Proof Ledger`.**
 
-**Note:** the strategy doc and this file currently disagree with the spec on this
-name. That is deliberate — it is the open item, not an inconsistency to be silently
-patched.
+The owner selected it over `Control Ledger`, which had been the working placeholder.
+The case for it: brand cohesion with OpsProof, and it names the product's actual
+promise — that a change is *provable* — rather than describing storage.
+
+**Two risks were weighed and accepted knowingly**, recorded here so they are not
+rediscovered later as surprises:
+
+1. **"Proof" is a strong word in a regulated sale.** It sits close to assurance
+   language the product deliberately does not claim. Mitigation: the discipline
+   rule already in §13.9 and Appendix I stands unchanged — the Proof Ledger
+   *collects and structures* evidence and never asserts compliance, sufficiency,
+   or a legal conclusion. Collateral must not let the surface name imply otherwise.
+2. **It compounds if "OpsProof" is itself renamed** after the trademark clearance
+   the spec's front matter requires. A product rename would pull the surface name
+   with it. Mitigation: keep this coupled to the clearance item in
+   `OPSPROOF_STRATEGY.md` §12 rather than treating it as independently settled.
+
+**Scope of the rename: the *surface* only.** An **evidence item** is still an
+evidence item, an **evidence packet** is still an evidence packet, and the
+**Evidence Service** (§10.5) keeps its name — those are domain terms, and renaming
+them would churn the API and event contracts in §12 for no gain.
+
+**Mentions of "Evidence Vault" that remain** in this file and in
+`OPSPROOF_STRATEGY.md` refer to *Kosli's* product. They are attributions, not
+leftovers.
+
 
 ### Clearance evidence gathered (not a clearance opinion)
 
@@ -107,9 +128,9 @@ acquiring `opsproof.com` is a purchase negotiation rather than a registration �
 that is a cost and a timeline to know about before committing the name to
 collateral, not a reason to abandon it.
 
-This evidence bears on the *product name*. It does not touch the separate
-question in this finding, which is the **surface name** — Evidence Vault versus
-Control Ledger. That one is unaffected and still open.
+This evidence bears on the *product name*, which remains open pending counsel.
+It is separate from the **surface name**, now settled as the Proof Ledger — though
+the two are coupled, since a product rename would pull the surface with it.
 
 ---
 
@@ -220,7 +241,7 @@ implemented in whatever was chosen.
 | # | Finding | Type | Proposed owner (§18.4) |
 |---|---|---|---|
 | 1 | ~~Hypothesis engine lacks `not_observed` state~~ | Correctness | **Resolved — Amendment A1** |
-| 2 | Evidence Vault name collides with Kosli | Commercial / legal | Head of Product |
+| 2 | ~~Evidence Vault name collides with Kosli~~ | Commercial / legal | **Closed — renamed Proof Ledger (A4)** |
 | 3 | ~~Standards register missing AI Act dates and Annex III scope note~~ | Completeness | **Resolved — Amendment A2** |
 | 4 | ~~Backend service language never justified by ADR~~ | Engineering economics | **Closed — ADR-0001 accepted (Option A)** |
 
@@ -234,8 +255,9 @@ inside it: the OWASP LLM Top 10 2026 edition could not be retrieved and is marke
 unverified in Appendix J. Someone with access must diff it against §9.4 before the
 register is used with a customer.
 
-**Finding 2** must be resolved before any customer-facing material is produced —
-it needs a product-naming decision, not research.
+**Finding 2 — closed.** The surface is the **Proof Ledger** (Amendment A4). The two
+accepted risks above stay live as watch-items rather than blockers, and the naming
+question remains coupled to OpsProof's own trademark clearance.
 
 **Finding 4 — closed.** `ADR-0001` is accepted at Option A: Go stays. The
 deciding argument was the customer-side collector's third-party security review,
