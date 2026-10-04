@@ -1276,6 +1276,47 @@ def test_local_presence_from_matches_area_code(monkeypatch):
     assert v.local_presence_from("+13055551212") == "+19788244228"    # FL lead, no match → default
 
 
+def test_bridge_caller_id_avoids_tollfree_on_transfer(monkeypatch):
+    """A toll-free number as caller-ID on a BRIDGED leg is dropped/one-way on most
+    carriers — the "transfer connects but it's silent" bug. bridge_caller_id() must
+    present a LOCAL number (explicit transfer_caller_id → local-presence pool), and
+    the transfer TwiML must carry it; the warning fires only while it's still toll-free."""
+    from app.config import settings
+    from app.integrations import twilio_voice as v
+
+    # Active voice number is the toll-free, no local number set anywhere → warn.
+    monkeypatch.setattr(settings, "voice_provider", "twilio", raising=False)
+    monkeypatch.setattr(settings, "twilio_account_sid", "ACxxx", raising=False)
+    monkeypatch.setattr(settings, "twilio_auth_token", "tok", raising=False)
+    monkeypatch.setattr(settings, "twilio_voice_number", "+18338547055", raising=False)
+    monkeypatch.setattr(settings, "twilio_insurance_number", "", raising=False)
+    monkeypatch.setattr(settings, "twilio_from_number", "+18338547055", raising=False)
+    monkeypatch.setattr(settings, "transfer_caller_id", "", raising=False)
+    monkeypatch.setattr(settings, "local_presence_numbers", "", raising=False)
+    assert v._is_tollfree("+18338547055") is True
+    assert v.bridge_caller_id("+16175551212") == "+18338547055"   # last resort
+    assert v.bridge_audio_warning() is not None                    # and we warn loudly
+
+    # Explicit local transfer caller-ID → used, warning clears.
+    monkeypatch.setattr(settings, "transfer_caller_id", "(978) 824-4228", raising=False)
+    assert v.bridge_caller_id("+16175551212") == "+19788244228"
+    assert v.bridge_audio_warning() is None
+
+    # No explicit field but a local-presence pool → prefer the area-code match, never TF.
+    monkeypatch.setattr(settings, "transfer_caller_id", "", raising=False)
+    monkeypatch.setattr(settings, "local_presence_numbers",
+                        "+18557770000, +16175550199, +16035550100", raising=False)
+    assert v.bridge_caller_id("+16175551212") == "+16175550199"   # MA match, skips toll-free
+    assert v.bridge_audio_warning() is None
+
+    # The live-answer transfer TwiML must carry the local caller-ID (not the toll-free).
+    monkeypatch.setattr(settings, "auto_dial_transfer_enabled", True, raising=False)
+    monkeypatch.setattr(settings, "producer_cell", "+16175553333", raising=False)
+    xml = v.amd_twiml("human", "lead1")
+    assert 'callerId="+16175550199"' in xml
+    assert "+18338547055" not in xml
+
+
 def test_bridge_call_from_number_is_e164(monkeypatch):
     """The bridge call's 'From' must be sent in E.164 — SignalWire rejects anything
     else with '21212: From must be an E.164 number'. Even a number stored with
