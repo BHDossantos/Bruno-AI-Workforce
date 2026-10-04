@@ -36,6 +36,7 @@ type CallHealth = {
     rings_first: string; rings_first_pretty: string;
     transfers_to: string; transfers_to_pretty: string;
     caller_id_pretty: string; rings_source: string;
+    bridge_caller_id_pretty?: string; bridge_audio_warning?: string | null;
   };
   setup?: { public_base_url?: string | null; blockers?: string[]; ready_to_dial?: boolean };
   call_window?: { start: number; end: number; timezone: string; open: boolean };
@@ -234,6 +235,11 @@ export default function WorkListPage() {
               <span>📱 Clicking <b>Call</b> rings <b className="text-gray-900">{callHealth.dial_targets.rings_first_pretty}</b> first, then connects the lead.</span>
               <span className="text-gray-500">Live auto-dial answers transfer to <b className="text-gray-700">{callHealth.dial_targets.transfers_to_pretty || callHealth.dial_targets.rings_first_pretty}</b>.</span>
               <span className="text-xs text-gray-400">Not your phone? Fix “Your cell to ring” on Setup → Calling.</span>
+            </div>
+          )}
+          {callHealth.dial_targets?.bridge_audio_warning && (
+            <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              🔇 <b>Silent transfers:</b> {callHealth.dial_targets.bridge_audio_warning}
             </div>
           )}
           {callHealth.call_window && (

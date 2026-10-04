@@ -79,6 +79,54 @@ def local_presence_from(dest_phone: str | None) -> str:
     return default
 
 
+# US toll-free prefixes (the 3 digits after +1). A toll-free number used as the
+# caller-ID (ANI) on a BRIDGED PSTN leg causes one/two-way silence on many carrier
+# routes — the classic "transfer connects but there's no audio". Bridged legs must
+# present a LOCAL (geographic) number, so we detect and avoid toll-free here.
+_TOLLFREE_PREFIXES = {"800", "833", "844", "855", "866", "877", "888", "822", "880", "887", "889"}
+
+
+def _is_tollfree(e164: str | None) -> bool:
+    return _area_code(e164) in _TOLLFREE_PREFIXES
+
+
+def bridge_caller_id(dest_phone: str | None = None) -> str:
+    """Caller-ID for BRIDGED legs that ring the producer — the live-answer transfer
+    and the inbound forward-to-cell. These MUST NOT present a toll-free number: a
+    toll-free ANI on a bridged PSTN leg is dropped/one-way on most carriers, which is
+    the "connected but silent" transfer. Preference order:
+      1. an explicit ``transfer_caller_id`` the owner set (a local DID),
+      2. a non-toll-free number from the local-presence pool (area-code match first),
+      3. the default voice number — even if toll-free, as a last resort so calls still
+         flow; ``bridge_audio_warning()`` then flags that audio will be silent until a
+         local number is added. Must be a number owned on the ACTIVE voice carrier."""
+    explicit = _e164(settings.transfer_caller_id or "")
+    if explicit and not _is_tollfree(explicit):
+        return explicit
+    pool = (settings.local_presence_numbers or "").strip()
+    local = [n for n in (_e164(x.strip()) for x in pool.split(",")) if n and not _is_tollfree(n)]
+    if local:
+        want = _area_code(dest_phone)
+        for n in local:
+            if want and _area_code(n) == want:
+                return n
+        return local[0]
+    return _e164(_voice_number()) or _voice_number()
+
+
+def bridge_audio_warning() -> str | None:
+    """Non-None when bridged legs would still present a toll-free caller-ID — i.e. the
+    transfer/forward will have NO audio. Names the exact one-line fix so the Call List
+    and Setup can surface it instead of leaving a silent transfer unexplained."""
+    cid = bridge_caller_id()
+    if cid and _is_tollfree(cid):
+        return ("Transfers will have NO audio: your caller-ID (" + pretty_phone(cid) +
+                ") is toll-free, and a toll-free number can't carry audio on a bridged "
+                "call. Add a LOCAL (non-toll-free) number owned on your calling carrier "
+                "in Setup → Calling (‘Transfer caller-ID’ or the local-presence pool).")
+    return None
+
+
 def _transfer_number() -> str:
     """Where a live-answered auto-dial is transferred — the producer's CELL first,
     then the callback number as a fallback. So 'someone answers → my cell rings.'"""
@@ -113,6 +161,7 @@ def dial_targets() -> dict:
     # (possibly stale) cell default? Surfacing this tells you where to fix it.
     source = "callback" if _e164(settings.producer_callback) else (
         "cell" if _e164(settings.producer_cell) else "none")
+    bridge_cid = bridge_caller_id(transfers)
     return {
         "rings_first": rings,
         "rings_first_pretty": pretty_phone(rings),
@@ -121,6 +170,12 @@ def dial_targets() -> dict:
         "caller_id": caller,
         "caller_id_pretty": pretty_phone(caller),
         "rings_source": source,
+        # The caller-ID presented on the BRIDGED transfer/forward legs (must be local,
+        # not toll-free) + a plain-English warning when it isn't — so a silent transfer
+        # is explained and fixable right on the Call List instead of a mystery.
+        "bridge_caller_id": bridge_cid,
+        "bridge_caller_id_pretty": pretty_phone(bridge_cid),
+        "bridge_audio_warning": bridge_audio_warning(),
     }
 
 
@@ -211,7 +266,8 @@ def inbound_twiml() -> str:
     if not to:  # no forwarding number set — take a message instead of dead air
         return _xml(greeting + "<Say>Sorry, no one is available right now. Please leave "
                     'a message after the tone.</Say><Record maxLength="120" playBeep="true"/>')
-    caller_id = _e164(_voice_number()) or _voice_number()
+    # Local (non-toll-free) caller-ID so the forwarded leg to the cell carries audio.
+    caller_id = bridge_caller_id(to)
     cid = f' callerId="{caller_id}"' if caller_id else ""
     # timeout=20: ring the cell ~20s. If unanswered the document continues to the
     # voicemail prompt below (a completed/answered call never reaches it).
@@ -427,7 +483,9 @@ def amd_twiml(answered_by: str | None, lead_id: str | None) -> str:
         # silence), so they stay on the line — and the call is only marked answered once
         # you pick up. Without it a lead sits in silence during the ring and hangs up,
         # so you answer to a dead line ("transfer connects but it's silent").
-        attrs = f' answerOnBridge="true" callerId="{_e164(_voice_number())}" timeout="25"'
+        # callerId must be a LOCAL (non-toll-free) number: a toll-free ANI on this
+        # bridged leg is the actual cause of a two-way-silent transfer.
+        attrs = f' answerOnBridge="true" callerId="{bridge_caller_id(num)}" timeout="25"'
         if settings.call_recording_enabled and base:
             attrs += (' record="record-from-answer-dual"'
                       f' recordingStatusCallback="{base}/calls/recording'
