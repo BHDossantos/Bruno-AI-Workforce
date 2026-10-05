@@ -50,6 +50,8 @@ function Insurance() {
   const [temp, setTemp] = useState("");
   const [status, setStatus] = useState("");
   const [line, setLine] = useState("");
+  const [catF, setCatF] = useState("");
+  const [nameQ, setNameQ] = useState("");
   const [refresh, setRefresh] = useState(0);
   // Persist the filters across a refresh (until the user changes or resets them).
   useEffect(() => {
@@ -59,15 +61,20 @@ function Insurance() {
       if (s.temp) setTemp(s.temp);
       if (s.status) setStatus(s.status);
       if (s.line) setLine(s.line);
+      if (s.catF) setCatF(s.catF);
     } catch { /* ignore malformed storage */ }
   }, []);
   useEffect(() => {
-    try { localStorage.setItem(INS_FILTER_KEY, JSON.stringify({ segment, temp, status, line })); }
+    try { localStorage.setItem(INS_FILTER_KEY, JSON.stringify({ segment, temp, status, line, catF })); }
     catch { /* ignore */ }
-  }, [segment, temp, status, line]);
+  }, [segment, temp, status, line, catF]);
+  // Category list for the filter dropdown (with counts) — lets an imported batch
+  // (e.g. "DOT Leads MA") be pulled up here, not just on the Call List.
+  const { data: cats } = useFetch<{ category: string; count: number }[]>(
+    () => api.get<{ category: string; count: number }[]>("/leads/categories"), [refresh]);
   const { data, loading, error, reload } = useFetch<Lead[]>(
-    () => api.get<Lead[]>(`/leads?limit=200&sort=fit${segment ? `&segment=${segment}` : ""}${temp ? `&temperature=${temp}` : ""}${status ? `&status=${status}` : ""}${line ? `&line=${line}` : ""}`),
-    [segment, temp, status, line, refresh]
+    () => api.get<Lead[]>(`/leads?limit=200&sort=fit${segment ? `&segment=${segment}` : ""}${temp ? `&temperature=${temp}` : ""}${status ? `&status=${status}` : ""}${line ? `&line=${line}` : ""}${catF ? `&category=${encodeURIComponent(catF)}` : ""}`),
+    [segment, temp, status, line, catF, refresh]
   );
   const { data: counts } = useFetch<Temp>(
     () => api.get<Temp>(`/leads/summary${segment ? `?segment=${segment}` : ""}`), [segment, refresh]);
@@ -208,7 +215,15 @@ function Insurance() {
         title="Insurance Leads"
         subtitle="👉 Click a lead's name to open their profile and email, text, or call them. Home · Auto · Life · Commercial across NH/MA/FL."
         action={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <input value={nameQ} onChange={(e) => setNameQ(e.target.value)} placeholder="🔎 Find by name / company / phone"
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm" title="Search the leads shown below by name, company, email or phone" />
+            <select value={catF} onChange={(e) => setCatF(e.target.value)} className="rounded-lg border border-gray-300 px-3 py-2 text-sm" title="Filter by imported category (e.g. DOT Leads MA)">
+              <option value="">All categories</option>
+              {(cats || []).map((c) => (
+                <option key={c.category} value={c.category}>{c.category} ({c.count})</option>
+              ))}
+            </select>
             <select value={line} onChange={(e) => setLine(e.target.value)} className="rounded-lg border border-gray-300 px-3 py-2 text-sm" title="Filter by line of business">
               <option value="">All lines</option>
               <option value="home">🏠 Home</option>
@@ -274,7 +289,12 @@ function Insurance() {
             </tr>
           </thead>
           <tbody>
-            {(data || []).map((l) => (
+            {(data || []).filter((l) => {
+              const q = nameQ.trim().toLowerCase();
+              if (!q) return true;
+              return [l.company_name, l.owner_name, l.email, l.phone, l.category]
+                .some((v) => (v || "").toLowerCase().includes(q));
+            }).map((l) => (
               <tr key={l.id} className="border-t border-gray-100">
                 <td className="td"><span className="badge bg-brand/10 text-brand-dark">{l.fit_score}</span></td>
                 <td className="td"><span className="badge bg-gray-100 text-gray-600">{l.score}</span></td>

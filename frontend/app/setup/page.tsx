@@ -36,7 +36,7 @@ type Status = {
   gmail_bnb?: Area; gmail_savorymind?: Area;
   apollo: Area; google_places: Area;
   sms?: Area & { via?: string | null }; whatsapp?: Area & { via?: string | null }; jobs_api?: Area;
-  calling?: Area & { via?: string | null; browser?: boolean; recording?: boolean; callback_set?: boolean };
+  calling?: Area & { via?: string | null; browser?: boolean; recording?: boolean; callback_set?: boolean; bridge_audio_warning?: string | null; transfer_caller_id?: string };
   instantly?: Area; smartlead?: Area; resend?: Area;
   meta_app?: { configured: boolean; app_id: string; redirect_uri: string };
   tiktok_app?: { configured: boolean; client_key: string; redirect_uri: string };
@@ -1091,6 +1091,11 @@ function Setup() {
           <p className="mb-3 text-xs text-gray-500">
             Click “Call” on a lead → Twilio rings <b>your phone</b>, then connects the lead (recorded, with a consent notice; AI notes post to the timeline). Enter your <b>Twilio Account SID + Auth Token</b> (your Twilio account login — the same one powers both calls and texts) and <b>your cell</b> as the callback number. Browser calling (optional, for when your phone’s dead) also needs a Twilio <b>API Key</b> (SID + Secret) and a <b>TwiML App SID</b>.
           </p>
+          {data.calling?.bridge_audio_warning && (
+            <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              🔇 <b>Silent transfers:</b> {data.calling.bridge_audio_warning}
+            </div>
+          )}
           <div className="grid gap-2 sm:grid-cols-2">
             <SecretInput className="input" placeholder="Twilio Account SID (AC…)" field="twilio_account_sid" form={form} set={set} saved={data?.secrets_set} />
             <SecretInput className="input" placeholder="Twilio Auth Token" field="twilio_auth_token" form={form} set={set} saved={data?.secrets_set} />
@@ -1098,6 +1103,10 @@ function Setup() {
               value={form.producer_callback || ""} onChange={(e) => set("producer_callback", e.target.value)} />
             <input className="input" placeholder="Caller-ID / Voice number (optional)"
               value={form.twilio_voice_number || ""} onChange={(e) => set("twilio_voice_number", e.target.value)} />
+            <input className="input" placeholder="Transfer caller-ID — LOCAL number +1 978 555 1234"
+              value={form.transfer_caller_id || ""} onChange={(e) => set("transfer_caller_id", e.target.value)} />
+            <input className="input sm:col-span-2" placeholder="Local-presence pool (optional, comma-separated: +16035551212,+16175551212)"
+              value={form.local_presence_numbers || ""} onChange={(e) => set("local_presence_numbers", e.target.value)} />
             <input className="input" placeholder="API Key SID (browser calling)"
               value={form.twilio_api_key_sid || ""} onChange={(e) => set("twilio_api_key_sid", e.target.value)} />
             <SecretInput className="input" placeholder="API Key Secret (browser calling)" field="twilio_api_key_secret" form={form} set={set} saved={data?.secrets_set} />

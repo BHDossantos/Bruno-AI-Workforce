@@ -45,6 +45,8 @@ FIELDS: dict[str, bool] = {
     "twilio_from_number": False,
     "twilio_insurance_number": False,  # optional separate number for insurance texts
     "twilio_voice_number": False,      # caller-ID for outbound calls (Voice-enabled)
+    "transfer_caller_id": False,       # LOCAL caller-ID for bridged transfers (avoids silent audio)
+    "local_presence_numbers": False,   # comma-separated local DID pool (answer rates + bridge audio)
     "producer_callback": False,        # YOUR cell — the carrier rings this to bridge calls
     "producer_cell": False,            # fallback ring/transfer number (correctable in Setup)
     "sales_commission_pct": False,     # commission % on annual premium (Performance)
@@ -227,6 +229,7 @@ def _secrets_set(db) -> dict:
 
 def status(db) -> dict:
     """Connection status — booleans + non-secret addresses only, never secrets."""
+    from . import sms_engine
     from .integrations import (apollo, gmail, instantly, jobs_api, places, resend,
                                smartlead, sms, twilio_voice, voice,
                                whatsapp_cloud)
@@ -287,6 +290,10 @@ def status(db) -> dict:
                     "browser": twilio_voice.browser_configured(),    # softphone
                     "recording": settings.call_recording_enabled,
                     "callback_set": bool(settings.producer_callback),
+                    # Non-None when a transfer/forward would be silent (toll-free caller-ID)
+                    # — names the exact fix so a silent transfer isn't a mystery.
+                    "bridge_audio_warning": twilio_voice.bridge_audio_warning(),
+                    "transfer_caller_id": twilio_voice.pretty_phone(twilio_voice.bridge_caller_id()),
                     # Auto-dial window, anchored to the owner's tz (no overnight transfers).
                     "window_start": settings.call_send_window_start,
                     "window_end": settings.call_send_window_end,
@@ -296,12 +303,12 @@ def status(db) -> dict:
         # and edit days/hours/timezone per channel. Emails are not gated by this.
         "schedule": {
             "call": {"days": settings.call_send_days or "",
-                     "start": int(settings.call_send_window_start),
-                     "end": int(settings.call_send_window_end),
+                     "start": sms_engine._hour(settings.call_send_window_start, 8),
+                     "end": sms_engine._hour(settings.call_send_window_end, 17),
                      "timezone": settings.call_timezone or ""},
             "text": {"days": settings.sms_send_days or "",
-                     "start": int(settings.sms_send_window_start),
-                     "end": int(settings.sms_send_window_end),
+                     "start": sms_engine._hour(settings.sms_send_window_start, 8),
+                     "end": sms_engine._hour(settings.sms_send_window_end, 20),
                      "timezone": settings.sms_timezone or ""},
         },
         # Meta app for the one-click Facebook/Instagram connect button.

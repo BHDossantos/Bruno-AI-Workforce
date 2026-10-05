@@ -1276,6 +1276,47 @@ def test_local_presence_from_matches_area_code(monkeypatch):
     assert v.local_presence_from("+13055551212") == "+19788244228"    # FL lead, no match → default
 
 
+def test_bridge_caller_id_avoids_tollfree_on_transfer(monkeypatch):
+    """A toll-free number as caller-ID on a BRIDGED leg is dropped/one-way on most
+    carriers — the "transfer connects but it's silent" bug. bridge_caller_id() must
+    present a LOCAL number (explicit transfer_caller_id → local-presence pool), and
+    the transfer TwiML must carry it; the warning fires only while it's still toll-free."""
+    from app.config import settings
+    from app.integrations import twilio_voice as v
+
+    # Active voice number is the toll-free, no local number set anywhere → warn.
+    monkeypatch.setattr(settings, "voice_provider", "twilio", raising=False)
+    monkeypatch.setattr(settings, "twilio_account_sid", "ACxxx", raising=False)
+    monkeypatch.setattr(settings, "twilio_auth_token", "tok", raising=False)
+    monkeypatch.setattr(settings, "twilio_voice_number", "+18338547055", raising=False)
+    monkeypatch.setattr(settings, "twilio_insurance_number", "", raising=False)
+    monkeypatch.setattr(settings, "twilio_from_number", "+18338547055", raising=False)
+    monkeypatch.setattr(settings, "transfer_caller_id", "", raising=False)
+    monkeypatch.setattr(settings, "local_presence_numbers", "", raising=False)
+    assert v._is_tollfree("+18338547055") is True
+    assert v.bridge_caller_id("+16175551212") == "+18338547055"   # last resort
+    assert v.bridge_audio_warning() is not None                    # and we warn loudly
+
+    # Explicit local transfer caller-ID → used, warning clears.
+    monkeypatch.setattr(settings, "transfer_caller_id", "(978) 824-4228", raising=False)
+    assert v.bridge_caller_id("+16175551212") == "+19788244228"
+    assert v.bridge_audio_warning() is None
+
+    # No explicit field but a local-presence pool → prefer the area-code match, never TF.
+    monkeypatch.setattr(settings, "transfer_caller_id", "", raising=False)
+    monkeypatch.setattr(settings, "local_presence_numbers",
+                        "+18557770000, +16175550199, +16035550100", raising=False)
+    assert v.bridge_caller_id("+16175551212") == "+16175550199"   # MA match, skips toll-free
+    assert v.bridge_audio_warning() is None
+
+    # The live-answer transfer TwiML must carry the local caller-ID (not the toll-free).
+    monkeypatch.setattr(settings, "auto_dial_transfer_enabled", True, raising=False)
+    monkeypatch.setattr(settings, "producer_cell", "+16175553333", raising=False)
+    xml = v.amd_twiml("human", "lead1")
+    assert 'callerId="+16175550199"' in xml
+    assert "+18338547055" not in xml
+
+
 def test_bridge_call_from_number_is_e164(monkeypatch):
     """The bridge call's 'From' must be sent in E.164 — SignalWire rejects anything
     else with '21212: From must be an E.164 number'. Even a number stored with
@@ -5790,6 +5831,40 @@ def test_csv_import_leads_recognizes_google_export_headers(client, auth_headers)
 
 
 @requires_db
+def test_import_phone_only_leads_with_category_and_filter(client, auth_headers):
+    """DOT-style lists have NO email — only company/owner/phone. They must import as
+    call leads (not silently skipped), the Import UI's category tags the whole upload,
+    and the Leads filter + categories endpoint surface them."""
+    from app.database import SessionLocal
+    from app.models import Lead
+    db = SessionLocal()
+    phones = ["+15550100001", "+15550100002"]
+    try:
+        db.query(Lead).filter(Lead.phone.in_(phones)).delete(synchronize_session=False)
+        db.commit()
+        csv_data = ("company_name,owner_name,phone\n"
+                    "Alkat Logistics,Yaroslav K,+15550100001\n"
+                    "Bone Route Transport,Paul Bone,+15550100002\n")
+        r = client.post("/import/leads", headers=auth_headers,
+                        data={"category": "DOT Leads MA", "segment": "commercial"},
+                        files={"file": ("dot.csv", csv_data, "text/csv")})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["imported"] == 2 and body.get("skipped_no_contact", 0) == 0  # phone-only accepted
+
+        cats = client.get("/leads/categories", headers=auth_headers).json()
+        assert any(c["category"] == "DOT Leads MA" and c["count"] >= 2 for c in cats)
+
+        filtered = client.get("/leads?category=DOT%20Leads%20MA&limit=300", headers=auth_headers).json()
+        got = {l["phone"] for l in filtered}
+        assert set(phones) <= got
+        assert all(l.get("category") == "DOT Leads MA" for l in filtered if l["phone"] in phones)
+    finally:
+        db.query(Lead).filter(Lead.phone.in_(phones)).delete(synchronize_session=False)
+        db.commit(); db.close()
+
+
+@requires_db
 def test_import_defers_ai_and_paced_sender_drafts_lazily(client, auth_headers, monkeypatch):
     """Import must be FAST: it inserts leads WITHOUT writing the AI email or sending
     (that used to run one AI call per row inline and time out big lists). The paced
@@ -6564,12 +6639,21 @@ def test_objective_tuning_and_global_search(client, auth_headers):
     assert r.status_code == 200 and abs(r.json()["weight"] - 0.95) < 1e-6
     assert client.patch("/objectives/nope", headers=auth_headers, json={"weight": 1}).status_code == 404
 
-    # Global search spans CRM + memory.
+    # Global search spans leads + CRM + memory.
     client.post("/crm", headers=auth_headers, json={"name": "Searchable Sam", "kind": "advisor"})
     res = client.get("/search?q=Searchable", headers=auth_headers).json()
-    assert "contacts" in res and "memories" in res
+    assert "leads" in res and "contacts" in res and "memories" in res
     assert any("Searchable" in c["name"] for c in res["contacts"])
-    assert client.get("/search?q=", headers=auth_headers).json() == {"contacts": [], "memories": []}
+    assert client.get("/search?q=", headers=auth_headers).json() == {"leads": [], "contacts": [], "memories": []}
+
+    # Imported leads (name/company/phone) are findable from the global search bar.
+    import io
+    csv = ("email,company_name,owner_name,phone,category,segment\n"
+           ",Tauer Trucking LLC,Bob Tauer,+16175559911,DOT Leads MA,commercial\n")
+    client.post("/import/leads", headers=auth_headers,
+                files={"file": ("dot.csv", io.BytesIO(csv.encode()), "text/csv")})
+    hits = client.get("/search?q=Tauer", headers=auth_headers).json()["leads"]
+    assert any("Tauer" in (h["company_name"] or "") or "Tauer" in (h["owner_name"] or "") for h in hits)
 
 
 @requires_db
@@ -7754,6 +7838,9 @@ def test_auto_dial_transfers_human_and_drops_recorded_voicemail(monkeypatch):
     for ab in ("human", "unknown", ""):
         xml = voice.amd_twiml(ab, "lead-1")
         assert "<Dial" in xml and "+16039308272" in xml and 'callerId="+19781112222"' in xml
+        # answerOnBridge: the lead hears ringback (not dead silence) while your cell
+        # rings, so they stay on the line until you answer — the "silent transfer" fix.
+        assert 'answerOnBridge="true"' in xml
 
     # Transfers OFF (the safe default) → even a live human answer gets the voicemail,
     # NOT a doomed transfer to a cell that may not ring. This is the SignalWire path
@@ -7856,6 +7943,13 @@ def test_calls_and_texts_customizable_days(monkeypatch):
     monkeypatch.setattr(settings, "call_send_window_start", "8", raising=False)
     monkeypatch.setattr(settings, "call_send_window_end", "17", raising=False)
     assert sms_engine.in_call_window(monday_noon) is True
+    # A malformed/blank stored hour must NEVER raise — it falls back to the default,
+    # so a bad setting can't 500 /calls/health and take the whole Calling panel down.
+    for bad in ("", "  ", "abc", None):
+        monkeypatch.setattr(settings, "call_send_window_start", bad, raising=False)
+        assert sms_engine.in_call_window(monday_noon) is True   # defaults to 8, still open
+        monkeypatch.setattr(settings, "sms_send_window_start", bad, raising=False)
+        assert isinstance(sms_engine.in_send_window(monday_noon), bool)  # no crash
 
 
 def test_auto_dial_paced_one_per_run_and_daily_cap(monkeypatch):

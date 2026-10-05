@@ -36,6 +36,7 @@ type CallHealth = {
     rings_first: string; rings_first_pretty: string;
     transfers_to: string; transfers_to_pretty: string;
     caller_id_pretty: string; rings_source: string;
+    bridge_caller_id_pretty?: string; bridge_audio_warning?: string | null;
   };
   setup?: { public_base_url?: string | null; blockers?: string[]; ready_to_dial?: boolean };
   call_window?: { start: number; end: number; timezone: string; open: boolean };
@@ -82,6 +83,7 @@ const FILTER_KEY = "worklist_filters";
 export default function WorkListPage() {
   const [temp, setTemp] = useState("");
   const [stateF, setStateF] = useState("");
+  const [catF, setCatF] = useState("");
   const [sortBy, setSortBy] = useState("score");
   const [q, setQ] = useState("");
   const [tick, setTick] = useState(0);
@@ -92,18 +94,21 @@ export default function WorkListPage() {
       const s = JSON.parse(localStorage.getItem(FILTER_KEY) || "{}");
       if (s.temp) setTemp(s.temp);
       if (s.state) setStateF(s.state);
+      if (s.cat) setCatF(s.cat);
       if (s.sort) setSortBy(s.sort);
       if (s.q) setQ(s.q);
     } catch { /* ignore malformed storage */ }
   }, []);
   useEffect(() => {
-    try { localStorage.setItem(FILTER_KEY, JSON.stringify({ temp, state: stateF, sort: sortBy, q })); }
+    try { localStorage.setItem(FILTER_KEY, JSON.stringify({ temp, state: stateF, cat: catF, sort: sortBy, q })); }
     catch { /* ignore */ }
-  }, [temp, stateF, sortBy, q]);
+  }, [temp, stateF, catF, sortBy, q]);
   const { data, loading, error, reload } = useFetch<Lead[]>(
-    () => api.get<Lead[]>(`/leads?limit=300&sort=${sortBy}${temp ? `&temperature=${temp}` : ""}${stateF ? `&state=${stateF}` : ""}`),
-    [temp, stateF, sortBy, tick]
+    () => api.get<Lead[]>(`/leads?limit=300&sort=${sortBy}${temp ? `&temperature=${temp}` : ""}${stateF ? `&state=${stateF}` : ""}${catF ? `&category=${encodeURIComponent(catF)}` : ""}`),
+    [temp, stateF, catF, sortBy, tick]
   );
+  const { data: categories } = useFetch<{ category: string; count: number }[]>(
+    () => api.get<{ category: string; count: number }[]>("/leads/categories"), [tick]);
   const { data: coverage } = useFetch<Coverage>(() => api.get<Coverage>("/leads/coverage"), [tick]);
   const { data: callHealth } = useFetch<CallHealth>(() => api.get<CallHealth>("/calls/health"), [tick]);
   const [showGaps, setShowGaps] = useState(false);
@@ -232,6 +237,11 @@ export default function WorkListPage() {
               <span className="text-xs text-gray-400">Not your phone? Fix “Your cell to ring” on Setup → Calling.</span>
             </div>
           )}
+          {callHealth.dial_targets?.bridge_audio_warning && (
+            <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              🔇 <b>Silent transfers:</b> {callHealth.dial_targets.bridge_audio_warning}
+            </div>
+          )}
           {callHealth.call_window && (
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-gray-100 pt-3 text-sm">
               <span>🕑 Auto-dial hours: <b className="text-gray-900">{fmtHour(callHealth.call_window.start)}–{fmtHour(callHealth.call_window.end)} {tzAbbr(callHealth.call_window.timezone)}</b> <span className="text-gray-500">(Mon–Sat)</span></span>
@@ -344,6 +354,19 @@ export default function WorkListPage() {
           <option value="NH">NH</option>
           <option value="FL">FL</option>
         </select>
+        {(categories?.length ?? 0) > 0 && (
+          <select
+            value={catF}
+            onChange={(e) => setCatF(e.target.value)}
+            className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700"
+            title="Filter by category"
+          >
+            <option value="">All categories</option>
+            {categories!.map((c) => (
+              <option key={c.category} value={c.category}>{c.category} ({c.count})</option>
+            ))}
+          </select>
+        )}
         <select
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value)}
