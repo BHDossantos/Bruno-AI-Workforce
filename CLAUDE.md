@@ -6,8 +6,11 @@ calls, and logs structured conversation outcomes — across several businesses.
 - **Backend**: FastAPI + SQLAlchemy + Postgres — `backend/app`
 - **Frontend**: Next.js + TypeScript + Tailwind — `frontend`
 - **Deploy**: Render, from `render.yaml` (Docker blueprint: Postgres + backend +
-  frontend). `cloudbuild.*.yaml` and `deploy/` are the old Google Cloud path, kept
-  only for reference — do NOT reintroduce Cloud Run / Cloud SQL.
+  frontend). `cloudbuild.*.yaml`, `deploy/` and `.github/workflows/deploy.yml` are
+  the old Google Cloud path. That workflow still fires on every push to `main` and
+  fails at "Deploy backend" — it deploys nothing, so a red `deploy` check is not a
+  broken build. Do NOT reintroduce Cloud Run / Cloud SQL, and do not "fix" that
+  workflow to make it deploy again.
 
 ## Run the checks
 
