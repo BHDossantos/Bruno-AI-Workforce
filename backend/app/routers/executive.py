@@ -71,15 +71,35 @@ def update_objective(key: str, body: ObjectivePatch, db: Session = Depends(get_d
             "target_value": float(o.target_value or 0), "rank": o.rank, "status": o.status}
 
 
+def _search_leads(db: Session, q: str, limit: int = 12) -> list[dict]:
+    """Search the Lead table by name / company / email / phone — so imported
+    leads (e.g. a DOT batch) are findable from the global search bar, not just
+    on the Insurance/Call List pages."""
+    from sqlalchemy import or_
+    from ..lead_temperature import classify
+    like = f"%{q}%"
+    rows = (db.query(Lead)
+            .filter(or_(Lead.company_name.ilike(like), Lead.owner_name.ilike(like),
+                        Lead.email.ilike(like), Lead.phone.ilike(like)))
+            .order_by(Lead.score.desc().nullslast())
+            .limit(limit).all())
+    return [{
+        "id": str(l.id), "company_name": l.company_name, "owner_name": l.owner_name,
+        "email": l.email, "phone": l.phone, "category": l.category,
+        "segment": l.segment, "status": l.status, "temperature": classify(l.status, l.score),
+    } for l in rows]
+
+
 @router.get("/search")
 def global_search(q: str, db: Session = Depends(get_db), _=Depends(_read)):
-    """One search across the CRM and the memory graph."""
+    """One search across leads, the CRM, and the memory graph."""
     from .. import crm as crm_svc
     from .. import memory as mem_svc
     q = (q or "").strip()
     if not q:
-        return {"contacts": [], "memories": []}
+        return {"leads": [], "contacts": [], "memories": []}
     return {
+        "leads": _search_leads(db, q, limit=12),
         "contacts": crm_svc.list_contacts(db, q=q, limit=12),
         "memories": mem_svc.search(db, q, k=12),
     }

@@ -73,8 +73,14 @@ jobs:
       ENABLE_SCHEDULER: "false"
       ADMIN_EMAIL: admin@example.com
       ADMIN_PASSWORD: testpass
-      AGENT_SUMMARY_PATH: ${{ runner.temp }}/agent-summary.md
     steps:
+      # The runner context is not available in a job-level env block, only in
+      # steps — putting ${{ runner.temp }} there made GitHub refuse to compile
+      # the whole workflow, so no job ever started. Resolve it here instead,
+      # where $RUNNER_TEMP exists, and export it to every later step.
+      - name: Resolve the agent summary path
+        run: echo "AGENT_SUMMARY_PATH=$RUNNER_TEMP/agent-summary.md" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0

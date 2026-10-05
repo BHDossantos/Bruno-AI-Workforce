@@ -8,7 +8,8 @@ import { AuthGate, PageHeader } from "@/components/ui";
 
 type Contact = { id: string; name: string; company: string | null; title: string | null; source: string | null; link: string; kind?: string };
 type Mem = { id: string; kind: string; subject: string | null; content: string };
-type Results = { contacts: Contact[]; memories: Mem[] };
+type LeadHit = { id: string; company_name: string | null; owner_name: string | null; email: string | null; phone: string | null; category: string | null; segment: string | null; status: string | null; temperature: string | null };
+type Results = { leads?: LeadHit[]; contacts: Contact[]; memories: Mem[] };
 
 function Search() {
   const params = useSearchParams();
@@ -29,16 +30,31 @@ function Search() {
 
   return (
     <div>
-      <PageHeader title="Search" subtitle="One search across every contact and everything Bruno remembers." />
+      <PageHeader title="Search" subtitle="One search across your leads, every contact, and everything Bruno remembers." />
       <div className="mb-6 flex gap-2">
         <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && run(q)}
-          autoFocus placeholder="Search contacts and memory…"
+          autoFocus placeholder="Search leads, contacts and memory…"
           className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm" />
         <button className="btn" onClick={() => run(q)}>Search</button>
       </div>
 
       {loading && <p className="text-sm text-gray-400">Searching…</p>}
       {err && <p className="text-sm text-red-600">{err}</p>}
+      {res && !loading && (res.leads?.length ?? 0) > 0 && (
+        <div className="mb-6">
+          <h2 className="mb-2 text-sm font-semibold text-gray-700">📇 Leads ({res.leads!.length})</h2>
+          <div className="grid gap-2 md:grid-cols-2">
+            {res.leads!.map((l) => (
+              <Link key={l.id} href={`/leads/detail?id=${l.id}`} className="card block hover:ring-2 hover:ring-brand/40">
+                <div className="font-medium">{l.company_name || l.owner_name || l.email || l.phone}</div>
+                <div className="text-xs text-gray-500">
+                  {[l.owner_name && l.company_name ? l.owner_name : null, l.category, l.status, l.phone, l.email].filter(Boolean).join(" · ")}
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
       {res && !loading && (
         <div className="grid gap-6 md:grid-cols-2">
           <div>

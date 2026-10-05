@@ -313,6 +313,13 @@ class Settings(BaseSettings):
     # (safe no-op). Buy area-code numbers in SignalWire and paste them here to activate,
     # e.g. "+16035551212,+16175551212" for NH + MA.
     local_presence_numbers: str = ""
+    # Caller-ID for BRIDGED legs that ring the producer (live-answer transfer + inbound
+    # forward-to-cell). MUST be a LOCAL (non-toll-free) number owned on the active voice
+    # carrier: a toll-free number can't carry audio on a bridged leg, which is the classic
+    # "transfer connects but it's silent". Blank → falls back to the local-presence pool,
+    # then the default voice number (and the Setup/Call-List diagnostic warns if that's
+    # toll-free). E.164, e.g. "+16035551212".
+    transfer_caller_id: str = ""
     # Twilio WhatsApp Business API — a legitimate, official channel (unlike
     # LinkedIn/consumer WhatsApp automation). Number must be WhatsApp-enabled in
     # the Twilio console (sandbox for testing, or an approved Twilio Sender for
