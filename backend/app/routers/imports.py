@@ -2,7 +2,7 @@
 import csv
 import io
 
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
 
@@ -43,8 +43,14 @@ async def _rows(file: UploadFile) -> list[dict]:
 
 
 @router.post("/leads")
-async def import_leads(file: UploadFile = File(...), db: Session = Depends(get_db), _=Depends(_write)):
-    return importer.process_leads_csv(db, await _rows(file))
+async def import_leads(file: UploadFile = File(...),
+                      category: str | None = Form(default=None),
+                      segment: str | None = Form(default=None),
+                      db: Session = Depends(get_db), _=Depends(_write)):
+    """Import insurance leads. Optional `category`/`segment` (from the Import UI's
+    category picker) tag the whole upload for rows that don't set their own."""
+    return importer.process_leads_csv(db, await _rows(file),
+                                      default_category=category, default_segment=segment)
 
 
 @router.post("/bnb")

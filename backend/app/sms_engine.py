@@ -92,6 +92,18 @@ def _day_ok(local: datetime, days_csv: str | None) -> bool:
     return local.weekday() in allowed_weekdays(days_csv)
 
 
+def _hour(val, default: int) -> int:
+    """A schedule hour as an int, tolerant of runtime-config string storage and junk.
+    A bad/blank stored value falls back to the default rather than throwing — a
+    malformed hour must never take the whole calling/texting path down (a 500 on
+    /calls/health broke the entire Calling panel)."""
+    try:
+        h = int(str(val).strip())
+    except (TypeError, ValueError):
+        return default
+    return h if 0 <= h <= 24 else default
+
+
 def in_send_window(now: datetime | None = None) -> bool:
     """True if it's a permitted texting day AND hour. Days + hours are set in Setup →
     Schedule (default Mon-Sat, 8am-8pm ET). The window only bounds autonomous/bulk
@@ -99,7 +111,7 @@ def in_send_window(now: datetime | None = None) -> bool:
     local = _now_local(now)
     if not _day_ok(local, settings.sms_send_days):
         return False
-    return int(settings.sms_send_window_start) <= local.hour < int(settings.sms_send_window_end)
+    return _hour(settings.sms_send_window_start, 8) <= local.hour < _hour(settings.sms_send_window_end, 20)
 
 
 def in_call_window(now: datetime | None = None) -> bool:
@@ -109,7 +121,7 @@ def in_call_window(now: datetime | None = None) -> bool:
     local = _now_local(now, settings.call_timezone)
     if not _day_ok(local, settings.call_send_days):
         return False
-    return int(settings.call_send_window_start) <= local.hour < int(settings.call_send_window_end)
+    return _hour(settings.call_send_window_start, 8) <= local.hour < _hour(settings.call_send_window_end, 17)
 
 
 def sms_block_reason(db: Session, phone: str, *, enforce_hours: bool = True,
