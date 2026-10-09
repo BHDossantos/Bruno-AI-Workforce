@@ -30,7 +30,8 @@ type Profile = {
 type EmailTpl = { id: string; name: string; subject: string; body: string };
 type SmsTpl = { id: string; name: string; body: string };
 type CallTpl = { id: string; name: string; framework: string[]; script: string };
-type Templates = { email: EmailTpl[]; sms: SmsTpl[]; call: CallTpl[] };
+type ObjectionTpl = { id: string; name: string; body: string };
+type Templates = { email: EmailTpl[]; sms: SmsTpl[]; call: CallTpl[]; objections?: ObjectionTpl[] };
 
 function fmt(at: string | null) {
   if (!at) return "";
@@ -57,6 +58,7 @@ function Profile() {
   const [callNotes, setCallNotes] = useState("");
   const [noteText, setNoteText] = useState("");
   const [callScript, setCallScript] = useState<CallTpl | null>(null);
+  const [objection, setObjection] = useState<ObjectionTpl | null>(null);
   const [editing, setEditing] = useState(false);
   const { data: crm } = useFetch<CrmData>(
     () => api.get<CrmData>(`/leads/${id}/crm`), [id, editing, tick]);
@@ -270,6 +272,19 @@ function Profile() {
               </button>
               <p className="mt-1 text-xs text-gray-400">Opt-out, texting hours, and daily cap are enforced automatically.</p>
             </div>
+            {(tpl?.objections?.length ?? 0) > 0 && (
+              <div className="card">
+                <h3 className="mb-2 text-sm font-semibold text-gray-500">Objection responses</h3>
+                <select className="mb-2 w-full rounded-lg border border-gray-300 px-2 py-2 text-sm"
+                  defaultValue="" onChange={(e) => setObjection(tpl?.objections?.find((x) => x.id === e.target.value) || null)}>
+                  <option value="">Pick an objection…</option>
+                  {(tpl?.objections || []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+                {objection && (
+                  <p className="whitespace-pre-wrap rounded bg-gray-50 p-2 text-xs text-gray-600">{objection.body}</p>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Right: timeline */}

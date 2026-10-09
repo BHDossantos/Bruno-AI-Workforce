@@ -380,3 +380,60 @@ def _parse_email(from_header: str) -> str:
     if "<" in from_header and ">" in from_header:
         return from_header.split("<", 1)[1].split(">", 1)[0].strip().lower()
     return from_header.strip().lower()
+
+
+def _iter_parts(payload: dict):
+    """Walk a Gmail message payload tree, yielding every part (attachments live in
+    nested multipart parts, so a flat scan of top-level parts misses them)."""
+    stack = [payload or {}]
+    while stack:
+        p = stack.pop()
+        yield p
+        for sub in (p.get("parts") or []):
+            stack.append(sub)
+
+
+def fetch_lead_csvs(account: str = PERSONAL, newer_than_days: int = 30,
+                    max_messages: int = 25) -> list[dict]:
+    """Recent inbox emails carrying a CSV attachment, for the hands-free lead-import
+    poller. Returns [{message_id, account, from_email, subject, attachments:[{filename,
+    content}]}]. ``content`` is the decoded CSV text. No-op ([]) when the account isn't
+    connected; never raises."""
+    svc = _service(account)
+    if svc is None:
+        return []
+    try:
+        query = f"in:inbox has:attachment filename:csv newer_than:{newer_than_days}d"
+        resp = svc.users().messages().list(userId="me", q=query, maxResults=max_messages).execute()
+        out = []
+        for ref in resp.get("messages", []):
+            msg = svc.users().messages().get(userId="me", id=ref["id"], format="full").execute()
+            headers = {h["name"].lower(): h["value"]
+                       for h in msg.get("payload", {}).get("headers", [])}
+            attachments = []
+            for part in _iter_parts(msg.get("payload", {})):
+                filename = part.get("filename") or ""
+                if not filename.lower().endswith(".csv"):
+                    continue
+                att_id = (part.get("body") or {}).get("attachmentId")
+                if not att_id:
+                    continue
+                try:
+                    data = svc.users().messages().attachments().get(
+                        userId="me", messageId=ref["id"], id=att_id).execute().get("data", "")
+                    content = base64.urlsafe_b64decode(data).decode("utf-8-sig", errors="ignore")
+                except Exception as exc:  # pragma: no cover - network/decode guard
+                    log.warning("Gmail attachment fetch failed (%s): %s", account, exc)
+                    continue
+                attachments.append({"filename": filename, "content": content})
+            if attachments:
+                out.append({
+                    "message_id": ref["id"], "account": account,
+                    "from_email": _parse_email(headers.get("from", "")),
+                    "subject": headers.get("subject", ""),
+                    "attachments": attachments,
+                })
+        return out
+    except Exception as exc:  # pragma: no cover - network guard
+        log.warning("Gmail fetch_lead_csvs failed (%s): %s", account, exc)
+        return []

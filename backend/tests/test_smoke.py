@@ -5646,11 +5646,19 @@ def test_lead_crm_profile_and_actions(client, auth_headers):
 
         # Templates: pickable email/text/call scripts, personalized for this lead.
         t = client.get(f"/leads/{lid}/templates", headers=auth_headers).json()
-        assert len(t["email"]) == 5 and len(t["sms"]) == 4 and len(t["call"]) >= 1
+        assert len(t["email"]) >= 5 and len(t["sms"]) >= 4 and len(t["call"]) >= 1
         first_email = next(x for x in t["email"] if x["id"] == "first_contact")
         assert "Hi Casey," in first_email["body"]  # token filled with the lead's name
         assert t["call"][0]["framework"][0] == "Connect"
         assert "Casey" in t["call"][0]["script"] and "2021 Ford Escape" in t["call"][0]["script"]
+        # Trucking playbook is importable alongside the auto-insurance set, filling the
+        # {first}/{company} tokens, plus the objection-response quick reference.
+        truck_sms = next(x for x in t["sms"] if x["id"] == "truck_open_new_dot")
+        assert "Casey" in truck_sms["body"] and "new DOT" in truck_sms["body"]
+        truck_email = next(x for x in t["email"] if x["id"] == "truck_email_first")
+        assert "Truck insurance for" in truck_email["subject"] and "{company}" not in truck_email["subject"]
+        assert len(t["objections"]) >= 9
+        assert any(o["id"] == "obj_are_you_dot" for o in t["objections"])
     finally:
         if lid is not None:
             db.query(Message).filter(Message.entity_id == lid).delete(synchronize_session=False)
@@ -5828,6 +5836,60 @@ def test_csv_import_leads_recognizes_google_export_headers(client, auth_headers)
     assert r.status_code == 200
     body = r.json()
     assert body["imported"] == 1 and body["skipped_no_email"] == 0
+
+
+def test_lead_inbox_category_parsing():
+    """Subject → category: tag is stripped, a bare tag falls back to a default, and
+    only a subject that STARTS WITH the tag counts as a deliberate import."""
+    from app import lead_inbox
+    assert lead_inbox._category_from_subject("Import DOT Truckers") == "DOT Truckers"
+    assert lead_inbox._category_from_subject("import: EverQuote Batch") == "EverQuote Batch"
+    assert lead_inbox._category_from_subject("Import leads Roofers MA") == "Roofers MA"
+    assert lead_inbox._category_from_subject("import") == "Imported Leads"
+    assert lead_inbox._subject_matches("Import DOT Truckers") is True
+    assert lead_inbox._subject_matches("Fwd: your invoice") is False
+
+
+@requires_db
+def test_lead_inbox_imports_mailed_csv_once(monkeypatch):
+    """Hands-free intake: a CSV mailed in with an 'Import …' subject is imported as
+    leads tagged with the subject's category, and re-polling the same email imports
+    nothing again (idempotent per Gmail message id)."""
+    from app import lead_inbox
+    from app.config import settings
+    from app.database import SessionLocal
+    from app.integrations import gmail
+    from app.models import ImportedEmailLog, Lead
+
+    db = SessionLocal()
+    phones = ["+15550199001", "+15550199002"]
+    db.query(Lead).filter(Lead.phone.in_(phones)).delete(synchronize_session=False)
+    db.query(ImportedEmailLog).filter_by(gmail_message_id="msgDOT1").delete()
+    db.commit()
+
+    monkeypatch.setattr(settings, "lead_import_enabled", True, raising=False)
+    monkeypatch.setattr(settings, "lead_import_account", "insurance", raising=False)
+    monkeypatch.setattr(gmail, "is_configured", lambda account=gmail.PERSONAL: account == "insurance")
+    fake = [{
+        "message_id": "msgDOT1", "account": "insurance",
+        "from_email": "bruno@dossantosinsurance.org", "subject": "Import DOT Truckers",
+        "attachments": [{"filename": "dot.csv",
+                         "content": ("company_name,owner_name,phone\n"
+                                     "Mailed Freight LLC,Ana M,+15550199001\n"
+                                     "Inbox Haulers,Reg B,+15550199002\n")}],
+    }]
+    monkeypatch.setattr(gmail, "fetch_lead_csvs",
+                        lambda account, newer_than_days=30, max_messages=25: fake)
+
+    res = lead_inbox.scan_and_import(db)
+    assert res["imported"] == 2 and res["messages"] == 1
+    got = db.query(Lead).filter(Lead.phone.in_(phones)).all()
+    assert len(got) == 2 and all(l.category == "DOT Truckers" for l in got)
+
+    # Re-poll the same email → nothing imported again.
+    res2 = lead_inbox.scan_and_import(db)
+    assert res2["imported"] == 0 and res2["messages"] == 0
+    assert db.query(Lead).filter(Lead.phone.in_(phones)).count() == 2
 
 
 @requires_db

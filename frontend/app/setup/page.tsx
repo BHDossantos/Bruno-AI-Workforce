@@ -409,6 +409,31 @@ function Setup() {
         </label>
       </div>
 
+      {/* Hands-free lead intake — email a CSV, it imports itself */}
+      <div className="card mb-4">
+        <h2 className="font-semibold">📥 Auto-import leads by email</h2>
+        <p className="mt-1 mb-3 text-xs text-gray-500">
+          Skip the upload screen: <strong>email or forward a lead CSV</strong> to your connected
+          mailbox with a subject that starts with <code>Import</code>, and it imports itself within
+          ~15&nbsp;minutes. The rest of the subject becomes the category — e.g.
+          <em> “Import DOT Truckers”</em> tags the whole list <strong>DOT&nbsp;Truckers</strong>.
+          Each email imports once (no duplicates), and rows need an email <em>or</em> a phone.
+        </p>
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-1"
+            checked={(form.lead_import_enabled ?? "") !== "false"}
+            onChange={(e) => set("lead_import_enabled", e.target.checked ? "true" : "false")} />
+          <span><strong>Auto-import CSV lists emailed in.</strong> On by default. Scans your insurance
+            and personal mailboxes; no-op until Gmail is connected.</span>
+        </label>
+        <div className="mt-3 flex items-center gap-2">
+          <label className="text-sm text-gray-600">Subject must start with:</label>
+          <input className="input max-w-[12rem]" placeholder="import"
+            value={form.lead_import_subject_tag ?? ""}
+            onChange={(e) => set("lead_import_subject_tag", e.target.value)} />
+        </div>
+      </div>
+
       {/* Mailbox send diagnostic — confirm outreach can ACTUALLY go out */}
       <div className="card mb-4">
         <div className="flex items-center justify-between">
