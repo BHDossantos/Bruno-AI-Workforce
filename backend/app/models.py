@@ -903,3 +903,18 @@ class Business(Base):
     extra: Mapped[dict | None] = mapped_column(JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now())
+
+
+class ImportedEmailLog(Base):
+    """One row per inbox email the auto lead-import poller has already processed —
+    keyed by Gmail message id so a mailed-in CSV is never imported twice. New table,
+    safe under create_all()."""
+    __tablename__ = "imported_email_logs"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    gmail_message_id: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    account: Mapped[str | None] = mapped_column(String)      # which mailbox it came from
+    subject: Mapped[str | None] = mapped_column(String)
+    category: Mapped[str | None] = mapped_column(String)     # category the leads were tagged with
+    imported: Mapped[int] = mapped_column(Integer, default=0)
+    updated: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
