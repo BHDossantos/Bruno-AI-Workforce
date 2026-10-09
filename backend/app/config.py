@@ -313,6 +313,14 @@ class Settings(BaseSettings):
     # (safe no-op). Buy area-code numbers in SignalWire and paste them here to activate,
     # e.g. "+16035551212,+16175551212" for NH + MA.
     local_presence_numbers: str = ""
+    # Hands-free lead intake: email/forward a CSV to a connected mailbox with a subject
+    # starting with the tag (default "import"); the scheduler imports it as leads and
+    # uses the rest of the subject as the category (e.g. "Import DOT Truckers"). No-op
+    # when Gmail isn't connected; idempotent per Gmail message id.
+    lead_import_enabled: bool = True
+    lead_import_account: str = ""        # mailbox to scan (blank → insurance, then personal)
+    lead_import_subject_tag: str = "import"
+    lead_import_lookback_days: int = 30
     # Caller-ID for BRIDGED legs that ring the producer (live-answer transfer + inbound
     # forward-to-cell). MUST be a LOCAL (non-toll-free) number owned on the active voice
     # carrier: a toll-free number can't carry audio on a bridged leg, which is the classic

@@ -47,6 +47,10 @@ FIELDS: dict[str, bool] = {
     "twilio_voice_number": False,      # caller-ID for outbound calls (Voice-enabled)
     "transfer_caller_id": False,       # LOCAL caller-ID for bridged transfers (avoids silent audio)
     "local_presence_numbers": False,   # comma-separated local DID pool (answer rates + bridge audio)
+    "lead_import_enabled": False,      # auto-import CSV lists emailed to a mailbox
+    "lead_import_account": False,      # which mailbox the auto-import poller scans
+    "lead_import_subject_tag": False,  # subject prefix that marks an email for import
+    "lead_import_lookback_days": False,  # how far back the poller looks
     "producer_callback": False,        # YOUR cell — the carrier rings this to bridge calls
     "producer_cell": False,            # fallback ring/transfer number (correctable in Setup)
     "sales_commission_pct": False,     # commission % on annual premium (Performance)

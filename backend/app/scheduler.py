@@ -208,6 +208,11 @@ def _sync_inbound(db):
     return sync_replies(db)
 
 
+def _run_lead_inbox(db):
+    from . import lead_inbox
+    return lead_inbox.scan_and_import(db)
+
+
 def _run_followups(db):
     from . import lead_sequence
     from .followups import process_due_followups
@@ -403,6 +408,13 @@ def start_scheduler() -> BackgroundScheduler | None:
     # fallback path.) Two mailboxes every 5 min is well within Gmail API quota.
     _scheduler.add_job(lambda: _with_db(_sync_inbound, "inbound_sync"),
                        IntervalTrigger(minutes=5), id="inbound_sync", replace_existing=True)
+
+    # Hands-free lead intake: import CSV lists emailed to a connected mailbox (subject
+    # starts with the import tag). Every 15 min — no-op when Gmail isn't connected or
+    # nothing new is waiting; idempotent per Gmail message id. Shared infra like the
+    # inbound poller, so it runs in insurance-only mode too.
+    _scheduler.add_job(lambda: _with_db(_run_lead_inbox, "lead_inbox"),
+                       IntervalTrigger(minutes=15), id="lead_inbox", replace_existing=True)
     _scheduler.start()
     log.info("24/7 engine started — %d agents + %d business jobs%s",
              len(agents), len(jobs), " (insurance-only)" if ins else "")
