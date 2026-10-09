@@ -5646,11 +5646,19 @@ def test_lead_crm_profile_and_actions(client, auth_headers):
 
         # Templates: pickable email/text/call scripts, personalized for this lead.
         t = client.get(f"/leads/{lid}/templates", headers=auth_headers).json()
-        assert len(t["email"]) == 5 and len(t["sms"]) == 4 and len(t["call"]) >= 1
+        assert len(t["email"]) >= 5 and len(t["sms"]) >= 4 and len(t["call"]) >= 1
         first_email = next(x for x in t["email"] if x["id"] == "first_contact")
         assert "Hi Casey," in first_email["body"]  # token filled with the lead's name
         assert t["call"][0]["framework"][0] == "Connect"
         assert "Casey" in t["call"][0]["script"] and "2021 Ford Escape" in t["call"][0]["script"]
+        # Trucking playbook is importable alongside the auto-insurance set, filling the
+        # {first}/{company} tokens, plus the objection-response quick reference.
+        truck_sms = next(x for x in t["sms"] if x["id"] == "truck_open_new_dot")
+        assert "Casey" in truck_sms["body"] and "new DOT" in truck_sms["body"]
+        truck_email = next(x for x in t["email"] if x["id"] == "truck_email_first")
+        assert "Truck insurance for" in truck_email["subject"] and "{company}" not in truck_email["subject"]
+        assert len(t["objections"]) >= 9
+        assert any(o["id"] == "obj_are_you_dot" for o in t["objections"])
     finally:
         if lid is not None:
             db.query(Message).filter(Message.entity_id == lid).delete(synchronize_session=False)
