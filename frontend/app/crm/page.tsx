@@ -5,9 +5,9 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { AuthGate, PageHeader } from "@/components/ui";
 
-// A CRM contact that is a lead exposes its full profile at /leads/{id}.
+// A CRM contact that is a lead exposes its full profile at /leads/detail?id={id}.
 function leadProfileHref(cid: string): string | null {
-  return cid.startsWith("lead:") ? `/leads/${cid.slice(5)}` : null;
+  return cid.startsWith("lead:") ? `/leads/detail?id=${cid.slice(5)}` : null;
 }
 
 type Contact = {

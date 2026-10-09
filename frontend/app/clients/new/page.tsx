@@ -16,7 +16,7 @@ function NewClient() {
       {(loading || error) && <LoadState loading={loading} error={error} onRetry={reload} />}
       {data && (
         <CrmEditor data={data} mode="create"
-          onSaved={(leadId) => leadId && router.push(`/leads/${leadId}`)} />
+          onSaved={(leadId) => leadId && router.push(`/leads/detail?id=${leadId}`)} />
       )}
     </div>
   );

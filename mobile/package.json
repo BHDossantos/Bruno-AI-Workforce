@@ -1,0 +1,22 @@
+{
+  "name": "bruno-ai-workforce-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Capacitor shell that ships the Bruno AI Workforce frontend to the App Store and Google Play.",
+  "scripts": {
+    "build:web": "node scripts/build-web.mjs",
+    "sync": "npm run build:web && cap sync",
+    "open:android": "cap open android",
+    "open:ios": "cap open ios",
+    "assets": "npm i --no-save sharp && node scripts/make-icons.mjs && npx --yes @capacitor/assets generate --iconBackgroundColor '#1d4ed8' --iconBackgroundColorDark '#1e3a8a' --splashBackgroundColor '#1e3a8a' --splashBackgroundColorDark '#0b1220'"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/ios": "^8.5.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.2",
+    "typescript": "^5.6.2"
+  }
+}

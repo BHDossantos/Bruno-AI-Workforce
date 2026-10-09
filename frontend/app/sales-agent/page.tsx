@@ -66,7 +66,7 @@ function SalesAgent() {
         {needs && needs.leads.length > 0 ? (
           <div className="max-h-[28rem] overflow-y-auto">
             {needs.leads.map((l) => (
-              <a key={l.id} href={`/leads/${l.id}`}
+              <a key={l.id} href={`/leads/detail?id=${l.id}`}
                 className="flex items-center justify-between border-b border-amber-100 py-2 text-sm last:border-0 hover:bg-amber-100/50">
                 <span>
                   <b>{l.name}</b> <span className="ml-1 rounded bg-white px-1.5 py-0.5 text-xs text-amber-800">{l.status}</span>

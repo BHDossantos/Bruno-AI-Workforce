@@ -142,7 +142,7 @@ def outreach_summary(db: Session = Depends(get_db), _=Depends(_read)):
             continue
         seen.add(dedup)
         if m.entity_type == "lead" and m.entity_id in lead_names:
-            name, link = lead_names[m.entity_id], f"/leads/{m.entity_id}"
+            name, link = lead_names[m.entity_id], f"/leads/detail?id={m.entity_id}"
         elif m.entity_type == "restaurant" and m.entity_id in rest_names:
             name, link = rest_names[m.entity_id], f"/restaurants"
         else:

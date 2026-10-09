@@ -45,7 +45,7 @@ function Search() {
           <h2 className="mb-2 text-sm font-semibold text-gray-700">📇 Leads ({res.leads!.length})</h2>
           <div className="grid gap-2 md:grid-cols-2">
             {res.leads!.map((l) => (
-              <Link key={l.id} href={`/leads/${l.id}`} className="card block hover:ring-2 hover:ring-brand/40">
+              <Link key={l.id} href={`/leads/detail?id=${l.id}`} className="card block hover:ring-2 hover:ring-brand/40">
                 <div className="font-medium">{l.company_name || l.owner_name || l.email || l.phone}</div>
                 <div className="text-xs text-gray-500">
                   {[l.owner_name && l.company_name ? l.owner_name : null, l.category, l.status, l.phone, l.email].filter(Boolean).join(" · ")}
