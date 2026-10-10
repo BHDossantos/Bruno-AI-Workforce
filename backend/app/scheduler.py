@@ -124,12 +124,17 @@ def _run_leads(db):
 
 def _auto_outreach(db):
     from . import bulk_outreach, contacts_outreach
-    # Insurance-only: skip the other funnels' generic cold email (restaurants /
-    # consulting "A quick idea for…"), which would otherwise send from the insurance
-    # domain and hurt its reputation. Insurance openers go out via the everquote →
-    # flush_drafts path instead, so no insurance lead is missed.
+    # Insurance-only pauses the OTHER businesses' cold email (restaurants / consulting
+    # "A quick idea for…"), which would otherwise send from the insurance domain and
+    # hurt its reputation — but it must NOT pause insurance's own leads. Any imported
+    # insurance lead (e.g. a DOT commercial list) still needs its first email sent
+    # automatically; from there it enrolls in the multi-touch cadence and the
+    # auto-dialer works it in parallel. EverQuote leads are drafted by everquote_drafts
+    # and skipped here by dispatch_leads' own guard, so no lead is double-sent. Scope to
+    # the insurance segments so no consulting/restaurant lead goes out from this domain.
     if _insurance_only():
-        return {"skipped": "insurance-only mode — other-business outreach paused"}
+        return {seg: bulk_outreach.dispatch_leads(db, segment=seg)
+                for seg in ("commercial", "personal", "referral_partner")}
     return {
         "leads": bulk_outreach.dispatch_leads(db),
         "restaurants": bulk_outreach.dispatch_restaurants(db),
