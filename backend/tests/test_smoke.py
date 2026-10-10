@@ -448,6 +448,25 @@ def test_bulk_outreach_helpers_exist():
     assert hasattr(bulk_outreach, "dispatch_restaurants")
 
 
+def test_insurance_only_auto_outreach_still_works_insurance_leads(monkeypatch):
+    """Regression: insurance-only mode (the default) used to SKIP _auto_outreach
+    entirely, so an imported insurance lead — e.g. a DOT commercial list — never got
+    its first email sent automatically. It must now dispatch the insurance segments
+    (and still NOT the other businesses' restaurants/consulting)."""
+    from app import bulk_outreach, scheduler
+    monkeypatch.setattr(scheduler, "_insurance_only", lambda: True)
+    segs: list = []
+    monkeypatch.setattr(bulk_outreach, "dispatch_leads",
+                        lambda db, segment=None, **k: (segs.append(segment), {"dispatched": 0})[1])
+    restaurants_called = []
+    monkeypatch.setattr(bulk_outreach, "dispatch_restaurants",
+                        lambda db, **k: restaurants_called.append(True))
+    out = scheduler._auto_outreach(db=None)
+    assert "skipped" not in out
+    assert "commercial" in segs and "personal" in segs  # insurance leads worked
+    assert "consulting" not in segs and not restaurants_called  # other businesses paused
+
+
 @requires_db
 def test_deliverability_dashboard(client, auth_headers):
     """The deliverability screen reports the sending channel, today's sends vs cap,
@@ -7160,19 +7179,28 @@ def test_insurance_only_scheduler_registers_insurance_jobs_only(monkeypatch):
 
 
 def test_insurance_only_pauses_other_business_outreach(monkeypatch):
-    """In insurance-only mode the scheduled auto-outreach short-circuits — so the
-    other funnels' generic cold email (restaurants/consulting) never sends from the
-    insurance domain. It's the default profile now."""
-    from app import scheduler
+    """In insurance-only mode the scheduled auto-outreach still works INSURANCE leads
+    (commercial/personal/referral_partner) — so an imported DOT list reaches out on its
+    own — but the OTHER funnels (restaurants/consulting) stay paused so nothing generic
+    sends from the insurance domain. It's the default profile now."""
+    from app import bulk_outreach, scheduler
     from app.config import settings
 
     # Ships insurance-only by default.
     assert settings.autonomy_profile == "insurance"
 
     monkeypatch.setattr(settings, "autonomy_profile", "insurance", raising=False)
+    segs: list = []
+    monkeypatch.setattr(bulk_outreach, "dispatch_leads",
+                        lambda db, segment=None, **k: (segs.append(segment), {"dispatched": 0})[1])
+    restaurants = []
+    monkeypatch.setattr(bulk_outreach, "dispatch_restaurants",
+                        lambda db, **k: restaurants.append(True))
     # Guard runs before any DB access, so None is a safe stand-in for the session.
     out = scheduler._auto_outreach(None)
-    assert "skipped" in out and "insurance-only" in out["skipped"]
+    assert "skipped" not in out
+    assert "commercial" in segs and "personal" in segs   # insurance leads still worked
+    assert "consulting" not in segs and not restaurants   # other businesses paused
 
     monkeypatch.setattr(settings, "autonomy_profile", "all", raising=False)
     assert scheduler._insurance_only() is False   # 'all' re-enables the other funnels
