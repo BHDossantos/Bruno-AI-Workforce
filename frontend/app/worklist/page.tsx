@@ -31,7 +31,7 @@ type Coverage = {
 
 type CallHealth = {
   provider: string | null; configured: boolean; voicemail_ready: boolean;
-  transfer_enabled: boolean; daily_cap: number; remaining_today: number | null;
+  transfer_enabled: boolean; auto_dial_enabled?: boolean; daily_cap: number; remaining_today: number | null;
   dial_targets?: {
     rings_first: string; rings_first_pretty: string;
     transfers_to: string; transfers_to_pretty: string;
@@ -140,6 +140,19 @@ export default function WorkListPage() {
       setTick((t) => t + 1);  // refresh the calling-health numbers
     } catch (e) { setDialMsg({ ok: false, message: e instanceof Error ? e.message : String(e) }); }
     finally { setDialing(false); }
+  }
+
+  // One-click pause/resume for the auto-dialer. Pauses CALLS only — email and texts
+  // keep flowing. Takes effect on the next scheduled run (~1 min); no redeploy.
+  const [pausing, setPausing] = useState(false);
+  async function toggleAutoDial(on: boolean) {
+    if (!on && !confirm("Pause all automatic phone calls? Email and texts keep running. You can resume anytime here.")) return;
+    setPausing(true);
+    try {
+      await api.post<{ auto_dial_enabled: boolean }>("/calls/auto-dial", { on });
+      setTick((t) => t + 1);
+    } catch (e) { setDialMsg({ ok: false, message: e instanceof Error ? e.message : String(e) }); }
+    finally { setPausing(false); }
   }
 
   // Ring your phone so you can record the voicemail drop in your OWN voice. Until this
@@ -251,10 +264,31 @@ export default function WorkListPage() {
               <span className="text-xs text-gray-400">Texts run to 8pm ET, Mon–Sat; replies anytime. Emails send 7 days.</span>
             </div>
           )}
+          {callHealth.auto_dial_enabled === false && (
+            <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              ⏸ <b>Automatic phone calls are paused.</b> Email and texts are still running. Hit “Resume auto-calls” to turn calling back on.
+            </div>
+          )}
           <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-gray-100 pt-3 text-sm">
+            {callHealth.auto_dial_enabled === false ? (
+              <button
+                className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                disabled={pausing} onClick={() => toggleAutoDial(true)}
+              >
+                {pausing ? "Resuming…" : "▶️ Resume auto-calls"}
+              </button>
+            ) : (
+              <button
+                className="rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                disabled={pausing} onClick={() => toggleAutoDial(false)}
+                title="Stop automatic phone calls (email and texts keep running)"
+              >
+                {pausing ? "Pausing…" : "⏸ Pause auto-calls"}
+              </button>
+            )}
             <button
               className="rounded-lg bg-brand-dark px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
-              disabled={dialing || !(callHealth.setup?.ready_to_dial ?? callHealth.configured)}
+              disabled={dialing || callHealth.auto_dial_enabled === false || !(callHealth.setup?.ready_to_dial ?? callHealth.configured)}
               onClick={startAutoDial}
             >
               {dialing ? "Starting…" : "▶️ Start auto-dialing now"}

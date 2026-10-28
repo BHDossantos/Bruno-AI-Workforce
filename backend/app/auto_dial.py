@@ -28,6 +28,16 @@ from .config import settings
 from .integrations import voice  # dispatcher → Plivo or Twilio/SignalWire
 from .models import Lead, Message
 
+
+def auto_dial_enabled() -> bool:
+    """The auto-dial master switch, tolerant of how it's stored. The runtime toggle
+    persists it as a STRING ('true'/'false') and env vars arrive as strings too, so a
+    bare truthiness check would read the string 'false' as on. Default on."""
+    v = settings.auto_dial_enabled
+    if isinstance(v, bool):
+        return v
+    return str(v).strip().lower() not in ("false", "0", "no", "off", "")
+
 log = logging.getLogger("bruno.autodial")
 
 # Marker prefix on the call log line, so we can count auto-dials placed today
@@ -58,20 +68,21 @@ def run(db, per_run_limit: int | None = None) -> dict:
     THIS invocation — the scheduler passes 1 so calls go out one-per-minute from 8am
     (paced, human), while the manual 'run now' bursts up to the day's remaining cap.
     The per-day total is always bounded by AUTO_DIAL_DAILY_CAP. Returns a summary."""
-    if not settings.auto_dial_enabled:
-        return {"skipped": "auto-dial disabled (AUTO_DIAL_ENABLED=false)"}
-    if control.is_paused_safe(db):
-        return {"skipped": "paused"}
-    if control.get_mode(db) != "auto" and not control.outreach_autopilot(db):
-        return {"skipped": "autopilot off (turn on Outreach Autopilot to enable)"}
-
-    # Load the live voice number / recorded-voicemail URL onto settings (any Cloud
-    # Run instance may be cold), exactly like the call webhooks do.
+    # Load stored runtime config FIRST (the live voice number, recorded-voicemail URL,
+    # and the auto-dial on/off switch — any Cloud Run / Render instance may be cold),
+    # so the in-app "Pause auto-calls" toggle is honored on the very next run.
     try:
         from . import runtime_config
         runtime_config.apply_to_settings(db)
     except Exception:  # runtime config is best-effort — env vars still work
         log.debug("runtime config refresh skipped", exc_info=True)
+
+    if not auto_dial_enabled():
+        return {"skipped": "auto-dial paused (turn 'Pause auto-calls' back on, or AUTO_DIAL_ENABLED)"}
+    if control.is_paused_safe(db):
+        return {"skipped": "paused"}
+    if control.get_mode(db) != "auto" and not control.outreach_autopilot(db):
+        return {"skipped": "autopilot off (turn on Outreach Autopilot to enable)"}
 
     if not voice.is_configured():
         return {"skipped": "calling not connected"}

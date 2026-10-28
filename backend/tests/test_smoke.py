@@ -1549,6 +1549,31 @@ def test_calls_health_reports_connect_rate(client, auth_headers):
         db.close()
 
 
+@requires_db
+def test_auto_dial_pause_resume_toggle(client, auth_headers, monkeypatch):
+    """One-click Pause/Resume for auto-calls: persisted via runtime_config (survives a
+    restart, no redeploy) and honored by auto_dial.run on the next pass. Pauses CALLS
+    only — email/text are untouched."""
+    from app import auto_dial, runtime_config
+    from app.database import SessionLocal
+    monkeypatch.delenv("AUTO_DIAL_ENABLED", raising=False)  # env would otherwise win
+    db = SessionLocal()
+    try:
+        # Pause → health + status reflect it, and the dialer no-ops with a paused reason.
+        r = client.post("/calls/auto-dial", headers=auth_headers, json={"on": False})
+        assert r.status_code == 200 and r.json()["auto_dial_enabled"] is False
+        assert client.get("/calls/health", headers=auth_headers).json()["auto_dial_enabled"] is False
+        out = auto_dial.run(db, per_run_limit=1)
+        assert "skipped" in out and "pause" in out["skipped"].lower()
+        # Resume → back on.
+        assert client.post("/calls/auto-dial", headers=auth_headers,
+                           json={"on": True}).json()["auto_dial_enabled"] is True
+        assert client.get("/calls/auto-dial", headers=auth_headers).json()["auto_dial_enabled"] is True
+    finally:
+        runtime_config.save(db, "auto_dial_enabled", "true")  # leave enabled for other tests
+        db.close()
+
+
 def test_sms_configured_accepts_either_number():
     """Twilio SMS is 'configured' with the creds + EITHER number field (default or
     insurance) — requiring both was a trap that silently blocked texting. And the
@@ -8233,14 +8258,19 @@ def test_auto_dial_daily_pass_calls_hottest_respects_cooldown_optout_and_dead(mo
         db.close()
     assert hot_phones.isdisjoint(called)            # none of ours re-dialed
 
-    # Master switch off → the pass no-ops with a clear reason.
-    monkeypatch.setattr(settings, "auto_dial_enabled", False, raising=False)
+    # Master switch off → the pass no-ops with a clear reason. Toggle via the real
+    # runtime switch (DB-backed — what the "Pause auto-calls" button writes), which the
+    # dialer loads at the top of each run and which overrides any in-memory value.
+    from app import runtime_config
+    monkeypatch.delenv("AUTO_DIAL_ENABLED", raising=False)  # env would otherwise win
     db = SessionLocal()
     try:
+        runtime_config.save(db, "auto_dial_enabled", "false")
         off = auto_dial.run(db)
     finally:
+        runtime_config.save(db, "auto_dial_enabled", "true")  # restore for later tests
         db.close()
-    assert off.get("placed") is None and "disabled" in off.get("skipped", "")
+    assert off.get("placed") is None and "pause" in off.get("skipped", "").lower()
 
 
 def test_compliance_gate_rules_and_audit(monkeypatch):

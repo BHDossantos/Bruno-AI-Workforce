@@ -45,6 +45,7 @@ FIELDS: dict[str, bool] = {
     "twilio_from_number": False,
     "twilio_insurance_number": False,  # optional separate number for insurance texts
     "twilio_voice_number": False,      # caller-ID for outbound calls (Voice-enabled)
+    "auto_dial_enabled": False,        # master on/off for the auto-dialer (Pause auto-calls)
     "transfer_caller_id": False,       # LOCAL caller-ID for bridged transfers (avoids silent audio)
     "local_presence_numbers": False,   # comma-separated local DID pool (answer rates + bridge audio)
     "lead_import_enabled": False,      # auto-import CSV lists emailed to a mailbox
