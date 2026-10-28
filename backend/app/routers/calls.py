@@ -11,6 +11,7 @@ note-taker. Webhooks are public because Twilio calls them.
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -33,6 +34,33 @@ def _refresh(db: Session) -> None:
         runtime_config.apply_to_settings(db)
     except Exception:
         pass
+
+
+class AutoDialToggle(BaseModel):
+    on: bool
+
+
+def _auto_dial_state(db: Session) -> bool:
+    _refresh(db)
+    from .. import auto_dial
+    return auto_dial.auto_dial_enabled()
+
+
+@router.get("/auto-dial")
+def auto_dial_status(db: Session = Depends(get_db), _=Depends(_read)):
+    """Is the auto-dialer on or paused right now."""
+    return {"auto_dial_enabled": _auto_dial_state(db)}
+
+
+@router.post("/auto-dial")
+def set_auto_dial(body: AutoDialToggle, db: Session = Depends(get_db), _=Depends(_write)):
+    """One-click Pause/Resume for the auto-dialer. Persists via runtime_config so it
+    survives restarts and takes effect on the next scheduled run (~1 min) — no redeploy.
+    Only pauses CALLS; email and texts keep flowing. An AUTO_DIAL_ENABLED env var, if
+    set, still wins (env always overrides stored config)."""
+    from .. import runtime_config
+    runtime_config.save(db, "auto_dial_enabled", "true" if body.on else "false")
+    return {"auto_dial_enabled": _auto_dial_state(db)}
 
 
 @router.post("/test")
@@ -204,6 +232,7 @@ def calling_health(db: Session = Depends(get_db), _=Depends(_read)):
         "setup": setup,
         "voicemail_ready": voice.voicemail_configured(),
         "transfer_enabled": bool(settings.auto_dial_transfer_enabled),
+        "auto_dial_enabled": _auto_dial_state(db),
         "daily_cap": cap,
         "remaining_today": max(0, cap - today["placed"]) if cap else None,
         # Auto-dial window, anchored to the owner's tz so answered-call transfers never
