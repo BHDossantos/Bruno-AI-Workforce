@@ -323,7 +323,12 @@ def twiml_inbound(db: Session = Depends(get_db)):
     'When a call comes in' webhook at {PUBLIC_BASE_URL}/calls/twiml/inbound."""
     try:
         _refresh(db)  # load the connected voice/callback numbers on any instance
-        return Response(voice.inbound_twiml(), media_type=_XML)
+        # When calls are paused in-app (or the Emergency Stop is engaged), DON'T ring the
+        # producer's cell on a call-back — send the caller to voicemail instead, so
+        # "turn calls off" actually stops the phone from ringing both ways.
+        from .. import auto_dial, control
+        forward = auto_dial.auto_dial_enabled() and not control.is_paused_safe(db)
+        return Response(voice.inbound_twiml(forward=forward), media_type=_XML)
     except Exception:  # never hand the carrier a 5xx — that surfaces as 11200
         return Response(voice._xml("<Say>Thank you for calling Thrust Insurance. "
                                    "Please try again shortly.</Say>"), media_type=_XML)

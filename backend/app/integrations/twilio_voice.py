@@ -255,17 +255,24 @@ def outbound_twiml(to: str, lead_id: str | None) -> str:
     return _dial_lead(to, lead_id)
 
 
-def inbound_twiml() -> str:
+def inbound_twiml(forward: bool = True) -> str:
     """Played when someone CALLS OUR NUMBER back. Greets them as Thrust Insurance
     and forwards the call to the producer's cell (E.164 caller-ID = our own number
     so the carrier accepts the <Dial>); if it isn't answered, takes a short
-    voicemail. Point your SignalWire number's 'When a call comes in' webhook here."""
+    voicemail. Point your SignalWire number's 'When a call comes in' webhook here.
+
+    ``forward=False`` (calls paused in-app, or the Emergency Stop) does NOT ring the
+    cell — the caller gets a short message and voicemail instead, so pausing calls in
+    the app actually stops the producer's phone from ringing on call-backs too."""
     greeting = ("<Say>Thank you for calling Thrust Insurance. Please hold while we "
                 "connect you to a licensed producer.</Say>")
     to = _transfer_number()
-    if not to:  # no forwarding number set — take a message instead of dead air
-        return _xml(greeting + "<Say>Sorry, no one is available right now. Please leave "
-                    'a message after the tone.</Say><Record maxLength="120" playBeep="true"/>')
+    if not forward or not to:  # paused, or no forwarding number — take a message
+        msg = ("Thanks for calling Thrust Insurance. No one is available to take your "
+               "call right now. Please leave a message after the tone and we'll call you "
+               "right back.")
+        return _xml(f"<Say>{msg}</Say>"
+                    '<Record maxLength="120" playBeep="true"/>')
     # Local (non-toll-free) caller-ID so the forwarded leg to the cell carries audio.
     caller_id = bridge_caller_id(to)
     cid = f' callerId="{caller_id}"' if caller_id else ""
