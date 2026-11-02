@@ -1477,6 +1477,12 @@ def test_inbound_twiml_greets_and_forwards():
         assert 'callerId="+16035550100"' in xml          # E.164 caller-ID our number
         assert "<Record" in xml                          # voicemail fallback after Dial
 
+        # Calls paused in-app (forward=False) → do NOT ring the cell; take a voicemail
+        # so "turn phone calls off" actually stops the producer's phone on a call-back.
+        xml_paused = v.inbound_twiml(forward=False)
+        assert "<Dial" not in xml_paused and "+16175551234" not in xml_paused
+        assert "<Record" in xml_paused
+
         # No forwarding number → still greets + records, never returns dead air.
         settings.producer_cell = ""; settings.producer_callback = ""
         xml2 = v.inbound_twiml()
@@ -1565,6 +1571,10 @@ def test_auto_dial_pause_resume_toggle(client, auth_headers, monkeypatch):
         assert client.get("/calls/health", headers=auth_headers).json()["auto_dial_enabled"] is False
         out = auto_dial.run(db, per_run_limit=1)
         assert "skipped" in out and "pause" in out["skipped"].lower()
+        # Inbound call-backs also go to voicemail while paused — the producer's phone
+        # does NOT ring (this is the gap that made "turn calls off" feel broken).
+        ib = client.get("/calls/twiml/inbound").text
+        assert "<Dial" not in ib and "<Record" in ib
         # Resume → back on.
         assert client.post("/calls/auto-dial", headers=auth_headers,
                            json={"on": True}).json()["auto_dial_enabled"] is True

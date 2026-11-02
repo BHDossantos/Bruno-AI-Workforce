@@ -307,6 +307,7 @@ function EmergencyStop() {
   const [paused, setPaused] = useState<boolean | null>(null);
   const [mode, setMode] = useState<string>("semi");
   const [outreach, setOutreach] = useState<boolean>(true);
+  const [callsOn, setCallsOn] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -318,7 +319,22 @@ function EmergencyStop() {
         if (typeof r.outreach_autopilot === "boolean") setOutreach(r.outreach_autopilot);
       })
       .catch(() => {});
+    api.get<{ auto_dial_enabled: boolean }>("/calls/auto-dial")
+      .then((r) => setCallsOn(r.auto_dial_enabled))
+      .catch(() => {});
   }, []);
+
+  async function toggleCalls() {
+    setBusy(true);
+    try {
+      const r = await api.post<{ auto_dial_enabled: boolean }>("/calls/auto-dial", { on: !callsOn });
+      setCallsOn(r.auto_dial_enabled);
+    } catch {
+      /* ignore — status stays as-is */
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function toggle() {
     setBusy(true);
@@ -359,6 +375,32 @@ function EmergencyStop() {
   if (paused === null) return null;
   return (
     <div className="mx-3 mt-3 space-y-2">
+      {/* Phone calls master switch — stops the auto-dialer AND stops inbound call-backs
+          from ringing your cell (callers can still leave a voicemail). Takes effect
+          within ~1 min, no redeploy. */}
+      {callsOn !== null && (
+        <div className={`rounded-lg p-2 ${callsOn ? "bg-white/10" : "bg-red-500/20"}`}>
+          <div className="mb-1 flex items-center justify-between">
+            <div className="text-[11px] uppercase tracking-wide text-brand-light">📞 Phone calls</div>
+            <span className={`text-[11px] font-semibold ${callsOn ? "text-emerald-300" : "text-red-300"}`}>
+              {callsOn ? "ON" : "OFF"}
+            </span>
+          </div>
+          <div className="mb-2 text-[10px] text-brand-light/70">
+            {callsOn
+              ? "On — auto-dialing out and forwarding call-backs to your phone."
+              : "Off — not calling anyone, and call-backs go to voicemail (your phone won't ring)."}
+          </div>
+          <button onClick={toggleCalls} disabled={busy}
+            title="Turn ALL phone calls on/off (outbound auto-dial + inbound forwarding)"
+            className={`w-full rounded-lg px-3 py-2 text-sm font-semibold disabled:opacity-50 ${
+              callsOn ? "bg-red-600 text-white hover:bg-red-500"
+                      : "bg-emerald-500 text-white hover:bg-emerald-400"
+            }`}>
+            {busy ? "…" : callsOn ? "⛔ Turn phone calls OFF" : "▶ Turn phone calls ON"}
+          </button>
+        </div>
+      )}
       {/* Automation mode: semi (you approve to send) vs full autopilot */}
       <div className="rounded-lg bg-white/10 p-2">
         <div className="mb-1 text-[11px] uppercase tracking-wide text-brand-light">Automation</div>

@@ -146,7 +146,7 @@ export default function WorkListPage() {
   // keep flowing. Takes effect on the next scheduled run (~1 min); no redeploy.
   const [pausing, setPausing] = useState(false);
   async function toggleAutoDial(on: boolean) {
-    if (!on && !confirm("Pause all automatic phone calls? Email and texts keep running. You can resume anytime here.")) return;
+    if (!on && !confirm("Turn OFF all phone calls? The auto-dialer stops AND inbound call-backs go to voicemail (your phone won't ring). Email and texts keep running. You can resume anytime here.")) return;
     setPausing(true);
     try {
       await api.post<{ auto_dial_enabled: boolean }>("/calls/auto-dial", { on });
@@ -266,7 +266,7 @@ export default function WorkListPage() {
           )}
           {callHealth.auto_dial_enabled === false && (
             <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              ⏸ <b>Automatic phone calls are paused.</b> Email and texts are still running. Hit “Resume auto-calls” to turn calling back on.
+              ⏸ <b>Phone calls are OFF.</b> Not auto-dialing, and call-backs go to voicemail (your phone won’t ring). Email and texts still run. Hit “Resume calls” to turn calling back on.
             </div>
           )}
           <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-gray-100 pt-3 text-sm">
@@ -275,15 +275,15 @@ export default function WorkListPage() {
                 className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
                 disabled={pausing} onClick={() => toggleAutoDial(true)}
               >
-                {pausing ? "Resuming…" : "▶️ Resume auto-calls"}
+                {pausing ? "Resuming…" : "▶️ Resume calls"}
               </button>
             ) : (
               <button
                 className="rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
                 disabled={pausing} onClick={() => toggleAutoDial(false)}
-                title="Stop automatic phone calls (email and texts keep running)"
+                title="Stop ALL phone calls — outbound auto-dial + inbound call-backs (email and texts keep running)"
               >
-                {pausing ? "Pausing…" : "⏸ Pause auto-calls"}
+                {pausing ? "Pausing…" : "⏸ Turn phone calls off"}
               </button>
             )}
             <button
