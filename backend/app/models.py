@@ -918,3 +918,23 @@ class ImportedEmailLog(Base):
     imported: Mapped[int] = mapped_column(Integer, default=0)
     updated: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class OutboundAttempt(Base):
+    """Durable reservation committed BEFORE a provider call; never auto-expired."""
+    __tablename__ = "outbound_attempts"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    scope: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    channel: Mapped[str] = mapped_column(String(20), nullable=False)
+    state: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    provider_id: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class OutboundHold(Base):
+    """One outstanding provider action per recipient/account/channel."""
+    __tablename__ = "outbound_holds"
+    scope: Mapped[str] = mapped_column(String(64), primary_key=True)
+    attempt_key: Mapped[str] = mapped_column(String(64), nullable=False)

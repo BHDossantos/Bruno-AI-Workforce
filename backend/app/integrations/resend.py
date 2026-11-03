@@ -16,6 +16,7 @@ import logging
 import httpx
 
 from ..config import settings
+from ..outbound_guard import RejectedDelivery
 
 log = logging.getLogger("bruno.resend")
 
@@ -86,12 +87,13 @@ def send_with_error(to: str, subject: str, html: str, *, from_email: str | None 
                 hint = " (auth failed — check the API key)"
             elif "domain" in (msg or "").lower():
                 hint = " (verify your sending domain in Resend, or send from a verified address)"
-            return None, f"Resend {r.status_code}: {msg}{hint}"
+            error = f"Resend {r.status_code}: {msg}{hint}"
+            return None, (RejectedDelivery(error) if r.status_code in (400, 401, 403, 404, 413, 422, 429) else error)
         try:
             mid = r.json().get("id")
         except Exception:
             mid = None
-        return (mid or "resend-sent"), None
+        return (mid, None) if mid else (None, "Resend acceptance missing receipt; reconcile before retrying.")
     except Exception as exc:  # pragma: no cover - network guard
         log.warning("Resend send failed (%s): %s", to, exc)
         return None, f"Resend error: {str(exc)[:160]}"

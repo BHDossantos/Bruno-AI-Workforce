@@ -1790,6 +1790,11 @@ def test_plivo_voice_provider_and_dispatch(monkeypatch):
     """Plivo is a second voice provider: when voice_provider routes to Plivo, the
     dispatcher places calls via Plivo's Call API, and its XML drops the recorded
     voicemail (transfer off) or connects a live answer when enabled."""
+    # Routing unit test: durable reservation behavior is tested against PostgreSQL
+    # separately; these provider fixtures deliberately reuse the same phone number.
+    from app import outbound_guard
+    monkeypatch.setattr(outbound_guard, "invoke", lambda channel, recipient, account,
+                        operation, payload, send, **kwargs: send())
     from app.config import settings
     from app.integrations import plivo_voice, voice
 
@@ -1841,6 +1846,11 @@ def test_vonage_voice_provider_and_dispatch(monkeypatch):
     """Vonage is a third voice provider: JWT-authed calls to Vonage's API with
     E.164-without-plus numbers, and NCCO (JSON) that streams the recorded voicemail
     (transfer off) or connects a live answer to the cell (transfer on)."""
+    # Routing unit test: durable reservation behavior is tested against PostgreSQL
+    # separately; these provider fixtures deliberately reuse the same phone number.
+    from app import outbound_guard
+    monkeypatch.setattr(outbound_guard, "invoke", lambda channel, recipient, account,
+                        operation, payload, send, **kwargs: send())
     from app.config import settings
     from app.integrations import voice, vonage_voice
 
@@ -1928,6 +1938,11 @@ def test_sip_softswitch_provider_and_dispatch(monkeypatch):
     """Our own FreeSWITCH softswitch is a voice provider too: it originates over the
     Event Socket through a BYOC gateway and returns HTTAPI (XML) call control that
     leaves the recorded voicemail (transfer off) or bridges to the cell (transfer on)."""
+    # Routing unit test: durable reservation behavior is tested against PostgreSQL
+    # separately; these provider fixtures deliberately reuse the same phone number.
+    from app import outbound_guard
+    monkeypatch.setattr(outbound_guard, "invoke", lambda channel, recipient, account,
+                        operation, payload, send, **kwargs: send())
     from app.config import settings
     from app.integrations import sip_voice, voice
 
@@ -7519,7 +7534,7 @@ def test_send_drafts_sends_hot_leads_first(client, auth_headers, monkeypatch):
 
     # Delivery always succeeds, so what we're testing is the ORDER, not the channel.
     monkeypatch.setattr(outreach, "can_deliver", lambda account: True)
-    monkeypatch.setattr(outreach, "deliver", lambda to, subject, body, account: ("fake-mid", None))
+    monkeypatch.setattr(outreach, "deliver", lambda to, subject, body, account, **kwargs: ("fake-mid", None))
 
     acct = "hotfirst_test"
     db = SessionLocal()
@@ -9447,6 +9462,7 @@ def test_email_esp_pool_resend_primary_sendgrid_overflow(monkeypatch):
     """Email prefers Resend (high daily quota) and only overflows to SendGrid (low
     quota) when Resend fails — Resend primary, SendGrid failover, not a 50/50 split."""
     from app import outreach
+    from app.outbound_guard import RejectedDelivery
     from app.integrations import resend, sendgrid
     for esp, tag in ((resend, "resend"), (sendgrid, "sendgrid")):
         monkeypatch.setattr(esp, "is_configured", lambda: True)
@@ -9457,7 +9473,7 @@ def test_email_esp_pool_resend_primary_sendgrid_overflow(monkeypatch):
     def _mk(tag, ok):
         def _send(to, subject, html, *, from_email=None, reply_to=None):
             calls.append(tag)
-            return (f"{tag}-id", None) if ok else (None, f"{tag} failed")
+            return (f"{tag}-id", None) if ok else (None, RejectedDelivery(f"{tag} rejected"))
         return _send
 
     # Resend healthy → EVERY send goes through Resend; SendGrid is never touched.

@@ -48,6 +48,7 @@ function Outbox() {
       setTick((t) => t + 1);
     } catch (e) {
       setNote(String(e));
+      setTick((t) => t + 1); // A held send updates its review status even on HTTP 409.
     } finally {
       setBusy(null);
     }
@@ -86,7 +87,7 @@ function Outbox() {
     <div>
       <PageHeader
         title="Outbox"
-        subtitle="Outbound emails delivered via Resend (or your Gmail mailbox), and reply status"
+        subtitle="Outbound email submissions and reply status"
         action={
           <div className="flex gap-2">
             <select value={account} onChange={(e) => setAccount(e.target.value)} className="rounded-lg border border-gray-300 px-3 py-2 text-sm">
@@ -102,6 +103,7 @@ function Outbox() {
         }
       />
       <p className="mb-3 text-xs text-gray-500">“Send next 70” sends your highest-priority drafts now — new hot &amp; uncontacted first, then hot follow-ups, warm, cold. Total emails/day are held under a daily cap that ramps up on a new domain (so you clear a backlog without getting spam-flagged), then settles to a steady pace. Pick an account above to send only that mailbox&apos;s drafts. If a send fails, the exact reason shows below.</p>
+      <p className="mb-3 text-xs text-amber-800">Needs Review means delivery is held. Check the provider’s records before taking further action; the message may already have been accepted. Sent records provider acceptance, not confirmed delivery.</p>
       {note && <p className="mb-4 rounded bg-brand/10 p-3 text-sm text-brand-dark">{note}</p>}
       <div className="mb-3">
         <button onClick={() => setShowDiag((v) => !v)} className="text-xs text-brand underline">
@@ -150,7 +152,9 @@ function Outbox() {
                 <td className="td"><StatusBadge status={m.status} />{m.approved && <span className="ml-1 badge bg-green-100 text-green-700">approved</span>}</td>
                 <td className="td"><Expandable label="Body" text={m.body} /></td>
                 <td className="td whitespace-nowrap">
-                  {m.status !== "Sent" && (
+                  {m.status === "Needs Review" ? (
+                    <span className="text-xs text-amber-800">Delivery held for review</span>
+                  ) : m.status !== "Sent" && (
                     <button className="btn" disabled={busy === m.id} onClick={() => act(m.id, "send")}>Send</button>
                   )}
                 </td>

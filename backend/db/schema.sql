@@ -303,3 +303,20 @@ CREATE INDEX IF NOT EXISTS idx_leads_segment     ON leads(segment);
 CREATE INDEX IF NOT EXISTS idx_restaurants_kind  ON restaurants(kind);
 CREATE INDEX IF NOT EXISTS idx_followups_due     ON follow_ups(due_date) WHERE completed = FALSE;
 CREATE INDEX IF NOT EXISTS idx_reports_date      ON daily_reports(report_date DESC);
+
+-- Durable provider reservations; never auto-expire pending/unknown outcomes.
+CREATE TABLE IF NOT EXISTS outbound_attempts (
+    key VARCHAR(64) PRIMARY KEY,
+    scope VARCHAR(64) NOT NULL,
+    payload_hash VARCHAR(64) NOT NULL,
+    channel VARCHAR(20) NOT NULL,
+    state VARCHAR(20) NOT NULL DEFAULT 'pending',
+    provider_id VARCHAR,
+    created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_outbound_attempts_scope ON outbound_attempts(scope);
+CREATE TABLE IF NOT EXISTS outbound_holds (
+    scope VARCHAR(64) PRIMARY KEY,
+    attempt_key VARCHAR(64) NOT NULL
+);

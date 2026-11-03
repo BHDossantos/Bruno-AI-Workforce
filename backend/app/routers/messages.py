@@ -83,6 +83,17 @@ class ReplyIn(BaseModel):
     account: str | None = None
 
 
+@router.get("/messages/delivery-attempts")
+def delivery_attempts(db: Session = Depends(get_db), _=Depends(_write)):
+    """Read-only reconciliation queue. Never retries provider actions."""
+    from ..models import OutboundAttempt
+    attempts = db.query(OutboundAttempt).filter(
+        OutboundAttempt.state.in_(["pending", "unknown", "rejected"])
+    ).order_by(OutboundAttempt.created_at.desc()).limit(200).all()
+    return [{"key": a.key, "channel": a.channel, "state": a.state,
+             "created_at": a.created_at, "updated_at": a.updated_at} for a in attempts]
+
+
 @router.get("/messages", response_model=list[MessageOut])
 def list_messages(status: str | None = None, account: str | None = None, limit: int = 200,
                   db: Session = Depends(get_db), _=Depends(_read)):
@@ -111,15 +122,20 @@ def send_message(message_id: str, db: Session = Depends(get_db), _=Depends(_writ
     msg = db.query(Message).filter(Message.id == message_id).first()
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found")
+    if msg.status == "Sent":
+        return msg  # historical sends may predate durable reservations
     if not msg.to_email:
         raise HTTPException(status_code=400, detail="Message has no recipient")
     from .. import outreach
     if not outreach.can_deliver(msg.from_account):
         raise HTTPException(status_code=400,
                             detail=f"No delivery channel for '{msg.from_account}' — connect Resend or a Gmail mailbox in Setup")
-    mid, err = outreach.deliver(msg.to_email, msg.subject, msg.body, account=msg.from_account)
+    mid, err = outreach.deliver(msg.to_email, msg.subject, msg.body, account=msg.from_account,
+                                operation_key=f"message:{msg.id}")
     if not mid:
-        raise HTTPException(status_code=502, detail=f"Send failed: {err or 'unknown error'}")
+        msg.status = "Needs Review"
+        db.commit()
+        raise HTTPException(status_code=409, detail=f"Send held: {err or 'unknown error'}")
     msg.provider_id = mid
     msg.approved = True
     msg.status = "Sent"

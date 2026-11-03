@@ -13,6 +13,8 @@ plivo_voice, NCCO → vonage_voice), since each speaks different markup.
 from __future__ import annotations
 
 from ..config import settings
+from .. import outbound_guard
+from datetime import datetime, timezone
 
 
 def active() -> str | None:
@@ -81,7 +83,18 @@ def access_token(identity: str):
 
 
 def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, str | None]:
-    return _mod().place_auto_call(lead_phone, lead_id)
+    if not is_configured():
+        return None, "Calling not connected"
+    # Shared by auto_dial, EverQuote cadence and the manual auto-call endpoint.
+    # One auto-call per normalized number/UTC day; unresolved attempts also fence
+    # later days. Manual bridge/test/recording calls are explicitly outside scope.
+    normalized = "".join(c for c in lead_phone if c.isdigit())
+    if len(normalized) == 10:
+        normalized = "1" + normalized
+    return outbound_guard.invoke("auto-call", normalized, "voice",
+                                 str(datetime.now(timezone.utc).date()), [normalized],
+                                 lambda: _mod().place_auto_call(lead_phone, lead_id),
+                                 replay_accepted=False)
 
 
 def place_bridge_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, str | None]:

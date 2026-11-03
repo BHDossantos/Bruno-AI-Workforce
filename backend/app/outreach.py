@@ -12,7 +12,7 @@ from datetime import date, datetime, timezone
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from . import email_template
+from . import email_template, outbound_guard
 from .config import settings
 from .integrations import gmail
 from .models import ActionLog, Lead, Message, Restaurant
@@ -176,18 +176,18 @@ def _send_via_esps(to_email: str, subject: str | None, html: str | None,
         if mid:
             return mid, None
         last_err = err
+        if not isinstance(err, outbound_guard.RejectedDelivery):
+            return None, err or "Provider outcome unknown; reconcile before retrying."
     return None, last_err
 
 
-def deliver(to_email: str, subject: str | None, body: str | None,
+def _deliver_once(to_email: str, subject: str | None, body: str | None,
             account: str = "insurance") -> tuple[str | None, str | None]:
     """Deliver one email NOW via the best available channel, returning
     (message_id, error_reason).
 
-    Order: the ESP pool (Resend + SendGrid, round-robined to spread volume across
-    both and raise the daily limit), then the account's Gmail mailbox. This is what
-    the Outbox "Send" / "Send next N" buttons use, so a working provider delivers
-    even when another is down or over quota.
+    Order: Resend, SendGrid, then the account's Gmail mailbox. Overflow is
+    permitted only after explicit rejection; ambiguous outcomes stop delivery.
     """
     # HARD GUARD: never send to a placeholder/sample address (example.com, .test, …).
     # These are synthetic/demo records; delivering to them wastes ESP quota and
@@ -208,11 +208,29 @@ def deliver(to_email: str, subject: str | None, body: str | None,
     if mid:
         return mid, None
     # 2) The account's Gmail mailbox.
+    if esp_err and not isinstance(esp_err, outbound_guard.RejectedDelivery):
+        return None, esp_err
     if gmail.is_configured(account):
         return gmail.send_with_error(to_email, subject or "", body or "", account=account)
     return None, (esp_err
                   or f"No delivery channel configured for '{account}' "
                      "(connect Resend/SendGrid or a Gmail mailbox)")
+
+
+def deliver(to_email: str, subject: str | None, body: str | None,
+            account: str = "insurance", *, operation_key: str | None = None,
+            replay_accepted: bool = True):
+    if not is_real_email(to_email) or not (email_template.clean_body(body) or "").strip():
+        return None, "Not sent — empty/blank body or placeholder/sample recipient."
+    if not can_deliver(account):
+        return None, "Not sent — no delivery channel configured."
+    # Legacy callers without a message identity get permanent content deduplication.
+    # Explicit intents should pass a stable message ID (never a fresh retry UUID).
+    operation = operation_key or outbound_guard.digest(subject, body)
+    return outbound_guard.invoke("email", to_email, account, operation,
+                                 [subject, body],
+                                 lambda: _deliver_once(to_email, subject, body, account),
+                                 replay_accepted=replay_accepted)
 
 
 def can_deliver(account: str = "insurance") -> bool:
@@ -316,7 +334,8 @@ def send_email_drafts(db: Session, *, limit: int = 25, account: str | None = Non
             if reason not in errors:
                 errors.append(reason)
             continue
-        mid, err = deliver(m.to_email, m.subject, m.body, account=m.from_account)
+        mid, err = deliver(m.to_email, m.subject, m.body, account=m.from_account,
+                           operation_key=f"message:{m.id}")
         if mid:
             m.provider_id = mid
             m.approved = True
@@ -324,6 +343,7 @@ def send_email_drafts(db: Session, *, limit: int = 25, account: str | None = Non
             m.sent_at = datetime.now(timezone.utc)
             sent += 1
         else:
+            m.status = "Needs Review"
             failed += 1
             if err and err not in errors:
                 errors.append(err)
@@ -427,9 +447,15 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
             first, last, company, website, phone = _entity_fields(db, entity_type, entity_id)
         except Exception:
             pass
-        if sender.add_lead(email=to_email, first_name=first, last_name=last,
-                           company_name=company, website=website, phone=phone,
-                           personalization=body):
+        def enroll():
+            ok = sender.add_lead(email=to_email, first_name=first, last_name=last,
+                                 company_name=company, website=website, phone=phone,
+                                 personalization=body)
+            return (sender.name() or "provider", None) if ok else (None, "Enrollment outcome unknown")
+        enrollment, _error = outbound_guard.invoke(
+            "campaign", to_email, account, "enroll", [body, first, last, company], enroll,
+            replay_accepted=False)
+        if enrollment:
             msg.provider_id = sender.name() or "provider"
             msg.approved = True
             msg.status = "Sent"
@@ -442,6 +468,7 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
             except Exception:
                 pass
         else:
+            msg.status = "Needs Review"
             _log(db, actor, "provider_handoff_failed", msg, to=to_email)
         return msg
 
@@ -463,13 +490,11 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
 
     html = email_template.render(body, account)  # consistent template + compliant footer
     if mode == "send":
-        # Provider ladder: the ESP pool (Resend + SendGrid, round-robined to spread
-        # the day's volume across both and raise the combined limit) → the account's
-        # Gmail. A working provider sends even when another is down or over quota.
-        # `_sent` rotates which ESP goes first, giving an even split across the day.
-        mid, send_err = _send_via_esps(to_email, subject, html, account)
-        if not mid and gmail.is_configured(account):
-            mid = gmail.send_message(to_email, subject or "", html or "", account=account)
+        # Explicit rejection can advance to the next configured provider.
+        # Ambiguous outcomes hold the recipient for manual reconciliation.
+        mid, send_err = deliver(to_email, subject, body, account=account,
+                                operation_key=f"dispatch:{datetime.now(timezone.utc).date()}",
+                                replay_accepted=False)
         if mid:
             msg.provider_id = mid
             msg.approved = True
@@ -487,7 +512,8 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
             except Exception:
                 pass
         else:
-            # Nothing delivered — record the real reason so the Outbox shows WHY.
+            msg.status = "Needs Review"
+            # Acceptance may be unknown; do not re-enqueue automatically.
             _log(db, actor, "email_send_failed", msg, to=to_email, detail=send_err)
     else:  # draft / send_on_approve
         did = gmail.create_draft(to_email, subject or "", html or "", account=account)
