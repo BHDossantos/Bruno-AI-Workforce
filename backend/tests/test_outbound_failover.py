@@ -33,6 +33,8 @@ def test_gmail_timeout_never_retries_smtp(monkeypatch):
     assert called == []
 
 def test_voice_paths_share_recipient_day_guard(monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "public_base_url", "https://callback.test")
     from app.integrations import voice
     captured = []
     monkeypatch.setattr(voice, "is_configured", lambda: True)

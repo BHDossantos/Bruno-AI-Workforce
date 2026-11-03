@@ -214,6 +214,8 @@ def test_sms_unknown_never_queues_mac_bridge(client, auth_headers, monkeypatch):
 
 
 def test_auto_call_direct_provider_shares_dispatcher_key(monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "public_base_url", "https://callback.test")
     from app.integrations import voice, twilio_voice
     target = phone()
     calls = []

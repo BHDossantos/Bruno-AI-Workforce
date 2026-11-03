@@ -1231,7 +1231,7 @@ def test_send_text_refreshes_saved_twilio_config(client, auth_headers, monkeypat
     monkeypatch.setattr("app.sms_engine._refresh_config",
                         lambda db: called.__setitem__("refresh", True))
     monkeypatch.setattr(sms_int, "is_configured", lambda: True)
-    monkeypatch.setattr(sms_int, "send_sms", lambda to, body, account="personal": "SMFAKE")
+    monkeypatch.setattr(sms_int, "send_with_error", lambda to, body, account="personal": ("SMFAKE", None))
     monkeypatch.setattr(settings, "sms_daily_send_cap", 100000)
 
     from app import sms_engine

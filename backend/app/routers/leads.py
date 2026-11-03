@@ -398,7 +398,8 @@ def send_lead_email(lead_id: str, body: SendNowIn, db: Session = Depends(get_db)
             raise HTTPException(400, "No email content — type a message or personalize first")
     msg = outreach.dispatch_email(db, entity_type="lead", entity_id=lead.id,
                                   to_email=lead.email, subject=subject or "", body=text,
-                                  account="insurance", actor="crm", autonomous=False)
+                                  account="insurance", actor="crm", autonomous=False,
+                                  intent_key=f"crm:{lead.id}:{outreach.outbound_guard.digest(subject, text)}")
     return {"ok": True, "sent": msg.status == "Sent", "status": msg.status,
             "counts": _touch_counts(db, lead.id)}
 
@@ -482,7 +483,8 @@ def two_way_test(body: TwoWayTestIn, db: Session = Depends(get_db),
         try:
             m = outreach.dispatch_email(db, entity_type="lead", entity_id=lead.id,
                                         to_email=lead.email, subject=subject, body=emsg,
-                                        account="insurance", actor="two_way_test", autonomous=False)
+                                        account="insurance", actor="two_way_test", autonomous=False,
+                                        intent_key=f"two-way-test:{lead.id}")
             result["email"] = ({"sent": True, "status": m.status} if m.status == "Sent"
                                else {"sent": False, "status": m.status,
                                      "reason": "Drafted, not sent — connect a Gmail mailbox or "

@@ -3,11 +3,11 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, select, update, func
+from sqlalchemy import delete, select, update, func, case
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import OutboundAttempt, OutboundHold, OutboundResolution, Message
+from ..models import OutboundAttempt, OutboundHold, OutboundResolution, Message, Lead, Restaurant
 from ..security import require_role
 
 router = APIRouter(tags=["delivery"])
@@ -64,11 +64,19 @@ def resolve(key: str, body: ResolutionIn, db: Session = Depends(get_db), user=De
             except ValueError:
                 message_id = None
             if message_id:
-                db.execute(update(Message).where(Message.id == message_id,
+                touched = db.execute(update(Message).where(Message.id == message_id,
                                                   Message.status != "Sent").values(
                     status="Sent" if body.decision == "accepted" else "Not Sent",
                     provider_id=attempt.provider_id,
-                    sent_at=func.now() if body.decision == "accepted" else None))
+                    sent_at=func.now() if body.decision == "accepted" else None).returning(
+                        Message.channel, Message.entity_type, Message.entity_id)).first()
+                if touched and body.decision == "accepted" and touched.channel == "email":
+                    model = {"lead": Lead, "restaurant": Restaurant}.get(touched.entity_type)
+                    if model is not None and touched.entity_id:
+                        db.execute(update(model).where(model.id == touched.entity_id).values(
+                            status=case((model.status.in_(["New", "Drafted", "Approved"]), "Sent"), else_=model.status),
+                            times_contacted=func.coalesce(model.times_contacted, 0) + 1,
+                            last_contacted_at=func.now()))
     db.add(OutboundResolution(attempt_key=key, actor=str(user.id), decision=body.decision,
                              evidence=body.evidence.strip(), provider_reference=body.provider_reference.strip()))
     db.commit()

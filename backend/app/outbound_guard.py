@@ -9,6 +9,7 @@ from contextvars import ContextVar
 from datetime import datetime, timezone
 from functools import wraps
 from inspect import signature
+from typing import NamedTuple
 from hashlib import sha256
 import json
 
@@ -17,6 +18,50 @@ from sqlalchemy.dialects.postgresql import insert
 
 from .database import engine
 from .models import OutboundAttempt, OutboundHold, OutboundQuota, Message
+
+
+class DeliveryIssue(str):
+    """String-compatible error with explicit outcome metadata for queue decisions."""
+    def __new__(cls, message, *, kind="held", code="held", attempt_key=None, retryable=False):
+        value = super().__new__(cls, message)
+        value.kind, value.code = kind, code
+        value.attempt_key, value.retryable = attempt_key, retryable
+        return value
+
+    def __getnewargs_ex__(self):
+        return (str(self),), {"kind": self.kind, "code": self.code,
+                              "attempt_key": self.attempt_key, "retryable": self.retryable}
+
+
+class DeliveryResult(NamedTuple):
+    provider_id: str | None
+    error: str | None
+
+    @property
+    def outcome(self):
+        return "accepted" if self.provider_id else getattr(self.error, "kind", "uncertain")
+
+
+def no_attempt(message, code, *, retryable=True):
+    return DeliveryResult(None, DeliveryIssue(message, kind="not_attempted", code=code, retryable=retryable))
+
+
+def retryable_without_reconciliation(error):
+    # Unknown legacy strings must never imply a safe retry.
+    return isinstance(error, DeliveryIssue) and error.kind == "not_attempted" and error.retryable
+
+
+def held(message, key, *, kind="held", code="held"):
+    return DeliveryResult(None, DeliveryIssue(message, kind=kind, code=code, attempt_key=key))
+
+
+def voice_preflight():
+    from .config import settings
+    from urllib.parse import urlparse
+    base = urlparse((settings.public_base_url or "").strip())
+    if base.scheme not in ("http", "https") or not base.netloc:
+        return no_attempt("PUBLIC_BASE_URL must be an absolute callback URL; no call made", "configuration").error
+    return None
 
 
 class DeferredDelivery(str):
@@ -44,13 +89,13 @@ def recipient_scope(channel, recipient):
     if channel in ("sms", "whatsapp", "auto-call", "call"):
         from .integrations.sms import _e164
         value = _e164(value.removeprefix("whatsapp:"))
-    family = "sms" if channel == "whatsapp" else "call" if channel == "auto-call" else channel
+    family = "email" if channel == "campaign" else "sms" if channel == "whatsapp" else "call" if channel == "auto-call" else channel
     return digest(family, value)
 
 
 def quota_limit(channel):
     from .config import settings
-    if channel == "email":
+    if channel in ("email", "campaign"):
         from .outreach import daily_send_cap
         return daily_send_cap()
     if channel in ("sms", "whatsapp"):
@@ -60,7 +105,7 @@ def quota_limit(channel):
     return None
 
 
-def provider(channel, *, result="tuple", recipient="to", ready=None, validate=None):
+def provider(channel, *, result="tuple", recipient="to", ready=None, validate=None, normalize=None):
     """Guard public transport entry points, sharing a caller's matching reservation.
 
     Optional operation_key/replay_accepted keywords are consumed by this wrapper.
@@ -75,9 +120,14 @@ def provider(channel, *, result="tuple", recipient="to", ready=None, validate=No
             bound = sig.bind(*args, **kwargs)
             bound.apply_defaults()
             values = bound.arguments
+            if normalize:
+                normalize(values)
             target = recipient(values) if callable(recipient) else values.get(recipient)
-            def refused(reason):
-                return (None, reason) if result == "tuple" else False if result == "bool" else None
+            def refused(reason, code="validation", retryable=False):
+                issue = reason if isinstance(reason, DeliveryIssue) else no_attempt(reason, code, retryable=retryable).error
+                return DeliveryResult(None, issue) if result == "tuple" else False if result == "bool" else None
+            if channel in ("sms", "whatsapp") and not (values.get("body") or "").strip():
+                return refused("Empty message; no provider call made", "empty_body")
             if validate:
                 reason = validate(values)
                 if reason:
@@ -89,10 +139,10 @@ def provider(channel, *, result="tuple", recipient="to", ready=None, validate=No
                 if not _e164(target.removeprefix("whatsapp:")):
                     return refused("Invalid recipient number; no provider call made")
             if ready and not ready(values):
-                return refused("Provider not connected; no provider call made")
+                return refused("Provider not connected; no provider call made", "configuration", retryable=True)
             scope = recipient_scope(channel, target)
             if _active.get() == scope:
-                return fn(*args, **kwargs)
+                return fn(*bound.args, **bound.kwargs)
             account = values.get("account", "direct")
             payload = {k: v for k, v in values.items() if k != recipient}
             if channel == "call":
@@ -104,7 +154,7 @@ def provider(channel, *, result="tuple", recipient="to", ready=None, validate=No
                 operation = str(datetime.now(timezone.utc).date())
                 payload = [_e164(target).lstrip("+")]
             def send():
-                value = fn(*args, **kwargs)
+                value = fn(*bound.args, **bound.kwargs)
                 if result == "tuple":
                     return value
                 # SMTP exposes acceptance without a provider receipt; store a local
@@ -114,10 +164,19 @@ def provider(channel, *, result="tuple", recipient="to", ready=None, validate=No
                                     operation or digest(payload), payload, send,
                                     replay_accepted=replay)
             if result == "tuple":
-                return receipt, error
+                return DeliveryResult(receipt, error)
             return bool(receipt) if result == "bool" else receipt
         return wrapped
     return decorate
+
+
+def persist_message_intent(values):
+    """Commit the stable draft before any provider work, independent of its caller."""
+    from .database import engine as intent_engine
+    with intent_engine.begin() as conn:
+        if conn.execute(select(Message.id).where(Message.id == values["id"])).scalar():
+            return
+        conn.execute(insert(Message).values(**values).on_conflict_do_nothing())
 
 
 def invoke(channel, recipient, account, operation, payload, send, *, replay_accepted=True, budget=None):
@@ -141,10 +200,10 @@ def invoke(channel, recipient, account, operation, payload, send, *, replay_acce
                 row = conn.execute(select(OutboundAttempt.__table__).where(
                     OutboundAttempt.key == key)).mappings().one()
                 if row["payload_hash"] != fingerprint:
-                    return None, f"Delivery held: operation payload changed ({key})."
+                    return held(f"Delivery held: operation payload changed ({key}).", key, code="payload_changed")
                 if row["state"] == "accepted" and replay_accepted:
-                    return row["provider_id"], None
-                return None, f"Delivery held: {row['state']}; reconcile attempt {key} before retrying."
+                    return DeliveryResult(row["provider_id"], None)
+                return held(f"Delivery held: {row['state']}; reconcile attempt {key} before retrying.", key, code=row["state"])
             claimed = conn.execute(insert(OutboundHold).values(scope=scope, attempt_key=key)
                                    .on_conflict_do_nothing().returning(OutboundHold.scope)).scalar()
             if not claimed:
@@ -153,7 +212,7 @@ def invoke(channel, recipient, account, operation, payload, send, *, replay_acce
             if limit is not None:
                 # Messaging and all calls share their channel family budget across
                 # accounts/providers/processes. Count attempts, not reported success.
-                family = "sms" if channel == "whatsapp" else "call" if channel == "auto-call" else channel
+                family = "email" if channel == "campaign" else "sms" if channel == "whatsapp" else "call" if channel == "auto-call" else channel
                 quota_key = digest(family, str(datetime.now(timezone.utc).date()))
                 start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
                 channels = ["sms", "whatsapp"] if family == "sms" else [family]
@@ -174,17 +233,19 @@ def invoke(channel, recipient, account, operation, payload, send, *, replay_acce
                     conn.execute(delete(OutboundHold).where(OutboundHold.scope == scope,
                                                             OutboundHold.attempt_key == key))
                     conn.execute(delete(OutboundAttempt).where(OutboundAttempt.key == key))
-                    return None, "Delivery held: shared daily attempt budget exhausted; no provider call made."
+                    return no_attempt("Shared daily attempt budget exhausted; no provider call made.", "quota_exhausted")
     except _Busy:
-        return None, "Delivery held: another pending/unknown action exists for this recipient."
+        return no_attempt("Another pending/unknown action exists for this recipient; no new call made.", "recipient_busy")
     except Exception:
-        return None, "Delivery held: reservation database unavailable; no provider call made."
+        return no_attempt("Reservation database unavailable; no provider call made.", "reservation_unavailable")
 
     token = _active.set(scope)
     try:
         provider_id, error = send()
         if provider_id:
             state = "accepted"
+        elif isinstance(error, DeliveryIssue) and error.kind == "not_attempted":
+            state = "not_attempted"
         elif isinstance(error, DeferredDelivery):
             state = "pending"
         elif isinstance(error, RejectedDelivery):
@@ -199,16 +260,21 @@ def invoke(channel, recipient, account, operation, payload, send, *, replay_acce
         with engine.begin() as conn:
             conn.execute(update(OutboundAttempt).where(OutboundAttempt.key == key).values(
                 state=state, provider_id=provider_id, updated_at=func.now()))
-            if state in ("accepted", "rejected"):
+            if state == "not_attempted":
+                conn.execute(delete(OutboundAttempt).where(OutboundAttempt.key == key))
+            if state in ("accepted", "rejected", "not_attempted"):
                 conn.execute(delete(OutboundHold).where(OutboundHold.scope == scope,
                                                         OutboundHold.attempt_key == key))
     except Exception:
         # The provider may have accepted. Keep the committed pending reservation;
         # never return an ordinary retryable failure or attempt a second provider.
-        return None, f"Delivery held: provider result could not be recorded; reconcile attempt {key}."
+        return held(f"Delivery held: provider result could not be recorded; reconcile attempt {key}.", key, kind="uncertain", code="result_store_failed")
     if provider_id:
-        return provider_id, None
-    return None, f"Delivery held: {state}; reconcile attempt {key} before retrying."
+        return DeliveryResult(provider_id, None)
+    if state == "not_attempted":
+        return DeliveryResult(None, error)
+    return held(f"Delivery held: {state}; reconcile attempt {key} before retrying.", key,
+                kind="uncertain" if state == "unknown" else "held", code=state)
 
 
 @contextmanager

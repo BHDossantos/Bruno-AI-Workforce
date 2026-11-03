@@ -168,7 +168,9 @@ def _send_reply(db: Session, m: Message) -> tuple[bool, str | None]:
         m.sent_at = datetime.now(timezone.utc)
         m.status = "Sent"
         return True, None
-    m.status = "Needs Review"
+    from .. import outbound_guard
+    if not outbound_guard.retryable_without_reconciliation(error):
+        m.status = "Needs Review"
     return False, error or "Delivery outcome uncertain; review provider evidence."
 
 

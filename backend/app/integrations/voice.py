@@ -84,7 +84,10 @@ def access_token(identity: str):
 
 def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, str | None]:
     if not is_configured():
-        return None, "Calling not connected"
+        return outbound_guard.no_attempt("Calling not connected", "configuration")
+    issue = outbound_guard.voice_preflight()
+    if issue:
+        return outbound_guard.DeliveryResult(None, issue)
     # Shared by auto_dial, EverQuote cadence and the manual auto-call endpoint.
     # One auto-call per normalized number/UTC day; unresolved attempts also fence
     # later days. Manual bridge/test/recording calls are explicitly outside scope.

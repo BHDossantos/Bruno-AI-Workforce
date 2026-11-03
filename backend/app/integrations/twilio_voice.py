@@ -285,7 +285,8 @@ def inbound_twiml(forward: bool = True) -> str:
     return _xml(greeting + dial + voicemail)
 
 
-@outbound_guard.provider("call", result="tuple", recipient="lead_phone", ready=lambda _: is_configured())
+@outbound_guard.provider("call", result="tuple", recipient="lead_phone", ready=lambda _: is_configured(),
+                         validate=lambda _: outbound_guard.voice_preflight())
 def place_bridge_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, str | None]:
     """Ring the producer's phone; on answer, Twilio bridges to the lead. Returns
     (call_sid, error)."""
@@ -537,7 +538,8 @@ def record_vm_twiml() -> str:
                 'finishOnKey="#" playBeep="true"/>')
 
 
-@outbound_guard.provider("auto-call", result="tuple", recipient="lead_phone", ready=lambda _: is_configured())
+@outbound_guard.provider("auto-call", result="tuple", recipient="lead_phone", ready=lambda _: is_configured(),
+                         validate=lambda _: outbound_guard.voice_preflight())
 def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, str | None]:
     """Dial the LEAD directly with answering-machine detection. On answer Twilio hits
     /calls/twiml/amd, which transfers a human to your phone or drops your voicemail on
@@ -577,7 +579,8 @@ def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, s
         return None, f"Auto-call failed: {str(exc)[:160]}"
 
 
-@outbound_guard.provider("call", recipient=lambda _: settings.producer_callback, ready=lambda _: is_configured())
+@outbound_guard.provider("call", recipient=lambda _: settings.producer_callback, ready=lambda _: is_configured(),
+                         validate=lambda _: outbound_guard.voice_preflight())
 def record_voicemail_call() -> tuple[str | None, str | None]:
     """Ring the producer's phone so they can record the voicemail drop in their own
     voice. The recording is saved via the /calls/vm-saved webhook."""

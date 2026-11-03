@@ -2,12 +2,12 @@
 import re
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Request, Response
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Request, Response, HTTPException
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from .. import sms_engine
+from .. import sms_engine, outbound_guard
 from ..database import get_db
 from ..integrations import sms
 from ..models import Lead, ManualContact, Message, Restaurant
@@ -87,7 +87,16 @@ def diagnostics(db: Session = Depends(get_db), _=Depends(_read)):
 
 class SmsSend(BaseModel):
     to: str
-    message: str
+    message: str = Field(min_length=1)
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
+
+    @field_validator("message")
+    @classmethod
+    def nonblank_message(cls, value):
+        if not value.strip():
+            raise ValueError("Message cannot be empty or whitespace")
+        return value
+
     account: str = "personal"
     entity_type: str | None = None
     entity_id: str | None = None
@@ -166,22 +175,39 @@ def send(body: SmsSend, db: Session = Depends(get_db), _=Depends(_write)):
     if sms_engine.is_opted_out(db, body.to):
         return {"ok": False, "sid": None, "status": "Blocked",
                 "reason": "This number opted out (texted STOP) — we can't text them."}
+    from uuid import UUID
+    target = sms._e164(body.to)
+    if not target:
+        raise HTTPException(422, "Invalid recipient phone")
+    # The Message row is the persisted request intent. A caller rollback recreates
+    # the same UUID, so the independent provider reservation still deduplicates it.
+    intent = body.idempotency_key or outbound_guard.digest(target, body.message)
+    request_key = outbound_guard.digest("sms-request", body.account, intent)
+    message_id = UUID(request_key[:32])
+    outbound_guard.persist_message_intent(dict(
+        id=message_id, channel="sms", direction="outbound", entity_type=body.entity_type,
+        entity_id=body.entity_id, to_email=target, from_account=body.account,
+        body=body.message, status="Drafted", approved=False))
+    msg = db.query(Message).filter(Message.id == message_id).populate_existing().with_for_update().one()
+    if msg.to_email != target or msg.body != body.message or msg.entity_type != body.entity_type or str(msg.entity_id or "") != str(body.entity_id or ""):
+        raise HTTPException(409, "Idempotency key belongs to a different SMS payload")
+    if msg.status not in ("Drafted", "Approved"):
+        return {"ok": msg.status in ("Sent", "Queued"), "sid": msg.provider_id,
+                "message_id": str(msg.id), "status": msg.status,
+                "reason": None if msg.status in ("Sent", "Queued") else "Original intent is held or closed; review it before a new action"}
     carrier_available = sms.is_configured()
-    sid, err = (sms.send_with_error(body.to, body.message, account=body.account)
+    sid, err = (sms.send_with_error(target, body.message, account=body.account,
+                                   operation_key=f"message:{msg.id}", replay_accepted=True)
                 if carrier_available else (None, "No SMS carrier configured"))
     bridge_on = bool(settings.bridge_token) and not carrier_available
-    # Sent via Twilio → Sent; else if a Mac bridge is configured → Queued (it'll
-    # deliver from your real number); else there's nowhere to send → Drafted.
-    status = "Sent" if sid else ("Queued" if bridge_on else "Needs Review" if carrier_available else "Drafted")
-    msg = Message(channel="sms", direction="outbound", entity_type=body.entity_type,
-                  entity_id=body.entity_id, to_email=body.to, from_account=body.account,
-                  body=body.message, status=status, provider_id=sid,
-                  sent_at=datetime.now(timezone.utc) if sid else None)
-    db.add(msg)
+    status = "Sent" if sid else ("Queued" if bridge_on else "Drafted" if not carrier_available or outbound_guard.retryable_without_reconciliation(err) else "Needs Review")
+    msg.status, msg.provider_id = status, sid
+    msg.sent_at = datetime.now(timezone.utc) if sid else None
     db.commit()
     ok = bool(sid) or bridge_on
-    reason = None if ok else (err or "SMS isn't connected — add Twilio in Connect Email & Data.")
-    return {"ok": ok, "sid": sid, "status": status, "reason": reason}
+    reason = None if ok else (err or "SMS isn't connected — configure a carrier or the Mac bridge.")
+    return {"ok": ok, "sid": sid, "message_id": str(msg.id), "status": status, "reason": reason}
+
 
 
 class SmsSendDrafts(BaseModel):

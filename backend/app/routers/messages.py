@@ -136,6 +136,10 @@ def send_message(message_id: str, db: Session = Depends(get_db), _=Depends(_writ
     mid, err = outreach.deliver(msg.to_email, msg.subject, msg.body, account=msg.from_account,
                                 operation_key=f"message:{msg.id}")
     if not mid:
+        from .. import outbound_guard
+        if outbound_guard.retryable_without_reconciliation(err):
+            status = 429 if err.code == "quota_exhausted" else 503
+            raise HTTPException(status, detail=str(err))
         msg.status = "Needs Review"
         db.commit()
         raise HTTPException(status_code=409, detail=f"Send held: {err or 'unknown error'}")

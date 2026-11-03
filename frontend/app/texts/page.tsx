@@ -59,12 +59,14 @@ function Texts() {
     if (!active || !draft.trim()) return;
     const body = draft;
     setDraft(""); setSendMsg(null);
+    const input = { to: active, message: body, account };
     try {
-      const r = await api.post<{ ok?: boolean; reason?: string }>("/sms/send", { to: active, message: body, account });
+      const r = await api.sendSms(input);
       if (r.ok === false) {
+        setDraft(current => current || body);
         setSendMsg(`❌ Not sent — ${r.reason || "SMS isn't connected. Add Twilio in Connect Email & Data, or set up the Mac bridge."}`);
-      }
-    } catch (e) { setSendMsg(`❌ ${e}`); }
+      } else { await api.finishSmsIntent(input); }
+    } catch (e) { setDraft(current => current || body); setSendMsg(`❌ ${e}`); }
     setRefresh((r) => r + 1);
   }
 

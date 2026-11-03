@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from .ai import client, skills
 from .ai.prompts import SMS_INTRO
 from .config import settings
+from . import outbound_guard
 from .integrations import sms
 from .models import Message
 
@@ -182,9 +183,9 @@ def maybe_warm_text(db: Session, *, entity_type: str, entity_id, name: str | Non
         f"Hi {name or 'there'}, thanks for getting back to us! Happy to help — "
         f"what's the best way to move forward? Reply STOP to opt out.")
 
-    sid = None if use_bridge else sms.send_sms(phone, body, account=account)
+    sid, err = (None, None) if use_bridge else sms.send_with_error(phone, body, account=account)
     # Bridge → "Queued" (the Mac helper picks it up); Twilio → Sent/Drafted.
-    status = "Queued" if use_bridge else ("Sent" if sid else "Needs Review")
+    status = "Queued" if use_bridge else ("Sent" if sid else "Drafted" if outbound_guard.retryable_without_reconciliation(err) else "Needs Review")
     db.add(Message(
         channel="sms", direction="outbound", entity_type=entity_type, entity_id=entity_id,
         to_email=phone, from_account=account, body=body,
@@ -313,14 +314,15 @@ def send_sms_drafts(db: Session, *, limit: int = 25, account: str | None = None,
             m.sent_at = datetime.now(timezone.utc)
             sent += 1
         else:
-            m.status = "Needs Review"
+            if not outbound_guard.retryable_without_reconciliation(err):
+                m.status = "Needs Review"
             failed += 1
             r = err or "SMS send failed"
             # A permanently-bad recipient number will never succeed on retry —
             # mark it Failed so it leaves the Drafted queue instead of being
             # re-attempted every run and piling up in the draft box. Account /
-            # config errors (auth, unverified/trial, non-SMS 'from') stay Drafted
-            # so they go out the moment the account is fixed — no re-drafting.
+            # Only structured pre-send denials remain retryable drafts; uncertain
+            # provider outcomes require evidence-based reconciliation.
             if _is_bad_recipient(r):
                 m.status = "Failed"
             if r not in reasons:
@@ -342,8 +344,8 @@ def send_text(db: Session, *, entity_type: str, entity_id, phone: str, body: str
         return None
     if sms_block_reason(db, phone, enforce_hours=enforce_hours):
         return None  # opted out / outside legal hours / daily cap hit
-    sid = None if use_bridge else sms.send_sms(phone, body, account=account)
-    status = "Queued" if use_bridge else ("Sent" if sid else "Needs Review")
+    sid, err = (None, None) if use_bridge else sms.send_with_error(phone, body, account=account)
+    status = "Queued" if use_bridge else ("Sent" if sid else "Drafted" if outbound_guard.retryable_without_reconciliation(err) else "Needs Review")
     db.add(Message(
         channel="sms", direction="outbound", entity_type=entity_type, entity_id=entity_id,
         to_email=phone, from_account=account, body=body,

@@ -238,7 +238,8 @@ def _send_smtp(account: str, to: str, subject: str, body: str) -> str | None:
     return _send_smtp_verbose(account, to, subject, body)[0]
 
 
-@outbound_guard.provider("email", result="tuple", recipient="to", ready=lambda v: is_configured(v.get("account", PERSONAL)))
+@outbound_guard.provider("email", result="tuple", recipient="to", ready=lambda v: is_configured(v.get("account", PERSONAL)),
+                         normalize=lambda v: v.update(account=effective_account(v["account"])))
 def send_with_error(to: str, subject: str, body: str, account: str = PERSONAL) -> tuple[str | None, str | None]:
     """Like send_message but returns (message_id, error_reason) so the caller can
     show the operator exactly why a send failed."""
@@ -311,7 +312,8 @@ def effective_account(account: str) -> str:
     return account
 
 
-@outbound_guard.provider("email", result="id", recipient="to", ready=lambda v: is_configured(v.get("account", PERSONAL)))
+@outbound_guard.provider("email", result="id", recipient="to", ready=lambda v: is_configured(v.get("account", PERSONAL)),
+                         normalize=lambda v: v.update(account=effective_account(v["account"])))
 def send_message(to: str, subject: str, body: str, account: str = PERSONAL) -> str | None:
     """Send an email immediately from ``account``. Returns the message id or None.
 

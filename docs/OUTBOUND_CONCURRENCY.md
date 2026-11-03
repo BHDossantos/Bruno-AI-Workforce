@@ -10,7 +10,8 @@ The reservation survives caller rollback and process exit. Unique constraints ch
 one worker; pending and unknown holds never expire or requeue themselves. Different
 accounts/providers cannot bypass a recipient hold. Email addresses are trimmed and
 case-normalized; phone transports share normalized phone scopes. SMS/WhatsApp share a
-scope, as do automatic/manual calls.
+scope, as do automatic/manual calls. Campaign enrollment shares the email recipient
+scope and budget: uncertain enrollment blocks direct email even after provider changes.
 
 Public Gmail, Resend, SendGrid, SMTP report-mailer, SMS, Plivo, WhatsApp Cloud, Twilio
 WhatsApp and voice transport entry points use the guard. Nested adapters reuse an
@@ -34,6 +35,28 @@ failed SMS cannot be queued to the Mac bridge. Provider acceptance is not confir
 inbox/phone delivery. Boolean-only SMTP/bridge APIs retain an explicitly local
 acceptance reference, not a fabricated carrier receipt.
 
+## Retry outcomes and stable intent
+
+Typed outcomes distinguish proven no-provider-call refusals (quota, reservation DB,
+local configuration or a competing recipient hold) from uncertainty. Drafted/Approved
+items stay retryable after these refusals; unknown legacy errors never imply a safe
+retry. A lost reservation-commit acknowledgement may leave a pending hold: the retry
+observes it and cannot send. Empty SMS/WhatsApp bodies and missing voice callback URLs
+are rejected before reservation. Gmail resolves the configured backup account before
+checking readiness. Plivo/Vonage require a real nonempty provider receipt.
+
+Manual SMS persists one Message before sending or bridge enqueue. An optional stable
+`idempotency_key` distinguishes intentional identical texts; reuse with a different
+payload returns 409. Legacy requests deduplicate identical recipient/account/body.
+The UI retains an intent across failed responses/reloads and clears it only after its
+whole operation succeeds. Bridge ACK followed by an HTTP retry cannot enqueue again.
+
+Email dispatch persists a stable Message for each business purpose. First touch uses
+entity identity, not date or regenerated copy; follow-ups supply their own stable
+purpose. These drafts intentionally survive caller rollback. Attempts reference the
+Message, so accepted reconciliation updates it and the lead/restaurant contact state
+once. A next-day bulk pass cannot resend that first touch. Reconciliation never sends.
+
 ## Shared daily budgets
 
 The `outbound_quotas` row atomically reserves capacity with the operation and hold.
@@ -44,7 +67,9 @@ including rejected, uncertain, and bridge-handoff actions. Fallback HTTP request
 within one action and multiple carrier call legs are not separate budget units.
 
 Replays do not consume capacity. Failed/uncertain actions and operator resolutions
-never refund it. Database failure prevents a call. The lowest cap observed by a worker
+never refund it. A definite local refusal discovered inside an already-reserved
+action removes its unused hold/attempt but conservatively retains its quota unit.
+Database failure prevents a call. The lowest cap observed by a worker
 for that UTC day wins, so a stale higher cap cannot reopen capacity. Raising a cap only
 takes effect on a later UTC day; lowering it cannot undo already-issued actions.
 
@@ -110,7 +135,9 @@ is intentional, not a claim of completed unattended recovery.
    an uncontrolled sender remains, keep the affected channel stopped. Prefer a fresh
    UTC-day cutover after the drain; otherwise inventory and conservatively account for
    every historical action, including those absent from Message records. The app
-   cannot reconstruct unlogged sends.
+   cannot reconstruct unlogged sends. Older unlinked date-key attempts and already
+   queued duplicate messages require explicit inventory/reconciliation; stable keys
+   added here do not retroactively identify those historical intents.
 4. Apply the full new-table schema before admitting any sender. Existing application
    tables retain their columns. This draft adds fields to its own new attempt table;
    `create_all` will not upgrade an installation of an earlier draft schema. Such an
@@ -139,11 +166,12 @@ claim is made.
 
 ## Validation
 
-Real disposable PostgreSQL 16 and mocked providers. Prior draft: 391 full backend tests
-passed. Extension includes separate-process quota competition, nested boundaries,
-cross-account/provider holds, stale-cap races, operator resolution races, pending
-worker protection, bridge claim competition/ACK ownership and Mac fallback checks.
-Final local full suite: 411 passed (49 concurrency/provider/reconciliation tests plus
-362 existing tests). Next.js production build passed. Hosted CI is recorded in the
-PR. No live providers were called; actual macOS Messages and native devices still
-require controlled testing.
+Real disposable PostgreSQL 16 and mocked providers. The full local backend suite
+passed 445 tests; the final two additional regressions also pass in the 36-test review
+suite. Next.js production build passed. Coverage includes multi-process quota races,
+transient DB refusals, lost commit acknowledgements, caller rollback after acceptance,
+empty text, backup-only Gmail, missing voice callbacks, malformed voice receipts,
+concurrent SMS HTTP retries and bridge ACKs, manual reconciliation, campaign-to-email
+hold enforcement and next-day first-touch deduplication. Hosted exact-head CI is
+recorded in the PR/handoff. No live providers were called; macOS Messages and native
+devices still require controlled testing.
