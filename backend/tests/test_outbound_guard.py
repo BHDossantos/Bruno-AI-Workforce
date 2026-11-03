@@ -13,8 +13,8 @@ pytestmark = requires_db
 
 @pytest.fixture(autouse=True)
 def tables():
-    OutboundAttempt.__table__.create(guard.engine, checkfirst=True)
-    OutboundHold.__table__.create(guard.engine, checkfirst=True)
+    from app.database import Base
+    Base.metadata.create_all(guard.engine)
 
 @pytest.fixture
 def outbox_rows():
@@ -184,10 +184,10 @@ def test_outbox_unknown_is_visible_and_never_retried(client, auth_headers, monke
     assert client.get("/messages/delivery-attempts").status_code == 401
     queue = client.get("/messages/delivery-attempts", headers=auth_headers)
     assert queue.status_code == 200
-    key = guard.digest(guard.digest("email", recipient, "insurance"), f"message:{message_id}")
+    key = guard.digest(guard.recipient_scope("email", recipient), "insurance", f"message:{message_id}")
     attempt = next(a for a in queue.json() if a["key"] == key)
     assert attempt["state"] == "unknown"
-    assert set(attempt) == {"key", "channel", "state", "created_at", "updated_at"}
+    assert set(attempt) == {"key", "channel", "state", "created_at", "updated_at", "recipient", "account", "operation_ref"}
 
 
 @pytest.mark.parametrize("bulk", [False, True])

@@ -19,6 +19,7 @@ import logging
 from email.mime.text import MIMEText
 
 from ..config import settings
+from .. import outbound_guard
 
 log = logging.getLogger("bruno.gmail")
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
@@ -237,6 +238,7 @@ def _send_smtp(account: str, to: str, subject: str, body: str) -> str | None:
     return _send_smtp_verbose(account, to, subject, body)[0]
 
 
+@outbound_guard.provider("email", result="tuple", recipient="to", ready=lambda v: is_configured(v.get("account", PERSONAL)))
 def send_with_error(to: str, subject: str, body: str, account: str = PERSONAL) -> tuple[str | None, str | None]:
     """Like send_message but returns (message_id, error_reason) so the caller can
     show the operator exactly why a send failed."""
@@ -309,6 +311,7 @@ def effective_account(account: str) -> str:
     return account
 
 
+@outbound_guard.provider("email", result="id", recipient="to", ready=lambda v: is_configured(v.get("account", PERSONAL)))
 def send_message(to: str, subject: str, body: str, account: str = PERSONAL) -> str | None:
     """Send an email immediately from ``account``. Returns the message id or None.
 

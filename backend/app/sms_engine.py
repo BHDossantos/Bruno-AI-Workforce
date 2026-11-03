@@ -184,7 +184,7 @@ def maybe_warm_text(db: Session, *, entity_type: str, entity_id, name: str | Non
 
     sid = None if use_bridge else sms.send_sms(phone, body, account=account)
     # Bridge → "Queued" (the Mac helper picks it up); Twilio → Sent/Drafted.
-    status = "Queued" if use_bridge else ("Sent" if sid else "Drafted")
+    status = "Queued" if use_bridge else ("Sent" if sid else "Needs Review")
     db.add(Message(
         channel="sms", direction="outbound", entity_type=entity_type, entity_id=entity_id,
         to_email=phone, from_account=account, body=body,
@@ -286,7 +286,7 @@ def send_sms_drafts(db: Session, *, limit: int = 25, account: str | None = None,
     if account:
         q = q.filter(Message.from_account == account)
     msgs = (q.order_by(*lead_temperature.send_priority_order(Lead, Message))
-            .limit(max(1, min(limit, 50))).all())
+            .limit(max(1, min(limit, 50))).with_for_update(of=Message, skip_locked=True).all())
 
     sent = failed = blocked = retired = 0
     reasons: list[str] = []
@@ -305,13 +305,15 @@ def send_sms_drafts(db: Session, *, limit: int = 25, account: str | None = None,
             if reason not in reasons:
                 reasons.append(reason)
             continue
-        sid, err = sms.send_with_error(m.to_email, m.body or "", account=m.from_account)
+        sid, err = sms.send_with_error(m.to_email, m.body or "", account=m.from_account,
+                                      operation_key=f"message:{m.id}", replay_accepted=True)
         if sid:
             m.status = "Sent"
             m.provider_id = sid
             m.sent_at = datetime.now(timezone.utc)
             sent += 1
         else:
+            m.status = "Needs Review"
             failed += 1
             r = err or "SMS send failed"
             # A permanently-bad recipient number will never succeed on retry —
@@ -341,7 +343,7 @@ def send_text(db: Session, *, entity_type: str, entity_id, phone: str, body: str
     if sms_block_reason(db, phone, enforce_hours=enforce_hours):
         return None  # opted out / outside legal hours / daily cap hit
     sid = None if use_bridge else sms.send_sms(phone, body, account=account)
-    status = "Queued" if use_bridge else ("Sent" if sid else "Drafted")
+    status = "Queued" if use_bridge else ("Sent" if sid else "Needs Review")
     db.add(Message(
         channel="sms", direction="outbound", entity_type=entity_type, entity_id=entity_id,
         to_email=phone, from_account=account, body=body,

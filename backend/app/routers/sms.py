@@ -166,11 +166,13 @@ def send(body: SmsSend, db: Session = Depends(get_db), _=Depends(_write)):
     if sms_engine.is_opted_out(db, body.to):
         return {"ok": False, "sid": None, "status": "Blocked",
                 "reason": "This number opted out (texted STOP) — we can't text them."}
-    sid, err = sms.send_with_error(body.to, body.message, account=body.account)
-    bridge_on = bool(settings.bridge_token)
+    carrier_available = sms.is_configured()
+    sid, err = (sms.send_with_error(body.to, body.message, account=body.account)
+                if carrier_available else (None, "No SMS carrier configured"))
+    bridge_on = bool(settings.bridge_token) and not carrier_available
     # Sent via Twilio → Sent; else if a Mac bridge is configured → Queued (it'll
     # deliver from your real number); else there's nowhere to send → Drafted.
-    status = "Sent" if sid else ("Queued" if bridge_on else "Drafted")
+    status = "Sent" if sid else ("Queued" if bridge_on else "Needs Review" if carrier_available else "Drafted")
     msg = Message(channel="sms", direction="outbound", entity_type=body.entity_type,
                   entity_id=body.entity_id, to_email=body.to, from_account=body.account,
                   body=body.message, status=status, provider_id=sid,

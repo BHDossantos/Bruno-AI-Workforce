@@ -14,6 +14,7 @@ import logging
 import httpx
 
 from ..config import settings
+from .. import outbound_guard
 
 log = logging.getLogger("bruno.whatsapp_cloud")
 _TIMEOUT = httpx.Timeout(20.0, connect=5.0)
@@ -24,6 +25,7 @@ def is_configured() -> bool:
     return bool(settings.whatsapp_cloud_phone_number_id and settings.whatsapp_cloud_token)
 
 
+@outbound_guard.provider("whatsapp", result="id", recipient="to", ready=lambda _: is_configured())
 def send(to: str, body: str) -> str | None:
     """Send a WhatsApp text message. Returns the message id, or None if
     unconfigured/failed. `to` should be a phone number in E.164 (with or

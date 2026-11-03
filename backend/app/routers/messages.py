@@ -91,7 +91,8 @@ def delivery_attempts(db: Session = Depends(get_db), _=Depends(_write)):
         OutboundAttempt.state.in_(["pending", "unknown", "rejected"])
     ).order_by(OutboundAttempt.created_at.desc()).limit(200).all()
     return [{"key": a.key, "channel": a.channel, "state": a.state,
-             "created_at": a.created_at, "updated_at": a.updated_at} for a in attempts]
+             "created_at": a.created_at, "updated_at": a.updated_at,
+             "recipient": a.recipient, "account": a.account, "operation_ref": a.operation_ref} for a in attempts]
 
 
 @router.get("/messages", response_model=list[MessageOut])
@@ -124,6 +125,8 @@ def send_message(message_id: str, db: Session = Depends(get_db), _=Depends(_writ
         raise HTTPException(status_code=404, detail="Message not found")
     if msg.status == "Sent":
         return msg  # historical sends may predate durable reservations
+    if msg.status == "Not Sent":
+        raise HTTPException(409, "This reconciled intent is closed; create a separate intentional action")
     if not msg.to_email:
         raise HTTPException(status_code=400, detail="Message has no recipient")
     from .. import outreach

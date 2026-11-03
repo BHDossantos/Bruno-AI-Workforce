@@ -23,6 +23,7 @@ import httpx
 import jwt
 
 from ..config import settings
+from .. import outbound_guard
 
 log = logging.getLogger("bruno.voice")
 
@@ -284,6 +285,7 @@ def inbound_twiml(forward: bool = True) -> str:
     return _xml(greeting + dial + voicemail)
 
 
+@outbound_guard.provider("call", result="tuple", recipient="lead_phone", ready=lambda _: is_configured())
 def place_bridge_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, str | None]:
     """Ring the producer's phone; on answer, Twilio bridges to the lead. Returns
     (call_sid, error)."""
@@ -327,6 +329,20 @@ def test_twiml() -> str:
                 "Goodbye.</Say>")
 
 
+def _test_call_preflight(_):
+    from . import telco
+    if not telco.configured("voice"):
+        return "Calling carrier not connected — add carrier credentials in Setup."
+    if not _voice_number():
+        return "No caller-ID number set — add your carrier number in Setup."
+    if not _callback_number():
+        return "No callback cell number — enter your cell in Setup."
+    if not _base_url():
+        return "PUBLIC_BASE_URL is not set; carrier cannot reach the webhook."
+    return None
+
+
+@outbound_guard.provider("call", recipient=lambda _: _callback_number(), validate=_test_call_preflight)
 def place_test_call() -> tuple[str | None, str | None]:
     """Ring the producer's own phone with a confirmation message — a one-tap way to
     prove the carrier credentials + caller-ID + callback number all work end to end,
@@ -521,6 +537,7 @@ def record_vm_twiml() -> str:
                 'finishOnKey="#" playBeep="true"/>')
 
 
+@outbound_guard.provider("auto-call", result="tuple", recipient="lead_phone", ready=lambda _: is_configured())
 def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, str | None]:
     """Dial the LEAD directly with answering-machine detection. On answer Twilio hits
     /calls/twiml/amd, which transfers a human to your phone or drops your voicemail on
@@ -560,6 +577,7 @@ def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, s
         return None, f"Auto-call failed: {str(exc)[:160]}"
 
 
+@outbound_guard.provider("call", recipient=lambda _: settings.producer_callback, ready=lambda _: is_configured())
 def record_voicemail_call() -> tuple[str | None, str | None]:
     """Ring the producer's phone so they can record the voicemail drop in their own
     voice. The recording is saved via the /calls/vm-saved webhook."""

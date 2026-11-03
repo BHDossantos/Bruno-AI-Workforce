@@ -28,6 +28,7 @@ import httpx
 import jwt
 
 from ..config import settings
+from .. import outbound_guard
 
 log = logging.getLogger("bruno.vonage_voice")
 
@@ -168,6 +169,7 @@ def _place(to: str, answer_path: str) -> tuple[str | None, str | None]:
         return None, f"Call failed: {str(exc)[:160]}"
 
 
+@outbound_guard.provider("auto-call", result="tuple", recipient="lead_phone", ready=lambda _: is_configured())
 def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, str | None]:
     if not is_configured():
         return None, "Vonage calling not connected — add Application ID, private key, a number + your callback."
@@ -178,6 +180,7 @@ def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, s
     return _place(to, f"/calls/vonage/amd{('?' + q) if q else ''}")
 
 
+@outbound_guard.provider("call", result="tuple", recipient="lead_phone", ready=lambda _: is_configured())
 def place_bridge_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, str | None]:
     if not is_configured():
         return None, "Vonage calling not connected — add Application ID, private key, a number + your callback."
@@ -187,6 +190,7 @@ def place_bridge_call(lead_phone: str, lead_id: str | None) -> tuple[str | None,
     return _place(_num(settings.producer_callback), f"/calls/vonage/bridge?{q}")
 
 
+@outbound_guard.provider("call", recipient=lambda _: settings.producer_callback, ready=lambda _: is_configured())
 def record_voicemail_call() -> tuple[str | None, str | None]:
     if not is_configured():
         return None, "Add Vonage + your callback number on Setup first."

@@ -24,6 +24,7 @@ from urllib.parse import urlencode
 import httpx
 
 from ..config import settings
+from .. import outbound_guard
 
 log = logging.getLogger("bruno.plivo_voice")
 
@@ -165,6 +166,7 @@ def _place(to: str, answer_path: str, *, machine_detection: bool) -> tuple[str |
         return None, f"Call failed: {str(exc)[:160]}"
 
 
+@outbound_guard.provider("auto-call", result="tuple", recipient="lead_phone", ready=lambda _: is_configured())
 def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, str | None]:
     """Dial the LEAD directly with answering-machine detection. On answer Plivo hits
     /calls/plivo/amd, which transfers a human to your phone (if enabled) or drops your
@@ -178,6 +180,7 @@ def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, s
     return _place(to_lead, f"/calls/plivo/amd{('?' + q) if q else ''}", machine_detection=True)
 
 
+@outbound_guard.provider("call", result="tuple", recipient="lead_phone", ready=lambda _: is_configured())
 def place_bridge_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, str | None]:
     """Ring the producer's phone; on answer, Plivo bridges to the lead."""
     if not is_configured():
@@ -189,6 +192,7 @@ def place_bridge_call(lead_phone: str, lead_id: str | None) -> tuple[str | None,
     return _place(_e164(settings.producer_callback), f"/calls/plivo/bridge?{q}", machine_detection=False)
 
 
+@outbound_guard.provider("call", recipient=lambda _: settings.producer_callback, ready=lambda _: is_configured())
 def record_voicemail_call() -> tuple[str | None, str | None]:
     """Ring the producer's phone so they can record the voicemail drop."""
     if not is_configured():

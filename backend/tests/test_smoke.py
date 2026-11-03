@@ -8099,7 +8099,7 @@ def test_auto_dial_paced_one_per_run_and_daily_cap(monkeypatch):
     from app import auto_dial, control, sms_engine
     from app.config import settings
     from app.database import SessionLocal
-    from app.integrations import twilio_voice as voice
+    from app.integrations import voice  # Mock dispatcher: this test isolates queue pacing.
     from app.models import Lead, Message
 
     db = SessionLocal()
@@ -8195,7 +8195,7 @@ def test_auto_dial_daily_pass_calls_hottest_respects_cooldown_optout_and_dead(mo
     from app import auto_dial, control, sms_engine
     from app.config import settings
     from app.database import SessionLocal
-    from app.integrations import twilio_voice as voice
+    from app.integrations import voice  # Mock dispatcher: this test isolates queue pacing.
     from app.models import Lead, Message
 
     db = SessionLocal()

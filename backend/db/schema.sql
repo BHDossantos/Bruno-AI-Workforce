@@ -309,6 +309,10 @@ CREATE TABLE IF NOT EXISTS outbound_attempts (
     key VARCHAR(64) PRIMARY KEY,
     scope VARCHAR(64) NOT NULL,
     payload_hash VARCHAR(64) NOT NULL,
+    recipient VARCHAR,
+    account VARCHAR,
+    operation_ref VARCHAR,
+    claim_hash VARCHAR(64),
     channel VARCHAR(20) NOT NULL,
     state VARCHAR(20) NOT NULL DEFAULT 'pending',
     provider_id VARCHAR,
@@ -320,3 +324,19 @@ CREATE TABLE IF NOT EXISTS outbound_holds (
     scope VARCHAR(64) PRIMARY KEY,
     attempt_key VARCHAR(64) NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS outbound_quotas (
+    key VARCHAR(64) PRIMARY KEY,
+    used INTEGER NOT NULL DEFAULT 0,
+    capacity INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS outbound_resolutions (
+    id SERIAL PRIMARY KEY,
+    attempt_key VARCHAR(64) NOT NULL,
+    actor VARCHAR NOT NULL,
+    decision VARCHAR(32) NOT NULL,
+    evidence TEXT NOT NULL,
+    provider_reference VARCHAR NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_outbound_resolutions_attempt_key ON outbound_resolutions(attempt_key);

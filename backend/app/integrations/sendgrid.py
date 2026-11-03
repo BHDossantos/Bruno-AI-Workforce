@@ -18,6 +18,7 @@ import logging
 import httpx
 
 from ..config import settings
+from .. import outbound_guard
 from ..outbound_guard import RejectedDelivery
 
 log = logging.getLogger("bruno.sendgrid")
@@ -48,6 +49,7 @@ def replyto_for(account: str | None, from_email: str) -> str:
     return (settings.sendgrid_reply_to or "").strip() or from_email
 
 
+@outbound_guard.provider("email", result="tuple", recipient="to", ready=lambda v: has_key() and (v.get("from_email") or from_for("insurance")))
 def send_with_error(to: str, subject: str, html: str, *, from_email: str | None = None,
                     reply_to: str | None = None) -> tuple[str | None, str | None]:
     """Send one HTML email via SendGrid. Returns (message_id, error_reason) — exactly

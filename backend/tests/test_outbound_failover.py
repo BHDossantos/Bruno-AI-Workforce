@@ -29,7 +29,7 @@ def test_gmail_timeout_never_retries_smtp(monkeypatch):
     monkeypatch.setattr(gmail, "_raw", lambda *a: {})
     called = []
     monkeypatch.setattr(gmail, "_send_smtp_verbose", lambda *a: called.append("smtp"))
-    assert "unknown" in gmail.send_with_error("person@realmail.co", "s", "b")[1]
+    assert "unknown" in gmail.send_with_error.__wrapped__("person@realmail.co", "s", "b")[1]
     assert called == []
 
 def test_voice_paths_share_recipient_day_guard(monkeypatch):
@@ -52,7 +52,7 @@ def test_provider_receipt_and_rejection_classification(monkeypatch, provider, st
     response = SimpleNamespace(status_code=status, headers={}, text="uncertain",
                                json=lambda: {"message": "response"})
     monkeypatch.setattr(module.httpx, "post", lambda *args, **kwargs: response)
-    receipt, error = module.send_with_error("recipient@realmail.co", "subject", "body",
+    receipt, error = module.send_with_error.__wrapped__("recipient@realmail.co", "subject", "body",
                                            from_email="sender@realmail.co")
     assert receipt is None
     assert isinstance(error, RejectedDelivery) == (status == 429)

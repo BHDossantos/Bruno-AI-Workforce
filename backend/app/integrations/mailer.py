@@ -7,11 +7,13 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 from ..config import settings
+from .. import outbound_guard
 from . import gmail
 
 log = logging.getLogger("bruno.mailer")
 
 
+@outbound_guard.provider("email", result="bool", recipient="to", ready=lambda _: gmail.is_configured(gmail.PERSONAL) or (settings.smtp_host and settings.report_from_email))
 def send_email(*, to: str, subject: str, html: str) -> bool:
     """Send an HTML email.
 
@@ -24,8 +26,7 @@ def send_email(*, to: str, subject: str, html: str) -> bool:
     # Preferred path: personal Gmail.
     if gmail.is_configured(gmail.PERSONAL):
         mid = gmail.send_message(to, subject, html, account=gmail.PERSONAL)
-        if mid:
-            return True
+        return bool(mid)  # Unknown Gmail outcome must never trigger SMTP fallback.
 
     if not (settings.smtp_host and settings.report_from_email):
         log.info("No Gmail/SMTP configured — report not emailed (subject=%s)", subject)

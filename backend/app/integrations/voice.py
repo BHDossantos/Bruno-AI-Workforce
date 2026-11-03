@@ -88,11 +88,12 @@ def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, s
     # Shared by auto_dial, EverQuote cadence and the manual auto-call endpoint.
     # One auto-call per normalized number/UTC day; unresolved attempts also fence
     # later days. Manual bridge/test/recording calls are explicitly outside scope.
-    normalized = "".join(c for c in lead_phone if c.isdigit())
-    if len(normalized) == 10:
-        normalized = "1" + normalized
+    from .sms import _e164
+    normalized = _e164(lead_phone)
+    if not normalized:
+        return None, "Invalid recipient phone; no call made"
     return outbound_guard.invoke("auto-call", normalized, "voice",
-                                 str(datetime.now(timezone.utc).date()), [normalized],
+                                 str(datetime.now(timezone.utc).date()), [normalized.lstrip("+")],
                                  lambda: _mod().place_auto_call(lead_phone, lead_id),
                                  replay_accepted=False)
 

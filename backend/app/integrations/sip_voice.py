@@ -39,6 +39,7 @@ from urllib.parse import urlencode
 from xml.sax.saxutils import escape as _xesc
 
 from ..config import settings
+from .. import outbound_guard
 
 log = logging.getLogger("bruno.sip_voice")
 
@@ -211,6 +212,7 @@ def _originate(to: str, answer_path: str, extra_vars: str = "") -> tuple[str | N
     return _esl(cmd)
 
 
+@outbound_guard.provider("auto-call", result="tuple", recipient="lead_phone", ready=lambda _: is_configured())
 def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, str | None]:
     if not is_configured():
         return None, "Self-hosted SIP calling not connected — set the softswitch fields on Setup."
@@ -225,6 +227,7 @@ def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, s
                       extra_vars="execute_on_answer=amd")
 
 
+@outbound_guard.provider("call", result="tuple", recipient="lead_phone", ready=lambda _: is_configured())
 def place_bridge_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, str | None]:
     if not is_configured():
         return None, "Self-hosted SIP calling not connected — set the softswitch fields on Setup."
@@ -234,6 +237,7 @@ def place_bridge_call(lead_phone: str, lead_id: str | None) -> tuple[str | None,
     return _originate(_num(settings.producer_callback), f"/calls/sip/bridge?{q}")
 
 
+@outbound_guard.provider("call", recipient=lambda _: settings.producer_callback, ready=lambda _: is_configured())
 def record_voicemail_call() -> tuple[str | None, str | None]:
     if not is_configured():
         return None, "Set up the self-hosted SIP softswitch + your callback number on Setup first."
