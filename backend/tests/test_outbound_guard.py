@@ -176,3 +176,48 @@ def test_outbox_unknown_is_visible_and_never_retried(client, auth_headers, monke
     attempt = next(a for a in queue.json() if a["key"] == key)
     assert attempt["state"] == "unknown"
     assert set(attempt) == {"key", "channel", "state", "created_at", "updated_at"}
+
+
+@pytest.mark.parametrize("bulk", [False, True])
+def test_outbox_workers_preserve_sent_state(monkeypatch, client, bulk):
+    from app import outreach
+    from app.database import SessionLocal
+    from app.models import Message
+    from app.routers.messages import send_message
+    account = str(uuid4())
+    with SessionLocal() as db:
+        msg = Message(channel="email", direction="outbound", to_email=f"{uuid4()}@realmail.co",
+                      from_account=account, subject="subject", body="body", status="Drafted")
+        db.add(msg)
+        db.commit()
+        message_id = str(msg.id)
+    entered, release = Event(), Event()
+    calls = []
+    def send(*args):
+        calls.append(1)
+        entered.set()
+        assert release.wait(10)
+        return "receipt", None
+    monkeypatch.setattr(outreach, "can_deliver", lambda *_: True)
+    monkeypatch.setattr(outreach, "daily_send_cap", lambda: 100)
+    monkeypatch.setattr(outreach, "_email_sent_today", lambda *_: 0)
+    monkeypatch.setattr(outreach, "_deliver_once", send)
+    def worker():
+        with SessionLocal() as db:
+            if bulk:
+                return outreach.send_email_drafts(db, limit=1, account=account)
+            return send_message(message_id, db, None).status
+    with ThreadPoolExecutor(2) as pool:
+        first = pool.submit(worker)
+        assert entered.wait(10)
+        second = pool.submit(worker)
+        try:
+            if bulk:
+                assert second.result(timeout=10)["considered"] == 0
+        finally:
+            release.set()
+        assert first.result(timeout=10)
+        assert second.result(timeout=10)
+    assert calls == [1]
+    with SessionLocal() as db:
+        assert db.get(Message, message_id).status == "Sent"

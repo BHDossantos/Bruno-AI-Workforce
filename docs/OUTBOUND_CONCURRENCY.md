@@ -90,5 +90,9 @@ classification cases were added. The additional adapter tests cover missing rece
 timeouts, conflicts, server errors and explicit rate-limit rejection for both ESPs.
 The Outbox displays held status and removes its Send action pending reconciliation.
 
-Final focused suite: 27 passed against PostgreSQL. Next.js production build passed.
+Final focused suite: 29 passed against PostgreSQL. Next.js production build passed.
 No live provider calls, production scheduler restarts, or deployments were performed.
+
+Outbox single sends lock their message row, and bulk sends skip rows owned by another
+worker. This prevents a losing request from overwriting Sent with Needs Review; both
+paths are covered by competing-worker integration tests.

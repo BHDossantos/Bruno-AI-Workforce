@@ -307,7 +307,7 @@ def send_email_drafts(db: Session, *, limit: int = 25, account: str | None = Non
     if account:
         q = q.filter(Message.from_account == account)
     msgs = (q.order_by(*lead_temperature.send_priority_order(Lead, Message))
-            .limit(batch).all())
+            .limit(batch).with_for_update(of=Message, skip_locked=True).all())
 
     sent = failed = skipped_blank = suppressed_fake = 0
     errors: list[str] = []

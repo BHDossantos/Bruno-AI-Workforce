@@ -119,7 +119,7 @@ def approve_message(message_id: str, db: Session = Depends(get_db), _=Depends(_w
 @router.post("/messages/{message_id}/send", response_model=MessageOut)
 def send_message(message_id: str, db: Session = Depends(get_db), _=Depends(_write)):
     """Send a drafted message now via its account's mailbox (one click, no approval step)."""
-    msg = db.query(Message).filter(Message.id == message_id).first()
+    msg = db.query(Message).filter(Message.id == message_id).with_for_update().first()
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found")
     if msg.status == "Sent":
