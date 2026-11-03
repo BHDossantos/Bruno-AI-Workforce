@@ -1231,7 +1231,7 @@ def test_send_text_refreshes_saved_twilio_config(client, auth_headers, monkeypat
     monkeypatch.setattr("app.sms_engine._refresh_config",
                         lambda db: called.__setitem__("refresh", True))
     monkeypatch.setattr(sms_int, "is_configured", lambda: True)
-    monkeypatch.setattr(sms_int, "send_with_error", lambda to, body, account="personal": ("SMFAKE", None))
+    monkeypatch.setattr(sms_int, "send_with_error", lambda to, body, account="personal", **kwargs: ("SMFAKE", None))
     monkeypatch.setattr(settings, "sms_daily_send_cap", 100000)
 
     from app import sms_engine
@@ -9132,7 +9132,7 @@ def test_everquote_cadence_calls_and_texts_once_per_wave(monkeypatch):
 
     # A fake send_text that records a SENT sms Message (mirrors the real one) so the
     # per-wave dedup can see it on the next run.
-    def _fake_send_text(db, *, entity_type, entity_id, phone, body, account="insurance", enforce_hours=True):
+    def _fake_send_text(db, *, entity_type, entity_id, phone, body, account="insurance", enforce_hours=True, intent_key=None):
         db.add(Message(channel="sms", direction="outbound", entity_type=entity_type,
                        entity_id=entity_id, to_email=phone, from_account=account,
                        body=body, status="Sent", provider_id="SMSSID",

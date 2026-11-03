@@ -140,8 +140,8 @@ def _place(to: str, answer_path: str) -> tuple[str | None, str | None]:
         return None, "PUBLIC_BASE_URL is not set, so Vonage can't reach the call webhooks."
     try:
         token = _jwt()
-    except Exception as exc:  # bad/missing PEM
-        return None, f"Vonage auth failed — check the private key is a full PEM: {str(exc)[:120]}"
+    except Exception:  # local signing failure, before any HTTP request
+        return outbound_guard.no_attempt("Vonage signing configuration is invalid; no call made", "configuration")
     body = {
         "to": [{"type": "phone", "number": to}],
         "from": {"type": "phone", "number": _from_number()},

@@ -48,6 +48,13 @@ checking readiness. Plivo/Vonage require a real nonempty provider receipt.
 Manual SMS persists one Message before sending or bridge enqueue. An optional stable
 `idempotency_key` distinguishes intentional identical texts; reuse with a different
 payload returns 409. Legacy requests deduplicate identical recipient/account/body.
+Lead-profile sends and automated SMS also persist stable Message intents before
+carrier/bridge work. Profile requests accept idempotency keys (legacy typed requests
+use content identity); cadence keys identify the wave, warm intros and SMS followups
+identify their one-time business purpose, and quote intake identifies type/language.
+A purpose retains its original generated text on retry. Distinct intentional texts
+need distinct purposes/keys. Vonage local signing errors release unused holds without
+exposing key material; a previously reserved quota unit remains consumed.
 The UI retains an intent across failed responses/reloads and clears it only after its
 whole operation succeeds. Bridge ACK followed by an HTTP retry cannot enqueue again.
 

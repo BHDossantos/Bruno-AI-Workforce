@@ -474,3 +474,62 @@ def test_first_touch_duplicate_entities_before_caller_commit(monkeypatch, owned,
         assert len(calls) == 1
         owned[0].extend([a.id, b.id])
         second.commit(); first.commit()
+
+
+@pytest.mark.parametrize("caller", ["profile", "automation"])
+def test_lead_sms_intent_survives_bridge_ack(client, auth_headers, monkeypatch, owned, caller):
+    from app.config import settings
+    from app import runtime_config
+    from app.integrations import sms
+    monkeypatch.setattr(runtime_config, "apply_to_settings", lambda *_: None)
+    monkeypatch.setattr(sms, "is_configured", lambda: False)
+    monkeypatch.setattr(sms_engine, "sms_block_reason", lambda *a, **k: None)
+    monkeypatch.setattr(settings, "bridge_token", "review-bridge-only")
+    headers = {"X-Bridge-Token": "review-bridge-only"}
+    with SessionLocal() as db:
+        lead = Lead(segment="intent-test", phone=target("sms"), company_name="Bridge intent")
+        db.add(lead); db.commit(); lid, phone = lead.id, lead.phone; owned[1].append(lid)
+    def send(intent):
+        if caller == "profile":
+            result = client.post(f"/leads/{lid}/send-text", json={"message": "same text", "idempotency_key": intent}, headers=auth_headers)
+            assert result.status_code == 200, result.text
+        else:
+            with SessionLocal() as db:
+                assert sms_engine.send_text(db, entity_type="lead", entity_id=lid, phone=phone,
+                    body="same text", intent_key=intent)
+    first, distinct = str(uuid4()), str(uuid4())
+    with ThreadPoolExecutor(2) as pool:
+        list(pool.map(send, [first, first]))
+    with SessionLocal() as db:
+        rows = db.query(Message).filter(Message.entity_id == lid).all()
+        assert len(rows) == 1
+        mid = str(rows[0].id); owned[0].append(mid)
+    claim = next(x for x in client.get("/bridge/outbox", headers=headers).json() if x["id"] == mid)
+    assert client.post("/bridge/sent", json={"id": mid, "claim_token": claim["claim_token"]}, headers=headers).status_code == 200
+    send(first)
+    assert not any(x["id"] == mid for x in client.get("/bridge/outbox", headers=headers).json())
+    send(distinct)
+    with SessionLocal() as db:
+        rows = db.query(Message).filter(Message.entity_id == lid).all()
+        assert len(rows) == 2
+        second = next(str(m.id) for m in rows if str(m.id) != mid); owned[0].append(second)
+    claim = next(x for x in client.get("/bridge/outbox", headers=headers).json() if x["id"] == second)
+    assert client.post("/bridge/sent", json={"id": second, "claim_token": claim["claim_token"]}, headers=headers).status_code == 200
+    send(distinct)
+    assert not any(x["id"] in (mid, second) for x in client.get("/bridge/outbox", headers=headers).json())
+
+
+def test_vonage_local_signing_failure_has_no_hold(monkeypatch):
+    from app.integrations import vonage_voice
+    from app.config import settings
+    phone = target("sms")
+    monkeypatch.setattr(vonage_voice, "is_configured", lambda: True)
+    monkeypatch.setattr(settings, "public_base_url", "https://callback.invalid")
+    monkeypatch.setattr(settings, "vonage_application_id", "test-app")
+    monkeypatch.setattr(settings, "vonage_private_key", "invalid-test-key")
+    monkeypatch.setattr(vonage_voice.httpx, "post", lambda *a, **k: pytest.fail("HTTP called with invalid signing config"))
+    result = vonage_voice.place_auto_call(phone, "test-lead")
+    assert result.outcome == "not_attempted" and result.error.code == "configuration"
+    with SessionLocal() as db:
+        assert db.get(OutboundHold, guard.recipient_scope("call", phone)) is None
+        assert not db.query(OutboundAttempt).filter(OutboundAttempt.scope == guard.recipient_scope("call", phone)).first()
