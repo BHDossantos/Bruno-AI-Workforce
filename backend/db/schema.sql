@@ -340,3 +340,9 @@ CREATE TABLE IF NOT EXISTS outbound_resolutions (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS ix_outbound_resolutions_attempt_key ON outbound_resolutions(attempt_key);
+
+-- Immutable business policy follows a Message across all sending entry points.
+CREATE TABLE IF NOT EXISTS outbound_message_policies (
+    message_id UUID PRIMARY KEY,
+    daily_intent VARCHAR(64) NOT NULL
+);

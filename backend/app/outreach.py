@@ -405,7 +405,8 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
     message_id = UUID(identity[:32])
     outbound_guard.persist_message_intent(dict(id=message_id, channel="email", direction="outbound",
                entity_type=entity_type, entity_id=entity_id, to_email=to_email,
-               from_account=account, subject=subject, body=body, status="Drafted", approved=False))
+               from_account=account, subject=subject, body=body, status="Drafted", approved=False),
+               daily_intent=daily_intent)
     msg = db.query(Message).filter(Message.id == message_id).populate_existing().with_for_update().one()
     if msg.status not in ("Drafted", "Approved"):
         return msg

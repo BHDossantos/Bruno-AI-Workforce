@@ -138,7 +138,7 @@ def send_message(message_id: str, db: Session = Depends(get_db), _=Depends(_writ
     if not mid:
         from .. import outbound_guard
         if outbound_guard.retryable_without_reconciliation(err):
-            status = 429 if err.code == "quota_exhausted" else 503
+            status = 429 if err.code in ("quota_exhausted", "daily_intent_exhausted") else 503
             raise HTTPException(status, detail=str(err))
         msg.status = "Needs Review"
         db.commit()

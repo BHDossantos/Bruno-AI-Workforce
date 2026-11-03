@@ -17,11 +17,7 @@ from sqlalchemy import delete, select, text, update, func
 from sqlalchemy.dialects.postgresql import insert
 
 from .database import engine
-from .models import OutboundAttempt, OutboundHold, OutboundQuota, Message
-
-
-class _DailyIntentBusy(Exception):
-    pass
+from .models import OutboundAttempt, OutboundHold, OutboundQuota, Message, OutboundMessagePolicy
 
 
 class DeliveryIssue(str):
@@ -174,13 +170,15 @@ def provider(channel, *, result="tuple", recipient="to", ready=None, validate=No
     return decorate
 
 
-def persist_message_intent(values):
+def persist_message_intent(values, *, daily_intent=None):
     """Commit the stable draft before any provider work, independent of its caller."""
     from .database import engine as intent_engine
     with intent_engine.begin() as conn:
-        if conn.execute(select(Message.id).where(Message.id == values["id"])).scalar():
-            return
-        conn.execute(insert(Message).values(**values).on_conflict_do_nothing())
+        if not conn.execute(select(Message.id).where(Message.id == values["id"])).scalar():
+            conn.execute(insert(Message).values(**values).on_conflict_do_nothing())
+        if daily_intent:
+            conn.execute(insert(OutboundMessagePolicy).values(message_id=values["id"], daily_intent=daily_intent)
+                         .on_conflict_do_nothing())
 
 
 def invoke(channel, recipient, account, operation, payload, send, *, replay_accepted=True, budget=None, daily_intent=None):
@@ -195,6 +193,29 @@ def invoke(channel, recipient, account, operation, payload, send, *, replay_acce
     fingerprint = digest(payload)
     try:
         with engine.begin() as conn:
+            if str(operation).startswith("message:"):
+                from uuid import UUID
+                try:
+                    message_id = UUID(str(operation).split(":", 1)[1])
+                except ValueError:
+                    message_id = None
+                if message_id:
+                    persisted = conn.execute(select(OutboundMessagePolicy.daily_intent).where(
+                        OutboundMessagePolicy.message_id == message_id)).scalar()
+                    if not persisted and channel in ("email", "campaign"):
+                        # Recognize unchanged stable first-touch drafts written by
+                        # earlier versions of this draft PR, before policy storage.
+                        original = conn.execute(select(Message.entity_type, Message.entity_id,
+                            Message.to_email).where(Message.id == message_id)).first()
+                        if original and original.entity_type in ("lead", "restaurant", "contact") and original.entity_id:
+                            expected = digest("email-intent", (original.to_email or "").strip().lower(),
+                                              f"first-touch:{original.entity_type}:{original.entity_id}")[:32]
+                            if message_id.hex == expected:
+                                persisted = "first-touch"
+                                conn.execute(insert(OutboundMessagePolicy).values(
+                                    message_id=message_id, daily_intent=persisted).on_conflict_do_nothing())
+                    # Callers cannot clear the durable policy by omitting a flag.
+                    daily_intent = persisted or daily_intent
             inserted = conn.execute(insert(OutboundAttempt).values(
                 key=key, scope=scope, payload_hash=fingerprint, channel=channel,
                 state="pending", recipient=(recipient or "").strip(), account=account,
@@ -246,9 +267,15 @@ def invoke(channel, recipient, account, operation, payload, send, *, replay_acce
                 won = conn.execute(insert(OutboundQuota).values(key=slot, used=1, capacity=1)
                                    .on_conflict_do_nothing().returning(OutboundQuota.key)).scalar()
                 if not won:
-                    raise _DailyIntentBusy()
-    except _DailyIntentBusy:
-        return no_attempt("Recipient already has this business action reserved today; no call made.", "daily_intent_exhausted")
+                    # No provider handoff occurred. Remove only this request's
+                    # provisional usage/claim, preserving the observed lower cap.
+                    if limit is not None:
+                        conn.execute(update(OutboundQuota).where(OutboundQuota.key == quota_key)
+                                     .values(used=OutboundQuota.used - 1))
+                    conn.execute(delete(OutboundHold).where(OutboundHold.scope == scope,
+                                                            OutboundHold.attempt_key == key))
+                    conn.execute(delete(OutboundAttempt).where(OutboundAttempt.key == key))
+                    return no_attempt("Recipient already has this business action reserved today; no call made.", "daily_intent_exhausted")
     except _Busy:
         return no_attempt("Another pending/unknown action exists for this recipient; no new call made.", "recipient_busy")
     except Exception:

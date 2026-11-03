@@ -66,7 +66,14 @@ once. A next-day bulk pass cannot resend that first touch. Reconciliation never 
 A separate durable recipient/account/UTC-day budget prevents duplicate entity rows
 from issuing two first touches before either caller commits its Message updates.
 That slot is reserved atomically with the attempt, never refunded after handoff, and
-uses the existing quota table. Explicit follow-up purposes do not share that slot.
+uses the existing quota table. The new `outbound_message_policies` table records
+the business limit atomically with its Message. Every guarded message send reloads
+that policy, including batch flushes, approvals and manual Outbox sends; omission
+of a caller flag cannot bypass it. A daily denial retains Drafted/Approved and the
+manual endpoint returns 429 with a no-call reason. Unchanged deterministic first-touch
+drafts from earlier PR revisions are recognized at the guard boundary too. Older
+modified/unlinked drafts still require the pre-rollout inventory. Explicit follow-up
+purposes do not share that slot.
 Brief follow-ups use the deterministic brief action identity; review requests use
 one stable purpose per won lead. Regenerated copy or missing action logs cannot
 turn retries into new outreach. BaseAgent forwards explicit intent keys.
@@ -86,6 +93,9 @@ action removes its unused hold/attempt but conservatively retains its quota unit
 Database failure prevents a call. The lowest cap observed by a worker
 for that UTC day wins, so a stale higher cap cannot reopen capacity. Raising a cap only
 takes effect on a later UTC day; lowering it cannot undo already-issued actions.
+A duplicate daily-business-intent denial commits the observed lower capacity while
+removing only its own provisional usage and unused attempt/hold. It does not roll
+back the capacity observation or refund any earlier provider handoff.
 
 Initial counters conservatively include recorded outbound messages with `sent_at`
 that day. This is not proof of historical actions from old/unlogged writers. Provider

@@ -432,7 +432,8 @@ def test_brief_followup_and_review_are_distinct_stable_intents(monkeypatch, owne
         db.commit()
 
 
-def test_first_touch_duplicate_entities_before_caller_commit(monkeypatch, owned, clock):
+@pytest.mark.parametrize("legacy_policy", [False, True])
+def test_first_touch_duplicate_entities_before_caller_commit(client, auth_headers, monkeypatch, owned, clock, legacy_policy):
     from app import actions, control, runtime_config
     from app.agents.review_referral import ReviewReferralAgent
     from app.integrations import sender, resend, gmail
@@ -457,23 +458,43 @@ def test_first_touch_duplicate_entities_before_caller_commit(monkeypatch, owned,
     calls = []
     monkeypatch.setattr(outreach, "_deliver_once", lambda *a: (calls.append(a) or (f"receipt-{len(calls)}", None)))
     to = target("email")
+    account = str(uuid4())
     with SessionLocal() as db:
         rows = [Lead(segment="intent-test", email=to, company_name="Duplicate", status="New") for _ in range(2)]
         db.add_all(rows); db.commit()
         ids = [r.id for r in rows]; owned[1].extend(ids)
     with SessionLocal() as first, SessionLocal() as second:
         a = outreach.dispatch_email(first, entity_type="lead", entity_id=ids[0],
-                to_email=to, subject="Initial A", body="First body", account="insurance")
+                to_email=to, subject="Initial A", body="First body", account=account)
         assert a.status == "Sent"
         # A's Message is still only Drafted to other sessions, and its recipient
         # hold has been released after acceptance. B has a different entity/intent.
         assert second.get(Message, a.id).status == "Drafted"
         b = outreach.dispatch_email(second, entity_type="lead", entity_id=ids[1],
-                to_email=to.upper(), subject="Initial B", body="Other body", account="insurance")
+                to_email=to.upper(), subject="Initial B", body="Other body", account=account)
         assert b.status == "Drafted"
         assert len(calls) == 1
         owned[0].extend([a.id, b.id])
+        bid = b.id
         second.commit(); first.commit()
+    if legacy_policy:
+        from app.models import OutboundMessagePolicy
+        with SessionLocal() as db:
+            db.query(OutboundMessagePolicy).filter(OutboundMessagePolicy.message_id == bid).delete()
+            db.commit()
+
+    # Every later entry point must reload the durable business policy.
+    with SessionLocal() as db:
+        result = outreach.send_email_drafts(db, account=account)
+        assert result["sent"] == 0 and result["failed"] == 1
+        assert "business action reserved today" in str(result["errors"])
+        assert db.get(Message, bid).status == "Drafted"
+    response = client.post(f"/messages/{bid}/send", headers=auth_headers)
+    assert response.status_code == 429
+    assert "no call made" in response.json()["detail"]
+    assert len(calls) == 1
+    with SessionLocal() as db:
+        assert db.get(Message, bid).status == "Drafted"
 
 
 @pytest.mark.parametrize("caller", ["profile", "automation"])
@@ -533,3 +554,29 @@ def test_vonage_local_signing_failure_has_no_hold(monkeypatch):
     with SessionLocal() as db:
         assert db.get(OutboundHold, guard.recipient_scope("call", phone)) is None
         assert not db.query(OutboundAttempt).filter(OutboundAttempt.scope == guard.recipient_scope("call", phone)).first()
+
+
+def test_lower_cap_survives_daily_intent_denial_and_competing_workers(monkeypatch, clock):
+    from app.models import OutboundQuota
+    to, account = target("email"), str(uuid4())
+    assert guard.invoke("email", to, account, "first", [], lambda: ("first-receipt", None),
+                        budget=100, daily_intent="first-touch").outcome == "accepted"
+    denied = guard.invoke("email", to, account, "duplicate", [],
+                          lambda: pytest.fail("duplicate sent"), budget=10, daily_intent="first-touch")
+    assert denied.error.code == "daily_intent_exhausted"
+    quota_key = guard.digest("email", str(clock.current.date()))
+    with SessionLocal() as db:
+        quota = db.get(OutboundQuota, quota_key)
+        assert (quota.capacity, quota.used) == (10, 1)
+        assert db.get(OutboundHold, guard.recipient_scope("email", to)) is None
+        assert db.get(OutboundAttempt, guard.digest(guard.recipient_scope("email", to), account, "duplicate")) is None
+    calls = []
+    def compete(_):
+        return guard.invoke("email", target("email"), account, str(uuid4()), [],
+                            lambda: (calls.append(1) or ("receipt", None)), budget=100)
+    with ThreadPoolExecutor(8) as pool:
+        results = list(pool.map(compete, range(20)))
+    assert len(calls) == sum(result.outcome == "accepted" for result in results) == 9
+    with SessionLocal() as db:
+        quota = db.get(OutboundQuota, quota_key)
+        assert (quota.capacity, quota.used) == (10, 10)
