@@ -46,11 +46,11 @@ class BaseAgent:
 
     def dispatch_email(self, *, entity_type: str, entity_id, to_email: str | None,
                        subject: str | None, body: str | None,
-                       account: str = "personal") -> Message:
-        """Send/draft the first-touch email via the shared outreach dispatcher."""
+                       account: str = "personal", intent_key: str | None = None) -> Message:
+        """Send/draft an email; distinct business actions supply stable purpose keys."""
         return outreach.dispatch_email(
             self.db, entity_type=entity_type, entity_id=entity_id, to_email=to_email,
-            subject=subject, body=body, account=account, actor=self.key,
+            subject=subject, body=body, account=account, actor=self.key, intent_key=intent_key,
         )
 
     def _touch_agent_row(self) -> None:

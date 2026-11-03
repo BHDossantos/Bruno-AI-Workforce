@@ -226,7 +226,8 @@ def process_due_followups(db: Session, limit: int = 400) -> dict:
 
         msg = outreach.dispatch_email(
             db, entity_type=fu.entity_type, entity_id=fu.entity_id, to_email=to_email,
-            subject=subject, body=body, account=account, actor="followups")
+            subject=subject, body=body, account=account, actor="followups",
+            intent_key=f"followup:{fu.id}")
         fu.body = body
         fu.completed = True
         if msg.status == "Sent":

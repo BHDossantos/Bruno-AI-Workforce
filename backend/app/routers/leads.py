@@ -2,7 +2,7 @@
 import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
@@ -369,6 +369,7 @@ def add_lead_note(lead_id: str, body: NoteIn, db: Session = Depends(get_db),
 
 
 class SendNowIn(BaseModel):
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
     message: str | None = None       # override the AI-drafted body
     subject: str | None = None       # email only
 
@@ -398,7 +399,8 @@ def send_lead_email(lead_id: str, body: SendNowIn, db: Session = Depends(get_db)
             raise HTTPException(400, "No email content — type a message or personalize first")
     msg = outreach.dispatch_email(db, entity_type="lead", entity_id=lead.id,
                                   to_email=lead.email, subject=subject or "", body=text,
-                                  account="insurance", actor="crm", autonomous=False)
+                                  account="insurance", actor="crm", autonomous=False,
+                                  intent_key=f"crm:{lead.id}:{outreach.outbound_guard.digest(subject, text)}")
     return {"ok": True, "sent": msg.status == "Sent", "status": msg.status,
             "counts": _touch_counts(db, lead.id)}
 
@@ -422,7 +424,8 @@ def send_lead_text(lead_id: str, body: SendNowIn, db: Session = Depends(get_db),
         else:
             raise HTTPException(400, "No text content — type a message first")
     sid = sms_engine.send_text(db, entity_type="lead", entity_id=lead.id,
-                               phone=lead.phone, body=text, account="insurance")
+                               phone=lead.phone, body=text, account="insurance",
+                               intent_key=f"profile:{lead.id}:{body.idempotency_key or outreach.outbound_guard.digest(body.message or 'personalized-intro')}")
     if not sid:
         reason = sms_engine.sms_block_reason(db, lead.phone) or (
             "No texting channel configured — connect Twilio on Setup")
@@ -482,7 +485,8 @@ def two_way_test(body: TwoWayTestIn, db: Session = Depends(get_db),
         try:
             m = outreach.dispatch_email(db, entity_type="lead", entity_id=lead.id,
                                         to_email=lead.email, subject=subject, body=emsg,
-                                        account="insurance", actor="two_way_test", autonomous=False)
+                                        account="insurance", actor="two_way_test", autonomous=False,
+                                        intent_key=f"two-way-test:{lead.id}")
             result["email"] = ({"sent": True, "status": m.status} if m.status == "Sent"
                                else {"sent": False, "status": m.status,
                                      "reason": "Drafted, not sent — connect a Gmail mailbox or "
@@ -587,7 +591,8 @@ def send_quote_intake(lead_id: str, body: IntakeSendIn, db: Session = Depends(ge
         # thread reply). Opt-out (STOP) is still always enforced inside send_text.
         result = sms_engine.send_text(db, entity_type="lead", entity_id=lead.id,
                                       phone=lead.phone, body=text, account="insurance",
-                                      enforce_hours=False)
+                                      enforce_hours=False,
+                                      intent_key=f"quote-intake:{lead.id}:{body.quote_type}:{body.lang}")
         if not result:
             raise HTTPException(400, "No texting channel configured — connect Twilio or the "
                                 "iMessage bridge on Setup first")

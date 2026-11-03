@@ -16,6 +16,7 @@ import logging
 import httpx
 
 from ..config import settings
+from .. import outbound_guard
 
 log = logging.getLogger("bruno.plivo")
 
@@ -33,6 +34,7 @@ def is_configured() -> bool:
     return bool(_auth_id() and _auth_token() and settings.plivo_from_number)
 
 
+@outbound_guard.provider("sms", result="tuple", recipient="to", ready=lambda _: is_configured())
 def send_with_error(to: str, body: str, account: str = "insurance") -> tuple[str | None, str | None]:
     """Send an SMS via Plivo. Returns (message_uuid, error_reason) — exactly one is
     non-None — mirroring integrations.sms.send_with_error so callers are provider-
@@ -68,7 +70,7 @@ def send_with_error(to: str, body: str, account: str = "insurance") -> tuple[str
             mid = uuids[0] if uuids else None
         except Exception:
             mid = None
-        return (mid or "plivo-sent"), None
+        return (mid, None) if mid else (None, "Plivo acceptance missing receipt; reconcile before retrying.")
     except Exception as exc:  # pragma: no cover - network guard
         log.warning("Plivo send failed (%s): %s", to, exc)
         return None, f"Plivo error: {str(exc)[:160]}"

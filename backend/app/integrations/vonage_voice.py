@@ -28,6 +28,7 @@ import httpx
 import jwt
 
 from ..config import settings
+from .. import outbound_guard
 
 log = logging.getLogger("bruno.vonage_voice")
 
@@ -139,8 +140,8 @@ def _place(to: str, answer_path: str) -> tuple[str | None, str | None]:
         return None, "PUBLIC_BASE_URL is not set, so Vonage can't reach the call webhooks."
     try:
         token = _jwt()
-    except Exception as exc:  # bad/missing PEM
-        return None, f"Vonage auth failed — check the private key is a full PEM: {str(exc)[:120]}"
+    except Exception:  # local signing failure, before any HTTP request
+        return outbound_guard.no_attempt("Vonage signing configuration is invalid; no call made", "configuration")
     body = {
         "to": [{"type": "phone", "number": to}],
         "from": {"type": "phone", "number": _from_number()},
@@ -163,11 +164,14 @@ def _place(to: str, answer_path: str) -> tuple[str | None, str | None]:
             cid = r.json().get("uuid")
         except Exception:
             cid = None
-        return (cid or "vonage-call"), None
+        cid = cid.strip() if isinstance(cid, str) else None
+        return (cid, None) if cid else (None, "Vonage call acceptance missing receipt; reconcile before retrying.")
     except Exception as exc:  # pragma: no cover - network guard
         return None, f"Call failed: {str(exc)[:160]}"
 
 
+@outbound_guard.provider("auto-call", result="tuple", recipient="lead_phone", ready=lambda _: is_configured(),
+                         validate=lambda _: outbound_guard.voice_preflight())
 def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, str | None]:
     if not is_configured():
         return None, "Vonage calling not connected — add Application ID, private key, a number + your callback."
@@ -178,6 +182,8 @@ def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, s
     return _place(to, f"/calls/vonage/amd{('?' + q) if q else ''}")
 
 
+@outbound_guard.provider("call", result="tuple", recipient="lead_phone", ready=lambda _: is_configured(),
+                         validate=lambda _: outbound_guard.voice_preflight())
 def place_bridge_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, str | None]:
     if not is_configured():
         return None, "Vonage calling not connected — add Application ID, private key, a number + your callback."
@@ -187,6 +193,8 @@ def place_bridge_call(lead_phone: str, lead_id: str | None) -> tuple[str | None,
     return _place(_num(settings.producer_callback), f"/calls/vonage/bridge?{q}")
 
 
+@outbound_guard.provider("call", recipient=lambda _: settings.producer_callback, ready=lambda _: is_configured(),
+                         validate=lambda _: outbound_guard.voice_preflight())
 def record_voicemail_call() -> tuple[str | None, str | None]:
     if not is_configured():
         return None, "Add Vonage + your callback number on Setup first."

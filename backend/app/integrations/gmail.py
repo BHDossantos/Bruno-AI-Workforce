@@ -19,6 +19,7 @@ import logging
 from email.mime.text import MIMEText
 
 from ..config import settings
+from .. import outbound_guard
 
 log = logging.getLogger("bruno.gmail")
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
@@ -237,6 +238,8 @@ def _send_smtp(account: str, to: str, subject: str, body: str) -> str | None:
     return _send_smtp_verbose(account, to, subject, body)[0]
 
 
+@outbound_guard.provider("email", result="tuple", recipient="to", ready=lambda v: is_configured(v.get("account", PERSONAL)),
+                         normalize=lambda v: v.update(account=effective_account(v["account"])))
 def send_with_error(to: str, subject: str, body: str, account: str = PERSONAL) -> tuple[str | None, str | None]:
     """Like send_message but returns (message_id, error_reason) so the caller can
     show the operator exactly why a send failed."""
@@ -249,11 +252,9 @@ def send_with_error(to: str, subject: str, body: str, account: str = PERSONAL) -
     try:
         sent = svc.users().messages().send(userId="me", body=_raw(account, to, subject, body)).execute()
         return sent.get("id"), None
-    except Exception as exc:  # Gmail API failed → try SMTP, keep whichever error is real
-        mid, smtp_err = _send_smtp_verbose(account, to, subject, body)
-        if mid:
-            return mid, None
-        return None, f"Gmail API: {str(exc)[:120]} · SMTP: {smtp_err}"
+    except Exception:  # Acceptance may have happened; SMTP fallback could duplicate.
+        return None, "Gmail API outcome unknown; reconcile before retrying."
+
 
 
 def verify(account: str = PERSONAL) -> dict:
@@ -311,6 +312,8 @@ def effective_account(account: str) -> str:
     return account
 
 
+@outbound_guard.provider("email", result="id", recipient="to", ready=lambda v: is_configured(v.get("account", PERSONAL)),
+                         normalize=lambda v: v.update(account=effective_account(v["account"])))
 def send_message(to: str, subject: str, body: str, account: str = PERSONAL) -> str | None:
     """Send an email immediately from ``account``. Returns the message id or None.
 
@@ -329,7 +332,7 @@ def send_message(to: str, subject: str, body: str, account: str = PERSONAL) -> s
         return sent.get("id")
     except Exception as exc:  # pragma: no cover - network guard
         log.warning("Gmail send failed (%s via %s): %s", to, account, exc)
-        return _send_smtp(account, to, subject, body)  # last-resort fallback
+        return None  # acceptance uncertain: never retry via SMTP
 
 
 def create_draft(to: str, subject: str, body: str, account: str = PERSONAL) -> str | None:

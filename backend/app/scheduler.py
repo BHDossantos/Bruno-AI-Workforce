@@ -10,10 +10,9 @@ requirement for full autonomy is:
     so the scheduler isn't reaped when the service scales to zero, and
   • set OPENAI_API_KEY so the content/outreach can actually be written.
 
-Every job is failure-isolated (one failure never stops the others) and every
-worker is independently idempotent (cadence caps, daily send caps, same-day
-dedupe), so overlapping runs or an external Cloud Scheduler hitting /cron/* in
-parallel can never double-post or double-send.
+Scheduled jobs share a PostgreSQL advisory lock across instances. Durable provider
+reservations protect supported email/auto-call paths. External cron routes and other
+providers need their own guards; this is not an exactly-once delivery guarantee.
 """
 from __future__ import annotations
 
@@ -68,7 +67,12 @@ def _with_db(fn, label: str):
         if control.is_paused_safe(db):
             log.info("Skipping %s — agents paused (emergency stop)", label)
             return None
-        return fn(db)
+        from .outbound_guard import scheduler_slot
+        with scheduler_slot() as acquired:
+            if not acquired:
+                log.info("Skipping %s — another scheduled worker is active", label)
+                return None
+            return fn(db)
     except Exception:  # pragma: no cover - defensive; one job must never break others
         log.exception("Scheduled job %s failed", label)
     finally:

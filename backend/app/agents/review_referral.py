@@ -49,7 +49,8 @@ class ReviewReferralAgent(BaseAgent):
                 subject = art.get("subject") or "Quick favor — and thank you!"
                 body = art.get("body")
                 msg = self.dispatch_email(entity_type="lead", entity_id=l.id, to_email=l.email,
-                                          subject=subject, body=body, account="insurance")
+                                          subject=subject, body=body, account="insurance",
+                                          intent_key=f"review-request:lead:{l.id}")
                 self.log_action(_ASKED, entity="lead", entity_id=l.id,
                                 detail={"status": msg.status})
                 if msg.status in ("Sent", "Drafted"):

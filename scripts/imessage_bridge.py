@@ -48,7 +48,7 @@ def _api(path: str, payload: dict | None = None):
 
 
 def send_imessage(to: str, body: str) -> bool:
-    """Send via Messages.app. Tries iMessage, falls back to SMS service."""
+    """Select a service before sending; never retry an uncertain send."""
     safe_to = to.replace('"', '')
     safe_body = body.replace('\\', '\\\\').replace('"', '\\"')
     script = f'''
@@ -58,14 +58,17 @@ def send_imessage(to: str, body: str) -> bool:
       tell application "Messages"
         try
           set svc to 1st service whose service type = iMessage
-          send theText to buddy theBuddy of svc
         on error
-          set smsService to 1st service whose service type = SMS
-          send theText to buddy theBuddy of smsService
+          set svc to 1st service whose service type = SMS
         end try
+        send theText to buddy theBuddy of svc
       end tell
     end run'''
-    res = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+    try:
+        res = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        print("  ! Messages outcome uncertain; held for review")
+        return False
     if res.returncode != 0:
         print(f"  ! osascript: {res.stderr.strip()[:200]}")
     return res.returncode == 0
@@ -75,8 +78,12 @@ def drain_outbox():
     items = _api("/bridge/outbox") or []
     for it in items:
         print(f"  -> texting {it['to']}")
-        if send_imessage(it["to"], it["body"]):
-            _api("/bridge/sent", {"id": it["id"]})
+        if not it.get("claim_token"):
+            print("  ! Server does not support durable claims; refusing to send")
+            continue
+        accepted = send_imessage(it["to"], it["body"])
+        _api("/bridge/sent", {"id": it["id"], "claim_token": it["claim_token"],
+                              "outcome": "accepted" if accepted else "unknown"})
 
 
 def _last_rowid_path() -> Path:
