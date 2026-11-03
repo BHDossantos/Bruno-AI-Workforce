@@ -20,6 +20,10 @@ from .database import engine
 from .models import OutboundAttempt, OutboundHold, OutboundQuota, Message
 
 
+class _DailyIntentBusy(Exception):
+    pass
+
+
 class DeliveryIssue(str):
     """String-compatible error with explicit outcome metadata for queue decisions."""
     def __new__(cls, message, *, kind="held", code="held", attempt_key=None, retryable=False):
@@ -179,7 +183,7 @@ def persist_message_intent(values):
         conn.execute(insert(Message).values(**values).on_conflict_do_nothing())
 
 
-def invoke(channel, recipient, account, operation, payload, send, *, replay_accepted=True, budget=None):
+def invoke(channel, recipient, account, operation, payload, send, *, replay_accepted=True, budget=None, daily_intent=None):
     """Return (provider_id, error). A replay never invokes `send` again.
 
     The callback must not retry or fail over after an ambiguous outcome. We store
@@ -234,6 +238,17 @@ def invoke(channel, recipient, account, operation, payload, send, *, replay_acce
                                                             OutboundHold.attempt_key == key))
                     conn.execute(delete(OutboundAttempt).where(OutboundAttempt.key == key))
                     return no_attempt("Shared daily attempt budget exhausted; no provider call made.", "quota_exhausted")
+            if daily_intent:
+                # Durable recipient/account/day business budget, committed with the
+                # attempt before provider work and independent of Message commits.
+                slot = digest("daily-intent", scope, account, daily_intent,
+                              str(datetime.now(timezone.utc).date()))
+                won = conn.execute(insert(OutboundQuota).values(key=slot, used=1, capacity=1)
+                                   .on_conflict_do_nothing().returning(OutboundQuota.key)).scalar()
+                if not won:
+                    raise _DailyIntentBusy()
+    except _DailyIntentBusy:
+        return no_attempt("Recipient already has this business action reserved today; no call made.", "daily_intent_exhausted")
     except _Busy:
         return no_attempt("Another pending/unknown action exists for this recipient; no new call made.", "recipient_busy")
     except Exception:

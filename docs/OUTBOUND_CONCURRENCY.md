@@ -56,6 +56,13 @@ entity identity, not date or regenerated copy; follow-ups supply their own stabl
 purpose. These drafts intentionally survive caller rollback. Attempts reference the
 Message, so accepted reconciliation updates it and the lead/restaurant contact state
 once. A next-day bulk pass cannot resend that first touch. Reconciliation never sends.
+A separate durable recipient/account/UTC-day budget prevents duplicate entity rows
+from issuing two first touches before either caller commits its Message updates.
+That slot is reserved atomically with the attempt, never refunded after handoff, and
+uses the existing quota table. Explicit follow-up purposes do not share that slot.
+Brief follow-ups use the deterministic brief action identity; review requests use
+one stable purpose per won lead. Regenerated copy or missing action logs cannot
+turn retries into new outreach. BaseAgent forwards explicit intent keys.
 
 ## Shared daily budgets
 

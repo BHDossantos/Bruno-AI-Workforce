@@ -377,3 +377,100 @@ def test_dispatch_acceptance_survives_caller_rollback(monkeypatch, owned, clock)
         assert msg.id == mid and msg.status == "Sent"
         db.commit()
     assert calls == [1]
+
+
+def test_brief_followup_and_review_are_distinct_stable_intents(monkeypatch, owned, clock):
+    from app import actions, control, runtime_config
+    from app.agents.review_referral import ReviewReferralAgent
+    from app.integrations import sender, resend, gmail
+    from app.config import settings
+    from app.models import ActionLog
+    monkeypatch.setattr(runtime_config, "apply_to_settings", lambda *_: None)
+    monkeypatch.setattr(control, "is_paused_safe", lambda *_: False)
+    monkeypatch.setattr(control, "get_mode", lambda *_: "auto")
+    monkeypatch.setattr(sender, "is_configured", lambda: False)
+    monkeypatch.setattr(resend, "is_configured", lambda: True)
+    monkeypatch.setattr(gmail, "is_configured", lambda *_: False)
+    monkeypatch.setattr(outreach, "effective_cap", lambda *a: 100)
+    monkeypatch.setattr(outreach, "sent_today_count", lambda *a: 0)
+    monkeypatch.setattr(settings, "gmail_outbound_mode", "send")
+    # Simulate distinct business days without changing the shared daily safety gate.
+    monkeypatch.setattr(outreach, "_day_start", lambda: clock.current)
+    monkeypatch.setattr(actions.skills, "system_prompt", lambda *_: "test")
+    monkeypatch.setattr(actions.memory, "entity_context", lambda *a, **k: "")
+    copy = iter(range(20))
+    monkeypatch.setattr(actions.client, "complete_json", lambda *a, **k:
+                        {"subject": "subject", "body": f"Generated copy {next(copy)}"})
+    calls = []
+    monkeypatch.setattr(outreach, "_deliver_once", lambda *a: (calls.append(a) or (f"receipt-{len(calls)}", None)))
+    with SessionLocal() as db:
+        lead = Lead(segment="intent-test", email=target("email"), company_name="Intent test", status="New")
+        db.add(lead); db.commit(); owned[1].append(lead.id)
+        initial = outreach.dispatch_email(db, entity_type="lead", entity_id=lead.id,
+                    to_email=lead.email, subject="Initial", body="First touch", account="insurance")
+        db.commit()
+        assert initial.status == "Sent"
+        clock.current += timedelta(days=1)
+        assert actions._send_followup(db, "lead", lead, "insurance")["status"] == "Sent"
+        assert actions._send_followup(db, "lead", lead, "insurance")["status"] == "Sent"
+        assert len(calls) == 2
+        lead.status = "Closed Won"; db.commit()
+        clock.current += timedelta(days=1)
+        agent = ReviewReferralAgent(db)
+        assert agent.execute()["asked"] == 1
+        assert len(calls) == 3
+        # Lose the ancillary action log: durable purpose identity must still dedupe.
+        db.query(ActionLog).filter(ActionLog.entity_id == str(lead.id),
+                                  ActionLog.action == "review_requested").delete()
+        lead.status = "Closed Won"; db.commit()
+        agent.execute()
+        assert len(calls) == 3
+        messages = db.query(Message).filter(Message.entity_id == lead.id).all()
+        owned[0].extend(m.id for m in messages)
+        assert len(messages) == 3 and all(m.status == "Sent" for m in messages)
+        db.query(ActionLog).filter(ActionLog.entity_id == str(lead.id)).delete()
+        db.commit()
+
+
+def test_first_touch_duplicate_entities_before_caller_commit(monkeypatch, owned, clock):
+    from app import actions, control, runtime_config
+    from app.agents.review_referral import ReviewReferralAgent
+    from app.integrations import sender, resend, gmail
+    from app.config import settings
+    from app.models import ActionLog
+    monkeypatch.setattr(runtime_config, "apply_to_settings", lambda *_: None)
+    monkeypatch.setattr(control, "is_paused_safe", lambda *_: False)
+    monkeypatch.setattr(control, "get_mode", lambda *_: "auto")
+    monkeypatch.setattr(sender, "is_configured", lambda: False)
+    monkeypatch.setattr(resend, "is_configured", lambda: True)
+    monkeypatch.setattr(gmail, "is_configured", lambda *_: False)
+    monkeypatch.setattr(outreach, "effective_cap", lambda *a: 100)
+    monkeypatch.setattr(outreach, "sent_today_count", lambda *a: 0)
+    monkeypatch.setattr(settings, "gmail_outbound_mode", "send")
+    # Simulate distinct business days without changing the shared daily safety gate.
+    monkeypatch.setattr(outreach, "_day_start", lambda: clock.current)
+    monkeypatch.setattr(actions.skills, "system_prompt", lambda *_: "test")
+    monkeypatch.setattr(actions.memory, "entity_context", lambda *a, **k: "")
+    copy = iter(range(20))
+    monkeypatch.setattr(actions.client, "complete_json", lambda *a, **k:
+                        {"subject": "subject", "body": f"Generated copy {next(copy)}"})
+    calls = []
+    monkeypatch.setattr(outreach, "_deliver_once", lambda *a: (calls.append(a) or (f"receipt-{len(calls)}", None)))
+    to = target("email")
+    with SessionLocal() as db:
+        rows = [Lead(segment="intent-test", email=to, company_name="Duplicate", status="New") for _ in range(2)]
+        db.add_all(rows); db.commit()
+        ids = [r.id for r in rows]; owned[1].extend(ids)
+    with SessionLocal() as first, SessionLocal() as second:
+        a = outreach.dispatch_email(first, entity_type="lead", entity_id=ids[0],
+                to_email=to, subject="Initial A", body="First body", account="insurance")
+        assert a.status == "Sent"
+        # A's Message is still only Drafted to other sessions, and its recipient
+        # hold has been released after acceptance. B has a different entity/intent.
+        assert second.get(Message, a.id).status == "Drafted"
+        b = outreach.dispatch_email(second, entity_type="lead", entity_id=ids[1],
+                to_email=to.upper(), subject="Initial B", body="Other body", account="insurance")
+        assert b.status == "Drafted"
+        assert len(calls) == 1
+        owned[0].extend([a.id, b.id])
+        second.commit(); first.commit()

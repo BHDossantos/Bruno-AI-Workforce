@@ -219,7 +219,7 @@ def _deliver_once(to_email: str, subject: str | None, body: str | None,
 
 def deliver(to_email: str, subject: str | None, body: str | None,
             account: str = "insurance", *, operation_key: str | None = None,
-            replay_accepted: bool = True):
+            replay_accepted: bool = True, daily_intent: str | None = None):
     if not is_real_email(to_email) or not (email_template.clean_body(body) or "").strip():
         return None, "Not sent — empty/blank body or placeholder/sample recipient."
     if not can_deliver(account):
@@ -230,7 +230,7 @@ def deliver(to_email: str, subject: str | None, body: str | None,
     return outbound_guard.invoke("email", to_email, account, operation,
                                  [subject, body],
                                  lambda: _deliver_once(to_email, subject, body, account),
-                                 replay_accepted=replay_accepted)
+                                 replay_accepted=replay_accepted, daily_intent=daily_intent)
 
 
 def can_deliver(account: str = "insurance") -> bool:
@@ -397,6 +397,7 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
     from uuid import UUID
     # A business intent survives retries, generated-copy changes and UTC rollover.
     # Follow-ups and other distinct touches supply their own stable intent key.
+    daily_intent = "first-touch" if intent_key is None and entity_type in ("lead", "restaurant", "contact") else None
     purpose = intent_key or (f"first-touch:{entity_type}:{entity_id}"
                              if entity_type in ("lead", "restaurant", "contact") and entity_id
                              else outbound_guard.digest(entity_type, str(entity_id), subject, body))
@@ -466,7 +467,7 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
             return (sender.name() or "provider", None) if ok else (None, "Enrollment outcome unknown")
         enrollment, _error = outbound_guard.invoke(
             "campaign", to_email, account, f"message:{msg.id}", [body, first, last, company], enroll,
-            replay_accepted=True)
+            replay_accepted=True, daily_intent=daily_intent)
         if enrollment:
             msg.provider_id = sender.name() or "provider"
             msg.approved = True
@@ -507,7 +508,7 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
         # Ambiguous outcomes hold the recipient for manual reconciliation.
         mid, send_err = deliver(to_email, subject, body, account=account,
                                 operation_key=f"message:{msg.id}",
-                                replay_accepted=True)
+                                replay_accepted=True, daily_intent=daily_intent)
         if mid:
             msg.provider_id = mid
             msg.approved = True
