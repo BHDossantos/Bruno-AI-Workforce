@@ -84,15 +84,11 @@ provider never duplicates internally. No store readiness or release-signing clai
 
 ## Validation
 
-Local PostgreSQL 16, mocked providers: the unchanged backend baseline passed 362 tests;
-the expanded backend passed 379 tests before the final conservative HTTP-status
-classification cases were added. The additional adapter tests cover missing receipts,
-timeouts, conflicts, server errors and explicit rate-limit rejection for both ESPs.
-The Outbox displays held status and removes its Send action pending reconciliation.
-
-Final focused suite: 29 passed against PostgreSQL. Next.js production build passed.
-No live provider calls, production scheduler restarts, or deployments were performed.
-
-Outbox single sends lock their message row, and bulk sends skip rows owned by another
-worker. This prevents a losing request from overwriting Sent with Needs Review; both
-paths are covered by competing-worker integration tests.
+Local PostgreSQL 16 with mocked providers: unchanged baseline 362 passed; final full
+backend suite 391 passed. The focused concurrency/adapter suite has 29 tests, covering
+worker races, process exit/restart, caller rollback, result-store failure, replay,
+missing receipts, timeouts, conflicts, server errors and explicit rate-limit rejection.
+Single/bulk Outbox integration tests verify that concurrent sends preserve Sent state.
+Test-owned message rows are cleaned up so they cannot contaminate the shared suite.
+Next.js production build passed. No live provider calls, production scheduler
+restarts, or deployments were performed.

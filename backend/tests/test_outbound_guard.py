@@ -16,6 +16,17 @@ def tables():
     OutboundAttempt.__table__.create(guard.engine, checkfirst=True)
     OutboundHold.__table__.create(guard.engine, checkfirst=True)
 
+@pytest.fixture
+def outbox_rows():
+    """Remove only this test's messages from the suite's shared database."""
+    from app.database import SessionLocal
+    from app.models import Message
+    ids = []
+    yield ids
+    with SessionLocal() as db:
+        db.query(Message).filter(Message.id.in_(ids)).delete(synchronize_session=False)
+        db.commit()
+
 def identity():
     return f"{uuid4()}@test.invalid", str(uuid4())
 
@@ -148,7 +159,7 @@ def test_delivery_adapter_competing_message_intent(monkeypatch):
     assert len(calls) == 1
 
 
-def test_outbox_unknown_is_visible_and_never_retried(client, auth_headers, monkeypatch):
+def test_outbox_unknown_is_visible_and_never_retried(client, auth_headers, monkeypatch, outbox_rows):
     from app import outreach
     from app.database import SessionLocal
     from app.models import Message
@@ -159,6 +170,7 @@ def test_outbox_unknown_is_visible_and_never_retried(client, auth_headers, monke
         db.add(msg)
         db.commit()
         message_id = str(msg.id)
+        outbox_rows.append(message_id)
     calls = []
     monkeypatch.setattr(outreach, "can_deliver", lambda *_: True)
     monkeypatch.setattr(outreach, "_deliver_once", lambda *args: (calls.append(1) or (None, "timeout")))
@@ -179,7 +191,7 @@ def test_outbox_unknown_is_visible_and_never_retried(client, auth_headers, monke
 
 
 @pytest.mark.parametrize("bulk", [False, True])
-def test_outbox_workers_preserve_sent_state(monkeypatch, client, bulk):
+def test_outbox_workers_preserve_sent_state(monkeypatch, client, bulk, outbox_rows):
     from app import outreach
     from app.database import SessionLocal
     from app.models import Message
@@ -191,6 +203,7 @@ def test_outbox_workers_preserve_sent_state(monkeypatch, client, bulk):
         db.add(msg)
         db.commit()
         message_id = str(msg.id)
+        outbox_rows.append(message_id)
     entered, release = Event(), Event()
     calls = []
     def send(*args):
