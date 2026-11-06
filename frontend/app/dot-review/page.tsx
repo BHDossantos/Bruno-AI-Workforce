@@ -18,9 +18,10 @@ function Workspace() {
   const [note, setNote] = useState("");
   const [ref, setRef] = useState("");
   const [kind, setKind] = useState("contact_reported");
-  const [language, setLanguage] = useState("en");
-  const [outcome, setOutcome] = useState("no_answer");
+  const [language, setLanguage] = useState("");
+  const [outcome, setOutcome] = useState("");
   const [due, setDue] = useState("");
+  const [occurred, setOccurred] = useState("");
   async function refresh() { setCases(await api.get<Case[]>("/dot-review")); }
   async function show(dot: string) { setSelected(dot); setDetail(await api.get<Record<string, unknown>>(`/dot-review/${dot}`)); }
   async function perform(action: () => Promise<void>) {
@@ -63,7 +64,7 @@ function Workspace() {
       </form>
       <form className="space-y-2" onSubmit={e => { e.preventDefault(); void perform(async () => {
         await api.post(`/dot-review/${selected}/events`, { event_id: crypto.randomUUID(), kind, note, evidence_ref: ref,
-          occurred_at: new Date().toISOString(), ...(kind === "language_preference" ? {language} : {}),
+          occurred_at: new Date(occurred).toISOString(), ...(kind === "language_preference" ? {language} : {}),
           ...(kind === "outcome" ? {outcome} : {}), ...(kind === "next_action" ? {due_at: new Date(due).toISOString()} : {}) });
         await show(selected); setNote(""); setRef("");
       }); }}>
@@ -71,9 +72,10 @@ function Workspace() {
           <option value="contact_reported">Prior contact reported (not provider verified)</option><option value="opt_out">Opt-out reported: hold this case</option>
           <option value="language_preference">Actual language preference</option><option value="next_action">Next action assigned to me</option><option value="outcome">Call outcome</option>
         </select></label>
-        {kind === "language_preference" && <select aria-label="Expressed language" value={language} onChange={e => setLanguage(e.target.value)}><option value="en">English</option><option value="pt">Português</option><option value="es">Español</option></select>}
-        {kind === "outcome" && <select aria-label="Actual call outcome" value={outcome} onChange={e => setOutcome(e.target.value)}>{["answered", "voicemail_left", "voicemail_unavailable", "no_answer", "busy", "wrong_number"].map(o => <option key={o}>{o}</option>)}</select>}
+        {kind === "language_preference" && <select required aria-label="Expressed language" value={language} onChange={e => setLanguage(e.target.value)}><option value="">Choose the actual stated preference</option><option value="en">English</option><option value="pt">Português</option><option value="es">Español</option></select>}
+        {kind === "outcome" && <select required aria-label="Actual call outcome" value={outcome} onChange={e => setOutcome(e.target.value)}><option value="">Choose the actual outcome</option>{["answered", "voicemail_left", "voicemail_unavailable", "no_answer", "busy", "wrong_number"].map(o => <option key={o}>{o}</option>)}</select>}
         {kind === "next_action" && <input aria-label="Due date" required type="datetime-local" value={due} onChange={e => setDue(e.target.value)} />}
+        <label className="block">When this actually occurred (your local time) <input required type="datetime-local" value={occurred} onChange={e => setOccurred(e.target.value)} /></label>
         <label className="block">Evidence reference <input required className="border p-2 w-full" value={ref} onChange={e => setRef(e.target.value)} /></label>
         <label className="block">Actual reply, outcome or next step <textarea required className="border p-2 w-full" value={note} onChange={e => setNote(e.target.value)} /></label>
         <button disabled={busy} className="btn-primary">Record for review</button>
