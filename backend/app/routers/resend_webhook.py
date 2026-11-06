@@ -12,8 +12,8 @@ one public endpoint:
   real outcome on the matching sent Message so the UI shows whether it landed.
 
 Signature: if ``resend_webhook_secret`` ("whsec_…") is set, every post is
-Svix-verified and rejected on mismatch; if it's blank the endpoint accepts posts
-unauthenticated, exactly like the Twilio/Plivo inbound webhooks.
+Svix-verified and rejected on mismatch. If blank, production rejects requests;
+only local/test modes accept unsigned fixtures.
 """
 from __future__ import annotations
 
@@ -22,8 +22,9 @@ import hashlib
 import hmac
 import logging
 import re
+import time
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from ..config import settings
@@ -82,14 +83,19 @@ def _verify_svix(secret: str, headers, raw: bytes) -> bool:
     if not (sig_header and svix_id and ts):
         return False
     try:
-        key = base64.b64decode(secret.split("_", 1)[1] if secret.startswith("whsec_") else secret)
+        if abs(time.time() - int(ts)) > 300:
+            return False
+        key = base64.b64decode(secret.split("_", 1)[1] if secret.startswith("whsec_") else secret,
+                               validate=True)
+        if not key:
+            return False
         signed = f"{svix_id}.{ts}.".encode() + raw
         expected = base64.b64encode(hmac.new(key, signed, hashlib.sha256).digest()).decode()
     except Exception:
         return False
     for part in sig_header.split():
-        _, _, sig = part.partition(",")
-        if sig and hmac.compare_digest(sig, expected):
+        version, _, sig = part.partition(",")
+        if version == "v1" and sig and hmac.compare_digest(sig.encode(), expected.encode()):
             return True
     return False
 
@@ -99,10 +105,12 @@ async def resend_inbound(request: Request, db: Session = Depends(get_db)):
     """Public Resend webhook. Records inbound replies onto the CRM and delivery
     outcomes onto sent messages. Always returns 200 (except a real signature
     failure) so Resend doesn't retry-storm on a benign parse miss."""
-    raw = await request.body()
     secret = (settings.resend_webhook_secret or "").strip()
+    if not secret and settings.secure_runtime:
+        raise HTTPException(status_code=503, detail="Inbound webhook verification is not configured")
+    raw = await request.body()
     if secret and not _verify_svix(secret, request.headers, raw):
-        return {"ok": False, "error": "signature verification failed"}
+        raise HTTPException(status_code=401, detail="Webhook signature verification failed")
 
     try:
         payload = await request.json()

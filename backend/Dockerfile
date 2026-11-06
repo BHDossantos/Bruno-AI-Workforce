@@ -5,6 +5,9 @@
 FROM python:3.12-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+# Hosted images must not silently inherit Python's local-development defaults.
+# Local Compose's .env (copied from .env.example) explicitly selects development.
+ENV ENVIRONMENT=production
 WORKDIR /app
 
 # Build tools + curl, plus Chromium's OS libraries. We install these libs
