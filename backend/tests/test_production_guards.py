@@ -144,3 +144,17 @@ def test_published_svix_signature_vector(monkeypatch):
 def test_invalid_signature_cannot_process_delivery_event(endpoint):
     payload = b'{"type":"email.delivered","data":{"email_id":"provider-fixture"}}'
     assert endpoint.post("/resend/inbound", content=payload, headers=signed_headers()).status_code == 401
+
+
+def test_environment_example_placeholder_rejected():
+    with pytest.raises(ValidationError, match="SECRET_KEY"):
+        config(secret_key="change-me-to-a-long-random-string")
+
+
+def test_unmanaged_python_default_is_documented_local(monkeypatch):
+    # Docker sets ENVIRONMENT=production; direct Python retains its legacy local
+    # default and requires an explicit production setting on unmanaged hosts.
+    monkeypatch.delenv('ENVIRONMENT', raising=False)
+    local = Settings(_env_file=None, secret_key='test-secret', admin_password='testpass')
+    assert local.environment == 'development'
+    assert not local.secure_runtime

@@ -12,6 +12,12 @@ from .models import Setting
 from .runtime_config import FIELDS
 
 
+def reject_unverified_mutation_callback():
+    """No signature protocol is configured for these alternate mutation paths."""
+    if settings.secure_runtime:
+        raise HTTPException(503, "This callback requires an authenticated provider integration")
+
+
 def _credential(db, field):
     # Match Setup's env-over-DB precedence without mutating shared settings or
     # silently accepting stale credentials when the config store cannot be read.

@@ -15,7 +15,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..callback_auth import require_twilio_callback, require_plivo_callback
+from ..callback_auth import (require_twilio_callback, require_plivo_callback,
+                             reject_unverified_mutation_callback)
 from ..integrations import plivo_voice, sip_voice, vonage_voice
 from ..integrations import twilio_voice as voice
 from ..integrations import voice as vdispatch  # provider dispatcher (Plivo/Vonage/SIP/Twilio)
@@ -617,7 +618,7 @@ async def vonage_record_vm(db: Session = Depends(get_db)):
     return vonage_voice.record_vm_ncco()
 
 
-@router.post("/vonage/vm-saved")
+@router.post("/vonage/vm-saved", dependencies=[Depends(reject_unverified_mutation_callback)])
 async def vonage_vm_saved(request: Request, db: Session = Depends(get_db)):
     """Save the producer's recorded voicemail (Vonage posts recording_url)."""
     try:
@@ -634,7 +635,7 @@ async def vonage_vm_saved(request: Request, db: Session = Depends(get_db)):
     return {}
 
 
-@router.post("/vonage/event")
+@router.post("/vonage/event", dependencies=[Depends(reject_unverified_mutation_callback)])
 async def vonage_event(request: Request, lead_id: str = "", db: Session = Depends(get_db)):
     """Vonage call-status events — mark the call row done when it completes."""
     try:
@@ -696,7 +697,7 @@ def sip_record_vm(db: Session = Depends(get_db)):
     return Response(sip_voice._httapi(sip_voice.record_vm_work()), media_type=_XML)
 
 
-@router.post("/sip/vm-saved")
+@router.post("/sip/vm-saved", dependencies=[Depends(reject_unverified_mutation_callback)])
 async def sip_vm_saved(request: Request, db: Session = Depends(get_db)):
     """FreeSWITCH POSTs the recorded greeting here (multipart). Store it and point
     the voicemail drop at the hosted URL. Best-effort; always returns a valid doc."""
@@ -715,7 +716,7 @@ async def sip_vm_saved(request: Request, db: Session = Depends(get_db)):
     return Response(sip_voice._httapi("<hangup/>"), media_type=_XML)
 
 
-@router.post("/sip/event")
+@router.post("/sip/event", dependencies=[Depends(reject_unverified_mutation_callback)])
 async def sip_event(request: Request, lead_id: str = "", db: Session = Depends(get_db)):
     """FreeSWITCH call-status callback — mark the call row done when it completes."""
     try:

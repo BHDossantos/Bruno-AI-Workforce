@@ -6,10 +6,13 @@ This is a local code candidate, not a deployment or configuration change.
 
 ## Behavior
 
-- Only explicit development/dev/local/test/testing environments allow development
+- Development/dev/local/test/testing environments allow development
   credentials. Production, staging, unknown and blank modes reject signing keys
   shorter than 32 characters and bootstrap admin passwords shorter than 12, plus
   known defaults. Length is a minimum, not evidence of randomness or strength.
+- Docker defaults to production. Direct Python retains its legacy development
+  default: unmanaged non-container deployments must explicitly set
+  ENVIRONMENT=production. The local Compose example explicitly selects development.
 - Render runtime markers also enable guards because the existing blueprint omits
   ENVIRONMENT. Validation errors omit input values from their rendered text.
 - Resend inbound returns 503 before payload processing if its verification secret

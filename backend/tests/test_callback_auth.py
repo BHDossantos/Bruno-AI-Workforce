@@ -125,3 +125,31 @@ def test_plivo_rejects_other_token_and_missing_config(setup):
 def test_root_only_canonical_url(setup):
     setup[1].public_base_url=BASE+'/ambiguous-prefix';params={'AccountSid':SID}
     assert setup[0].post('/sms/inbound',data=params,headers=signed('/sms/inbound',params)).status_code==503
+
+@pytest.mark.parametrize('path,payload',[
+    ('/calls/vonage/vm-saved',{'recording_url':'https://attacker.invalid/greeting.wav'}),
+    ('/calls/vonage/event',{'uuid':'existing-call','status':'completed'}),
+    ('/calls/sip/event',{'uuid':'existing-call','status':'completed'}),
+])
+def test_unsigned_alternate_mutations_blocked(setup,monkeypatch,path,payload):
+    from app import runtime_config
+    writes=[]
+    monkeypatch.setattr(runtime_config,'save',lambda *a,**kw:writes.append((a,kw)))
+    options={'json':payload} if '/vonage/' in path else {'data':payload}
+    assert setup[0].post(path,**options).status_code==503
+    assert writes==[]
+
+
+def test_unsigned_sip_upload_blocked_before_storage(setup,monkeypatch):
+    from app import runtime_config
+    from app.integrations import storage
+    writes=[]
+    monkeypatch.setattr(storage,'upload_public',lambda *a,**kw:writes.append('upload'))
+    monkeypatch.setattr(runtime_config,'save',lambda *a,**kw:writes.append('save'))
+    assert setup[0].post('/calls/sip/vm-saved',files={'recording':('greeting.wav',b'attacker-audio','audio/wav')}).status_code==503
+    assert writes==[]
+
+
+def test_unsigned_local_fixture_remains_available(setup):
+    setup[1].secure_runtime=False
+    assert setup[0].post('/calls/vonage/event',json={}).status_code==200

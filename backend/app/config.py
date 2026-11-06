@@ -694,7 +694,8 @@ class Settings(BaseSettings):
     def _validate_production_credentials(self) -> "Settings":
         if self.secure_runtime:
             if len(self.secret_key.strip()) < 32 or self.secret_key.strip().lower() in {
-                "dev-secret-change-me", "change-me", "test-secret", "ci-secret"
+                "dev-secret-change-me", "change-me", "test-secret", "ci-secret",
+                "change-me-to-a-long-random-string"
             }:
                 raise ValueError("Production requires a non-default SECRET_KEY of at least 32 characters")
             if len(self.admin_password.strip()) < 12 or self.admin_password.strip().lower() in {

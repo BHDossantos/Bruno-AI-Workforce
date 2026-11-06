@@ -8,7 +8,12 @@ settings, credentials, outbound adapter behavior, deployments or publications.
 Production guards cover `/sms/inbound`, `/sms/status`, `/sms/plivo-inbound`,
 `/sms/plivo-status`, all `/calls/twiml/*`, `/calls/plivo/*`, and the public call
 `vm-saved`, `dial-status`, `amd-transfer-result`, `status`, `recording` callbacks.
-Only explicit local/test runtime modes retain unsigned fixtures.
+Local/test runtime modes retain unsigned fixtures. The Docker image now defaults
+ENVIRONMENT to production; local Compose uses the explicit development value in
+`.env.example`. Direct Python still defaults to development for existing local
+workflows: unmanaged non-container hosts MUST set ENVIRONMENT=production. Render
+runtime markers also activate guards. Do not publish an instance using development
+mode; it intentionally bypasses provider verification. No running config changed.
 
 Twilio uses pinned official `twilio==9.13.0` RequestValidator and requires a matching
 configured AccountSid. Plivo uses pinned official `plivo==4.63.0` V3 verification,
@@ -49,8 +54,13 @@ or writes are performed by the verifier.
   callback verification and PR312 drained-worker rollout gates.
 - This is authentication, **not replay prevention** or durable event deduplication.
   Twilio and Plivo signed requests can be replayed; repeated legitimate events
-  still need idempotent processing. Vonage, SIP and other webhook families are
-  not covered and remain separate security review items.
+  still need idempotent processing. The four unsigned Vonage/SIP `vm-saved` and
+  `event` mutation routes now return 503 in secure runtime before upload, global
+  voicemail settings or Message status changes. Those providers cannot save new
+  voicemail greetings or update call status until a separately authenticated
+  integration exists. No provider credentials or callback configuration was changed.
+  Their instruction-returning routes and other webhook families remain separate
+  security review items; this is not an assertion that all public routes are secure.
 
 ## Validation
 
@@ -61,9 +71,13 @@ binding, payload/account/URL tampering, missing headers/credentials, V2 downgrad
 proxy spoofing, cleared/stale credentials, env precedence and a callback-route
 inventory. Business query sentinels ensure invalid requests cannot update records.
 Full DB-backed integration and actual provider callback delivery remain untested.
-Combined result: 77 tests passed (30 callback cases, 33 production/Resend cases,
+Initial combined result: 77 tests passed (30 callback cases, 33 production/Resend cases,
 14 existing outbound fallback cases), two dependency deprecation warnings.
 `pip check` reports no broken requirements; `git diff --check` passes.
+After alternate-route hardening: 84 tests pass, including four route-level
+voicemail/status rejection cases, an upload/storage sentinel, local-mode behavior
+and example-secret rejection. Docker image default was inspected but the image
+was not built or deployed in this task.
 
 References:
 - https://www.twilio.com/docs/usage/api-security-reference-guide/webhook
