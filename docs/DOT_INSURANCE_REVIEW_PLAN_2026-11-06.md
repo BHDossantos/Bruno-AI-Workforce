@@ -100,3 +100,13 @@ Draft neutral choice for human approval: “Which language would you prefer: Eng
 For explicitly sourced moving-service leads with unverified SAFER research, `prepare_moving_recheck` returns an owned, dated task and cited questions about household goods, service geography, documents supporting current authority and existing coverage. It never infers moving services from a name. The task is a local object only; persistence, scheduling and assignment UI remain integration work. Missing results cannot establish missing authority or an underwriting result. A found record also does not prove current authority or coverage; those require separate review. Names or caller experience are not substitutes for evidence.
 
 Validation: 30 isolated unit tests pass, including preference precedence, conflicting/unknown language, rejection of name inference, and moving-service recheck provenance. No templates marked approved, messages sent, reminders scheduled or production settings changed.
+
+### Meeting-agreed initial written language-choice template
+
+Bruno and Lucas agreed on the following exact wording during the November 6 meeting:
+
+> Hi! This is Lucas with Trust Insurance. We’re here to help you find insurance for your trucking business. Which language do you prefer: English, português ou español?
+
+Record this as template `lucas_unknown_language_intro`, version 1, channel written outreach, status **meeting-agreed wording; prepared only, not activated**. It supersedes the generic draft language-choice wording above for this proposed initial message. The meeting agreement approves this wording for reviewable preparation; it does not authorize a new mass-send campaign or bypass existing authorization, consent, opt-out or suppression controls. No recipient list or dispatch was approved by this entry.
+
+Store the prospect's actual reply with its message reference and timestamp. Only an unambiguous stated choice becomes `LanguageEvidence` with basis `expressed_preference`; silence, an unclear reply or an unsupported language stays unresolved for human review. Do not infer preference from the person's name or from the multilingual template itself. Recheck existing outreach controls before any future dispatch, and preserve an auditable template version and response provenance.
