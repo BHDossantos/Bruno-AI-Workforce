@@ -1,16 +1,49 @@
+"""Real ORM/router tests with an isolated database; no scheduler/provider calls."""
+import os
+os.environ.setdefault("DATABASE_URL", "sqlite://")
+os.environ.setdefault("SECRET_KEY", "test-only")
 import unittest
 from types import SimpleNamespace
-from sqlalchemy import select, func
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, select, func
 from sqlalchemy.orm import Session
-import test_dot_review_api as fixtures
-from app.models import Lead, Message
+from sqlalchemy.pool import StaticPool
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.dialects.postgresql import JSONB
+from app.database import get_db
+from app.models import DotReviewCase, Lead, Message, DoNotContact
 from app.routers import dot_review as routes
 
+@compiles(JSONB, "sqlite")
+def sqlite_json(element, compiler, **kw):
+    return "JSON"
+
+def observation(**changes):
+    return {"source_kind": "vendor", "source_name": "DOT Leads New Ventures",
+            "source_ref": "fixture://export", "source_record_id": "r1",
+            "fetched_at": "2026-11-06T17:00:00Z", "posted_at": "2026-11-06T12:00:00Z",
+            "fields": {"usdot": "00123", "legal_name": "Fixture LLC", "email": "contact@example.test"}, **changes}
 
 class PipelineTests(unittest.TestCase):
-    setUp = fixtures.DotReviewApiTests.setUp
-    tearDown = fixtures.DotReviewApiTests.tearDown
-    intake = fixtures.DotReviewApiTests.intake
+    def setUp(self):
+        self.engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        for model in (DotReviewCase, Lead, Message, DoNotContact):
+            model.__table__.create(self.engine)
+        self.app = FastAPI()
+        self.app.include_router(routes.router)
+        def db():
+            with Session(self.engine) as session:
+                yield session
+        self.app.dependency_overrides[get_db] = db
+        self.app.dependency_overrides[routes._operator] = lambda: SimpleNamespace(id="operator-1")
+        self.client = TestClient(self.app)
+    def tearDown(self):
+        self.client.close()
+        self.engine.dispose()
+    def intake(self, observations=None):
+        return self.client.post("/dot-review/intake", json={"observations": observations or [observation()],
+            "posted_from": "2026-11-06T00:00:00Z", "posted_through": "2026-11-06T23:59:59Z"})
 
     def update(self, **changes):
         return self.client.post('/dot-review/123/pipeline', json={
