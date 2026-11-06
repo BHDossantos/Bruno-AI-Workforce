@@ -33,6 +33,7 @@ from .routers import (
     graph,
     imports,
     dot_review,
+    sender_signature,
     instagram,
     jobs,
     automations,
@@ -156,6 +157,7 @@ app.include_router(cron.router)
 app.include_router(export.router)
 app.include_router(imports.router)
 app.include_router(dot_review.router)
+app.include_router(sender_signature.router)
 app.include_router(connections.router)
 app.include_router(custom_connections.router)
 app.include_router(profile.router)

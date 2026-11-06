@@ -1,4 +1,4 @@
-"""Authenticated DOT review workspace. No provider calls or outreach enqueueing."""
+"""Authenticated research workspace with opt-in read-only Gmail checks; no sending."""
 from dataclasses import asdict
 from datetime import datetime, timezone
 from itertools import combinations
@@ -271,9 +271,10 @@ def detail(usdot: str, db: Session = Depends(get_db), user=Depends(_operator)):
                                  "status": m.status, "provider_id": m.provider_id, "sent_at": m.sent_at}
                                 for m in messages],
             "history_truncated": len(leads) > 100 or len(messages) > 100,
-            "suppressed": blocked, "prior_contact_review": bool(messages or events or any(
-                l.times_contacted or l.last_contacted_at for l in leads)),
+            "suppressed": blocked, "prior_contact_review": bool(messages or any(e["kind"] in ("contact_reported", "outcome") for e in events) or row.payload.get("gmail_history", {}).get("message_ids") or any(
+                l.times_contacted or l.last_contacted_at or l.status in ("Sent", "Contacted", "Opened", "Replied", "Interested", "Closed Won") for l in leads)),
             "sending_enabled": False,
+            "evidence_digests": [s.digest for s in snapshots],
             "draft": {"status": "local_review_only", "template_version": "lucas_unknown_language_intro:1",
                       "body": None if blocked else TEMPLATE, "provider": "gmail_only_requested",
                       "bcc": [], "bcc_status": "verified Bruno/Lucas addresses required; optional",
@@ -288,6 +289,7 @@ class DraftPreparation(BaseModel):
     subject: str = Field(min_length=1, max_length=200)
     body: str = Field(min_length=1, max_length=10000)
     evidence_digests: list[str] = Field(min_length=1, max_length=10)
+    include_signature: bool = False
 
     @field_validator("subject")
     @classmethod
@@ -308,10 +310,111 @@ def prepare_draft(usdot: str, body: DraftPreparation, db: Session = Depends(get_
     digests = {o.snapshot().digest for o in observations}
     if str(body.to).lower() not in recipients or not set(body.evidence_digests) <= digests:
         raise HTTPException(422, "Recipient and source references must match recorded evidence")
-    draft = {**body.model_dump(mode="json"), "status": "local_review_only", "provider": "gmail",
+    signature_meta = {}
+    if body.include_signature:
+        from .sender_signature import owned_signature
+        signature = owned_signature(db, user)
+        signature_meta = {"signature_digest": signature.digest, "signature_owner": str(user.id),
+                          "sender_mailbox": signature.mailbox}
+    draft = {**body.model_dump(mode="json"), **signature_meta, "status": "local_review_only", "provider": "gmail",
              "account": "personal", "prepared_by": str(user.id),
              "prepared_at": datetime.now(timezone.utc).isoformat(),
              "bcc_requires_identity_verification": bool(body.bcc), "sent_at": None, "provider_id": None}
     row.payload = {**row.payload, "prepared_draft": draft}
     db.commit()
     return draft
+
+
+class MailboxCheck(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_address: EmailStr
+
+
+@router.post("/gmail/verify")
+def verify_mailbox(body: MailboxCheck, db: Session = Depends(get_db), user=Depends(_operator)):
+    from .. import runtime_config
+    from ..integrations import dot_gmail
+    try:
+        runtime_config.apply_to_settings(db)
+        return dot_gmail.verify_mailbox(str(body.expected_address))
+    except dot_gmail.VerificationError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(503, "Mailbox configuration could not be verified") from exc
+
+
+@router.post("/{usdot}/gmail-history")
+def gmail_history(usdot: str, body: MailboxCheck, db: Session = Depends(get_db), user=Depends(_operator)):
+    from .. import runtime_config
+    from ..integrations import dot_gmail
+    row = _case(db, usdot)
+    emails = {o["fields"]["email"].strip().lower() for o in row.payload["observations"] if o["fields"].get("email")}
+    if len(emails) != 1:
+        raise HTTPException(409, "Resolve missing or conflicting recipient evidence before checking Gmail")
+    recipient = next(iter(emails))
+    try:
+        runtime_config.apply_to_settings(db)
+        history = dot_gmail.prior_sent(str(body.expected_address), recipient)
+    except dot_gmail.VerificationError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(503, "Gmail history could not be verified") from exc
+    # Network read happens before taking the write lock. Re-read current evidence.
+    db.expire_all()
+    row = _case(db, usdot, lock=True)
+    current = {o["fields"].get("email", "").strip().lower() for o in row.payload["observations"] if o["fields"].get("email")}
+    if current != {recipient}:
+        raise HTTPException(409, "Recipient evidence changed; recheck required")
+    row.payload = {**row.payload, "gmail_history": {**history,
+        "checked_at": datetime.now(timezone.utc).isoformat(), "checked_by": str(user.id)}}
+    db.commit()
+    return row.payload["gmail_history"]
+
+
+@router.get("/{usdot}/readiness")
+def readiness(usdot: str, db: Session = Depends(get_db), user=Depends(_operator)):
+    review = detail(usdot, db, user)
+    blockers = ["single_send_gateway_not_activated", "cross_channel_reservation_not_integrated",
+                "dispatch_time_consent_window_and_limit_checks_required"]
+    if review["suppressed"]:
+        blockers.append("recipient_suppressed")
+    if review["prior_contact_review"] or review["history_truncated"]:
+        blockers.append("prior_contact_requires_reconciliation")
+    draft = review.get("prepared_draft")
+    if not draft or draft.get("status") != "local_review_only":
+        blockers.append("current_reviewed_draft_required")
+    if not review.get("gmail_history"):
+        blockers.append("verified_gmail_history_required")
+    if draft and draft.get("bcc"):
+        blockers.append("bcc_identity_verification_required")
+    return {"sending_enabled": False, "blockers": blockers,
+            "vendor_url": "https://dot-leads.com/search/index", "vendor_session_verified": False}
+
+
+@router.get("/{usdot}/draft-preview")
+def draft_preview(usdot: str, db: Session = Depends(get_db), user=Depends(_operator)):
+    from fastapi.responses import Response
+    from ..sender_signatures import Signature, compose
+    from .sender_signature import owned_signature
+    review = detail(usdot, db, user)
+    draft = review.get("prepared_draft")
+    if not draft or draft.get("status") != "local_review_only" or draft.get("prepared_by") != str(user.id):
+        raise HTTPException(409, "Prepare a current draft under your own sender profile")
+    if review["suppressed"] or review["prior_contact_review"]:
+        raise HTTPException(409, "Recipient suppression/contact history requires reconciliation")
+    signature = None
+    if draft.get("include_signature"):
+        row = owned_signature(db, user)
+        if row.digest != draft.get("signature_digest") or row.mailbox != draft.get("sender_mailbox"):
+            raise HTTPException(409, "Signature changed; prepare and review the draft again")
+        signature = Signature(row.png, row.plain_text)
+    message = compose(draft["body"], signature)
+    if draft.get("sender_mailbox"):
+        message["From"] = draft["sender_mailbox"]
+    message["To"], message["Subject"] = draft["to"], draft["subject"]
+    if draft.get("bcc"):
+        message["Bcc"] = ", ".join(draft["bcc"])
+    message["X-Unsent"] = "1"
+    return Response(message.as_bytes(), media_type="message/rfc822", headers={
+        "Content-Disposition": 'attachment; filename="review-only-draft.eml"',
+        "Cache-Control": "private, no-store"})

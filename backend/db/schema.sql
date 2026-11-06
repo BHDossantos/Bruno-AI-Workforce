@@ -310,3 +310,13 @@ CREATE TABLE IF NOT EXISTS dot_review_cases (
     payload JSONB NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS sender_signatures (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    mailbox VARCHAR NOT NULL,
+    png BYTEA NOT NULL,
+    plain_text TEXT NOT NULL,
+    source_ref VARCHAR NOT NULL,
+    digest VARCHAR(64) NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
