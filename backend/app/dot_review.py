@@ -158,6 +158,16 @@ def registry_research_status(observations: tuple[Snapshot, ...]) -> str:
             "unavailable": "research_incomplete"}.get(status, "research_incomplete")
 
 
+def safer_research_status(observations: tuple[Snapshot, ...]) -> str:
+    """A missing carrier lookup is unverified, never a confirmed filing defect."""
+    records = [s for s in observations if s.source_kind == "safer"]
+    if not records:
+        return "unverified"
+    latest = max(records, key=lambda s: s.fetched_at)
+    return ("record_found" if dict(latest.fields).get("lookup_status") == "found"
+            else "unverified")
+
+
 @dataclass(frozen=True)
 class CallHook:
     topic: str
@@ -186,7 +196,12 @@ def build_call_hooks(observations: tuple[Snapshot, ...]) -> tuple[CallHook, ...]
             prompts.append(("registry_clarification",
                             "This state-registry search did not return a match. "
                             "Which legal name and state is the business registered under?"))
-        if snapshot.source_kind == "safer":
+        if snapshot.source_kind == "safer" and fields.get("lookup_status") in ("not_found", "unavailable"):
+            prompts.append(("safer_clarification",
+                            "This SAFER lookup did not establish a carrier record. "
+                            "Could we confirm the USDOT number and check again? "
+                            "The cause is unverified; timing or incomplete data may be involved."))
+        if snapshot.source_kind == "safer" and fields.get("lookup_status") not in ("not_found", "unavailable"):
             cargo = fields.get("cargo", "").strip()
             prompts.append(("cargo_confirmation", f"The snapshot lists {cargo}. What are you currently hauling?"
                             if cargo else "What cargo are you currently hauling?"))
@@ -221,13 +236,13 @@ class Attempt:
     case_key: str
     occurred_at: datetime
     owner_id: str
-    outcome: Literal["answered", "voicemail", "no_answer", "busy", "wrong_number"]
+    outcome: Literal["answered", "voicemail", "voicemail_left", "voicemail_unavailable", "no_answer", "busy", "wrong_number"]
 
     def __post_init__(self) -> None:
         _aware(self.occurred_at)
         if not all((self.event_id, self.case_key, self.owner_id)):
             raise ValueError("attempt identity and owner are required")
-        if self.outcome not in ("answered", "voicemail", "no_answer", "busy", "wrong_number"):
+        if self.outcome not in ("answered", "voicemail", "voicemail_left", "voicemail_unavailable", "no_answer", "busy", "wrong_number"):
             raise ValueError("unsupported attempt outcome")
 
 
@@ -259,7 +274,11 @@ def conversion_metrics(attempts: list[Attempt], policies: list[IssuedPolicy]) ->
     cases = {a.case_key for a in rows}
     converted = {p.case_key for p in policies} & cases
     answered = sum(a.outcome == "answered" for a in rows)
-    return {"attempts": len(rows), "voicemails": sum(a.outcome == "voicemail" for a in rows),
+    return {"attempts": len(rows), # Legacy voicemail does not prove that a message was left.
+            "voicemails": sum(a.outcome == "voicemail" for a in rows),
+            "voicemail_left": sum(a.outcome == "voicemail_left" for a in rows),
+            "voicemail_unavailable": sum(a.outcome == "voicemail_unavailable" for a in rows),
+            "no_answer": sum(a.outcome == "no_answer" for a in rows),
             "answered_attempts": answered, "unique_cases_attempted": len(cases),
             "policy_issued_cases": len(converted),
             "answer_rate": answered / len(rows) if rows else None,

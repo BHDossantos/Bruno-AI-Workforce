@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from app.dot_review import (Attempt, IssuedPolicy, NextAction, ResearchCase, Snapshot,
                             compare_observations, conversion_metrics, is_fresh_applicant,
                             normalize_usdot, prepare_vendor_batch, build_call_hooks,
-                            registry_research_status)
+                            registry_research_status, safer_research_status)
 
 NOW = datetime(2026, 11, 6, 15, tzinfo=timezone.utc)
 
@@ -155,6 +155,36 @@ class DotReviewTests(unittest.TestCase):
         self.assertEqual(result["answered_attempts"], 0)
         self.assertEqual(result["policy_issued_cases"], 0)
         self.assertEqual(result["attempted_case_conversion_rate"], 0)
+
+    def test_safer_missing_is_unverified_and_prompts_identity_recheck(self):
+        for status in ("not_found", "unavailable", ""):
+            s = snapshot(kind="safer", lookup_status=status)
+            self.assertEqual(safer_research_status((s,)), "unverified")
+        s = snapshot(kind="safer", lookup_status="not_found")
+        hooks = build_call_hooks((s,))
+        self.assertEqual(len(hooks), 1)
+        self.assertEqual(hooks[0].topic, "safer_clarification")
+        self.assertIn("cause is unverified", hooks[0].question)
+        self.assertEqual(hooks[0].evidence_digest, s.digest)
+        self.assertEqual(safer_research_status(()), "unverified")
+
+    def test_safer_status_uses_latest_observation(self):
+        old = snapshot(kind="safer", lookup_status="found")
+        new = replace(snapshot(kind="safer", lookup_status="not_found"),
+                      fetched_at=NOW + timedelta(hours=1))
+        self.assertEqual(safer_research_status((old,)), "record_found")
+        self.assertEqual(safer_research_status((new, old)), "unverified")
+
+    def test_voicemail_unavailable_left_and_no_answer_are_distinct(self):
+        outcomes = ("voicemail", "voicemail_left", "voicemail_unavailable", "no_answer")
+        attempts = [Attempt(str(i), "usdot:123", NOW, "lucas", outcome)
+                    for i, outcome in enumerate(outcomes)]
+        result = conversion_metrics(attempts, [])
+        for key in ("voicemails", "voicemail_left", "voicemail_unavailable", "no_answer"):
+            self.assertEqual(result[key], 1)
+        self.assertEqual(result["answered_attempts"], 0)
+        self.assertEqual(result["policy_issued_cases"], 0)
+        self.assertEqual(result["attempts"], 4)
 
     def test_attempt_retry_dedup_and_conflicting_id(self):
         a = Attempt("event", "usdot:123", NOW, "lucas", "voicemail")
