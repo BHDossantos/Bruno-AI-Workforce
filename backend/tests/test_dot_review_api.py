@@ -53,7 +53,9 @@ class DotReviewApiTests(unittest.TestCase):
         self.assertEqual(self.intake().json()["outreach_enqueued"], 0)
         cases = self.client.get("/dot-review").json()
         self.assertEqual(len(cases), 1)
-        self.assertEqual(len(cases[0]["observations"]), 1)
+        self.assertEqual(cases[0]["legal_name"], "Fixture LLC")
+        self.assertNotIn("observations", cases[0])
+        self.assertEqual(len(self.client.get("/dot-review/123").json()["observations"]), 1)
         with Session(self.engine) as db:
             for model in (Lead, Message):
                 self.assertEqual(db.scalar(select(func.count()).select_from(model)), 0)

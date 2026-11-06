@@ -219,9 +219,11 @@ def event(usdot: str, body: ReviewEvent, db: Session = Depends(get_db), user=Dep
 @router.get("")
 def cases(limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0),
           db: Session = Depends(get_db), user=Depends(_operator)):
-    return [{"usdot": r.usdot, "updated_at": r.updated_at, **r.payload}
-            for r in db.scalars(select(DotReviewCase).order_by(DotReviewCase.updated_at.desc(),
-                                    DotReviewCase.usdot).offset(offset).limit(limit))]
+    rows = db.execute(select(DotReviewCase.usdot, DotReviewCase.updated_at,
+        DotReviewCase.payload["observations"][0]["fields"]["legal_name"].as_string().label("legal_name"))
+        .order_by(DotReviewCase.updated_at.desc(), DotReviewCase.usdot).offset(offset).limit(limit))
+    return [{"usdot": r.usdot, "updated_at": r.updated_at, "legal_name": r.legal_name} for r in rows]
+
 
 
 @router.get("/{usdot}")

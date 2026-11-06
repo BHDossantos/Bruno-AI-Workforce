@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { api, API_URL, getToken } from "@/lib/api";
 import { AuthGate, PageHeader } from "@/components/ui";
 
-type Case = { usdot: string; observations: { fields: Record<string, string> }[] };
+type Case = { usdot: string; legal_name: string | null };
 function Workspace() {
   const [cases, setCases] = useState<Case[]>([]);
   const [detail, setDetail] = useState<Record<string, unknown> | null>(null);
@@ -49,7 +49,7 @@ function Workspace() {
     </form>
     <div className="card"><h2 className="font-semibold">Recent research cases (up to 50)</h2>
       {cases.map(c => <button key={c.usdot} className="block underline p-2" disabled={busy} onClick={() => void perform(() => show(c.usdot))}>
-        USDOT {c.usdot} — {c.observations[0]?.fields.legal_name || "Name unverified"}</button>)}
+        USDOT {c.usdot} — {c.legal_name || "Name unverified"}</button>)}
     </div>
     {detail && <section className="card space-y-4">
       <h2 className="font-semibold">USDOT {selected}: evidence, history and draft</h2>
