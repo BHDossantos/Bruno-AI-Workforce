@@ -303,3 +303,20 @@ CREATE INDEX IF NOT EXISTS idx_leads_segment     ON leads(segment);
 CREATE INDEX IF NOT EXISTS idx_restaurants_kind  ON restaurants(kind);
 CREATE INDEX IF NOT EXISTS idx_followups_due     ON follow_ups(due_date) WHERE completed = FALSE;
 CREATE INDEX IF NOT EXISTS idx_reports_date      ON daily_reports(report_date DESC);
+
+-- DOT research stays outside all existing outbound queues.
+CREATE TABLE IF NOT EXISTS dot_review_cases (
+    usdot VARCHAR(20) PRIMARY KEY,
+    payload JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS sender_signatures (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    mailbox VARCHAR NOT NULL,
+    png BYTEA NOT NULL,
+    plain_text TEXT NOT NULL,
+    source_ref VARCHAR NOT NULL,
+    digest VARCHAR(64) NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
