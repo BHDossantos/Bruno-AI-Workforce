@@ -4,6 +4,7 @@ from datetime import date, datetime
 
 from sqlalchemy import (
     Boolean,
+    JSON,
     Date,
     DateTime,
     ForeignKey,
@@ -918,3 +919,12 @@ class ImportedEmailLog(Base):
     imported: Mapped[int] = mapped_column(Integer, default=0)
     updated: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DotReviewCase(Base):
+    """Research quarantine; deliberately not a Lead/Message/FollowUp queue item."""
+    __tablename__ = "dot_review_cases"
+    usdot: Mapped[str] = mapped_column(String(20), primary_key=True)
+    # Generic JSON permits isolated SQLite tests; production uses JSONB.
+    payload: Mapped[dict] = mapped_column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
