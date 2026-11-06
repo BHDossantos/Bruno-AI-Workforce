@@ -231,6 +231,66 @@ class NextAction:
 
 
 @dataclass(frozen=True)
+class LanguageEvidence:
+    language: Literal["en", "es", "pt"]
+    basis: Literal["expressed_preference", "verified_business_preference", "prior_conversation"]
+    evidence_ref: str
+    observed_at: datetime
+
+    def __post_init__(self) -> None:
+        _aware(self.observed_at)
+        if self.language not in ("en", "es", "pt") or self.basis not in (
+            "expressed_preference", "verified_business_preference", "prior_conversation"
+        ) or not self.evidence_ref.strip():
+            raise ValueError("language requires a supported preference or conversation citation")
+
+
+def select_language(evidence: tuple[LanguageEvidence, ...]) -> str | None:
+    """Latest verified preference wins; conflicting latest evidence asks a choice.
+
+    No name, location, religion, ethnicity or nationality inputs are accepted.
+    This selects draft language only, never outreach eligibility or lead priority.
+    """
+    preferences = [e for e in evidence if e.basis != "prior_conversation"]
+    candidates = preferences or list(evidence)
+    if not candidates:
+        return None
+    latest = max(e.observed_at for e in candidates)
+    languages = {e.language for e in candidates if e.observed_at == latest}
+    return next(iter(languages)) if len(languages) == 1 else None
+
+
+def prepare_moving_recheck(
+    moving_evidence: Snapshot, observations: tuple[Snapshot, ...],
+    owner_id: str, due_at: datetime,
+) -> tuple[NextAction, tuple[CallHook, ...]] | None:
+    """Prepare an unscheduled task and questions from explicit moving-service data.
+
+    Adapters must never derive service_type from the company's or person's name.
+    No assertion of authority, coverage, insurability or permission to contact.
+    """
+    if dict(moving_evidence.fields).get("service_type") != "moving":
+        raise ValueError("explicit moving-service evidence is required")
+    if safer_research_status(observations) == "record_found":
+        return None
+    action = NextAction(owner_id, due_at,
+                        "Confirm USDOT with the client and recheck SAFER; retain lookup evidence. "
+                        "Record remains unverified, with no authority or coverage conclusion.")
+    questions = (
+        ("household_goods", "Do you transport household goods, other cargo, or both?"),
+        ("geography", "Which states and routes do you serve, and do trips cross state lines?"),
+        ("authority", "What operating authority or registration do you currently hold, if any? "
+         "May we review the relevant documents?"),
+        ("coverage", "What coverage do you currently carry, and what coverage questions "
+         "would you like a licensed producer to review?"),
+    )
+    hooks = tuple(CallHook(topic, question, moving_evidence.source_kind,
+                           moving_evidence.source_ref, moving_evidence.fetched_at,
+                           moving_evidence.digest) for topic, question in questions)
+    return action, hooks
+
+
+@dataclass(frozen=True)
 class Attempt:
     event_id: str
     case_key: str

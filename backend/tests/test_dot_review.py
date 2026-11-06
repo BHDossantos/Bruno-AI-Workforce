@@ -5,7 +5,8 @@ from datetime import datetime, timedelta, timezone
 from app.dot_review import (Attempt, IssuedPolicy, NextAction, ResearchCase, Snapshot,
                             compare_observations, conversion_metrics, is_fresh_applicant,
                             normalize_usdot, prepare_vendor_batch, build_call_hooks,
-                            registry_research_status, safer_research_status)
+                            registry_research_status, safer_research_status, LanguageEvidence,
+                            select_language, prepare_moving_recheck)
 
 NOW = datetime(2026, 11, 6, 15, tzinfo=timezone.utc)
 
@@ -185,6 +186,34 @@ class DotReviewTests(unittest.TestCase):
         self.assertEqual(result["answered_attempts"], 0)
         self.assertEqual(result["policy_issued_cases"], 0)
         self.assertEqual(result["attempts"], 4)
+
+    def test_language_unknown_and_conflicting_preferences_require_choice(self):
+        self.assertIsNone(select_language(()))
+        en = LanguageEvidence("en", "expressed_preference", "fixture://conversation", NOW)
+        self.assertIsNone(select_language((en, replace(en, language="pt"))))
+        with self.assertRaises(ValueError):
+            replace(en, basis="name_inference")
+        with self.assertRaises(ValueError):
+            replace(en, evidence_ref="")
+
+    def test_verified_preference_precedes_conversation_language(self):
+        for lang in ("en", "es", "pt"):
+            preference = LanguageEvidence(lang, "verified_business_preference", "fixture://preference", NOW)
+            conversation = LanguageEvidence("en", "prior_conversation", "fixture://call", NOW + timedelta(days=1))
+            self.assertEqual(select_language((preference, conversation)), lang)
+            self.assertEqual(select_language((conversation,)), "en")
+
+    def test_moving_missing_safer_prepares_owned_recheck_and_cited_questions(self):
+        moving = snapshot(service_type="moving")
+        missing = snapshot(kind="safer", lookup_status="not_found")
+        task, hooks = prepare_moving_recheck(moving, (missing,), "lucas", NOW)
+        self.assertEqual(task.owner_id, "lucas")
+        self.assertIn("unverified", task.description)
+        self.assertEqual({h.topic for h in hooks}, {"household_goods", "geography", "authority", "coverage"})
+        self.assertTrue(all(h.evidence_digest == moving.digest for h in hooks))
+        self.assertIsNone(prepare_moving_recheck(moving, (snapshot(kind="safer", lookup_status="found"),), "lucas", NOW))
+        with self.assertRaises(ValueError):
+            prepare_moving_recheck(snapshot(legal_name="Moving Company"), (), "lucas", NOW)
 
     def test_attempt_retry_dedup_and_conflicting_id(self):
         a = Attempt("event", "usdot:123", NOW, "lucas", "voicemail")
