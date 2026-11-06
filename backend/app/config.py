@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", hide_input_in_errors=True)
 
     environment: str = "development"
     secret_key: str = "dev-secret-change-me"
@@ -629,8 +629,8 @@ class Settings(BaseSettings):
     sendgrid_from_insurance: str = "b@dossantosinsurance.org"  # insurance sender (verify domain in SendGrid)
     sendgrid_reply_to: str = ""                 # where replies land (a monitored inbox)
     # Optional Svix signing secret ("whsec_…") for the Resend inbound/event webhook.
-    # When set, incoming webhook posts are signature-verified; when blank the endpoint
-    # accepts them unauthenticated (same as the Twilio/Plivo inbound webhooks).
+    # Required to accept Resend webhooks in production; a blank value disables
+    # that inbound endpoint. Development fixtures can still use unsigned events.
     resend_webhook_secret: str = ""
 
     # Outbound mode: "send" (auto-send now), "send_on_approve", or "draft".
@@ -676,6 +676,32 @@ class Settings(BaseSettings):
     # separated, case-insensitive. Override via env to add/remove.
     contacts_outreach_exclude: str = (
         "brianadossantos@gmail.com,salasb2006@yahoo.com,brianadossantosawx@statefarm.com")
+
+    @property
+    def secure_runtime(self) -> bool:
+        """Only explicit local/test modes may use development defaults.
+
+        Render's blueprint does not set ENVIRONMENT; its runtime marker must
+        therefore also enable production guards without changing configuration.
+        """
+        return (
+            self.environment.strip().lower() not in {"development", "dev", "local", "test", "testing"}
+            or os.environ.get("RENDER", "").strip().lower() == "true"
+            or bool(os.environ.get("RENDER_EXTERNAL_URL", "").strip())
+        )
+
+    @model_validator(mode="after")
+    def _validate_production_credentials(self) -> "Settings":
+        if self.secure_runtime:
+            if len(self.secret_key.strip()) < 32 or self.secret_key.strip().lower() in {
+                "dev-secret-change-me", "change-me", "test-secret", "ci-secret"
+            }:
+                raise ValueError("Production requires a non-default SECRET_KEY of at least 32 characters")
+            if len(self.admin_password.strip()) < 12 or self.admin_password.strip().lower() in {
+                "change-me", "changeme", "password", "admin", "testpass"
+            }:
+                raise ValueError("Production requires a non-default ADMIN_PASSWORD of at least 12 characters")
+        return self
 
     @model_validator(mode="after")
     def _default_public_base_url(self) -> "Settings":
