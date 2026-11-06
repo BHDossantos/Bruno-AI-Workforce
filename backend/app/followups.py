@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import logging
 from datetime import date
+from threading import Lock
 
 from sqlalchemy.orm import Session
 
-from sqlalchemy import case, func
+from sqlalchemy import case, func, text
 
 from . import memory, outreach
 from .ai import client, skills
@@ -142,7 +143,47 @@ def _fallback_followup_body(db: Session, fu, name: str | None) -> str:
             f"Reply here, or call or text me anytime — my number's below. — {producer}")
 
 
+# A dedicated connection holds this session lock across dispatcher commits.
+# Transaction locks on the processing Session would be released mid-batch.
+_FOLLOWUP_LOCK_KEY = 7202611061600
+_LOCAL_FOLLOWUP_LOCK = Lock()
+
+
 def process_due_followups(db: Session, limit: int = 400) -> dict:
+    bind = db.get_bind()
+    busy = {"due": 0, "sent": 0, "texted": 0, "call_tasks": 0,
+            "skipped_replied": 0, "skipped_concurrent": True}
+    if bind.dialect.name == "sqlite":
+        # SQLite is only supported for local tests; production uses PostgreSQL.
+        if not _LOCAL_FOLLOWUP_LOCK.acquire(blocking=False):
+            return busy
+        try:
+            return _process_due_followups(db, limit)
+        finally:
+            _LOCAL_FOLLOWUP_LOCK.release()
+    if bind.dialect.name != "postgresql":
+        raise RuntimeError("Follow-up concurrency guard requires PostgreSQL")
+    engine = getattr(bind, "engine", bind)
+    with engine.connect() as lock_connection:
+        acquired = lock_connection.execute(
+            text("SELECT pg_try_advisory_lock(:key)"),
+            {"key": _FOLLOWUP_LOCK_KEY},
+        ).scalar()
+        if not acquired:
+            return busy
+        try:
+            return _process_due_followups(db, limit)
+        finally:
+            try:
+                lock_connection.execute(text("SELECT pg_advisory_unlock(:key)"),
+                                        {"key": _FOLLOWUP_LOCK_KEY})
+            except Exception:
+                # Never return a connection with a held session lock to the pool.
+                lock_connection.invalidate()
+                raise
+
+
+def _process_due_followups(db: Session, limit: int = 400) -> dict:
     """Execute all due, not-yet-completed follow-ups — HOT LEADS FIRST — across every
     channel in the cadence: email (sent via the dispatcher), SMS (queued as a
     compliance-gated draft), and calls (a task in the call queue). Anyone who already

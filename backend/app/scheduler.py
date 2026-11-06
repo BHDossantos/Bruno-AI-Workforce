@@ -54,7 +54,11 @@ def scheduled_plan() -> tuple[dict, dict]:
     Pure/testable — start_scheduler registers exactly these. Each agent/job is gated
     by its business (app/businesses.py); shared infra jobs always run."""
     from . import businesses
-    agents = {k: v for k, v in AGENTS.items() if businesses.agent_enabled(k)}
+    # The whole-business followups job already invokes the same engine and also
+    # enrolls active leads. Scheduling its agent as well duplicated every touch.
+    # Keep the agent available for explicit runs, protected by the engine lock.
+    agents = {k: v for k, v in AGENTS.items()
+              if k != "follow_up_agent" and businesses.agent_enabled(k)}
     jobs = {k: v for k, v in _JOBS.items() if businesses.job_enabled(k)}
     return agents, jobs
 

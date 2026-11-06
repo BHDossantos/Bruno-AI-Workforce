@@ -65,6 +65,10 @@ def is_real_email(addr: str | None) -> bool:
     a = (addr or "").strip().lower()
     if "@" not in a or a.count("@") != 1:
         return False
+    # Confirmed non-prospect destinations in the Nov 6 incident. Exact addresses
+    # only: do not exclude unrelated businesses sharing either domain.
+    if a in {"you@company.com", "costconews@online.costco.com"}:
+        return False
     domain = a.split("@", 1)[1]
     if not domain or "." not in domain:
         return False
