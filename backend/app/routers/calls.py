@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..callback_auth import require_twilio_callback, require_plivo_callback
 from ..integrations import plivo_voice, sip_voice, vonage_voice
 from ..integrations import twilio_voice as voice
 from ..integrations import voice as vdispatch  # provider dispatcher (Plivo/Vonage/SIP/Twilio)
@@ -83,7 +84,7 @@ def test_call(db: Session = Depends(get_db), _=Depends(_write)):
             "message": f"Test call to {rings}. {outcome.get('verdict') or ''}"}
 
 
-@router.post("/twiml/test")
+@router.post("/twiml/test", dependencies=[Depends(require_twilio_callback)])
 def twiml_test():
     """TwiML the carrier fetches for the test call — a spoken confirmation."""
     from ..integrations import twilio_voice
@@ -301,9 +302,9 @@ def browser_token(db: Session = Depends(get_db), _=Depends(_read)):
 # Accept BOTH GET and POST: Twilio defaults to POST, but a SignalWire number/LaML
 # handler can be configured for GET — a method mismatch returns 405, which the
 # carrier reports as error 11200 ("HTTP retrieval failure") and the call drops.
-# Every handler also swallows exceptions and returns valid LaML, so the carrier
-# never gets a 5xx (also an 11200) even if a config refresh / DB read hiccups.
-@router.api_route("/twiml/bridge", methods=["GET", "POST"])
+# Handler fallbacks return LaML after authentication. Production signature/config
+# failures are rejected by dependencies first and can surface as carrier 11200.
+@router.api_route("/twiml/bridge", methods=["GET", "POST"], dependencies=[Depends(require_twilio_callback)])
 def twiml_bridge(lead_phone: str = "", lead_id: str = "", db: Session = Depends(get_db)):
     """Returned to Twilio after YOU answer — dials + records the lead. Refreshes the
     connected Twilio config first: this webhook can land on a Cloud Run instance that
@@ -316,7 +317,7 @@ def twiml_bridge(lead_phone: str = "", lead_id: str = "", db: Session = Depends(
         return Response(voice.bridge_twiml(lead_phone, lead_id or None), media_type=_XML)
 
 
-@router.api_route("/twiml/inbound", methods=["GET", "POST"])
+@router.api_route("/twiml/inbound", methods=["GET", "POST"], dependencies=[Depends(require_twilio_callback)])
 def twiml_inbound(db: Session = Depends(get_db)):
     """INCOMING call to our number: greet as Thrust Insurance and forward to the
     producer's cell, with a voicemail fallback. Point your SignalWire number's
@@ -334,7 +335,7 @@ def twiml_inbound(db: Session = Depends(get_db)):
                                    "Please try again shortly.</Say>"), media_type=_XML)
 
 
-@router.api_route("/twiml/announce", methods=["GET", "POST"])
+@router.api_route("/twiml/announce", methods=["GET", "POST"], dependencies=[Depends(require_twilio_callback)])
 def twiml_announce():
     """Played to the lead on answer — the recording-consent notice."""
     try:
@@ -343,7 +344,7 @@ def twiml_announce():
         return Response(voice._xml('<Pause length="1"/>'), media_type=_XML)
 
 
-@router.api_route("/twiml/amd", methods=["GET", "POST"])
+@router.api_route("/twiml/amd", methods=["GET", "POST"], dependencies=[Depends(require_twilio_callback)])
 async def twiml_amd(request: Request, lead_id: str = "", db: Session = Depends(get_db)):
     """Auto-dial answer webhook: Twilio tells us who answered (AnsweredBy). Human →
     transfer to your phone; machine → leave your recorded voicemail. Refreshes config
@@ -360,7 +361,7 @@ async def twiml_amd(request: Request, lead_id: str = "", db: Session = Depends(g
         return Response(voice.amd_twiml(None, lead_id or None), media_type=_XML)
 
 
-@router.api_route("/twiml/record-vm", methods=["GET", "POST"])
+@router.api_route("/twiml/record-vm", methods=["GET", "POST"], dependencies=[Depends(require_twilio_callback)])
 def twiml_record_vm(db: Session = Depends(get_db)):
     """Played when we call you to record your voicemail drop."""
     try:
@@ -370,7 +371,7 @@ def twiml_record_vm(db: Session = Depends(get_db)):
         return Response(voice.record_vm_twiml(), media_type=_XML)
 
 
-@router.post("/vm-saved")
+@router.post("/vm-saved", dependencies=[Depends(require_twilio_callback)])
 async def vm_saved(request: Request, db: Session = Depends(get_db)):
     """Save the producer's recorded voicemail so the auto-dialer plays it on machines."""
     form = await request.form()
@@ -385,7 +386,7 @@ async def vm_saved(request: Request, db: Session = Depends(get_db)):
     return Response(voice._xml("<Say>Got it — your voicemail is saved. Goodbye.</Say>"), media_type=_XML)
 
 
-@router.api_route("/twiml/outbound", methods=["GET", "POST"])
+@router.api_route("/twiml/outbound", methods=["GET", "POST"], dependencies=[Depends(require_twilio_callback)])
 async def twiml_outbound(request: Request, db: Session = Depends(get_db)):
     """TwiML App voiceUrl for the browser softphone — dials the number the SDK
     passed as 'To'. Reads 'To'/'lead_id' from the POST form OR the query string
@@ -407,7 +408,7 @@ async def twiml_outbound(request: Request, db: Session = Depends(get_db)):
                         media_type=_XML)
 
 
-@router.post("/dial-status")
+@router.post("/dial-status", dependencies=[Depends(require_twilio_callback)])
 async def dial_status(request: Request, lead_id: str = "", db: Session = Depends(get_db)):
     """<Dial action> callback — the real outcome of dialing the lead (completed /
     no-answer / busy / failed). Records it on the call row so a dropped call shows
@@ -427,7 +428,7 @@ async def dial_status(request: Request, lead_id: str = "", db: Session = Depends
     return Response("", media_type=_XML)
 
 
-@router.api_route("/amd-transfer-result", methods=["GET", "POST"])
+@router.api_route("/amd-transfer-result", methods=["GET", "POST"], dependencies=[Depends(require_twilio_callback)])
 async def amd_transfer_result(request: Request, lead_id: str = "", db: Session = Depends(get_db)):
     """<Dial action> for an auto-dial LIVE answer — fired after we tried to transfer the
     lead to the producer's cell. If the transfer connected, end quietly. If it WASN'T
@@ -455,7 +456,7 @@ async def amd_transfer_result(request: Request, lead_id: str = "", db: Session =
         return Response(voice.transfer_missed_twiml(), media_type=_XML)
 
 
-@router.post("/status")
+@router.post("/status", dependencies=[Depends(require_twilio_callback)])
 async def call_status(request: Request, lead_id: str = "", db: Session = Depends(get_db)):
     """Call status callback — record what SignalWire/Twilio ACTUALLY did with the
     call, not just that we handed it off. Captures the ringing event (proof the
@@ -509,7 +510,7 @@ async def call_status(request: Request, lead_id: str = "", db: Session = Depends
     return Response("", media_type=_XML)
 
 
-@router.post("/recording")
+@router.post("/recording", dependencies=[Depends(require_twilio_callback)])
 async def call_recording(request: Request, lead_id: str = "", db: Session = Depends(get_db)):
     """Recording-ready callback → transcribe + AI-summarize + log to the lead."""
     form = await request.form()
@@ -530,7 +531,7 @@ async def call_recording(request: Request, lead_id: str = "", db: Session = Depe
 
 
 # ── Public Plivo webhooks (Plivo XML) — used when voice_provider routes to Plivo ─
-@router.post("/plivo/amd")
+@router.post("/plivo/amd", dependencies=[Depends(require_plivo_callback)])
 async def plivo_amd(request: Request, lead_id: str = "", db: Session = Depends(get_db)):
     """Plivo auto-dial answer webhook. Plivo's machine detection reports the result;
     human → transfer to your phone (if enabled), machine → leave your recorded drop.
@@ -543,21 +544,21 @@ async def plivo_amd(request: Request, lead_id: str = "", db: Session = Depends(g
     return Response(plivo_voice.amd_xml(answered_by, lead_id or None), media_type=_XML)
 
 
-@router.post("/plivo/bridge")
+@router.post("/plivo/bridge", dependencies=[Depends(require_plivo_callback)])
 def plivo_bridge(lead_phone: str = "", lead_id: str = "", db: Session = Depends(get_db)):
     """Returned to Plivo after YOU answer a bridge call — dials + records the lead."""
     _refresh(db)
     return Response(plivo_voice.bridge_xml(lead_phone, lead_id or None), media_type=_XML)
 
 
-@router.post("/plivo/record-vm")
+@router.post("/plivo/record-vm", dependencies=[Depends(require_plivo_callback)])
 def plivo_record_vm(db: Session = Depends(get_db)):
     """Played when we call you to record your voicemail drop (Plivo)."""
     _refresh(db)
     return Response(plivo_voice.record_vm_xml(), media_type=_XML)
 
 
-@router.post("/plivo/vm-saved")
+@router.post("/plivo/vm-saved", dependencies=[Depends(require_plivo_callback)])
 async def plivo_vm_saved(request: Request, db: Session = Depends(get_db)):
     """Save the producer's recorded voicemail (Plivo posts RecordUrl)."""
     form = await request.form()
@@ -571,7 +572,7 @@ async def plivo_vm_saved(request: Request, db: Session = Depends(get_db)):
     return Response("", media_type=_XML)
 
 
-@router.post("/plivo/status")
+@router.post("/plivo/status", dependencies=[Depends(require_plivo_callback)])
 async def plivo_status(request: Request, lead_id: str = "", db: Session = Depends(get_db)):
     """Plivo hangup callback — mark the call row done when it completes."""
     form = await request.form()

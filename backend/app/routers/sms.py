@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from .. import sms_engine, outbound_guard
 from ..database import get_db
+from ..callback_auth import require_twilio_callback, require_plivo_callback
 from ..integrations import sms
 from ..models import Lead, ManualContact, Message, Restaurant
 from ..security import require_role
@@ -223,7 +224,7 @@ def send_drafts(body: SmsSendDrafts, db: Session = Depends(get_db), _=Depends(_w
     return sms_engine.send_sms_drafts(db, limit=body.limit, account=body.account)
 
 
-@router.post("/sms/status")
+@router.post("/sms/status", dependencies=[Depends(require_twilio_callback)])
 async def sms_status(request: Request, db: Session = Depends(get_db)):
     """Twilio delivery-status webhook (public). Records whether the text actually
     landed — delivered / undelivered / failed (+ error) — onto the Message, so the
@@ -241,7 +242,7 @@ async def sms_status(request: Request, db: Session = Depends(get_db)):
     return Response(content="", media_type="application/xml")
 
 
-@router.post("/sms/inbound")
+@router.post("/sms/inbound", dependencies=[Depends(require_twilio_callback)])
 async def inbound(request: Request, db: Session = Depends(get_db)):
     """Twilio inbound-SMS webhook (public). Stores the text + links the contact."""
     form = await request.form()
@@ -254,7 +255,7 @@ async def inbound(request: Request, db: Session = Depends(get_db)):
                     media_type="application/xml")
 
 
-@router.post("/sms/plivo-inbound")
+@router.post("/sms/plivo-inbound", dependencies=[Depends(require_plivo_callback)])
 async def plivo_inbound(request: Request, db: Session = Depends(get_db)):
     """Plivo inbound-SMS webhook (public). Same as the Twilio one but Plivo posts
     'From'/'Text' — point your Plivo Application's Message URL here so replies land
@@ -267,7 +268,7 @@ async def plivo_inbound(request: Request, db: Session = Depends(get_db)):
     return Response(content="", media_type="text/plain")
 
 
-@router.post("/sms/plivo-status")
+@router.post("/sms/plivo-status", dependencies=[Depends(require_plivo_callback)])
 async def plivo_status(request: Request, db: Session = Depends(get_db)):
     """Plivo delivery-status callback (public) — records whether a text actually
     landed (delivered/undelivered/failed) onto the Message, mirroring /sms/status."""

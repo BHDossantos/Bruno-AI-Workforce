@@ -47,9 +47,9 @@ host clock synchronized. 503/401 can cause provider retries; recover through the
 provider's reviewed replay process after configuration is corrected. No signing
 secret, production setting, account or credentials were changed here.
 
-Twilio/Plivo SMS/voice callback authentication remains outside this patch: those
-paths require provider/account-specific credentials and canonical public callback
-URL handling. They remain a launch blocker, not implicitly secured by the Resend
-fix. No blanket callback shutdown or insurance/outbound sender change was made.
+The original Resend-only patch did not cover Twilio/Plivo. The subsequent local
+candidate adds those guards; see `CALLBACK_AUTH_2026-11-06.md` for exact coverage
+and the remaining SignalWire/Plivo V3 deployment prerequisites. No outbound
+sender change was made.
 PR312's drain/schema/Mac helper rollout gates still apply. Full database/native/
 provider integration and deployment verification have not been performed here.
