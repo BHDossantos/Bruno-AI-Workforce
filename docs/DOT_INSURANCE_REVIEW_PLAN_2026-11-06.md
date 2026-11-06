@@ -147,3 +147,29 @@ Sender signatures are now **per authenticated user**, stored in a new sender_sig
 Approved Bruno assets: Library PNG `libfile_b6080ac78c908191bec80656eded01ef`; ZIP `libfile_bf544d4403388191a34595e6a07fab95`. Their identity was resolved through Library, but the required transfer helper failed because this workspace's proxy rejects the materialization host (403 CONNECT Forbidden). **The actual approved PNG/package has not been downloaded, inspected visually, installed or rendered in Workforce.** No substitute image or inferred signature was used. Complete an authorized transfer or upload that exact approved PNG through Bruno's profile, verify its plain-text details and rendering, then explicitly include it in his draft. No customer was contacted and no Gmail signature settings changed.
 
 Protocol references checked November 6: https://developers.google.com/workspace/gmail/api/reference/rest/v1/users/getProfile and https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/send . Gmail sends to MIME To/Cc/Bcc recipients; OAuth profile identity is verified before any staged transport invocation.
+
+## Commercial pipeline continuation
+
+The research workspace now records all seven requested stages: new, verified,
+contacted, qualified, documents pending, quote presented and policy issued.
+Each update requires source evidence, what actually happened, an occurrence time,
+a next action and due date; the authenticated operator explicitly takes ownership.
+Row locking, expected revisions and immutable request IDs prevent stale updates
+and duplicate retry history. Contact-stage history also triggers reconciliation
+before another draft, even if an operator later moves a case backwards.
+
+The in-app dashboard shows stage counts and the current operator's due actions.
+Issued policies require an actual issuance attestation and policy reference.
+Rates are explicitly operator-reported policies divided by all research cases;
+carrier-verified conversion remains unavailable. No calls, emails or SMS are
+scheduled by changing a stage or creating a reminder. Research failures do not
+create a mandatory call hold. Stage changes invalidate a previously prepared
+message for renewed review. This adds no database columns or provider credentials.
+
+Release gates remain distinct: PR #314 does not activate its staged Gmail sender;
+provider identity, verified BCC destinations, cross-channel durable reservations,
+current consent/window/cap evaluation and uncertain-send reconciliation must be
+satisfied before enabling dispatch. The existing production outbound scheduler
+also requires a verified drain strategy before a rolling restart, because the
+separate outbound guard work has not shipped. Vendor access and the approved
+signature binary are still pending actual authenticated access/materialization.

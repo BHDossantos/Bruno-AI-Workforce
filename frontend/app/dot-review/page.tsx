@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { api, API_URL, getToken } from "@/lib/api";
+import DotPipeline from "@/components/DotPipeline";
 import SenderSignaturePanel, { SignatureProfile } from "@/components/SenderSignaturePanel";
 import { AuthGate, PageHeader } from "@/components/ui";
 
@@ -77,6 +78,7 @@ function Workspace() {
     <div className="card"><h2 className="font-semibold">Recent cases (up to 50)</h2>
       {cases.map(c => <button key={c.usdot} className="block underline p-2" disabled={busy} onClick={() => void perform(() => show(c.usdot, true))}>USDOT {c.usdot} — {c.legal_name || "Name unverified"}</button>)}
     </div>
+    <DotPipeline key={selected} usdot={selected} onUpdated={async () => { if (selected) await show(selected); }} />
     <SenderSignaturePanel onChange={setSignatureProfile} />
     {detail && <section className="space-y-4">
       <div className="card space-y-2"><h2 className="font-semibold">USDOT {selected}</h2>

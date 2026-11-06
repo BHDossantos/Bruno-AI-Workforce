@@ -226,6 +226,101 @@ def cases(limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0),
 
 
 
+STAGES = ("new", "verified", "contacted", "qualified", "documents_pending",
+          "quote_presented", "policy_issued")
+
+
+class PipelineUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    event_id: str = Field(min_length=1, max_length=100)
+    expected_revision: int = Field(ge=0)
+    stage: Literal["new", "verified", "contacted", "qualified", "documents_pending",
+                   "quote_presented", "policy_issued"]
+    note: str = Field(min_length=1, max_length=2000)
+    evidence_ref: str = Field(min_length=1, max_length=1000)
+    next_action: str = Field(min_length=1, max_length=1000)
+    due_at: AwareDatetime
+    occurred_at: AwareDatetime
+    policy_reference: str | None = Field(default=None, min_length=1, max_length=200)
+    # A named operator attests to an actual issued policy; this remains an
+    # operator report, not independently verified carrier delivery/conversion.
+    issuance_confirmed: bool = False
+
+    @model_validator(mode="after")
+    def issuance_evidence(self):
+        if self.stage == "policy_issued" and (not self.issuance_confirmed or not self.policy_reference):
+            raise ValueError("An actual issued policy and its reference must be confirmed")
+        if self.occurred_at > datetime.now(timezone.utc):
+            raise ValueError("An event cannot have occurred in the future")
+        return self
+
+
+def _pipeline(payload):
+    return payload.get("pipeline", {"revision": 0, "stage": "new", "owner_id": None,
+                                     "next_action": None, "due_at": None, "history": []})
+
+
+@router.get("/pipeline/summary")
+def pipeline_summary(db: Session = Depends(get_db), user=Depends(_operator)):
+    stage = func.coalesce(DotReviewCase.payload["pipeline"]["stage"].as_string(), "new")
+    counts = {key: 0 for key in STAGES}
+    for key, count in db.execute(select(stage, func.count()).group_by(stage)):
+        counts[key] = count
+    total = sum(counts.values())
+    return {"stage_counts": counts, "total_cases": total,
+            "operator_reported_issued": counts["policy_issued"],
+            "operator_reported_conversion_rate": counts["policy_issued"] / total if total else 0,
+            "independently_verified_conversions": None,
+            "basis": "Current operator-reported stages across all research cases; not carrier verification"}
+
+
+@router.get("/pipeline/reminders")
+def pipeline_reminders(limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0),
+                       db: Session = Depends(get_db), user=Depends(_operator)):
+    # Private in-app work queue; does not schedule messages or claim execution.
+    due = DotReviewCase.payload["pipeline"]["due_at"].as_string()
+    owner = DotReviewCase.payload["pipeline"]["owner_id"].as_string()
+    now = datetime.now(timezone.utc).isoformat()
+    rows = db.scalars(select(DotReviewCase).where(owner == str(user.id), due <= now)
+                      .order_by(due, DotReviewCase.usdot).offset(offset).limit(limit))
+    return [{"usdot": row.usdot, **{k: v for k, v in _pipeline(row.payload).items()
+                                   if k != "history"}} for row in rows]
+
+
+@router.post("/{usdot}/pipeline")
+def update_pipeline(usdot: str, body: PipelineUpdate, db: Session = Depends(get_db), user=Depends(_operator)):
+    row = _case(db, usdot, lock=True)
+    data = dict(row.payload)
+    previous = _pipeline(data)
+    candidate = {**body.model_dump(mode="json"), "owner_id": str(user.id)}
+    history = list(previous["history"])
+    prior = next((e for e in history if e["event_id"] == body.event_id), None)
+    if prior:
+        if prior["request"] != candidate:
+            raise HTTPException(409, "Conflicting pipeline retry")
+        return previous
+    if previous["revision"] != body.expected_revision:
+        raise HTTPException(409, "Pipeline changed; refresh before updating")
+    if len(history) >= 500:
+        raise HTTPException(409, "Pipeline history capacity reached; archive review required")
+    # Source lookup failures are uncertainty, never mandatory call holds. Stage
+    # labels capture human workflow, not regulatory/underwriting certification.
+    history.append({"event_id": body.event_id, "request": candidate,
+                    "from_stage": previous["stage"], "to_stage": body.stage,
+                    "recorded_at": datetime.now(timezone.utc).isoformat()})
+    pipeline = {"revision": previous["revision"] + 1, "stage": body.stage,
+                "owner_id": str(user.id), "next_action": body.next_action,
+                "due_at": body.due_at.astimezone(timezone.utc).isoformat(),
+                "policy_reference": body.policy_reference if body.stage == "policy_issued" else None,
+                "status_basis": "operator_reported", "history": history}
+    data["pipeline"] = pipeline
+    if data.get("prepared_draft"):
+        data["prepared_draft"] = {**data["prepared_draft"], "status": "pipeline_changed_requires_review"}
+    row.payload = data
+    db.commit()
+    return pipeline
+
+
 @router.get("/{usdot}")
 def detail(usdot: str, db: Session = Depends(get_db), user=Depends(_operator)):
     row = _case(db, usdot)
@@ -261,7 +356,7 @@ def detail(usdot: str, db: Session = Depends(get_db), user=Depends(_operator)):
     latest = tuple(max((s for s in snapshots if s.source_kind == kind), key=lambda s: s.fetched_at)
                    for kind in ("vendor", "ma_registry", "safer") if any(s.source_kind == kind for s in snapshots))
     hooks = [asdict(h) for h in build_call_hooks(latest)]
-    return {"usdot": row.usdot, **row.payload, "registry_status": registry_research_status(snapshots),
+    return {"usdot": row.usdot, **row.payload, "pipeline": _pipeline(row.payload), "registry_status": registry_research_status(snapshots),
             "safer_status": safer_research_status(snapshots), "hooks": hooks,
             "differences": [asdict(d) for a, b in combinations(latest, 2)
                             if a.source_kind != b.source_kind for d in compare_observations(a, b)],
@@ -271,7 +366,7 @@ def detail(usdot: str, db: Session = Depends(get_db), user=Depends(_operator)):
                                  "status": m.status, "provider_id": m.provider_id, "sent_at": m.sent_at}
                                 for m in messages],
             "history_truncated": len(leads) > 100 or len(messages) > 100,
-            "suppressed": blocked, "prior_contact_review": bool(messages or any(e["kind"] in ("contact_reported", "outcome") for e in events) or row.payload.get("gmail_history", {}).get("message_ids") or any(
+            "suppressed": blocked, "prior_contact_review": bool(any(h["to_stage"] in STAGES[2:] for h in _pipeline(row.payload)["history"]) or messages or any(e["kind"] in ("contact_reported", "outcome") for e in events) or row.payload.get("gmail_history", {}).get("message_ids") or any(
                 l.times_contacted or l.last_contacted_at or l.status in ("Sent", "Contacted", "Opened", "Replied", "Interested", "Closed Won") for l in leads)),
             "sending_enabled": False,
             "evidence_digests": [s.digest for s in snapshots],
