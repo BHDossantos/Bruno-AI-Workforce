@@ -4,7 +4,8 @@ from datetime import datetime, timedelta, timezone
 
 from app.dot_review import (Attempt, IssuedPolicy, NextAction, ResearchCase, Snapshot,
                             compare_observations, conversion_metrics, is_fresh_applicant,
-                            normalize_usdot, prepare_vendor_batch)
+                            normalize_usdot, prepare_vendor_batch, build_call_hooks,
+                            registry_research_status)
 
 NOW = datetime(2026, 11, 6, 15, tzinfo=timezone.utc)
 
@@ -104,6 +105,47 @@ class DotReviewTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             NextAction("lucas", NOW.replace(tzinfo=None), "Review")
         self.assertTrue(NextAction("lucas", NOW - timedelta(minutes=1), "Review mismatch").overdue(NOW))
+
+    def test_registry_absence_is_incomplete_research_not_invalid_company(self):
+        self.assertEqual(registry_research_status(()), "research_incomplete")
+        missing = snapshot(kind="ma_registry", lookup_status="not_found")
+        self.assertEqual(registry_research_status((missing,)), "registry_not_found")
+        self.assertIn("Which legal name", build_call_hooks((missing,))[0].question)
+
+    def test_latest_registry_result_used_without_losing_old_evidence(self):
+        old = snapshot(kind="ma_registry", lookup_status="not_found")
+        new = replace(snapshot(kind="ma_registry", lookup_status="found"), fetched_at=NOW + timedelta(hours=1))
+        self.assertEqual(registry_research_status((new, old)), "record_found")
+
+    def test_missing_cargo_is_question_not_filing_error(self):
+        s = snapshot(kind="safer", usdot="123", cargo="")
+        hook = build_call_hooks((s,))[0]
+        self.assertEqual(hook.question, "What cargo are you currently hauling?")
+        self.assertEqual(hook.source_ref, s.source_ref)
+        self.assertEqual(hook.observed_at, NOW)
+        self.assertEqual(hook.evidence_digest, s.digest)
+        self.assertIn("confirmation", hook.certainty)
+
+    def test_local_purpose_and_interstate_operations_not_false_contradiction(self):
+        a = snapshot(kind="ma_registry", business_purpose="local transport services")
+        b = snapshot(kind="safer", operation_scope="interstate")
+        self.assertEqual(compare_observations(a, b), ())
+        hooks = build_call_hooks((a, b))
+        self.assertTrue(any("routes and operating area" in hook.question for hook in hooks))
+
+    def test_repeated_lead_on_next_day_retains_history(self):
+        first = snapshot(usdot="123")
+        next_day = replace(first, fetched_at=NOW + timedelta(days=1))
+        cases = prepare_vendor_batch([next_day], prepare_vendor_batch([first]))
+        self.assertEqual(len(cases), 1)
+        self.assertEqual(len(cases["usdot:123"].observations), 2)
+
+    def test_hook_contains_source_fact_without_inventing_a_policy_need(self):
+        s = snapshot(kind="safer", legal_name="Fixture Carrier LLC", cargo="General freight")
+        hooks = build_call_hooks((s,))
+        self.assertTrue(any("Fixture Carrier LLC" in hook.question for hook in hooks))
+        self.assertTrue(any("General freight" in hook.question for hook in hooks))
+        self.assertTrue(all("need insurance" not in hook.question for hook in hooks))
 
     def test_two_voicemails_are_attempts_not_conversations_or_conversions(self):
         attempts = [Attempt(str(i), f"usdot:{i}", NOW, "lucas", "voicemail") for i in (123, 456)]

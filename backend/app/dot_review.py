@@ -147,6 +147,58 @@ def compare_observations(left: Snapshot, right: Snapshot) -> tuple[Discrepancy, 
     return tuple(result)
 
 
+def registry_research_status(observations: tuple[Snapshot, ...]) -> str:
+    """Research completeness only, never a call block or company-validity verdict."""
+    state_records = [s for s in observations if s.source_kind == "ma_registry"]
+    if not state_records:
+        return "research_incomplete"
+    latest = max(state_records, key=lambda s: s.fetched_at)
+    status = dict(latest.fields).get("lookup_status")
+    return {"not_found": "registry_not_found", "found": "record_found",
+            "unavailable": "research_incomplete"}.get(status, "research_incomplete")
+
+
+@dataclass(frozen=True)
+class CallHook:
+    topic: str
+    question: str
+    source_kind: SourceKind
+    source_ref: str
+    observed_at: datetime
+    evidence_digest: str
+    certainty: str = "source_observation_requires_confirmation"
+
+
+def build_call_hooks(observations: tuple[Snapshot, ...]) -> tuple[CallHook, ...]:
+    """Neutral prompts for a caller; does not invoke an LLM, dialer or sender.
+
+    Keep citations/date alongside the prompt in the UI. Facts from a source are
+    observations, not guarantees of current operations or evidence of bad filings.
+    """
+    hooks: list[CallHook] = []
+    for snapshot in observations:
+        fields = dict(snapshot.fields)
+        prompts = []
+        if fields.get("legal_name", "").strip():
+            prompts.append(("business_identity",
+                            f"I have the business listed as {fields['legal_name']}. Is that current?"))
+        if snapshot.source_kind == "ma_registry" and fields.get("lookup_status") == "not_found":
+            prompts.append(("registry_clarification",
+                            "This state-registry search did not return a match. "
+                            "Which legal name and state is the business registered under?"))
+        if snapshot.source_kind == "safer":
+            cargo = fields.get("cargo", "").strip()
+            prompts.append(("cargo_confirmation", f"The snapshot lists {cargo}. What are you currently hauling?"
+                            if cargo else "What cargo are you currently hauling?"))
+            if fields.get("operation_scope", "").strip():
+                prompts.append(("operation_confirmation",
+                                f"The snapshot lists operations as {fields['operation_scope']}. "
+                                "What routes and operating area should we discuss?"))
+        hooks.extend(CallHook(topic, question, snapshot.source_kind, snapshot.source_ref,
+                              snapshot.fetched_at, snapshot.digest) for topic, question in prompts)
+    return tuple(hooks)
+
+
 @dataclass(frozen=True)
 class NextAction:
     owner_id: str
