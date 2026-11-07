@@ -176,3 +176,67 @@ def test_daily_buckets_normalize_timezone():
     from datetime import timezone, timedelta
     stamp=datetime(2026,11,6,23,30,tzinfo=timezone(timedelta(hours=-5)))
     assert outreach_performance._day(stamp) == '2026-11-07'
+
+
+def test_skipped_pages_do_not_starve_eligible_followups(db):
+    import uuid
+    today = datetime.now().date()
+    blocked = []
+    for i in range(401):
+        lid = uuid.uuid4()
+        email = f'blocked{i}@realbiz.co' if i % 3 else None
+        db.add(Lead(id=lid, segment='commercial', email=email, score=100, status='New'))
+        fu = FollowUp(entity_type='lead', entity_id=lid, step=1, due_date=today, channel='email')
+        blocked.append(fu)
+        db.add(fu)
+        if i % 3 == 1:
+            db.add(DoNotContact(kind='email', value=email))
+        elif i % 3 == 2:
+            db.add(Message(entity_type='lead', entity_id=lid, channel='email', direction='outbound',
+                           to_email=email, status='Sent', delivery_status='bounced'))
+    eligible = []
+    for i in range(2):
+        lid = uuid.uuid4()
+        db.add(Lead(id=lid, segment='commercial', email=f'eligible{i}@realbiz.co', score=0, status='New'))
+        fu = FollowUp(entity_type='lead', entity_id=lid, step=1, due_date=today, channel='email')
+        eligible.append(fu)
+        db.add(fu)
+    db.commit()
+    with patch.object(followups.client, 'complete_json', return_value={'body':'Follow-up'}), \
+         patch.object(followups.memory, 'entity_context', return_value=''), \
+         patch.object(followups.outreach, 'dispatch_email', return_value=SimpleNamespace(status='Drafted')) as send:
+        first = followups.process_due_followups(db, limit=1)
+        assert first['eligible'] == 1
+        assert first['due'] == 402
+        assert send.call_count == 1
+        assert sum(f.completed for f in eligible) == 1
+        second = followups.process_due_followups(db, limit=1)
+        assert second['eligible'] == 1
+        assert send.call_count == 2
+        assert all(f.completed for f in eligible)
+        assert all(not f.completed for f in blocked)
+        assert {c.kwargs['to_email'] for c in send.call_args_list} == {
+            'eligible0@realbiz.co', 'eligible1@realbiz.co'}
+
+
+def test_pagination_does_not_skip_after_completed_page_is_flushed(db):
+    import uuid
+    today = datetime.now().date()
+    for i in range(401):
+        lid = uuid.uuid4()
+        db.add(Lead(id=lid, segment='commercial', email=f'lead{i}@realbiz.co', score=1, status='New'))
+        db.add(FollowUp(entity_type='lead', entity_id=lid, step=1,
+                        due_date=today-timedelta(days=1) if i < 400 else today, channel='email'))
+        if i < 400:
+            db.add(Message(entity_type='lead', entity_id=lid, channel='email', direction='outbound',
+                           to_email=f'lead{i}@realbiz.co', status='Replied'))
+    db.commit()
+    with patch.object(followups.client, 'complete_json', return_value={'body':'Follow-up'}), \
+         patch.object(followups.memory, 'entity_context', return_value=''), \
+         patch.object(followups.outreach, 'dispatch_email', return_value=SimpleNamespace(status='Drafted')) as send:
+        assert followups.process_due_followups(db, limit=0)['due'] == 0
+        send.assert_not_called()
+        result = followups.process_due_followups(db, limit=1)
+        assert result['eligibility'] == {'replied':400, 'eligible':1}
+        send.assert_called_once()
+        assert send.call_args.kwargs['to_email'] == 'lead400@realbiz.co'

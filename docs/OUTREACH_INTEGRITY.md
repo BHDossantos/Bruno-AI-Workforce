@@ -64,3 +64,16 @@ PostgreSQL16, including real competing-transaction suppression tests; frontend
 production build and git diff --check passed. Tests use provider doubles and do
 not send customer outreach. Existing callback-authentication and quota tests remain
 in the full suite. Live-provider behavior and production rollout are untested.
+
+## Follow-up queue review correction
+
+Review 5812683285 identified a reproducible starvation bug: the first 400 due
+rows could remain ineligible indefinitely and hide every later eligible row.
+Selection now uses deterministic keyset pages (priority, score, date, UUID), with
+`limit` counting eligible candidates rather than skipped rows. Suppressed,
+bounced and invalid rows remain pending for review. The reported due count is
+candidates actually examined, not the entire backlog. Scanning a mostly blocked
+queue can therefore examine more than 400 rows; pages remain bounded in memory.
+Regression tests cover 401 mixed blocked rows ahead of eligible work, repeated
+runs with a one-candidate budget, and a completed first page disappearing during
+flush without skipping the next page. No production queue was processed.

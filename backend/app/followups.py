@@ -13,7 +13,7 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
-from sqlalchemy import case, func
+from sqlalchemy import case, func, tuple_
 
 from . import memory, outreach
 from .ai import client, skills
@@ -180,16 +180,36 @@ def process_due_followups(db: Session, limit: int = 400) -> dict:
     # so a lead's follow-ups are prioritized the same way its first touch was.
     everquote_first = case(
         (func.lower(func.coalesce(Lead.category, "")).like("everquote%"), 0), else_=1)
-    due = (db.query(FollowUp)
-           .outerjoin(Lead, (FollowUp.entity_type == "lead") & (FollowUp.entity_id == Lead.id))
-           .filter(FollowUp.due_date <= today, FollowUp.completed.is_(False))
-           .order_by(everquote_first.asc(), func.coalesce(Lead.score, 0).desc(), FollowUp.due_date)
-           .limit(limit).all())
+    # Keyset pagination survives completed rows leaving the query during flushes.
+    # The UUID tie-breaker makes equal-priority pages deterministic. Capture sort
+    # values with each page, before processing can mutate any related records.
+    priority = (everquote_first.label("cadence_priority"),
+                (-func.coalesce(Lead.score, 0)).label("cadence_score"),
+                FollowUp.due_date, FollowUp.id)
+    def candidates():
+        cursor = None
+        while True:
+            query = (db.query(FollowUp, *priority)
+                     .outerjoin(Lead, (FollowUp.entity_type == "lead") & (FollowUp.entity_id == Lead.id))
+                     .filter(FollowUp.due_date <= today, FollowUp.completed.is_(False)))
+            if cursor is not None:
+                query = query.filter(tuple_(*priority) > tuple_(*cursor))
+            page = query.order_by(*priority).limit(400).all()
+            if not page:
+                return
+            cursor = tuple(page[-1][1:])
+            for row in page:
+                yield row[0]
+
     sysp = skills.system_prompt("cold-email")
     sent = texted = tasked = skipped = 0
     states = {}
 
-    for fu in due:
+    examined = 0
+    for fu in candidates():
+        if states.get("eligible", 0) >= max(0, limit):
+            break
+        examined += 1
         msgs = db.query(Message).filter(
             Message.entity_type == fu.entity_type, Message.entity_id == fu.entity_id,
         ).all()
@@ -271,8 +291,8 @@ def process_due_followups(db: Session, limit: int = 400) -> dict:
 
     db.commit()
     log.info("Follow-ups: due=%d email=%d sms=%d calls=%d skipped_replied=%d",
-             len(due), sent, texted, tasked, skipped)
-    return {"due": len(due), "sent": sent, "texted": texted, "call_tasks": tasked,
+             examined, sent, texted, tasked, skipped)
+    return {"due": examined, "sent": sent, "texted": texted, "call_tasks": tasked,
             "skipped_replied": states.get("replied", 0), "skipped": skipped,
             "eligibility": states, "eligible": states.get("eligible", 0),
             "due_basis": "candidates_before_reply_and_suppression_checks"}
