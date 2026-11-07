@@ -350,32 +350,76 @@ def create_draft(to: str, subject: str, body: str, account: str = PERSONAL) -> s
         return None
 
 
-def list_replies(newer_than_days: int = 3, account: str = PERSONAL) -> list[dict]:
-    """Return recent inbound messages from ``account``: [{from_email, subject, snippet, thread_id}]."""
-    svc = _service(account)
-    if svc is None:
-        return []
+class InboundBatch(list):
+    def __init__(self, rows=(), *, status="complete", error_code=None, through=None):
+        super().__init__(rows)
+        self.status, self.error_code, self.through = status, error_code, through
+
+
+def list_replies(newer_than_days: int = 3, account: str = PERSONAL, *, max_pages=100, since=None) -> list[dict]:
+    """Paginated bounded-window ingestion; failures cannot masquerade as zero replies."""
+    import base64
+    from datetime import datetime, timedelta, timezone
+    from email import policy
+    from email.parser import BytesParser
+    from email.utils import parseaddr
+    end = datetime.now(timezone.utc)
+    start = since or end - timedelta(days=max(1, min(int(newer_than_days), 90)))
+    rows, seen, tokens = [], set(), set()
     try:
-        query = f"in:inbox newer_than:{newer_than_days}d -category:promotions"
-        resp = svc.users().messages().list(userId="me", q=query, maxResults=100).execute()
-        out = []
-        for ref in resp.get("messages", []):
-            msg = svc.users().messages().get(
-                userId="me", id=ref["id"], format="metadata",
-                metadataHeaders=["From", "Subject"],
-            ).execute()
-            headers = {h["name"]: h["value"] for h in msg.get("payload", {}).get("headers", [])}
-            out.append({
-                "account": account,
-                "from_email": _parse_email(headers.get("From", "")),
-                "subject": headers.get("Subject", ""),
-                "snippet": msg.get("snippet", ""),
-                "thread_id": msg.get("threadId"),
-            })
-        return out
-    except Exception as exc:  # pragma: no cover - network guard
-        log.warning("Gmail list_replies failed (%s): %s", account, exc)
-        return []
+        svc = _service(account)
+        if svc is None:
+            return InboundBatch(status="unavailable", error_code="oauth_not_configured")
+        mailbox = svc.users().getProfile(userId="me").execute(num_retries=0)["emailAddress"].lower()
+        token = None
+        for _ in range(max_pages):
+            args = dict(userId="me", q=f"after:{int(start.timestamp())} before:{int(end.timestamp())} -in:sent -in:drafts", maxResults=100)
+            if token:
+                args["pageToken"] = token
+            response = svc.users().messages().list(**args).execute(num_retries=0)
+            for ref in response.get("messages", []):
+                if ref["id"] in seen:
+                    continue
+                seen.add(ref["id"])
+                item = svc.users().messages().get(userId="me", id=ref["id"], format="raw").execute(num_retries=0)
+                occurred = datetime.fromtimestamp(int(item["internalDate"]) / 1000, timezone.utc)
+                if not start <= occurred < end or set(item.get("labelIds", [])) & {"SENT", "DRAFT"}:
+                    continue
+                raw = item["raw"]
+                if len(raw) > 4_000_000:
+                    raise ValueError("oversized inbound message")
+                msg = BytesParser(policy=policy.default).parsebytes(base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)))
+                sender = parseaddr(str(msg.get("From", "")))[1].strip().lower()
+                if not sender:
+                    raise ValueError("Missing sender identity")
+                if sender == mailbox:
+                    continue
+                bounce_to = None
+                bounce_recipients = set()
+                text_parts = []
+                for part in msg.walk():
+                    if part.get_content_type() == "text/plain" and part.get_content_disposition() != "attachment":
+                        text_parts.append(str(part.get_content()))
+                    if part.get_content_type() == "message/delivery-status":
+                        for block in part.get_payload():
+                            recipient = str(block.get("Final-Recipient", "")).split(";", 1)[-1].strip().lower()
+                            if str(block.get("Action", "")).lower() == "failed" and str(block.get("Status", "")).startswith("5.") and "@" in recipient:
+                                bounce_to = recipient
+                                bounce_recipients.add(recipient)
+                rows.append({"account": account, "mailbox": mailbox, "message_id": item["id"],
+                             "received_at": occurred, "from_email": sender, "subject": str(msg.get("Subject", ""))[:1000],
+                             "snippet": ("\n".join(text_parts) or item.get("snippet", ""))[:100000], "thread_id": item.get("threadId"),
+                             "bounce_to": bounce_to, "bounce_recipients": sorted(bounce_recipients)})
+            token = response.get("nextPageToken")
+            if not token:
+                return InboundBatch(rows, through=end)
+            if token in tokens:
+                raise ValueError("repeated page token")
+            tokens.add(token)
+        return InboundBatch(rows, status="partial", error_code="page_limit")
+    except Exception:
+        log.warning("Gmail ingestion incomplete (%s)", account)
+        return InboundBatch(rows, status="partial" if rows else "failed", error_code="fetch_failed")
 
 
 def _parse_email(from_header: str) -> str:
