@@ -83,7 +83,7 @@ def is_dnc(db: Session, *, phone: str | None = None, email: str | None = None) -
 
 
 def add_dnc(db: Session, *, value: str, kind: str = "phone",
-            reason: str | None = None, source: str = "manual") -> DoNotContact:
+            reason: str | None = None, source: str = "manual", commit: bool = True) -> DoNotContact:
     """Suppress a phone/email. Idempotent — re-adding an existing entry is a no-op."""
     key = _phone_key(value) if kind == "phone" else _email_key(value)
     existing = db.query(DoNotContact).filter(
@@ -92,7 +92,10 @@ def add_dnc(db: Session, *, value: str, kind: str = "phone",
         return existing
     row = DoNotContact(kind=kind, value=key, reason=reason, source=source)
     db.add(row)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return row
 
 

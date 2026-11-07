@@ -969,3 +969,21 @@ class OutboundResolution(Base):
     evidence: Mapped[str] = mapped_column(Text, nullable=False)
     provider_reference: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MailboxSyncHealth(Base):
+    __tablename__ = "mailbox_sync_health"
+    account: Mapped[str] = mapped_column(String, primary_key=True)
+    status: Mapped[str] = mapped_column(String)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    completed_through: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scanned: Mapped[int] = mapped_column(Integer, default=0)
+    error_code: Mapped[str | None] = mapped_column(String)
+
+
+class InboundWebhookReceipt(Base):
+    __tablename__ = "inbound_webhook_receipts"
+    event_key: Mapped[str] = mapped_column(String, primary_key=True)
+    payload_hash: Mapped[str] = mapped_column(String)
+    status: Mapped[str] = mapped_column(String, default="processing")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

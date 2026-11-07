@@ -346,3 +346,12 @@ CREATE TABLE IF NOT EXISTS outbound_message_policies (
     message_id UUID PRIMARY KEY,
     daily_intent VARCHAR(64) NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS mailbox_sync_health (
+  account TEXT PRIMARY KEY, status TEXT NOT NULL, checked_at TIMESTAMPTZ NOT NULL,
+  completed_through TIMESTAMPTZ, scanned INTEGER NOT NULL DEFAULT 0, error_code TEXT
+);
+CREATE TABLE IF NOT EXISTS inbound_webhook_receipts (
+  event_key TEXT PRIMARY KEY, payload_hash TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'processing',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

@@ -5,8 +5,8 @@ route) at ``POST /resend/inbound``. It handles both kinds of Resend event on the
 one public endpoint:
 
 * **Inbound reply received** → classify it, link it to the lead/restaurant it came
-  from, advance their status, opt them into the funnel newsletter, AI-draft a
-  one-click reply, and save the email onto the contact's CRM thread. This is what
+  from, advance their status, and save the email onto the contact's CRM thread.
+  Ingestion itself does not send messages or subscribe contacts. This is what
   makes replies to your outreach flow back into the app automatically.
 * **Delivery events** (delivered / bounced / complained / opened …) → record the
   real outcome on the matching sent Message so the UI shows whether it landed.
@@ -130,7 +130,9 @@ async def resend_inbound(request: Request, db: Session = Depends(get_db)):
             msg = (db.query(Message).filter(Message.provider_id == email_id,
                                              Message.channel == "email").first())
             if msg:
-                msg.delivery_status = _DELIVERY[etype]
+                # A later engagement/sent callback must not erase a bounce or complaint.
+                if msg.delivery_status not in ("bounced", "complained") or _DELIVERY[etype] == "complained":
+                    msg.delivery_status = _DELIVERY[etype]
                 to_addr = msg.to_email
                 db.commit()
         # Reputation guard: a spam COMPLAINT or a HARD (permanent) bounce means we
@@ -148,6 +150,7 @@ async def resend_inbound(request: Request, db: Session = Depends(get_db)):
                                                else "hard bounce"))
                 except Exception:
                     db.rollback()
+                    raise HTTPException(503, "Suppression could not be persisted; retry required")
         return {"ok": True, "handled": etype}
 
     # 2) Inbound reply received → run the full two-way pipeline.
@@ -164,18 +167,44 @@ async def resend_inbound(request: Request, db: Session = Depends(get_db)):
         to_addr = _extract_email(data.get("to")) or ""
         account = "insurance" if (not to_addr or to_addr == (settings.resend_from_insurance or "").lower()
                                   or "insurance" in to_addr or "dossantos" in to_addr) else "personal"
+        # Authentication above remains mandatory in production. Store the event
+        # before any reply classification; duplicate callbacks never re-run it.
+        import hashlib
+        from sqlalchemy import select
+        from ..models import InboundWebhookReceipt
+        event_id = request.headers.get("svix-id") or data.get("email_id") or data.get("id")
+        if not event_id:
+            raise HTTPException(422, "Inbound provider event identity required")
+        event_key = "resend:" + str(event_id)
+        fingerprint = hashlib.sha256(raw).hexdigest()
+        if db.get_bind().dialect.name == "postgresql":
+            from sqlalchemy.dialects.postgresql import insert
+        else:
+            from sqlalchemy.dialects.sqlite import insert
+        won = db.execute(insert(InboundWebhookReceipt).values(event_key=event_key,
+            payload_hash=fingerprint, status="processing").on_conflict_do_nothing(
+            index_elements=["event_key"]).returning(InboundWebhookReceipt.event_key)).scalar()
+        if not won:
+            previous = db.get(InboundWebhookReceipt, event_key)
+            if previous.payload_hash != fingerprint:
+                raise HTTPException(409, "Conflicting webhook event identity")
+            if previous.status != "complete":
+                raise HTTPException(503, "Earlier event processing requires reconciliation")
+            return {"ok": True, "handled": "inbound", "duplicate": True}
         try:
             from .. import inbound, runtime_config
             runtime_config.apply_to_settings(db)
             res = inbound.process_reply(db, sender=sender, subject=subject, snippet=snippet,
-                                        account=account, store_message=True)
+                                        account=account, store_message=True, allow_automation=False)
+            receipt = db.get(InboundWebhookReceipt, event_key)
+            receipt.status = "complete"
             db.commit()
             return {"ok": True, "handled": "inbound", "matched": res["hit"],
                     "intent": res["cls"].get("intent")}
         except Exception as exc:  # never 500 back at Resend — it'll just retry forever
             db.rollback()
             log.warning("Resend inbound processing failed (%s): %s", sender, exc)
-            return {"ok": False, "error": "processing error"}
+            raise HTTPException(503, "Inbound processing failed; retry required")
 
     # Unknown / ignored event type (e.g. contact.* events) — acknowledge quietly.
     return {"ok": True, "handled": None, "type": etype or None}

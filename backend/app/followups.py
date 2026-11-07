@@ -142,6 +142,32 @@ def _fallback_followup_body(db: Session, fu, name: str | None) -> str:
             f"Reply here, or call or text me anytime — my number's below. — {producer}")
 
 
+def eligibility(db, fu, messages=None):
+    """Researchable eligibility, distinct from merely having reached a due date."""
+    from . import compliance
+    messages = messages if messages is not None else db.query(Message).filter(
+        Message.entity_type == fu.entity_type, Message.entity_id == fu.entity_id).all()
+    if any(m.status == "Replied" or m.direction == "inbound" for m in messages):
+        return "replied"
+    lead = _lead_first(db, fu.entity_id) if fu.entity_type == "lead" else None
+    if lead and (lead.status or "").lower() in ("closed won", "closed lost", "do not contact", "do_not_contact", "unsubscribed", "bounced"):
+        return "terminal"
+    emails = {m.to_email for m in messages if m.to_email and "@" in m.to_email}
+    if lead and lead.email:
+        emails.add(lead.email)
+    phone = lead.phone if lead else None
+    if any(compliance.is_dnc(db, email=e) for e in emails) or (phone and compliance.is_dnc(db, phone=phone)):
+        return "suppressed"
+    if any((m.delivery_status or "").lower() in ("bounced", "complained") or
+           (m.status or "").lower() in ("bounced", "suppressed") for m in messages):
+        return "bounced_or_suppressed"
+    if (fu.channel or "email") == "email" and not any(outreach.is_real_email(e) for e in emails):
+        return "missing_or_invalid_recipient"
+    if (fu.channel or "email") in ("sms", "call") and not phone:
+        return "missing_or_invalid_recipient"
+    return "eligible"
+
+
 def process_due_followups(db: Session, limit: int = 400) -> dict:
     """Execute all due, not-yet-completed follow-ups — HOT LEADS FIRST — across every
     channel in the cadence: email (sent via the dispatcher), SMS (queued as a
@@ -161,13 +187,17 @@ def process_due_followups(db: Session, limit: int = 400) -> dict:
            .limit(limit).all())
     sysp = skills.system_prompt("cold-email")
     sent = texted = tasked = skipped = 0
+    states = {}
 
     for fu in due:
         msgs = db.query(Message).filter(
             Message.entity_type == fu.entity_type, Message.entity_id == fu.entity_id,
         ).all()
-        if any(m.status == "Replied" for m in msgs):
-            fu.completed = True  # they responded — stop the whole sequence
+        state = eligibility(db, fu, msgs)
+        states[state] = states.get(state, 0) + 1
+        if state != "eligible":
+            if state in ("replied", "terminal"):
+                fu.completed = True
             skipped += 1
             continue
         channel = fu.channel or "email"
@@ -243,4 +273,6 @@ def process_due_followups(db: Session, limit: int = 400) -> dict:
     log.info("Follow-ups: due=%d email=%d sms=%d calls=%d skipped_replied=%d",
              len(due), sent, texted, tasked, skipped)
     return {"due": len(due), "sent": sent, "texted": texted, "call_tasks": tasked,
-            "skipped_replied": skipped}
+            "skipped_replied": states.get("replied", 0), "skipped": skipped,
+            "eligibility": states, "eligible": states.get("eligible", 0),
+            "due_basis": "candidates_before_reply_and_suppression_checks"}

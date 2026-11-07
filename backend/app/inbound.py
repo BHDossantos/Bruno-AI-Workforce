@@ -14,10 +14,10 @@ from . import classify, newsletters, sms_engine
 from .integrations import gmail
 from .models import ActionLog, Lead, Message, Restaurant
 
-_TERMINAL = ("Interested", "Closed Won", "Closed Lost")
+_TERMINAL = ("Interested", "Closed Won", "Closed Lost", "do_not_contact", "Do Not Contact", "Unsubscribed", "Bounced")
 
 log = logging.getLogger("bruno.inbound")
-ACCOUNTS = [gmail.PERSONAL, gmail.INSURANCE]
+ACCOUNTS = [gmail.PERSONAL, gmail.INSURANCE, gmail.INSURANCE_BACKUP, gmail.BNB, gmail.SAVORYMIND]
 
 
 def _auto_reply_on() -> bool:
@@ -65,21 +65,21 @@ def _draft_reply(db: Session, sender: str, reply: dict, cls: dict, account: str)
 
 
 def process_reply(db: Session, *, sender: str, subject: str | None, snippet: str,
-                  account: str, store_message: bool = False) -> dict:
-    """Process one inbound email reply end-to-end: classify it, link it to the
-    matching lead / restaurant / message, advance their status, warm-text, opt them
-    into the funnel newsletter, log it, notify external webhooks, and AI-draft a
-    one-click reply. Shared by the Gmail poll (``sync_replies``) and the Resend
-    inbound webhook so both paths behave identically.
+                  account: str, store_message: bool = False, allow_automation: bool = True) -> dict:
+    """Classify/link an inbound message. Provider ingestion passes allow_automation=False.
 
-    ``store_message`` (webhook path) also persists the inbound email itself as a
-    Message row so it shows on the contact's CRM thread — the Gmail poll leaves it
-    False since it only flags the existing outbound thread as Replied.
-
-    Does NOT commit — the caller owns the transaction. Returns ``{"hit", "cls"}``.
+    Opt-outs are persisted immediately and never run warm texts or drafting.
+    Other callers retain their existing explicit automation controls.
     """
     reply = {"snippet": snippet, "subject": subject}
     cls = classify.classify_reply(snippet or "")
+    if cls.get("intent") == "unsubscribe":
+        from . import compliance
+        compliance.add_dnc(db, value=sender, kind="email", reason="inbound opt-out", source="inbound", commit=False)
+        if store_message:
+            db.add(Message(channel="email", direction="inbound", to_email=sender,
+                           subject=subject, body=snippet, status="Unsubscribed", from_account=account))
+        return {"hit": True, "cls": cls}
     hit = False
     _auto_entity = (None, None)  # (entity_type, entity_id) for automation branching
     linked = (None, None)        # entity to attach the stored inbound message to
@@ -89,33 +89,35 @@ def process_reply(db: Session, *, sender: str, subject: str | None, snippet: str
         if lead.status not in _TERMINAL:
             lead.status = cls["status"]
         # Warm → auto-text from the insurance number.
-        sms_engine.maybe_warm_text(
+        if allow_automation:
+            sms_engine.maybe_warm_text(
             db, entity_type="lead", entity_id=lead.id,
             name=lead.company_name or lead.owner_name, phone=lead.phone,
             context=lead.reason or "insurance", account="insurance")
         # Warm reply → subscribe to that funnel's newsletter (CAN-SPAM: opt-in).
         f = newsletters.funnel_for_segment(lead.segment)
-        if f:
+        if f and allow_automation:
             newsletters.subscribe(db, f, sender, lead.company_name or lead.owner_name)
         hit = True
     for rest in db.query(Restaurant).filter(Restaurant.email == sender).all():
         _auto_entity = linked = ("restaurant", rest.id)
         if rest.status not in _TERMINAL:
             rest.status = cls["status"]
-        sms_engine.maybe_warm_text(
+        if allow_automation:
+            sms_engine.maybe_warm_text(
             db, entity_type="restaurant", entity_id=rest.id, name=rest.name,
             phone=rest.phone, context=rest.pain_points or "SavoryMind", account="personal")
-        newsletters.subscribe(db, "savorymind", sender, rest.name)
+        if allow_automation:
+            newsletters.subscribe(db, "savorymind", sender, rest.name)
         hit = True
-    for msg in db.query(Message).filter(Message.to_email == sender).all():
+    for msg in db.query(Message).filter(Message.to_email == sender, Message.direction == "outbound").all():
         msg.status = "Replied"
         hit = True
 
-    # Persist the actual inbound email onto the CRM thread (webhook path). Worth
-    # recording even from an unknown sender, so it forces a "hit" (log + draft).
+    # Store unknown inbound mail, but do not present it as a matched outreach reply.
     if store_message:
         db.add(Message(channel="email", direction="inbound", to_email=sender,
-                       subject=subject, body=snippet, status=cls["status"],
+                       subject=subject, body=snippet, status=cls["status"] if hit else "Unmatched Inbound",
                        entity_type=linked[0], entity_id=linked[1], from_account=account))
         hit = True
 
@@ -124,11 +126,13 @@ def process_reply(db: Session, *, sender: str, subject: str | None, snippet: str
                          entity_id=sender, detail={"account": account, "intent": cls["intent"],
                                                    "summary": cls["summary"],
                                                    "subject": subject}))
+        if not allow_automation:
+            return {"hit": hit, "cls": cls}
         # Remember the interaction in the knowledge graph.
         try:
             from . import memory
             memory.add(db, f"{sender} replied ({cls['intent']}): {cls.get('summary') or snippet}",
-                       kind="event", subject=sender, source="inbound")
+                       kind="event", subject=sender, source="inbound", commit=False)
         except Exception:  # never let memory break the sync
             log.debug("memory capture skipped", exc_info=True)
 
@@ -163,27 +167,104 @@ def process_reply(db: Session, *, sender: str, subject: str | None, snippet: str
 
 
 def sync_replies(db: Session, newer_than_days: int = 3) -> dict:
-    # Pick up Gmail credentials connected via the in-app Setup page on any instance.
-    try:
-        from . import runtime_config
-        runtime_config.apply_to_settings(db)
-    except Exception:
-        pass
-    matched = 0
-    scanned = 0
+    """Store each provider message once before classification; never send from ingestion."""
+    import uuid
+    from datetime import datetime, timezone, timedelta
+    from sqlalchemy import select, func
+    from .models import MailboxSyncHealth
+    from . import compliance, runtime_config
+    runtime_config.apply_to_settings(db)
+    scanned = matched = duplicates = 0
+    health = {}
     for account in ACCOUNTS:
-        if not gmail.is_configured(account):
-            continue
-        for reply in gmail.list_replies(newer_than_days=newer_than_days, account=account):
+        prior_health = db.get(MailboxSyncHealth, account)
+        since = prior_health.completed_through if prior_health else None
+        if since:
+            since = since.replace(tzinfo=timezone.utc) if since.tzinfo is None else since
+            since -= timedelta(minutes=5)  # overlap is safe because identities are durable
+        running = prior_health or MailboxSyncHealth(account=account)
+        running.status, running.error_code = "running", None
+        running.checked_at = datetime.now(timezone.utc)
+        running.scanned = 0
+        db.add(running)
+        db.commit()  # interrupted scans remain visibly incomplete
+        batch = gmail.list_replies(newer_than_days=newer_than_days, account=account, since=since)
+        status = getattr(batch, "status", "unverified")
+        error = getattr(batch, "error_code", None)
+        for reply in batch:
             scanned += 1
-            sender = reply.get("from_email")
-            if not sender:
+            if not all(reply.get(k) for k in ("mailbox", "message_id", "received_at", "from_email")):
+                status, error = "partial", "missing_provider_identity"
                 continue
-            res = process_reply(db, sender=sender, subject=reply.get("subject"),
-                                snippet=reply.get("snippet", ""), account=account)
-            if res["hit"]:
-                matched += 1
-
-    db.commit()
-    log.info("Inbound sync: scanned %d, matched %d", scanned, matched)
-    return {"scanned": scanned, "matched": matched}
+            identity = f"gmail:{reply['mailbox']}:{reply['message_id']}"
+            mid = uuid.uuid5(uuid.NAMESPACE_URL, identity)
+            dialect = db.get_bind().dialect.name
+            if dialect == "postgresql":
+                from sqlalchemy.dialects.postgresql import insert
+            elif dialect == "sqlite":
+                from sqlalchemy.dialects.sqlite import insert
+            else:
+                raise RuntimeError("Unsupported ingestion storage")
+            sender = reply["from_email"]
+            matching_accounts = list({account, *(a for a in ACCOUNTS
+                if gmail.address_for(a).strip().lower() == reply["mailbox"].lower())})
+            bounce = reply.get("bounce_to")
+            won = db.execute(insert(Message).values(id=mid, channel="email", direction="inbound",
+                to_email=sender, from_account=account, subject=reply.get("subject"), body=reply.get("snippet", ""),
+                status="Bounce Report" if bounce else "Received", provider_id=identity,
+                created_at=reply["received_at"]).on_conflict_do_nothing(index_elements=["id"]).returning(Message.id)).scalar()
+            if not won:
+                duplicates += 1
+                continue
+            if bounce:
+                # A structured DSN is a conservative suppression signal, not a
+                # fabricated delivery receipt. Only link known older outbound mail.
+                for bounce_address in reply.get("bounce_recipients") or [bounce]:
+                    originals = db.scalars(select(Message).where(Message.direction == "outbound",
+                        Message.channel == "email", Message.from_account.in_(matching_accounts),
+                        func.lower(func.trim(Message.to_email)) == bounce_address,
+                        Message.sent_at <= reply["received_at"])).all()
+                    if originals:
+                        for original in originals:
+                            original.delivery_status = "bounced"
+                        compliance.add_dnc(db, value=bounce_address, kind="email", reason="Gmail permanent DSN; review evidence", source="gmail_dsn", commit=False)
+                db.commit()
+                continue
+            result = classify.classify_reply(reply.get("snippet", ""))
+            if result.get("intent") == "unsubscribe":
+                compliance.add_dnc(db, value=sender, kind="email", reason="Gmail opt-out", source="gmail", commit=False)
+            originals = db.scalars(select(Message).where(Message.direction == "outbound",
+                Message.channel == "email", Message.from_account.in_(matching_accounts),
+                func.lower(func.trim(Message.to_email)) == sender,
+                Message.sent_at <= reply["received_at"])).all()
+            incoming = db.get(Message, mid)
+            incoming.status = "Replied" if originals else "Unmatched Inbound"
+            for original in originals:
+                original.status = "Replied"
+            for lead in (db.scalars(select(Lead).where(func.lower(func.trim(Lead.email)) == sender)) if originals else []):
+                if lead.status not in _TERMINAL:
+                    lead.status = result.get("status", "Replied")
+            for restaurant in (db.scalars(select(Restaurant).where(func.lower(func.trim(Restaurant.email)) == sender)) if originals else []):
+                if restaurant.status not in _TERMINAL:
+                    restaurant.status = result.get("status", "Replied")
+            matched += bool(originals)
+            db.add(ActionLog(actor="inbound", action="reply_classified", entity="email", entity_id=sender,
+                detail={"account": account, "intent": result.get("intent"), "provider_message": identity}))
+            db.commit()
+        record = db.scalar(select(MailboxSyncHealth).where(MailboxSyncHealth.account == account)
+                           .with_for_update().execution_options(populate_existing=True))
+        record.status, record.error_code = status, error
+        record.checked_at = datetime.now(timezone.utc)
+        record.scanned = len(batch)
+        if status == "complete":
+            through = getattr(batch, "through", None)
+            old = record.completed_through
+            if old and old.tzinfo is None:
+                old = old.replace(tzinfo=timezone.utc)
+            if through and (old is None or through > old):
+                record.completed_through = through
+        db.add(record)
+        db.commit()
+        health[account] = {"status": status, "error_code": error, "scanned": len(batch)}
+    return {"scanned": scanned, "matched": matched, "duplicates": duplicates, "health": health,
+            "outreach_sent": 0}
