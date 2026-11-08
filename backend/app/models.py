@@ -4,6 +4,8 @@ from datetime import date, datetime
 
 from sqlalchemy import (
     Boolean,
+    JSON,
+    LargeBinary,
     Date,
     DateTime,
     ForeignKey,
@@ -987,3 +989,24 @@ class InboundWebhookReceipt(Base):
     payload_hash: Mapped[str] = mapped_column(String)
     status: Mapped[str] = mapped_column(String, default="processing")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DotReviewCase(Base):
+    """Research quarantine; deliberately not a Lead/Message/FollowUp queue item."""
+    __tablename__ = "dot_review_cases"
+    usdot: Mapped[str] = mapped_column(String(20), primary_key=True)
+    # Generic JSON permits isolated SQLite tests; production uses JSONB.
+    payload: Mapped[dict] = mapped_column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class SenderSignature(Base):
+    """Owned sender profile: never a global brand/default signature."""
+    __tablename__ = "sender_signatures"
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    mailbox: Mapped[str] = mapped_column(String, nullable=False)
+    png: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    plain_text: Mapped[str] = mapped_column(Text, nullable=False)
+    source_ref: Mapped[str] = mapped_column(String, nullable=False)
+    digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
