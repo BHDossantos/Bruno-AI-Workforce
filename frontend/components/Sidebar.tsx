@@ -39,6 +39,7 @@ const GROUPS: NavGroup[] = [
       { href: "/deals", label: "Deal Pipeline", icon: "🗂️" },
       { href: "/pipeline", label: "Sales Pipeline", icon: "💰" },
       { href: "/quote-intake", label: "Quote Intake", icon: "📝" },
+      { href: "/dot-review", label: "DOT Research", icon: "📋" },
       { href: "/import", label: "Import Options", icon: "📥" },
     ],
   },

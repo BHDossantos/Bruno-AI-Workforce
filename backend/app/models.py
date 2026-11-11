@@ -4,6 +4,8 @@ from datetime import date, datetime
 
 from sqlalchemy import (
     Boolean,
+    JSON,
+    LargeBinary,
     Date,
     DateTime,
     ForeignKey,
@@ -969,3 +971,42 @@ class OutboundResolution(Base):
     evidence: Mapped[str] = mapped_column(Text, nullable=False)
     provider_reference: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MailboxSyncHealth(Base):
+    __tablename__ = "mailbox_sync_health"
+    account: Mapped[str] = mapped_column(String, primary_key=True)
+    status: Mapped[str] = mapped_column(String)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    completed_through: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scanned: Mapped[int] = mapped_column(Integer, default=0)
+    error_code: Mapped[str | None] = mapped_column(String)
+
+
+class InboundWebhookReceipt(Base):
+    __tablename__ = "inbound_webhook_receipts"
+    event_key: Mapped[str] = mapped_column(String, primary_key=True)
+    payload_hash: Mapped[str] = mapped_column(String)
+    status: Mapped[str] = mapped_column(String, default="processing")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DotReviewCase(Base):
+    """Research quarantine; deliberately not a Lead/Message/FollowUp queue item."""
+    __tablename__ = "dot_review_cases"
+    usdot: Mapped[str] = mapped_column(String(20), primary_key=True)
+    # Generic JSON permits isolated SQLite tests; production uses JSONB.
+    payload: Mapped[dict] = mapped_column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class SenderSignature(Base):
+    """Owned sender profile: never a global brand/default signature."""
+    __tablename__ = "sender_signatures"
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    mailbox: Mapped[str] = mapped_column(String, nullable=False)
+    png: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    plain_text: Mapped[str] = mapped_column(Text, nullable=False)
+    source_ref: Mapped[str] = mapped_column(String, nullable=False)
+    digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

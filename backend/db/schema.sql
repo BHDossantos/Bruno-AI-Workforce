@@ -1,9 +1,11 @@
--- ============================================================================
+-- =====================================================================);
+
 -- Bruno AI Workforce — PostgreSQL schema
 -- This file documents the full data model. The application also creates these
 -- tables automatically from the SQLAlchemy models (see backend/app/models.py),
 -- so running it manually is optional but useful for review / bare-metal setups.
--- ============================================================================
+-- =====================================================================);
+
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
@@ -345,4 +347,30 @@ CREATE INDEX IF NOT EXISTS ix_outbound_resolutions_attempt_key ON outbound_resol
 CREATE TABLE IF NOT EXISTS outbound_message_policies (
     message_id UUID PRIMARY KEY,
     daily_intent VARCHAR(64) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS mailbox_sync_health (
+  account TEXT PRIMARY KEY, status TEXT NOT NULL, checked_at TIMESTAMPTZ NOT NULL,
+  completed_through TIMESTAMPTZ, scanned INTEGER NOT NULL DEFAULT 0, error_code TEXT
+);
+CREATE TABLE IF NOT EXISTS inbound_webhook_receipts (
+  event_key TEXT PRIMARY KEY, payload_hash TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'processing',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- DOT research stays outside all existing outbound queues.
+CREATE TABLE IF NOT EXISTS dot_review_cases (
+    usdot VARCHAR(20) PRIMARY KEY,
+    payload JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS sender_signatures (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    mailbox VARCHAR NOT NULL,
+    png BYTEA NOT NULL,
+    plain_text TEXT NOT NULL,
+    source_ref VARCHAR NOT NULL,
+    digest VARCHAR(64) NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

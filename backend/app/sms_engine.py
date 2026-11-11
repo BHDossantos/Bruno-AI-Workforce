@@ -364,7 +364,9 @@ def record_inbound(db: Session, *, phone: str, body: str) -> Message:
     from . import classify
     from .models import Lead, Restaurant
 
-    cls = classify.classify_reply(body)
+    words = re.findall(r"[a-z]+", (body or "").lower())
+    opted_out = bool(words and words[0] in _STOP_WORDS)
+    cls = {"status": "Unsubscribed", "intent": "unsubscribe"} if opted_out else classify.classify_reply(body)
     msg = Message(channel="sms", direction="inbound", to_email=phone, body=body, status=cls["status"])
     # Best-effort link + apply the classified status (leads/restaurants advance).
     key = _norm_phone(phone)
@@ -382,6 +384,11 @@ def record_inbound(db: Session, *, phone: str, body: str) -> Message:
                 row.status = cls["status"]
             break
     db.add(msg)
+    if opted_out:
+        from . import compliance
+        compliance.add_dnc(db, value=phone, kind="phone", reason="Inbound STOP", source="sms")
+        db.commit()
+        return msg
     db.commit()
     _forward_reply_to_owner(who, phone, body)
     return msg

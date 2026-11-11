@@ -580,3 +580,44 @@ def test_lower_cap_survives_daily_intent_denial_and_competing_workers(monkeypatc
     with SessionLocal() as db:
         quota = db.get(OutboundQuota, quota_key)
         assert (quota.capacity, quota.used) == (10, 10)
+
+
+@pytest.mark.parametrize('placeholder', [False, True])
+def test_same_followup_intent_competing_workers_and_next_day_replay(monkeypatch, owned, clock, placeholder):
+    """Two controllers must not produce two provider messages for one follow-up."""
+    from threading import Barrier
+    from app import control, runtime_config
+    from app.integrations import sender, resend, gmail
+    from app.config import settings
+    monkeypatch.setattr(runtime_config, 'apply_to_settings', lambda *_: None)
+    monkeypatch.setattr(control, 'is_paused_safe', lambda *_: False)
+    monkeypatch.setattr(sender, 'is_configured', lambda: False)
+    monkeypatch.setattr(resend, 'is_configured', lambda: True)
+    monkeypatch.setattr(gmail, 'is_configured', lambda *_: False)
+    monkeypatch.setattr(outreach, 'effective_cap', lambda *a: 100)
+    monkeypatch.setattr(outreach, 'sent_today_count', lambda *a: 0)
+    monkeypatch.setattr(settings, 'gmail_outbound_mode', 'send')
+    calls = []
+    monkeypatch.setattr(outreach, '_deliver_once', lambda *a: (calls.append(a) or ('fake-provider-id', None)))
+    to = f'{uuid4()}@example.com' if placeholder else target('email')
+    intent = f'followup:{uuid4()}'
+    barrier = Barrier(2)
+    def dispatch(i, concurrent=True):
+        if concurrent:
+            barrier.wait(timeout=10)
+        with SessionLocal() as db:
+            msg = outreach.dispatch_email(db, entity_type='reply', entity_id=None, to_email=to,
+                subject='Following up (4)', body=f'Generated text version {i}', account='insurance',
+                autonomous=False, intent_key=intent)
+            mid, status = msg.id, msg.status
+            db.commit()
+            return mid, status
+    with ThreadPoolExecutor(2) as pool:
+        results = list(pool.map(dispatch, range(2)))
+    ids = {mid for mid, _ in results}
+    owned[0].extend(ids)
+    assert len(ids) == 1
+    assert len(calls) == (0 if placeholder else 1)
+    clock.current += timedelta(days=1)
+    assert dispatch(3, concurrent=False)[0] in ids
+    assert len(calls) == (0 if placeholder else 1)

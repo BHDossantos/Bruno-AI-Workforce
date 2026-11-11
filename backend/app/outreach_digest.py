@@ -37,6 +37,10 @@ def build(db: Session) -> dict:
         "sent_7d": perf["totals"]["sent"],
         "replies_7d": perf["totals"]["replies"],
         "reply_rate": perf["totals"]["reply_rate"],
+        "delivery_confirmed": perf["totals"].get("delivery_confirmed", 0),
+        "delivery_unconfirmed": perf["totals"].get("delivery_unconfirmed", perf["totals"]["sent"]),
+        "legacy_replied_undated": perf["totals"].get("legacy_replied_outbound_undated", 0),
+        "sync_health": perf.get("sync_health", []),
         "warm": perf["totals"]["warm"],
         "hot": perf["totals"]["hot"],
         "actions": cockpit.get("actions", []),
@@ -62,8 +66,12 @@ def _html(d: dict) -> str:
     return (
         f"<h2>Your outreach — daily digest</h2>"
         f"<p><b>Client goal today:</b> {g.get('won_today', 0)} / {g.get('target', 0)} — {on_track}</p>"
-        f"<p><b>Last 7 days:</b> {d['sent_7d']:,} sent · {d['replies_7d']:,} replies "
-        f"({int(d['reply_rate'] * 100)}% reply rate) · {d['warm']} warm · {d['hot']} hot leads.</p>"
+        f"<p><b>Last 7 days:</b> {d['sent_7d']:,} recorded sends · {d['replies_7d']:,} observed inbound replies "
+        f"· {d['warm']} warm · {d['hot']} hot leads.</p>"
+        f"<p>{d.get('delivery_confirmed', 0)} have recorded delivery evidence; "
+        f"{d.get('delivery_unconfirmed', d['sent_7d'])} do not. Sent is not delivered.</p>"
+        f"<p>Reply coverage may be incomplete. {d.get('legacy_replied_undated', 0)} legacy outbound "
+        f"records are marked Replied without a reply timestamp; they cannot be assigned to this window.</p>"
         f"{deliver}"
         f"<h3>Do these to get clients today</h3><ul>{rows}</ul>"
         f"<h3>Hot leads to close</h3><ul>{hot}</ul>"
