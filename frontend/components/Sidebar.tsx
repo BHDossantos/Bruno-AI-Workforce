@@ -381,23 +381,23 @@ function EmergencyStop() {
       {callsOn !== null && (
         <div className={`rounded-lg p-2 ${callsOn ? "bg-white/10" : "bg-red-500/20"}`}>
           <div className="mb-1 flex items-center justify-between">
-            <div className="text-[11px] uppercase tracking-wide text-brand-light">📞 Phone calls</div>
+            <div className="text-[11px] uppercase tracking-wide text-brand-light">📞 Automatic calls</div>
             <span className={`text-[11px] font-semibold ${callsOn ? "text-emerald-300" : "text-red-300"}`}>
               {callsOn ? "ON" : "OFF"}
             </span>
           </div>
           <div className="mb-2 text-[10px] text-brand-light/70">
             {callsOn
-              ? "On — auto-dialing out and forwarding call-backs to your phone."
-              : "Off — not calling anyone, and call-backs go to voicemail (your phone won't ring)."}
+              ? "Enabled — scheduled dialing and inbound forwarding, subject to safety controls."
+              : "Paused — scheduled dialing and inbound forwarding. Manual/test calls and calls already in progress are unaffected."}
           </div>
           <button onClick={toggleCalls} disabled={busy}
-            title="Turn ALL phone calls on/off (outbound auto-dial + inbound forwarding)"
+            title="Toggle scheduled auto-dialing and inbound forwarding; email and SMS are unaffected"
             className={`w-full rounded-lg px-3 py-2 text-sm font-semibold disabled:opacity-50 ${
               callsOn ? "bg-red-600 text-white hover:bg-red-500"
                       : "bg-emerald-500 text-white hover:bg-emerald-400"
             }`}>
-            {busy ? "…" : callsOn ? "⛔ Turn phone calls OFF" : "▶ Turn phone calls ON"}
+            {busy ? "…" : callsOn ? "⛔ Pause automatic calls" : "▶ Enable automatic calls"}
           </button>
         </div>
       )}
