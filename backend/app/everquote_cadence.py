@@ -201,7 +201,8 @@ def run(db, per_run_limit: int = 1) -> dict:
 
         if need_text:
             sid = sms_engine.send_text(db, entity_type="lead", entity_id=lead.id,
-                                       phone=lead.phone, body=body, account="insurance")
+                                       phone=lead.phone, body=body, account="insurance",
+                                       intent_key=f"cadence:{lead.id}:{_wave_start_utc(wave).isoformat()}")
             if sid:
                 texts += 1
                 did_something = True

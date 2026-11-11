@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from .ai import client, skills
 from .ai.prompts import SMS_INTRO
 from .config import settings
+from . import outbound_guard
 from .integrations import sms
 from .models import Message
 
@@ -182,18 +183,9 @@ def maybe_warm_text(db: Session, *, entity_type: str, entity_id, name: str | Non
         f"Hi {name or 'there'}, thanks for getting back to us! Happy to help — "
         f"what's the best way to move forward? Reply STOP to opt out.")
 
-    sid = None if use_bridge else sms.send_sms(phone, body, account=account)
-    # Bridge → "Queued" (the Mac helper picks it up); Twilio → Sent/Drafted.
-    status = "Queued" if use_bridge else ("Sent" if sid else "Drafted")
-    db.add(Message(
-        channel="sms", direction="outbound", entity_type=entity_type, entity_id=entity_id,
-        to_email=phone, from_account=account, body=body,
-        status=status, provider_id=sid,
-        sent_at=datetime.now(timezone.utc) if sid else None,
-    ))
-    log.info("Warm SMS to %s (%s): %s", phone, account,
-             "queued(bridge)" if use_bridge else ("sent" if sid else "stored"))
-    return "queued" if use_bridge else sid
+    return send_text(db, entity_type=entity_type, entity_id=entity_id, phone=phone,
+                     body=body, account=account,
+                     intent_key=f"warm-intro:{entity_type}:{entity_id}")
 
 
 def _refresh_config(db: Session) -> None:
@@ -286,7 +278,7 @@ def send_sms_drafts(db: Session, *, limit: int = 25, account: str | None = None,
     if account:
         q = q.filter(Message.from_account == account)
     msgs = (q.order_by(*lead_temperature.send_priority_order(Lead, Message))
-            .limit(max(1, min(limit, 50))).all())
+            .limit(max(1, min(limit, 50))).with_for_update(of=Message, skip_locked=True).all())
 
     sent = failed = blocked = retired = 0
     reasons: list[str] = []
@@ -305,20 +297,23 @@ def send_sms_drafts(db: Session, *, limit: int = 25, account: str | None = None,
             if reason not in reasons:
                 reasons.append(reason)
             continue
-        sid, err = sms.send_with_error(m.to_email, m.body or "", account=m.from_account)
+        sid, err = sms.send_with_error(m.to_email, m.body or "", account=m.from_account,
+                                      operation_key=f"message:{m.id}", replay_accepted=True)
         if sid:
             m.status = "Sent"
             m.provider_id = sid
             m.sent_at = datetime.now(timezone.utc)
             sent += 1
         else:
+            if not outbound_guard.retryable_without_reconciliation(err):
+                m.status = "Needs Review"
             failed += 1
             r = err or "SMS send failed"
             # A permanently-bad recipient number will never succeed on retry —
             # mark it Failed so it leaves the Drafted queue instead of being
             # re-attempted every run and piling up in the draft box. Account /
-            # config errors (auth, unverified/trial, non-SMS 'from') stay Drafted
-            # so they go out the moment the account is fixed — no re-drafting.
+            # Only structured pre-send denials remain retryable drafts; uncertain
+            # provider outcomes require evidence-based reconciliation.
             if _is_bad_recipient(r):
                 m.status = "Failed"
             if r not in reasons:
@@ -329,7 +324,8 @@ def send_sms_drafts(db: Session, *, limit: int = 25, account: str | None = None,
 
 
 def send_text(db: Session, *, entity_type: str, entity_id, phone: str, body: str,
-             account: str = "insurance", enforce_hours: bool = True) -> str | None:
+             account: str = "insurance", enforce_hours: bool = True,
+             intent_key: str | None = None) -> str | None:
     """Send an explicit (non-AI-drafted) text now — e.g. a quote-intake request —
     via Twilio if configured, else queue it for the free Mac iMessage bridge.
     Returns 'queued' (bridge), the provider SID (Twilio), or None if neither
@@ -340,14 +336,24 @@ def send_text(db: Session, *, entity_type: str, entity_id, phone: str, body: str
         return None
     if sms_block_reason(db, phone, enforce_hours=enforce_hours):
         return None  # opted out / outside legal hours / daily cap hit
-    sid = None if use_bridge else sms.send_sms(phone, body, account=account)
-    status = "Queued" if use_bridge else ("Sent" if sid else "Drafted")
-    db.add(Message(
-        channel="sms", direction="outbound", entity_type=entity_type, entity_id=entity_id,
-        to_email=phone, from_account=account, body=body,
-        status=status, provider_id=sid,
-        sent_at=datetime.now(timezone.utc) if sid else None,
-    ))
+    from uuid import UUID
+    target = sms._e164(phone)
+    if not target or not body.strip():
+        return None
+    purpose = intent_key or outbound_guard.digest(entity_type, str(entity_id), body)
+    mid = UUID(outbound_guard.digest("sms-business", target, account, purpose)[:32])
+    outbound_guard.persist_message_intent(dict(id=mid, channel="sms", direction="outbound",
+        entity_type=entity_type, entity_id=entity_id, to_email=target,
+        from_account=account, body=body, status="Drafted", approved=False))
+    msg = db.query(Message).filter(Message.id == mid).populate_existing().with_for_update().one()
+    if msg.status not in ("Drafted", "Approved"):
+        return "queued" if msg.status == "Queued" else (msg.provider_id or "accepted") if msg.status == "Sent" else None
+    # Purpose owns its original text, including retries after AI regenerates copy.
+    sid, err = (None, None) if use_bridge else sms.send_with_error(target, msg.body, account=account,
+        operation_key=f"message:{msg.id}", replay_accepted=True)
+    msg.status = "Queued" if use_bridge else ("Sent" if sid else "Drafted" if outbound_guard.retryable_without_reconciliation(err) else "Needs Review")
+    msg.provider_id = sid
+    msg.sent_at = datetime.now(timezone.utc) if sid else None
     db.commit()
     return "queued" if use_bridge else sid
 

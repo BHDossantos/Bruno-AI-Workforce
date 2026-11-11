@@ -1231,7 +1231,7 @@ def test_send_text_refreshes_saved_twilio_config(client, auth_headers, monkeypat
     monkeypatch.setattr("app.sms_engine._refresh_config",
                         lambda db: called.__setitem__("refresh", True))
     monkeypatch.setattr(sms_int, "is_configured", lambda: True)
-    monkeypatch.setattr(sms_int, "send_sms", lambda to, body, account="personal": "SMFAKE")
+    monkeypatch.setattr(sms_int, "send_with_error", lambda to, body, account="personal", **kwargs: ("SMFAKE", None))
     monkeypatch.setattr(settings, "sms_daily_send_cap", 100000)
 
     from app import sms_engine
@@ -1790,6 +1790,11 @@ def test_plivo_voice_provider_and_dispatch(monkeypatch):
     """Plivo is a second voice provider: when voice_provider routes to Plivo, the
     dispatcher places calls via Plivo's Call API, and its XML drops the recorded
     voicemail (transfer off) or connects a live answer when enabled."""
+    # Routing unit test: durable reservation behavior is tested against PostgreSQL
+    # separately; these provider fixtures deliberately reuse the same phone number.
+    from app import outbound_guard
+    monkeypatch.setattr(outbound_guard, "invoke", lambda channel, recipient, account,
+                        operation, payload, send, **kwargs: send())
     from app.config import settings
     from app.integrations import plivo_voice, voice
 
@@ -1841,6 +1846,11 @@ def test_vonage_voice_provider_and_dispatch(monkeypatch):
     """Vonage is a third voice provider: JWT-authed calls to Vonage's API with
     E.164-without-plus numbers, and NCCO (JSON) that streams the recorded voicemail
     (transfer off) or connects a live answer to the cell (transfer on)."""
+    # Routing unit test: durable reservation behavior is tested against PostgreSQL
+    # separately; these provider fixtures deliberately reuse the same phone number.
+    from app import outbound_guard
+    monkeypatch.setattr(outbound_guard, "invoke", lambda channel, recipient, account,
+                        operation, payload, send, **kwargs: send())
     from app.config import settings
     from app.integrations import voice, vonage_voice
 
@@ -1928,6 +1938,11 @@ def test_sip_softswitch_provider_and_dispatch(monkeypatch):
     """Our own FreeSWITCH softswitch is a voice provider too: it originates over the
     Event Socket through a BYOC gateway and returns HTTAPI (XML) call control that
     leaves the recorded voicemail (transfer off) or bridges to the cell (transfer on)."""
+    # Routing unit test: durable reservation behavior is tested against PostgreSQL
+    # separately; these provider fixtures deliberately reuse the same phone number.
+    from app import outbound_guard
+    monkeypatch.setattr(outbound_guard, "invoke", lambda channel, recipient, account,
+                        operation, payload, send, **kwargs: send())
     from app.config import settings
     from app.integrations import sip_voice, voice
 
@@ -7519,7 +7534,7 @@ def test_send_drafts_sends_hot_leads_first(client, auth_headers, monkeypatch):
 
     # Delivery always succeeds, so what we're testing is the ORDER, not the channel.
     monkeypatch.setattr(outreach, "can_deliver", lambda account: True)
-    monkeypatch.setattr(outreach, "deliver", lambda to, subject, body, account: ("fake-mid", None))
+    monkeypatch.setattr(outreach, "deliver", lambda to, subject, body, account, **kwargs: ("fake-mid", None))
 
     acct = "hotfirst_test"
     db = SessionLocal()
@@ -8084,7 +8099,7 @@ def test_auto_dial_paced_one_per_run_and_daily_cap(monkeypatch):
     from app import auto_dial, control, sms_engine
     from app.config import settings
     from app.database import SessionLocal
-    from app.integrations import twilio_voice as voice
+    from app.integrations import voice  # Mock dispatcher: this test isolates queue pacing.
     from app.models import Lead, Message
 
     db = SessionLocal()
@@ -8180,7 +8195,7 @@ def test_auto_dial_daily_pass_calls_hottest_respects_cooldown_optout_and_dead(mo
     from app import auto_dial, control, sms_engine
     from app.config import settings
     from app.database import SessionLocal
-    from app.integrations import twilio_voice as voice
+    from app.integrations import voice  # Mock dispatcher: this test isolates queue pacing.
     from app.models import Lead, Message
 
     db = SessionLocal()
@@ -9117,7 +9132,7 @@ def test_everquote_cadence_calls_and_texts_once_per_wave(monkeypatch):
 
     # A fake send_text that records a SENT sms Message (mirrors the real one) so the
     # per-wave dedup can see it on the next run.
-    def _fake_send_text(db, *, entity_type, entity_id, phone, body, account="insurance", enforce_hours=True):
+    def _fake_send_text(db, *, entity_type, entity_id, phone, body, account="insurance", enforce_hours=True, intent_key=None):
         db.add(Message(channel="sms", direction="outbound", entity_type=entity_type,
                        entity_id=entity_id, to_email=phone, from_account=account,
                        body=body, status="Sent", provider_id="SMSSID",
@@ -9447,6 +9462,7 @@ def test_email_esp_pool_resend_primary_sendgrid_overflow(monkeypatch):
     """Email prefers Resend (high daily quota) and only overflows to SendGrid (low
     quota) when Resend fails — Resend primary, SendGrid failover, not a 50/50 split."""
     from app import outreach
+    from app.outbound_guard import RejectedDelivery
     from app.integrations import resend, sendgrid
     for esp, tag in ((resend, "resend"), (sendgrid, "sendgrid")):
         monkeypatch.setattr(esp, "is_configured", lambda: True)
@@ -9457,7 +9473,7 @@ def test_email_esp_pool_resend_primary_sendgrid_overflow(monkeypatch):
     def _mk(tag, ok):
         def _send(to, subject, html, *, from_email=None, reply_to=None):
             calls.append(tag)
-            return (f"{tag}-id", None) if ok else (None, f"{tag} failed")
+            return (f"{tag}-id", None) if ok else (None, RejectedDelivery(f"{tag} rejected"))
         return _send
 
     # Resend healthy → EVERY send goes through Resend; SendGrid is never touched.

@@ -68,7 +68,7 @@ def run(db: Session, limit: int = 20) -> dict:
         msg = outreach.dispatch_email(
             db, entity_type="lead", entity_id=lead.id, to_email=lead.email,
             subject=f"{_SUBJECT}, {first}", body=_body(first, lead.company_name),
-            account="insurance", actor="referrals")
+            account="insurance", actor="referrals", intent_key=f"referral:{lead.id}")
         if msg.status in ("Sent", "Drafted"):
             asked += 1
     return {"candidates": len(leads), "asked": asked}
