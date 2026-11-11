@@ -99,7 +99,7 @@ def test_recording_failure_leaves_pending(monkeypatch):
         calls = 0
         def begin(self):
             self.calls += 1
-            if self.calls == 2: raise OSError("result store lost")
+            if self.calls == 3: raise OSError("result store lost")  # reservation, suppression, result
             return real.begin()
     monkeypatch.setattr(guard, "engine", BrokenStore())
     assert "could not be recorded" in guard.invoke("email", recipient, "test", key, [], lambda: ("accepted", None))[1]

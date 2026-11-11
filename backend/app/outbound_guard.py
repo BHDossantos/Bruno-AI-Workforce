@@ -16,6 +16,7 @@ import json
 from sqlalchemy import delete, select, text, update, func
 from sqlalchemy.dialects.postgresql import insert
 
+from . import suppression_boundary
 from .database import engine
 from .models import OutboundAttempt, OutboundHold, OutboundQuota, Message, OutboundMessagePolicy
 
@@ -193,6 +194,9 @@ def invoke(channel, recipient, account, operation, payload, send, *, replay_acce
     fingerprint = digest(payload)
     try:
         with engine.begin() as conn:
+            reason = suppression_boundary.blocked(conn, *suppression_boundary.identity(channel, recipient))
+            if reason:
+                return no_attempt("Recipient suppressed; no provider call made", reason, retryable=False)
             if str(operation).startswith("message:"):
                 from uuid import UUID
                 try:
@@ -283,7 +287,11 @@ def invoke(channel, recipient, account, operation, payload, send, *, replay_acce
 
     token = _active.set(scope)
     try:
-        provider_id, error = send()
+        with suppression_boundary.boundary(engine, channel, recipient) as reason:
+            if reason:
+                provider_id, error = no_attempt("Recipient suppressed; no provider call made", reason, retryable=False)
+            else:
+                provider_id, error = send()
         if provider_id:
             state = "accepted"
         elif isinstance(error, DeliveryIssue) and error.kind == "not_attempted":

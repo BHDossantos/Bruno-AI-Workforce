@@ -21,6 +21,20 @@ _read = require_role("admin", "operator", "viewer")
 _write = require_role("admin", "operator")
 
 
+@router.get("/inbound/health")
+def inbound_health(db: Session = Depends(get_db), _=Depends(_read)):
+    from sqlalchemy import func
+    from ..models import MailboxSyncHealth, InboundWebhookReceipt
+    rows = db.query(MailboxSyncHealth).all()
+    pending = db.query(func.count()).select_from(InboundWebhookReceipt).filter(
+        InboundWebhookReceipt.status != "complete").scalar() or 0
+    return {"mailboxes": [{"account": h.account, "status": h.status, "checked_at": h.checked_at,
+                           "completed_through": h.completed_through, "error_code": h.error_code,
+                           "scanned": h.scanned} for h in rows],
+            "webhook_events_requiring_review": pending,
+            "coverage_note": "A scheduler setting is not evidence of a completed mailbox scan"}
+
+
 @router.get("/emails/diagnostics")
 def email_diagnostics(db: Session = Depends(get_db), _=Depends(_read)):
     """Show whether insurance/EverQuote emails are actually SENDING and whether the
@@ -228,9 +242,9 @@ def list_followups(limit: int = 200, db: Session = Depends(get_db), _=Depends(_r
                 Message.entity_id == fu.entity_id).all())
         to_email = next((m.to_email for m in msgs if m.to_email), None)
         if not to_email:
-            continue  # nothing to follow up with
+            to_email = "Recipient missing"
         replied = any(m.status == "Replied" for m in msgs)
-        last_sent = max((m.sent_at or m.created_at for m in msgs if m.direction == "outbound"),
+        last_sent = max((m.sent_at for m in msgs if m.direction == "outbound" and m.sent_at),
                         default=None)
         items.append({
             "id": str(fu.id), "entity_type": fu.entity_type,
@@ -238,7 +252,10 @@ def list_followups(limit: int = 200, db: Session = Depends(get_db), _=Depends(_r
             "due_date": fu.due_date.isoformat() if fu.due_date else None,
             "due": bool(fu.due_date and fu.due_date <= today),
             "replied": replied,
+            "eligibility": followups.eligibility(db, fu, msgs),
             "last_sent": last_sent.isoformat() if last_sent else None,
         })
     due = sum(1 for i in items if i["due"] and not i["replied"])
-    return {"due": due, "total": len(items), "items": items}
+    return {"due": due, "eligible_due": sum(i["due"] and i["eligibility"] == "eligible" for i in items),
+            "count_scope": "returned page; eligibility is rechecked before dispatch",
+            "total": len(items), "items": items}
