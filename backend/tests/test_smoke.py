@@ -2110,7 +2110,8 @@ def test_resend_inbound_webhook_two_way(client, monkeypatch):
         monkeypatch.setattr(settings, "resend_webhook_secret", "whsec_dGVzdHNlY3JldA==", raising=False)
         r = client.post("/resend/inbound", json={"type": "inbound.email.received",
                                                   "data": {"from": sender, "text": "hi"}})
-        assert r.status_code == 200 and r.json()["ok"] is False
+        assert r.status_code == 401
+        assert r.json()["detail"] == "Webhook signature verification failed"
     finally:
         _purge()  # never leak rows into the session-scoped DB other tests share
 
@@ -4193,6 +4194,10 @@ def test_public_base_url_autofills_from_render(monkeypatch):
 
     # No explicit PUBLIC_BASE_URL → adopt Render's injected URL.
     monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
+    # Render also enables production credential guards; this URL-resolution
+    # fixture must provide valid non-default credentials.
+    monkeypatch.setenv("SECRET_KEY", "fixture-signing-key-for-render-config-test")
+    monkeypatch.setenv("ADMIN_PASSWORD", "fixture-render-admin-password")
     monkeypatch.setenv("RENDER_EXTERNAL_URL", "https://bruno-backend-abc.onrender.com")
     assert Settings().public_base_url == "https://bruno-backend-abc.onrender.com"
 
