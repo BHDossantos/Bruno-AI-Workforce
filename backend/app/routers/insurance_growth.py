@@ -72,6 +72,7 @@ class ReviewUpdate(StrictModel):
 def overview(days: int = Query(30, ge=1, le=365), db: Session = Depends(get_db), _=Depends(_read)):
     now = datetime.now(timezone.utc)
     return {"mode": "review_only",
+            "official_sources": growth.OFFICIAL_SOURCES,
             "source_status": {"massachusetts": "manual_evidence_only",
                               "live_routing": "existing_single_producer_path_not_verified"},
             "prospects": growth.prospects(db, now), "cross_sell": growth.cross_sell(db),

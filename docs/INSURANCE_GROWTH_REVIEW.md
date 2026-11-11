@@ -23,6 +23,35 @@ credential changes, deployment, or agency authorization is part of this change.
 
 ## Added workspace
 
+### Verified Massachusetts service mapping (2026-11-11)
+
+The workspace exposes two separate official research links, with automation
+disabled. It does not present either source as a verified marketing lead feed.
+
+1. [Secretary corporate search](https://corp.sec.state.ma.us/corpweb/CorpSearch/CorpSearch.aspx):
+   [official help](https://corp.sec.state.ma.us/corpweb/CorpSearch/SearchOnlineHelp.aspx)
+   describes searches by entity name, individual name, identification number or
+   filing number, with entity summaries and filings. These do not establish
+   policy numbers, renewal dates, or the insurance decision-maker.
+   [Secretary terms](https://www.sec.state.ma.us/divisions/terms.htm) prohibit
+   automated **and manual** scraping/crawling. Individual lawful record lookup is
+   distinct from harvesting; this implementation contains no registry collector.
+2. [Mass.gov coverage-check instructions](https://www.mass.gov/how-to/check-for-workers-compensation-insurance)
+   identify business name, city/town and ZIP as lookup inputs and link to
+   [Massachusetts Proof of Coverage](https://www.mapoc.org/). No match is not proof
+   of no insurance: alternate names and self-insurance may apply. The service's
+   landing disclaimer describes partial carrier-supplied policy data without
+   completeness/accuracy assurances. Actual result fields, policy number access,
+   effective/expiration dates, renewal dates, contact fields, bulk/API access,
+   commercial-prospecting rights and automation permission remain unverified.
+
+No terms were accepted and no lookup was submitted during this verification.
+Source observations can only record what an authorized individual lookup actually
+establishes. A policy expiration is not a confirmed renewal. Do not falsely fill
+required query fields or infer permission from the site's public availability.
+
+### Application behavior
+
 `/insurance/growth`, linked from Insurance, uses authenticated
 `GET /insurance-growth/overview` and
 `POST /insurance-growth/leads/{lead_id}/review`.

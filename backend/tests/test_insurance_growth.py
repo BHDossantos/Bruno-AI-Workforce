@@ -74,6 +74,16 @@ def test_empty_workspace_and_no_fabricated_rates(workspace):
     assert result["source_status"]["massachusetts"] == "manual_evidence_only"
 
 
+def test_massachusetts_sources_are_separate_and_non_automated(workspace):
+    client, _, _ = workspace
+    sources = client.get("/insurance-growth/overview").json()["official_sources"]
+    assert {source["id"] for source in sources} == {"ma_business_identity", "ma_workers_comp_coverage"}
+    assert all(source["automation_enabled"] is False for source in sources)
+    assert "scraping" in sources[0]["restriction"]
+    assert "No match is not proof" in sources[1]["restriction"]
+    assert all(source["url"].startswith("https://") for source in sources)
+
+
 def test_review_does_not_change_contact_enqueue_or_claim_permission(workspace):
     client, engine, _ = workspace
     lead = add_lead(engine)

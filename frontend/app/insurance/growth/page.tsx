@@ -16,6 +16,7 @@ type Prospect = { lead_id: string; name: string; segment: string; phone: string;
 type Counts = { call_attempts: number; answered_leads: number; quoted_leads: number; sold_leads: number };
 type Overview = {
   mode: "review_only";
+  official_sources: { id: string; name: string; url: string; guidance_url: string; purpose: string; restriction: string; automation_enabled: false }[];
   funnel: Counts & { days: number; period_start: string; period_end: string; answered_and_quoted_leads: number; quoted_and_sold_leads: number; answer_to_quote_rate: number | null; quote_to_sale_rate: number | null; invalid_number_attempts: number; by_source: (Counts & { source: string })[] };
   prospects: { total: number; limit: number; items: Prospect[] };
   cross_sell: { total_records: number; limit: number; items: { client_id: string; name: string; lead_id: string | null; recorded_lines: string[]; questions: string[]; expires_at: string | null; suppressed: boolean }[] };
@@ -110,6 +111,15 @@ function Growth() {
     {loading && <p role="status">Loading growth review…</p>}
     {error && <p role="alert" className="text-red-700">{error}</p>}
     {!loading && data && f && <>
+      <section className="space-y-3" aria-labelledby="sources-title">
+        <h2 id="sources-title" className="text-lg font-semibold">Official Massachusetts research sources</h2>
+        <p className="text-sm text-gray-500">Two separate services, not one lead database. Open an individual lookup within its terms, then record only supported evidence here. No automated collection, terms acceptance, or record transfer is performed by this page.</p>
+        <div className="grid gap-3 md:grid-cols-2">{data.official_sources.map(source => <article key={source.id} className="card space-y-2 text-sm">
+          <h3 className="font-semibold"><a className="underline" href={source.url} target="_blank" rel="noopener noreferrer">{source.name}</a></h3>
+          <p>{source.purpose}</p><p>{source.restriction}</p>
+          <a className="underline" href={source.guidance_url} target="_blank" rel="noopener noreferrer">Read service details and terms</a>
+        </article>)}</div>
+      </section>
       <section className="space-y-3" aria-labelledby="funnel-title">
         <h2 id="funnel-title" className="text-lg font-semibold">Recorded outcomes · last {f.days} days</h2>
         <p className="text-xs text-gray-500">{new Date(f.period_start).toLocaleString()} to {new Date(f.period_end).toLocaleString()}. Operator-reported outcomes, not carrier-verified sales. Attempts include repeat calls; lead counts are distinct insurance leads within this period.</p>

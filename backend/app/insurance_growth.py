@@ -8,6 +8,20 @@ from .models import Client, ConversationOutcome, InsuranceProspectReview, Lead
 
 SEGMENTS = ("commercial", "personal", "referral_partner")
 LIMIT = 200
+OFFICIAL_SOURCES = [
+    {"id": "ma_business_identity", "name": "Massachusetts business identity and filings",
+     "url": "https://corp.sec.state.ma.us/corpweb/CorpSearch/CorpSearch.aspx",
+     "guidance_url": "https://www.sec.state.ma.us/divisions/terms.htm",
+     "purpose": "Individual entity/filing lookup. Registry officers are not verified insurance buyers.",
+     "restriction": "Secretary terms prohibit automated or manual scraping/crawling. No harvesting is enabled.",
+     "automation_enabled": False},
+    {"id": "ma_workers_comp_coverage", "name": "Massachusetts workers' compensation coverage",
+     "url": "https://www.mass.gov/how-to/check-for-workers-compensation-insurance",
+     "guidance_url": "https://www.mapoc.org/",
+     "purpose": "Official instructions for an individual coverage check using business name and location.",
+     "restriction": "No match is not proof of no coverage. Result fields, bulk/API access and prospecting permission are unverified. Review service terms directly.",
+     "automation_enabled": False},
+]
 
 
 def _utc(value):
