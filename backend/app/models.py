@@ -276,6 +276,22 @@ class Lead(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class InsuranceProspectReview(Base):
+    """Operator-reported research, deliberately separate from dispatch/intake.
+
+    New table only; no alteration of the live leads schema. Evidence does not
+    grant calling permission or replace a lead's live contact details.
+    """
+    __tablename__ = "insurance_prospect_reviews"
+    lead_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    reviewed_by: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class Restaurant(Base):
     __tablename__ = "restaurants"
     id: Mapped[uuid.UUID] = _uuid_pk()
