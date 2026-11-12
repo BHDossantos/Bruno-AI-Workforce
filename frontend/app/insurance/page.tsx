@@ -216,6 +216,7 @@ function Insurance() {
         subtitle="👉 Click a lead's name to open their profile and email, text, or call them. Home · Auto · Life · Commercial across NH/MA/FL."
         action={
           <div className="flex flex-wrap gap-2">
+            <Link href="/insurance/growth" className="btn-ghost">Growth review</Link>
             <input value={nameQ} onChange={(e) => setNameQ(e.target.value)} placeholder="🔎 Find by name / company / phone"
               className="rounded-lg border border-gray-300 px-3 py-2 text-sm" title="Search the leads shown below by name, company, email or phone" />
             <select value={catF} onChange={(e) => setCatF(e.target.value)} className="rounded-lg border border-gray-300 px-3 py-2 text-sm" title="Filter by imported category (e.g. DOT Leads MA)">
