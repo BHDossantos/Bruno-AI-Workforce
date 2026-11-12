@@ -30,6 +30,7 @@ def setup(db, phone="+16175550101", handler_phone="+16175550201"):
     now = datetime.now(timezone.utc)
     lead = Lead(id=uuid4(), segment="commercial", phone=phone)
     db.add(lead)
+    db.flush()  # Persist FK parent before independent permit mapper flushes.
     db.add(CallPermit(lead_id=lead.id, phone=phone, state="MA", recipient_timezone="America/New_York", authorization_ref="fixture:consent", expires_at=now+timedelta(days=1)))
     h = CallHandler(id=uuid4(), phone=handler_phone, states=["MA"], authorization_ref="fixture:license", verified_until=now+timedelta(days=1), available_until=now+timedelta(minutes=15))
     db.add(h); db.commit()
