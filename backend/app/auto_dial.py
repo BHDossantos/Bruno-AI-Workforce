@@ -144,7 +144,11 @@ def run(db, per_run_limit: int | None = None) -> dict:
             else:
                 skipped_blocked += 1
             continue
-        sid, err = voice.place_auto_call(lead.phone, str(lead.id))
+        if settings.auto_dial_capacity_enabled:
+            from .calling_capacity import dispatch
+            sid, err = dispatch(db, lead)
+        else:
+            sid, err = voice.place_auto_call(lead.phone, str(lead.id))
         if not sid:
             errors += 1
             log.info("auto-dial skipped lead %s: %s", lead.id, err)
@@ -156,6 +160,8 @@ def run(db, per_run_limit: int | None = None) -> dict:
             action = f"transfers to your cell if answered, {drop} if not"
         else:
             action = f"{drop} on answer"
+        if settings.auto_dial_capacity_enabled:
+            action = "reserved-handler routing; confirmed human answers only, no voicemail drop"
         db.add(Message(channel="call", direction="outbound", entity_type="lead",
                        entity_id=lead.id, from_account="insurance",
                        body=f"{_MARKER} — {action}…",
@@ -164,6 +170,8 @@ def run(db, per_run_limit: int | None = None) -> dict:
         lead.times_contacted = (lead.times_contacted or 0) + 1
         lead.last_contacted_at = datetime.now(timezone.utc)
         placed.append(str(lead.id))
+        if settings.auto_dial_capacity_enabled:
+            db.commit()  # never lose an accepted call log on a later no-capacity rollback
 
     db.commit()
     log.info("Auto-dial: placed=%d errors=%d skipped_recent=%d skipped_optout=%d "
