@@ -1026,3 +1026,6 @@ class SenderSignature(Base):
     source_ref: Mapped[str] = mapped_column(String, nullable=False)
     digest: Mapped[str] = mapped_column(String(64), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+# Register new opt-in calling tables with the existing create_all lifecycle.
+from .calling_capacity_models import CallHandler, CallPermit, CallReservation, CallLeadHold  # noqa: E402,F401
