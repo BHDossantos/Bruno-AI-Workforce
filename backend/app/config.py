@@ -413,6 +413,7 @@ class Settings(BaseSettings):
     # Daily auto-dial: at 8am the scheduler auto-calls the Call List (hottest first),
     # transferring live answers to the producer and dropping the recorded voicemail
     # otherwise. Gated by the same Outreach Autopilot / full-auto switch as auto-send.
+    auto_dial_capacity_enabled: bool = False  # opt-in only after agency/provider acceptance tests
     auto_dial_enabled: bool = True         # master switch for the daily 8am auto-dial pass
     auto_dial_daily_cap: int = 100         # max leads auto-dialed per day (protects your line)
     # How often the auto-dialer fires (one call per fire). 45s → a call roughly every
@@ -605,122 +606,565 @@ class Settings(BaseSettings):
     client_lead_target_ceiling: int = 600
 
     # Instantly.ai — dedicated cold-email engine (many warmed inboxes + deliverability
-    # + sequences). When both are set, outreach is handed to Instantly instead of the
-    # personal Gmail (which Google revokes at volume). Reference {{personalization}}
-    # in the Instantly campaign's email step to send our AI-written copy.
-    instantly_api_key: str = ""
-    instantly_campaign_id: str = ""
-    # Smartlead.ai — same idea as Instantly (the app picks whichever is connected).
-    smartlead_api_key: str = ""
-    smartlead_campaign_id: str = ""
-    # Resend — modern email API with great deliverability on your own domain.
-    # Preferred over Gmail when connected. Verify your domain in Resend
-    # (add its DNS records) so you can send AS b@dossantosinsurance.org. Replies go
-    # to resend_reply_to (a mailbox you actually read) if set, else the from-address.
-    resend_api_key: str = ""
-    resend_from_email: str = ""                 # default sender (verified-domain address)
-    resend_from_insurance: str = "b@dossantosinsurance.org"
-    resend_reply_to: str = ""                   # where replies land (a monitored inbox)
-    # SendGrid — a SECOND email API used ALONGSIDE Resend. outreach round-robins
-    # sends across both configured ESPs so the day's volume is split, roughly
-    # doubling the effective sending limit (each ESP has its own quota) + redundancy.
-    sendgrid_api_key: str = ""
-    sendgrid_from_email: str = ""               # default sender (verified-domain address)
-    sendgrid_from_insurance: str = "b@dossantosinsurance.org"  # insurance sender (verify domain in SendGrid)
-    sendgrid_reply_to: str = ""                 # where replies land (a monitored inbox)
-    # Optional Svix signing secret ("whsec_…") for the Resend inbound/event webhook.
-    # Required to accept Resend webhooks in production; a blank value disables
-    # that inbound endpoint. Development fixtures can still use unsigned events.
-    resend_webhook_secret: str = ""
-
-    # Outbound mode: "send" (auto-send now), "send_on_approve", or "draft".
-    gmail_outbound_mode: str = "send"
-    # Safety cap on auto-sent outreach per day, per account (protects the mailbox).
-    # 200/day per Bruno's target. Google Workspace allows ~2,000 sends/day, so this
-    # is well within limits — lower it if a fresh mailbox ever gets flagged.
-    gmail_daily_send_cap: int = 200
-    # Deliverability warmup: ramp volume on a fresh mailbox so it isn't flagged as
-    # spam. Effective cap = min(gmail_daily_send_cap, start + step × days_active). A
-    # warmed mailbox (many days active) is already at the ceiling; a brand-new one
-    # climbs 100 → 200 over ~4 days. Runtime-adjustable in Setup.
-    email_warmup_enabled: bool = True
-    email_warmup_start: int = 100
-    email_warmup_step: int = 25
-
-    # ── Domain-level send pacing (protects a NEW sending domain's reputation) ──
-    # Both the auto-send autopilot AND the manual "Send drafts" button honor these,
-    # so total emails/day from the domain never spike — spikes from a fresh domain
-    # get the whole domain flagged as spam by Gmail/Outlook.
-    #
-    # Steady-state cap once warmed. 600/day: the domain already sustained 300–500/day
-    # during the initial ramp below, so 600 is a small step up (not a spike) and safe
-    # for a warmed domain. Combined with 24/7 hourly sending this spreads ~25/hr across
-    # the day — smooth, inbox-friendly volume. Raise further only in steps while
-    # watching bounce/spam rates on the deliverability screen.
-    email_daily_send_cap: int = 600
-    # One-off warm-up ramp to clear an initial backlog on a fresh domain WITHOUT
-    # getting flagged: a comma list of per-day caps counted from email_rampup_start
-    # (element 0 = the start date, element 1 = the next day, …). After the list is
-    # exhausted the steady email_daily_send_cap applies. Ramps ~1,900 over ~5 days.
-    # Set email_rampup_start blank to disable the ramp (just use the steady cap).
-    email_rampup_schedule: str = "300,400,500,500,300"
-    email_rampup_start: str = "2026-07-14"  # ISO date the ramp begins (blank = off)
-
-    # Insurance outreach to your imported personal contacts (warm network). Each
-    # contact is emailed once; small daily batches drip through the list within
-    # the mailbox warmup cap. SMS is OFF by default — automated marketing texts
-    # need prior consent (TCPA); only enable if your list has opted in.
-    contacts_outreach_batch: int = 20
-    contacts_sms_enabled: bool = False
-    # Emails to NEVER include in contacts outreach (family / personal). Comma-
-    # separated, case-insensitive. Override via env to add/remove.
-    contacts_outreach_exclude: str = (
-        "brianadossantos@gmail.com,salasb2006@yahoo.com,brianadossantosawx@statefarm.com")
-
-    @property
-    def secure_runtime(self) -> bool:
-        """Only explicit local/test modes may use development defaults.
-
-        Render's blueprint does not set ENVIRONMENT; its runtime marker must
-        therefore also enable production guards without changing configuration.
-        """
-        return (
-            self.environment.strip().lower() not in {"development", "dev", "local", "test", "testing"}
-            or os.environ.get("RENDER", "").strip().lower() == "true"
-            or bool(os.environ.get("RENDER_EXTERNAL_URL", "").strip())
-        )
-
-    @model_validator(mode="after")
-    def _validate_production_credentials(self) -> "Settings":
-        if self.secure_runtime:
-            if len(self.secret_key.strip()) < 32 or self.secret_key.strip().lower() in {
-                "dev-secret-change-me", "change-me", "test-secret", "ci-secret",
-                "change-me-to-a-long-random-string"
-            }:
-                raise ValueError("Production requires a non-default SECRET_KEY of at least 32 characters")
-            if len(self.admin_password.strip()) < 12 or self.admin_password.strip().lower() in {
-                "change-me", "changeme", "password", "admin", "testpass"
-            }:
-                raise ValueError("Production requires a non-default ADMIN_PASSWORD of at least 12 characters")
-        return self
-
-    @model_validator(mode="after")
-    def _default_public_base_url(self) -> "Settings":
-        """Auto-fill public_base_url from Render's injected RENDER_EXTERNAL_URL when
-        it isn't set explicitly. Render gives each web service its own public URL as
-        RENDER_EXTERNAL_URL at runtime, so call/SMS webhooks (which need an absolute
-        base URL) work immediately after a blueprint deploy — no manual step. An
-        explicit PUBLIC_BASE_URL still wins."""
-        if not (self.public_base_url or "").strip():
-            render_url = os.environ.get("RENDER_EXTERNAL_URL", "").strip()
-            if render_url:
-                self.public_base_url = render_url
-        return self
+    # + seque…20479 tokens truncated…lumn(DateTime(timezone=True), server_default=func.now())
 
 
-@lru_cache
-def get_settings() -> Settings:
-    return Settings()
+class KpiMetric(Base):
+    __tablename__ = "kpi_metrics"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    metric_date: Mapped[date] = mapped_column(Date, server_default=func.current_date())
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    value: Mapped[float | None] = mapped_column(Numeric)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
-settings = get_settings()
+class Connection(Base):
+    """A user-connected app / social / ad / commerce account.
+
+    Credentials are stored as an encrypted JSON blob (Fernet). The platform reads
+    a connection's declared capabilities (from the provider registry) to build and
+    run its marketing & sales funnel automatically.
+    """
+    __tablename__ = "connections"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    provider: Mapped[str] = mapped_column(String, nullable=False, index=True)  # registry key
+    display_name: Mapped[str] = mapped_column(String, nullable=False)  # user's label
+    account_ref: Mapped[str | None] = mapped_column(String)  # handle / email / account id
+    credentials_enc: Mapped[str | None] = mapped_column(Text)  # Fernet-encrypted JSON
+    status: Mapped[str] = mapped_column(String, default="connected")  # connected|error|disconnected
+    funnel_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    goal: Mapped[str | None] = mapped_column(String)  # leads | sales | followers | bookings
+    settings: Mapped[dict | None] = mapped_column(JSONB)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CustomConnection(Base):
+    """A self-service, user-defined connection — the "New Connection Setup" area.
+
+    Unlike ``Connection`` (which maps to a hardcoded provider in the registry), this
+    is fully generic: the user picks a category, names the app themselves ("Facebook",
+    "Klaviyo", …), and defines whatever fields it needs. So adding an app is a form
+    entry, not a code change. A NEW table — safe under create_all (no ALTER).
+
+    ``fields`` holds field METADATA only ([{label, secret}], preserving order + which
+    are secret); ``values_enc`` is the Fernet-encrypted JSON {label: value} for every
+    value, so secrets are encrypted at rest and never returned to the client.
+    """
+    __tablename__ = "custom_connections"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    category: Mapped[str] = mapped_column(String, nullable=False, index=True)  # social_media | email | crm | …
+    name: Mapped[str] = mapped_column(String, nullable=False)                  # user's app label
+    notes: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String, default="configured")          # configured | error | disabled
+    fields: Mapped[list | None] = mapped_column(JSONB)                         # [{label, secret}] — no secret values
+    values_enc: Mapped[str | None] = mapped_column(Text)                       # Fernet-encrypted JSON {label: value}
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now())
+
+
+class PlacesSearchLog(Base):
+    """One row per Google Places Text Search request we actually send — the ledger
+    behind the cost guardrails in integrations/places.py. Text Search bills PER
+    request at Google's most expensive tier, so we (a) skip a "query in area" already
+    searched within places_query_cooldown_days, and (b) hard-stop for the calendar
+    month once places_monthly_request_cap requests are logged. A NEW table — safe
+    under create_all (no ALTER)."""
+    __tablename__ = "places_search_log"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    query_key: Mapped[str] = mapped_column(String, nullable=False, index=True)  # normalized "query in area"
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class BrandProfile(Base):
+    """Single-row profile of the user's brand/account that tailors ALL AI content
+    (Instagram calendar, music package, outreach tone). Editable in the UI."""
+    __tablename__ = "brand_profile"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    business_name: Mapped[str | None] = mapped_column(String)
+    niche: Mapped[str | None] = mapped_column(String)        # what you do / industry
+    location: Mapped[str | None] = mapped_column(String)
+    audience: Mapped[str | None] = mapped_column(String)     # who you target
+    value_prop: Mapped[str | None] = mapped_column(Text)     # your offer / differentiator
+    website: Mapped[str | None] = mapped_column(String)
+    tone: Mapped[str | None] = mapped_column(String)         # brand voice
+    instagram_handle: Mapped[str | None] = mapped_column(String)
+    content_pillars: Mapped[str | None] = mapped_column(Text)  # comma-separated themes
+    music_artist: Mapped[str | None] = mapped_column(String)
+    music_genres: Mapped[str | None] = mapped_column(String)
+    music_links: Mapped[str | None] = mapped_column(Text)  # streaming/follow links for fan CTAs
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Account(Base):
+    """A financial account or holding. Net worth = assets − liabilities."""
+    __tablename__ = "accounts"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    kind: Mapped[str] = mapped_column(String, default="asset")        # asset|liability
+    category: Mapped[str | None] = mapped_column(String)             # checking|savings|investment|credit|loan|cash|property
+    balance: Mapped[float] = mapped_column(Numeric(14, 2), default=0)
+    currency: Mapped[str] = mapped_column(String, default="USD")
+    institution: Mapped[str | None] = mapped_column(String)
+    source: Mapped[str] = mapped_column(String, default="manual")    # manual|plaid|import
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Transaction(Base):
+    """A money movement. amount > 0 = income, amount < 0 = expense."""
+    __tablename__ = "transactions"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    date: Mapped[date] = mapped_column(Date, index=True)
+    amount: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False)
+    category: Mapped[str | None] = mapped_column(String, index=True)
+    description: Mapped[str | None] = mapped_column(String)
+    account_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("accounts.id"))
+    source: Mapped[str] = mapped_column(String, default="manual")    # manual|csv|plaid
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ContentItem(Base):
+    """One piece of channel-ready content from the Content Factory, and the
+    content-memory record (with an embedding for 'have we covered this?' dedup).
+    Status: generated → needs_approval → scheduled → published (per approval mode)."""
+    __tablename__ = "content_items"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    topic: Mapped[str] = mapped_column(String, index=True)
+    business: Mapped[str | None] = mapped_column(String, index=True)   # executive|insurance|savorymind|music|bnbglobal|personal
+    channel: Mapped[str] = mapped_column(String, index=True)           # linkedin|instagram|tiktok|youtube|x|facebook|blog|email|podcast
+    title: Mapped[str | None] = mapped_column(String)
+    body: Mapped[str | None] = mapped_column(Text)
+    hashtags: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String, default="generated", index=True)
+    embedding: Mapped[list | None] = mapped_column(JSONB)              # topic embedding for dedup
+    meta: Mapped[dict | None] = mapped_column(JSONB)                   # views/likes/etc + result
+    scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SocialSnapshot(Base):
+    """A point-in-time follower/reach reading per platform, for growth charts."""
+    __tablename__ = "social_snapshots"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    platform: Mapped[str] = mapped_column(String, index=True)
+    followers: Mapped[int | None] = mapped_column(Integer)
+    reach: Mapped[int | None] = mapped_column(Integer)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class BrowserTask(Base):
+    """A browser-worker job — e.g. fill a job application form. Holds the prepared
+    field map and the run result. Status: prepared → running → needs_review →
+    submitted (or failed). Never auto-submits unless explicitly configured."""
+    __tablename__ = "browser_tasks"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    kind: Mapped[str] = mapped_column(String, default="job_application")
+    target_url: Mapped[str | None] = mapped_column(String)
+    entity_type: Mapped[str | None] = mapped_column(String)  # e.g. "job"
+    entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    status: Mapped[str] = mapped_column(String, default="prepared", index=True)
+    mode: Mapped[str | None] = mapped_column(String)  # assist|automation
+    field_map: Mapped[dict | None] = mapped_column(JSONB)
+    result: Mapped[dict | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ManualContact(Base):
+    """A standalone contact (recruiter, advisor, partner) not owned by an agent
+    source. Source entities (leads, restaurants, jobs, curators) surface through
+    the CRM aggregation; this table holds the people you add by hand."""
+    __tablename__ = "manual_contacts"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    company: Mapped[str | None] = mapped_column(String)
+    title: Mapped[str | None] = mapped_column(String)
+    email: Mapped[str | None] = mapped_column(String, index=True)
+    phone: Mapped[str | None] = mapped_column(String)
+    kind: Mapped[str] = mapped_column(String, default="contact")  # recruiter|advisor|partner|...
+    status: Mapped[str | None] = mapped_column(String)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ActionState(Base):
+    """State overlay for the Daily-Brief actions (which are derived live).
+
+    Keyed by a deterministic action key (e.g. 'follow_up:lead:<id>') so an
+    executed/dismissed action stays out of the brief without a full action table.
+    """
+    __tablename__ = "action_states"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    key: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String, default="open")  # open|done|dismissed
+    result: Mapped[dict | None] = mapped_column(JSONB)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Memory(Base):
+    """The AI memory / knowledge graph: one fact Bruno's workforce should remember
+    (about a person, company, lead, preference, goal, or event). Embeddings are
+    stored as a float array (JSONB) and cosine-ranked in Python — no vector
+    extension or extra server needed; swappable to Mem0/pgvector at scale."""
+    __tablename__ = "memories"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    kind: Mapped[str] = mapped_column(String, default="fact", index=True)  # fact|contact|preference|goal|event|note
+    subject: Mapped[str | None] = mapped_column(String, index=True)        # who/what it's about
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding: Mapped[list | None] = mapped_column(JSONB)                  # float[]; null when offline
+    meta: Mapped[dict | None] = mapped_column(JSONB)
+    source: Mapped[str | None] = mapped_column(String)                     # agent/user/import
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Objective(Base):
+    """An OUTCOME Bruno is driving toward (not a project). Agents/sources feed it,
+    and its weight ranks how much attention its actions get in the Daily Brief."""
+    __tablename__ = "objectives"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    key: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    command_center: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    metric: Mapped[str | None] = mapped_column(String)        # income | revenue | followers ...
+    target_value: Mapped[float | None] = mapped_column(Numeric)
+    current_value: Mapped[float] = mapped_column(Numeric, default=0)
+    rank: Mapped[int] = mapped_column(Integer, default=100)
+    weight: Mapped[float] = mapped_column(Numeric, default=0.5)  # 0–1, scales priority
+    status: Mapped[str] = mapped_column(String, default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Grant(Base):
+    """A funding opportunity sourced by the Foundation's Grant Research agent —
+    scored by how well it fits the foundation's mission/pillars."""
+    __tablename__ = "grants"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    funder: Mapped[str | None] = mapped_column(String)
+    source: Mapped[str | None] = mapped_column(String, index=True)  # grants_gov | curated | …
+    external_id: Mapped[str | None] = mapped_column(String, index=True)  # dedupe key
+    url: Mapped[str | None] = mapped_column(String)
+    amount: Mapped[float | None] = mapped_column(Numeric)
+    deadline: Mapped[date | None] = mapped_column(Date)
+    eligibility: Mapped[str | None] = mapped_column(Text)
+    category: Mapped[str | None] = mapped_column(String)  # matched pillar
+    summary: Mapped[str | None] = mapped_column(Text)
+    match_score: Mapped[int] = mapped_column(Integer, default=0)  # 0–100 mission fit
+    status: Mapped[str] = mapped_column(String, default="New", index=True)  # New|Reviewing|Applying|Submitted|Won|Lost|Skipped
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AgentBlueprint(Base):
+    """An AI sales agent generated from a business URL — the offer, ICP, target
+    industries, pain points, outreach angles and message scripts the agent uses.
+    (Instantly/Smartlead 'Create Agent from URL'.)"""
+    __tablename__ = "agent_blueprints"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    url: Mapped[str] = mapped_column(String, nullable=False)
+    business: Mapped[str | None] = mapped_column(String)
+    offer: Mapped[str | None] = mapped_column(Text)
+    icp: Mapped[str | None] = mapped_column(Text)
+    industries: Mapped[str | None] = mapped_column(Text)
+    pain_points: Mapped[str | None] = mapped_column(Text)
+    angles: Mapped[str | None] = mapped_column(Text)
+    scripts: Mapped[dict | None] = mapped_column(JSONB)
+    status: Mapped[str] = mapped_column(String, default="ready")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CampaignPlan(Base):
+    """A campaign generated from a natural-language brief ("find Boston restaurants
+    under 4.3 stars and pitch SavoryMind, follow up 6×") — parsed into a structured
+    plan the user can review and launch. (Instantly/Smartlead NL campaign builder.)"""
+    __tablename__ = "campaign_plans"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    brief: Mapped[str] = mapped_column(Text, nullable=False)
+    business: Mapped[str | None] = mapped_column(String)
+    agent_key: Mapped[str | None] = mapped_column(String)   # which agent runs it
+    plan: Mapped[dict | None] = mapped_column(JSONB)        # audience, filters, sequence, schedule
+    status: Mapped[str] = mapped_column(String, default="planned")  # planned|launched
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Client(Base):
+    """A WON insurance client — the book of business (post-sale CRM record).
+
+    Tracks who they are, what they bought (carrier + line + premium), when it
+    started and renews, and their communication history (via ClientNote). This is
+    the true-CRM layer that lives after a lead converts."""
+    __tablename__ = "clients"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    lead_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))  # origin lead, if any
+    # Which business this client belongs to (insurance | bnb | savorymind | music | …).
+    business: Mapped[str] = mapped_column(String, default="insurance", index=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    email: Mapped[str | None] = mapped_column(String, index=True)
+    phone: Mapped[str | None] = mapped_column(String)
+    # Address
+    address: Mapped[str | None] = mapped_column(String)
+    city: Mapped[str | None] = mapped_column(String)
+    state: Mapped[str | None] = mapped_column(String)   # MA | NH | FL
+    zip: Mapped[str | None] = mapped_column(String)
+    # Policy
+    line: Mapped[str | None] = mapped_column(String)     # auto | home | life | commercial
+    carrier: Mapped[str | None] = mapped_column(String)  # Progressive, GEICO, State Farm, …
+    policy_number: Mapped[str | None] = mapped_column(String)
+    premium_monthly: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    quote_amount: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    services: Mapped[str | None] = mapped_column(Text)   # coverage / services on the policy
+    status: Mapped[str] = mapped_column(String, default="Active")  # Active|Lapsed|Renewed|Cancelled
+    signed_at: Mapped[date | None] = mapped_column(Date)      # when they signed up
+    expires_at: Mapped[date | None] = mapped_column(Date)     # policy expiration / renewal
+    notes: Mapped[str | None] = mapped_column(Text)
+    last_contacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ClientNote(Base):
+    """A timeline entry on a client — a call, email, SMS, meeting or note. The
+    communication history + last-contact for the CRM record."""
+    __tablename__ = "client_notes"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    client_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
+    kind: Mapped[str] = mapped_column(String, default="note")  # note|call|email|sms|meeting
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    author: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Webhook(Base):
+    """An outbound webhook subscription — notifies external automation tools
+    (n8n, Make, Zapier, or anything that accepts a POST) when a subscribed event
+    happens in Bruno, so custom automations can be built outside the app without
+    a bespoke integration for every tool."""
+    __tablename__ = "webhooks"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    url: Mapped[str] = mapped_column(String, nullable=False)
+    secret: Mapped[str | None] = mapped_column(String)  # HMAC-signs the payload when set
+    events: Mapped[list] = mapped_column(JSONB, default=list)  # event keys, or ["*"] for all
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_triggered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_status: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class KnowledgeDoc(Base):
+    """A piece of the insurance knowledge base — a carrier guideline, discount
+    rule, coverage FAQ, claims note or training snippet. The AI answers questions
+    from these instead of guessing."""
+    __tablename__ = "knowledge_docs"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    tags: Mapped[list] = mapped_column(JSONB, default=list)  # e.g. ["discounts", "auto", "MA"]
+    source: Mapped[str | None] = mapped_column(String)       # where it came from (manual, upload…)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Setting(Base):
+    """Runtime key/value settings that change without a redeploy — e.g. the global
+    'agents_paused' kill-switch behind the Emergency Stop button."""
+    __tablename__ = "settings"
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ConversationOutcome(Base):
+    """One structured row per contact attempt / conversation — the Conversation
+    Engine's core. Every call/text/email becomes queryable data (method, outcome,
+    conversation status, carrier, renewal month, objection, next action), so the
+    dashboard segments the book ('Already Insured 48 · Shopping 22') and the weekly
+    AI learning loop can rank scripts, timing and follow-ups. A NEW table (never
+    alters leads/messages) so it's safe under create_all with no migration system."""
+    __tablename__ = "conversation_outcomes"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    lead_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+
+    # ── The attempt ──
+    attempt_number: Mapped[int | None] = mapped_column(Integer)
+    method: Mapped[str] = mapped_column(String, default="call")        # call|sms|email|voicemail|linkedin|facebook|whatsapp
+    outcome: Mapped[str | None] = mapped_column(String)               # answered|no_answer|busy|voicemail|wrong_number|disconnected|invalid_number
+    duration_seconds: Mapped[int | None] = mapped_column(Integer)
+    # If no answer — what we did instead
+    voicemail_left: Mapped[bool] = mapped_column(Boolean, default=False)
+    text_sent: Mapped[bool] = mapped_column(Boolean, default=False)
+    email_sent: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # ── The conversation (if they answered) ──
+    conversation_status: Mapped[str | None] = mapped_column(String, index=True)  # interested|not_interested|already_insured|shopping_around|requested_quote|needs_call_back|wrong_person|do_not_contact|language_barrier|sold|lost
+    insurance_needed: Mapped[list] = mapped_column(JSONB, default=list)           # ["auto","home",...]
+    objection: Mapped[str | None] = mapped_column(String)                          # price_too_high|coverage_too_low|need_spouse|...
+    # Quote progress
+    quote_started: Mapped[bool] = mapped_column(Boolean, default=False)
+    quote_completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    quote_sent: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # ── Already insured / competitor intel (the gold) ──
+    current_carrier: Mapped[str | None] = mapped_column(String)
+    current_premium: Mapped[Numeric | None] = mapped_column(Numeric)
+    renewal_month: Mapped[str | None] = mapped_column(String)
+    future_review: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Not interested / shopping detail
+    not_interested_reason: Mapped[str | None] = mapped_column(String)
+    quotes_gathered: Mapped[int | None] = mapped_column(Integer)       # how many quotes they're comparing
+    biggest_concern: Mapped[str | None] = mapped_column(String)         # price|coverage|service|claims|bundle|agent
+    quote_priority: Mapped[str | None] = mapped_column(String)          # high|medium|low
+
+    # ── What happens next ──
+    next_action: Mapped[str | None] = mapped_column(String)             # call|text|email|renewal|referral|birthday|policy_review
+    next_follow_up_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # ── Narrative + AI ──
+    notes: Mapped[dict | None] = mapped_column(JSONB)                   # structured: {summary, pain_points, needs, competitors, ...}
+    ai_summary: Mapped[str | None] = mapped_column(Text)
+    close_probability: Mapped[int | None] = mapped_column(Integer)      # 0-100
+
+    producer: Mapped[str | None] = mapped_column(String)               # who logged it
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class Business(Base):
+    """A configured business/brand — the config-driven replacement for the fixed
+    business set (personal/insurance/bnb/savorymind) that used to be hard-coded in
+    ~15 places. Adding a business becomes a row here (a Setup form), not a code
+    change. New table → safe to create under create_all(); nothing reads it for
+    behavior yet (that's a later, separate step), so this can't break sending."""
+    __tablename__ = "businesses"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    key: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    label: Mapped[str] = mapped_column(String, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Email identity
+    gmail_address: Mapped[str | None] = mapped_column(String)   # the Gmail mailbox that sends
+    sender_from: Mapped[str | None] = mapped_column(String)     # verified from-address (Resend/domain)
+    reply_to: Mapped[str | None] = mapped_column(String)        # where replies land, if different
+    business_name: Mapped[str | None] = mapped_column(String)   # brand name in signatures
+    # Scheduling / content
+    calendar_link: Mapped[str | None] = mapped_column(String)   # booking CTA
+    newsletter_banner: Mapped[str | None] = mapped_column(String)
+    content_categories: Mapped[list] = mapped_column(JSONB, default=list)  # content-factory topics
+    # Lead routing
+    segments: Mapped[list] = mapped_column(JSONB, default=list)  # lead segments this business owns
+    lead_source: Mapped[str | None] = mapped_column(String)      # default lead source (e.g. "everquote")
+    # Free-form extras so new fields don't need a column (no-migration-safe)
+    extra: Mapped[dict | None] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now())
+
+
+class ImportedEmailLog(Base):
+    """One row per inbox email the auto lead-import poller has already processed —
+    keyed by Gmail message id so a mailed-in CSV is never imported twice. New table,
+    safe under create_all()."""
+    __tablename__ = "imported_email_logs"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    gmail_message_id: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
+    account: Mapped[str | None] = mapped_column(String)      # which mailbox it came from
+    subject: Mapped[str | None] = mapped_column(String)
+    category: Mapped[str | None] = mapped_column(String)     # category the leads were tagged with
+    imported: Mapped[int] = mapped_column(Integer, default=0)
+    updated: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class OutboundMessagePolicy(Base):
+    """Immutable business limits attached to a persisted Message intent."""
+    __tablename__ = "outbound_message_policies"
+    message_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    daily_intent: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class OutboundAttempt(Base):
+    """Durable reservation committed BEFORE a provider call; never auto-expired."""
+    __tablename__ = "outbound_attempts"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    scope: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    recipient: Mapped[str | None] = mapped_column(String)
+    account: Mapped[str | None] = mapped_column(String)
+    operation_ref: Mapped[str | None] = mapped_column(String)
+    claim_hash: Mapped[str | None] = mapped_column(String(64))
+    channel: Mapped[str] = mapped_column(String(20), nullable=False)
+    state: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    provider_id: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class OutboundHold(Base):
+    """One outstanding provider action per recipient/account/channel."""
+    __tablename__ = "outbound_holds"
+    scope: Mapped[str] = mapped_column(String(64), primary_key=True)
+    attempt_key: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class OutboundQuota(Base):
+    """UTC-day shared budget; attempts consume capacity even when uncertain/rejected."""
+    __tablename__ = "outbound_quotas"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    capacity: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class OutboundResolution(Base):
+    """Append-only operator evidence. Resolution never dispatches another action."""
+    __tablename__ = "outbound_resolutions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    attempt_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor: Mapped[str] = mapped_column(String, nullable=False)
+    decision: Mapped[str] = mapped_column(String(32), nullable=False)
+    evidence: Mapped[str] = mapped_column(Text, nullable=False)
+    provider_reference: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MailboxSyncHealth(Base):
+    __tablename__ = "mailbox_sync_health"
+    account: Mapped[str] = mapped_column(String, primary_key=True)
+    status: Mapped[str] = mapped_column(String)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    completed_through: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scanned: Mapped[int] = mapped_column(Integer, default=0)
+    error_code: Mapped[str | None] = mapped_column(String)
+
+
+class InboundWebhookReceipt(Base):
+    __tablename__ = "inbound_webhook_receipts"
+    event_key: Mapped[str] = mapped_column(String, primary_key=True)
+    payload_hash: Mapped[str] = mapped_column(String)
+    status: Mapped[str] = mapped_column(String, default="processing")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DotReviewCase(Base):
+    """Research quarantine; deliberately not a Lead/Message/FollowUp queue item."""
+    __tablename__ = "dot_review_cases"
+    usdot: Mapped[str] = mapped_column(String(20), primary_key=True)
+    # Generic JSON permits isolated SQLite tests; production uses JSONB.
+    payload: Mapped[dict] = mapped_column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class SenderSignature(Base):
+    """Owned sender profile: never a global brand/default signature."""
+    __tablename__ = "sender_signatures"
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    mailbox: Mapped[str] = mapped_column(String, nullable=False)
+    png: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    plain_text: Mapped[str] = mapped_column(Text, nullable=False)
+    source_ref: Mapped[str] = mapped_column(String, nullable=False)
+    digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+# Register new opt-in calling tables with the existing create_all lifecycle.
+from .calling_capacity_models import CallHandler, CallPermit, CallReservation, CallLeadHold  # noqa: E402,F401
