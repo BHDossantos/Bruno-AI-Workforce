@@ -154,3 +154,88 @@ passed; Python compilation and whitespace checks passed. `npm run lint` was
 reproduced after installation and still fails on the removed `next lint` command.
 Build-generated frontend configuration edits were restored. No live provider
 requests or calls were used to validate the feature.
+
+## Reuse Bruno's existing Twilio account and prepaid balance
+
+No second account, number purchase, balance transfer, API key or TwiML App is
+required for this server-side inbound flow. `require_verified_twilio_callback`
+already reads the existing `twilio_account_sid` and `twilio_auth_token`, using
+nonempty environment values first, then Setup's `cfg:` rows, then settings. An
+explicitly cleared stored credential stays cleared. The signed `AccountSid` must
+match that same configured account. This route never switches to SignalWire even
+if another channel is configured to use it. Leave existing SMS/outbound settings
+unchanged; do not copy secrets into a patch or into chat.
+
+Use the public Twilio number that is owned by that account. Twilio voice usage on
+that account is billed to its existing account balance; a subaccount shares its
+parent's balance. A different standalone account has its own balance even under
+the same login. Nothing in this app transfers funds or changes payment settings.
+Incoming usage and the outgoing transfer leg can both incur Twilio charges;
+OpenAI API usage is separate and is not covered by Twilio credit. Exact charges,
+account type/status and prepaid funds have not been verified here.
+Sources: [Twilio accounts and balances](https://help.twilio.com/articles/360011132374-Getting-Started-with-Twilio-Accounts-and-Subaccounts),
+[Twilio subaccount billing](https://www.twilio.com/docs/iam/api/subaccounts),
+[Twilio forwarding-leg charges](https://help.twilio.com/articles/223132367-How-Much-am-I-Charged-for-Call-Forwarding-with-Twilio).
+
+### Safe staging without routing changes
+
+From `backend/`, in a trusted environment with the app's existing runtime config:
+
+```sh
+python -m app.scripts.stage_inbound_assistant
+```
+
+This read-only report uses the same credential resolution as webhook verification,
+reads existing number/cell configuration and prints a proposed environment. It does
+not print account IDs/tokens, contact Twilio/OpenAI, modify the database or files,
+create resources, place calls, confirm ownership, or enable anything. If the config
+store cannot be read it proposes no numbers instead of trusting stale defaults.
+Its output always contains:
+
+```dotenv
+INBOUND_ASSISTANT_ENABLED=false
+INBOUND_ASSISTANT_NUMBER=<candidate existing Twilio public number>
+INBOUND_ASSISTANT_TRANSFER_NUMBER=<candidate existing personal cell>
+INBOUND_ASSISTANT_VERIFIED_TRANSFER_NUMBER=
+```
+
+Candidates use explicit inbound-assistant settings first, otherwise the existing
+Twilio voice/insurance/from number and producer cell/callback. They are suggestions,
+not verified destinations. The report rejects a transfer candidate matching any
+configured Twilio public number. Carrier forwarding cannot be discovered from
+local config: separately verify the personal destination does not forward back to
+this or another assistant number. Never set the verification field merely because
+a number was present in existing configuration.
+
+The requested flow is **public Twilio number → Workforce AI → Bruno's existing
+personal phone**. Callers dial the public Twilio number; Bruno does not need to
+forward his personal phone to it. Workforce's AI acknowledges speech requests and
+asks callers to press 1 before transferring. The dot does not answer the phone,
+and the model cannot choose an arbitrary number or initiate transfers by itself.
+
+### What was actually inspectable in this checkout
+
+The existing code defaults are public `+18338547055` and personal `16039308272`
+(normalized `+16039308272`). These are unverified defaults, not proof of current
+ownership, routing or Bruno's current personal destination. No local `.env`,
+`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, or `DATABASE_URL` was available. No direct
+Twilio connector is available, and production service configuration was not read.
+Thus current account identity, account balance, number ownership and personal
+forwarding remain unverified. No live settings or credentials were changed.
+
+Before rollout, an authorized operator must inspect the existing account in Twilio
+Console (without sharing tokens), confirm the public number belongs to it and is
+voice-capable, confirm the available balance/account status, and verify Bruno's
+separate personal destination and absence of forwarding loops. Then follow the
+separately authorized configuration/routing and staging-call gates above. Keep the
+feature off and verification blank until those checks are complete.
+
+Staging-report validation: **707 backend tests passed** with disposable local
+PostgreSQL (172 existing warnings, 48.34s). The focused offline run passed 73 tests
+and explicitly skipped 27 PostgreSQL variants before the full PostgreSQL run.
+Python compilation and `git diff --check` passed. Running the report in this actual
+checkout safely returned `configuration_readable=false`, all verification flags
+false and blank number proposals. Tests mock configuration; no account/balance or
+provider verification is claimed. This follow-up adds only the staging script,
+its tests and this guide; no runtime call behavior or frontend code changed.
+The follow-up is local only and has not been pushed.
