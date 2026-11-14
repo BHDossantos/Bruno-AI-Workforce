@@ -74,8 +74,10 @@ bounded input/output, escaped XML and a deterministic unavailable fallback.
    and duplicate callbacks, and lost-response behavior. Roll back by restoring the
    prior number webhook; disabling the flag makes this route play unavailable.
 
-No credentials were created, provider settings changed, live calls placed,
-services purchased, code pushed, PR opened, deployment made or merge performed.
+At initial implementation, no credentials were created, provider settings changed,
+live calls placed, services purchased, code pushed, PR opened, deployment made or
+merge performed. A later code-only branch push was explicitly authorized; live
+routing remains disabled, with no PR, deployment, merge or provider changes.
 
 ## Repository reconciliation
 
@@ -122,3 +124,33 @@ Tests do not prove Twilio execution, carrier audio, human answer or live AI qual
 
 Provider references: [Twilio Gather](https://www.twilio.com/docs/voice/twiml/gather)
 and [Twilio Dial action/status handling](https://www.twilio.com/docs/voice/twiml/dial).
+
+
+### Code-only push review
+
+Reviewed signature/account validation, canonical URL handling, inbound-number and
+call-direction restrictions, fixed transfer destination, DTMF confirmation,
+Emergency Stop behavior, escaped model output, bounded AI requests, durable state
+claims, duplicate handling and deployment workflow triggers. No new blocking code
+defect was found. The existing deploy workflow only follows main; this feature
+branch does not change deployment or telephony configuration.
+
+The lint issue predates this implementation. Next removed `next lint`; this
+frontend also has no ESLint dependency, plugin or configuration. A proper repair
+requires introducing and baselining a frontend lint setup, so it was left outside
+this phone-flow change instead of replacing lint with a weaker check. See the
+[official Next migration guide](https://nextjs.org/docs/app/guides/upgrading/version-16#next-lint-command).
+
+Release gates remain the prerequisite list above: independently verify Bruno's
+separate destination, eliminate forwarding loops, confirm provider configuration
+and processing notices, coordinate inbound/outbound availability if PR #323 is
+activated, then separately authorize staging end-to-end tests. Local tests use
+mocked/offline AI and signed fixtures; they do not establish live call handling.
+
+Revalidation before the authorized push: **697 backend tests passed** with local
+PostgreSQL 16 (172 warnings, 57.32s), including all final inbound replay/failure
+cases. Frontend clean dependency install, production build and TypeScript check
+passed; Python compilation and whitespace checks passed. `npm run lint` was
+reproduced after installation and still fails on the removed `next lint` command.
+Build-generated frontend configuration edits were restored. No live provider
+requests or calls were used to validate the feature.
