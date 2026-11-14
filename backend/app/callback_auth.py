@@ -59,6 +59,11 @@ async def _params(request):
 async def require_twilio_callback(request: Request, db=Depends(get_db)):
     if not settings.secure_runtime:
         return  # preserve local fixtures; production always verifies
+    return await require_verified_twilio_callback(request, db)
+
+
+async def require_verified_twilio_callback(request: Request, db=Depends(get_db)):
+    """Always verify, including development; used by opt-in inbound assistant."""
     params = await _params(request)
     account = _credential(db, "twilio_account_sid")
     token = _credential(db, "twilio_auth_token")

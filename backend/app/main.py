@@ -17,6 +17,7 @@ from .routers import (
     book,
     businesses,
     calls,
+    inbound_assistant,
     compliance,
     connections,
     control,
@@ -156,6 +157,7 @@ app.include_router(delivery.router)
 app.include_router(outreach_queue.router)
 app.include_router(sms.router)
 app.include_router(calls.router)
+app.include_router(inbound_assistant.router)
 app.include_router(cron.router)
 app.include_router(export.router)
 app.include_router(imports.router)

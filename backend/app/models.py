@@ -1026,3 +1026,12 @@ class SenderSignature(Base):
     source_ref: Mapped[str] = mapped_column(String, nullable=False)
     digest: Mapped[str] = mapped_column(String(64), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class InboundAssistantCall(Base):
+    """Durable per-call sequencing fence; no transcripts or caller numbers stored."""
+    __tablename__ = "inbound_assistant_calls"
+    call_sid: Mapped[str] = mapped_column(String(34), primary_key=True)
+    stage: Mapped[str] = mapped_column(String(20), nullable=False)
+    turn: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    expires_at: Mapped[int] = mapped_column(Integer, nullable=False)

@@ -278,6 +278,12 @@ class Settings(BaseSettings):
     # (+18338547055) instead of SignalWire (whose 10DLC is still pending). Safe: when
     # Twilio creds aren't connected, provider() falls back to SignalWire automatically.
     voice_provider: str = "twilio"
+    # Separate inbound assistant route. Environment-only, deliberately not Setup-editable.
+    inbound_assistant_enabled: bool = False
+    inbound_assistant_number: str = ""
+    inbound_assistant_transfer_number: str = ""
+    # Set only after verifying Bruno controls the exact transfer destination.
+    inbound_assistant_verified_transfer_number: str = ""
     # Self-hosted SIP softswitch (FreeSWITCH) — "build our own" origination. Instead
     # of a CPaaS HTTP API, we run FreeSWITCH ourselves and bring our own carrier (a
     # SIP trunk). The backend originates calls over the Event Socket (ESL) and serves
