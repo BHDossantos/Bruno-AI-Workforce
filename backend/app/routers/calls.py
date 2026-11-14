@@ -357,8 +357,21 @@ async def twiml_amd(request: Request, lead_id: str = "", db: Session = Depends(g
             form = await request.form()
             answered_by = form.get("AnsweredBy") or ""
         answered_by = answered_by or request.query_params.get("AnsweredBy") or ""
+    except Exception:  # never bypass AI into a direct transfer on parse failure
+        from ..config import settings
+        if settings.outbound_assistant_enabled:
+            from .inbound_assistant import finish, UNAVAILABLE
+            return Response(finish(UNAVAILABLE), media_type=_XML)
+        answered_by = ""
+    from ..config import settings
+    if (settings.outbound_assistant_enabled and settings.auto_dial_transfer_enabled
+            and voice._amd_is_human(answered_by)):
+        # Outside legacy fallback: auth/state failures must NEVER bridge the cell.
+        from .outbound_assistant import start
+        return await start(request, db)
+    try:
         return Response(voice.amd_twiml(answered_by or None, lead_id or None), media_type=_XML)
-    except Exception:  # fall back to bridging YOU in rather than dropping the call
+    except Exception:
         return Response(voice.amd_twiml(None, lead_id or None), media_type=_XML)
 
 

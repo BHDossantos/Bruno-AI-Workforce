@@ -279,6 +279,11 @@ class Settings(BaseSettings):
     # Twilio creds aren't connected, provider() falls back to SignalWire automatically.
     voice_provider: str = "twilio"
     # Separate inbound assistant route. Environment-only, deliberately not Setup-editable.
+    # Existing outbound AMD live-answer branch only. No provider routing changes.
+    outbound_assistant_enabled: bool = False
+    outbound_assistant_from_number: str = ""
+    outbound_assistant_verified_transfer_number: str = ""
+    outbound_assistant_verified_caller_id: str = ""
     inbound_assistant_enabled: bool = False
     inbound_assistant_number: str = ""
     inbound_assistant_transfer_number: str = ""

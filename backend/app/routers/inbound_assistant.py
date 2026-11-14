@@ -1,4 +1,5 @@
 """Opt-in Twilio receptionist. No outbound REST calls or model-controlled dialing."""
+from dataclasses import dataclass
 import re
 import time
 
@@ -24,6 +25,21 @@ UNAVAILABLE = "Bruno is unavailable right now. Please try again later. Goodbye."
 CHOICE = "To try Bruno now, press 1. Otherwise, tell me briefly how I can help."
 
 
+@dataclass(frozen=True)
+class AssistantFlow:
+    enabled: bool
+    number: str
+    target: str
+    verified_target: str
+    caller_id: str
+    path: str = "/calls/assistant"
+    direction: str = "inbound"
+    number_field: str = "To"
+    peer_field: str = "From"
+    model: type = InboundAssistantCall
+    blocked_targets: tuple[str, ...] = ()
+
+
 def finish(message=""):
     response = VoiceResponse()
     if message:
@@ -32,11 +48,11 @@ def finish(message=""):
     return str(response)
 
 
-def gather(message, turn):
+def gather(message, turn, path="/calls/assistant"):
     response = VoiceResponse()
     prompt = response.gather(input="speech dtmf", num_digits=1, timeout=5,
                              speech_timeout="auto", action_on_empty_result=True,
-                             action=f"/calls/assistant/turn?turn={turn}", method="POST")
+                             action=f"{path}/turn?turn={turn}", method="POST")
     prompt.say(message)
     return str(response)
 
@@ -62,17 +78,24 @@ def answer(speech):
         return "I cannot answer questions right now. " + CHOICE
 
 
-def handle(db, stage, turn, params):
+def handle(db, stage, turn, params, flow=None):
+    if flow is None:
+        flow = AssistantFlow(settings.inbound_assistant_enabled,
+                             settings.inbound_assistant_number,
+                             settings.inbound_assistant_transfer_number,
+                             settings.inbound_assistant_verified_transfer_number,
+                             settings.inbound_assistant_number)
+    model = flow.model
     sid = params.get("CallSid", "")
-    number = settings.inbound_assistant_number
-    if (not settings.inbound_assistant_enabled or not PHONE.fullmatch(number)
-            or params.get("To") != number or params.get("Direction") != "inbound"
+    number = flow.number
+    if (not flow.enabled or not PHONE.fullmatch(number)
+            or params.get(flow.number_field) != number or params.get("Direction") != flow.direction
             or not CALL.fullmatch(sid) or control.is_paused(db)):
         return finish(UNAVAILABLE)
     now = int(time.time())
     if stage == "start":
         # Unique insert fences concurrent starts and replayed signed requests.
-        db.add(InboundAssistantCall(call_sid=sid, stage="listening", turn=1,
+        db.add(model(call_sid=sid, stage="listening", turn=1,
                                     expires_at=now + 600))
         try:
             db.commit()
@@ -80,16 +103,16 @@ def handle(db, stage, turn, params):
             db.rollback()
             return finish()
         return gather("Hello, I am Bruno's AI assistant. Your speech is processed by our "
-                      "voice and AI providers. Please do not share sensitive information. " + CHOICE, 1)
+                      "voice and AI providers. Please do not share sensitive information. " + CHOICE, 1, flow.path)
     if stage not in ("turn", "result") or not 1 <= turn <= 4:
         return finish()
     transfer = stage == "turn" and params.get("Digits") == "1"
     next_stage = "dialing" if transfer else ("done" if stage == "result" or turn == 4 else "listening")
-    claimed = db.execute(update(InboundAssistantCall).where(
-        InboundAssistantCall.call_sid == sid,
-        InboundAssistantCall.stage == ("dialing" if stage == "result" else "listening"),
-        InboundAssistantCall.turn == turn,
-        InboundAssistantCall.expires_at > now,
+    claimed = db.execute(update(model).where(
+        model.call_sid == sid,
+        model.stage == ("dialing" if stage == "result" else "listening"),
+        model.turn == turn,
+        model.expires_at > now,
     ).values(stage=next_stage, turn=turn if transfer else turn + 1))
     # Commit before producing any dialing instruction or contacting AI. Never
     # replay a Dial after a lost response; uncertain delivery deliberately ends.
@@ -99,20 +122,22 @@ def handle(db, stage, turn, params):
     if stage == "result":
         return finish("Goodbye." if params.get("DialCallStatus") == "completed" else UNAVAILABLE)
     if transfer:
-        target = settings.inbound_assistant_transfer_number
+        target = flow.target
         if (not PHONE.fullmatch(target)
-                or target != settings.inbound_assistant_verified_transfer_number
-                or target == number or target == params.get("From")
+                or target != flow.verified_target
+                or target == number or target == params.get(flow.peer_field)
+                or target in flow.blocked_targets or not PHONE.fullmatch(flow.caller_id)
+                or flow.caller_id == target or flow.caller_id == params.get(flow.peer_field)
                 or control.is_paused(db)):
             return finish(UNAVAILABLE)
         response = VoiceResponse()
         response.say("I will try Bruno now.")
-        response.dial(target, caller_id=number, timeout=20, time_limit=1800,
-                      action=f"/calls/assistant/result?turn={turn}", method="POST")
+        response.dial(target, caller_id=flow.caller_id, timeout=20, time_limit=1800,
+                      action=f"{flow.path}/result?turn={turn}", method="POST")
         return str(response)
     if turn == 4 or not params.get("SpeechResult", "").strip():
         return finish(UNAVAILABLE)
-    return gather(answer(params["SpeechResult"]), turn + 1)
+    return gather(answer(params["SpeechResult"]), turn + 1, flow.path)
 
 
 @router.post("/{stage}")

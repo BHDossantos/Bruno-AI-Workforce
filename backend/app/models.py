@@ -1035,3 +1035,12 @@ class InboundAssistantCall(Base):
     stage: Mapped[str] = mapped_column(String(20), nullable=False)
     turn: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     expires_at: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class OutboundAssistantCall(Base):
+    """Separate durable fence for outbound live-answer-branch calls."""
+    __tablename__ = "outbound_assistant_calls"
+    call_sid: Mapped[str] = mapped_column(String(34), primary_key=True)
+    stage: Mapped[str] = mapped_column(String(20), nullable=False)
+    turn: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    expires_at: Mapped[int] = mapped_column(Integer, nullable=False)

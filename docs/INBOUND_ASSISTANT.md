@@ -1,4 +1,9 @@
-# Bruno's inbound AI receptionist (local, opt-in implementation)
+# Bruno's inbound AI receptionist (earlier interpretation)
+
+**Scope correction:** Bruno requested AI on the existing OUTBOUND live-answer
+branch, preserving recorded voicemail. See [the corrected outbound guide](OUTBOUND_LIVE_ANSWER_ASSISTANT.md).
+This earlier inbound proposal is separate, disabled and is not the rollout path
+for the corrected request.
 
 This is the Workforce app's AI, using its existing OpenAI API client and Twilio
 voice service. It is **not the ChatGPT dot** and cannot access this conversation,
@@ -238,4 +243,5 @@ checkout safely returned `configuration_readable=false`, all verification flags
 false and blank number proposals. Tests mock configuration; no account/balance or
 provider verification is claimed. This follow-up adds only the staging script,
 its tests and this guide; no runtime call behavior or frontend code changed.
-The follow-up is local only and has not been pushed.
+This staging follow-up was initially local-only. A subsequent outbound correction
+was explicitly authorized for pushing on the same feature branch.
