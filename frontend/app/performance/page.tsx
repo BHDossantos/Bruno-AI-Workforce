@@ -6,8 +6,9 @@ import { AuthGate, PageHeader, KpiCard, useFetch, LoadState } from "@/components
 type Stage = { key: string; label: string; count: number };
 type Report = {
   funnel: {
+    basis: string;
     stages: Stage[];
-    current: { new: number; contacted: number; engaged: number; won: number; lost: number; total: number };
+    current: { new: number; contacted: number; engaged: number; won: number; lost: number; follow_up: number; other: number; total: number };
     rates: { contact_rate: number; response_rate: number; close_rate: number; win_from_contacted: number };
   };
   revenue: {
@@ -32,13 +33,13 @@ function Performance() {
   return (
     <div>
       <PageHeader title="📊 Performance"
-        subtitle="Your sales funnel and real revenue — leads → contacted → engaged → won, conversion at each step, and commission from signed clients." />
+        subtitle="Your sales funnel and estimated commission — leads → contacted → engaged → won, conversion at each step, and commission from signed clients." />
 
       {/* Revenue KPIs */}
       <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <KpiCard label="This-month commission" value={money(revenue.mtd_commission)}
+        <KpiCard label="This-month estimated commission" value={money(revenue.mtd_commission)}
           hint={`${revenue.mtd_new_clients} new client${revenue.mtd_new_clients === 1 ? "" : "s"}`} />
-        <KpiCard label="Book commission (annual)" value={money(revenue.book_commission)}
+        <KpiCard label="Estimated annual commission" value={money(revenue.book_commission)}
           hint={`${revenue.commission_pct}% of premium`} />
         <KpiCard label="Active clients" value={revenue.active_clients} />
         <KpiCard label="Avg annual premium" value={money(revenue.avg_annual_premium)} />
@@ -61,7 +62,8 @@ function Performance() {
 
       {/* Funnel */}
       <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">
-        <div className="mb-3 text-sm font-semibold text-gray-700">Sales funnel</div>
+        <div className="mb-3 text-sm font-semibold text-gray-700">Sales funnel · current status basis</div>
+        <p className="mb-3 text-xs text-gray-500">{funnel.basis}</p>
         <div className="space-y-2">
           {funnel.stages.map((s) => (
             <div key={s.key} className="flex items-center gap-3">
@@ -72,6 +74,12 @@ function Performance() {
               </div>
             </div>
           ))}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-4 text-sm text-gray-600">
+          <span>New / drafted: <b>{funnel.current.new}</b></span>
+          <span>Follow-up needed: <b>{funnel.current.follow_up}</b></span>
+          <span>Closed lost: <b>{funnel.current.lost}</b></span>
+          <span>Other statuses: <b>{funnel.current.other}</b></span>
         </div>
         <div className="mt-4 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
           <div><div className="text-xs text-gray-500">Contact rate</div><b>{funnel.rates.contact_rate}%</b></div>
