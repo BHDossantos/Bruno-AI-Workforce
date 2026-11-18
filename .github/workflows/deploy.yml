@@ -1,7 +1,9 @@
 name: Deploy to Cloud Run
 
-# Runs after CI passes on main, so only green code deploys. Also runnable
-# manually from the Actions tab (workflow_dispatch).
+# Legacy GCP deployment is opt-in; Render is the current deployment path.
+# Automatic runs require ENABLE_GCP_AUTO_DEPLOY=true in repository variables.
+# Manual dispatch remains available for an explicitly approved GCP deployment.
+# Confirm active billing and prevent duplicate outbound workers before enabling.
 on:
   workflow_run:
     workflows: ["CI"]
@@ -15,8 +17,8 @@ permissions:
 
 jobs:
   deploy:
-    # Deploy on a successful CI run on main, or when triggered by hand.
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    # Default off for automatic CI completion; preserve explicit manual dispatch.
+    if: ${{ github.event_name == 'workflow_dispatch' || (vars.ENABLE_GCP_AUTO_DEPLOY == 'true' && github.event.workflow_run.conclusion == 'success') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
