@@ -92,6 +92,7 @@ const GROUPS: NavGroup[] = [
       { href: "/activation", label: "Go-Live Setup", icon: "🚀" },
       { href: "/settings", label: "Brand Profile", icon: "⚙️" },
       { href: "/status", label: "System Status", icon: "🩺" },
+      { href: "/monitors", label: "Uptime Monitors", icon: "📡" },
       { href: "/webhooks", label: "Webhooks", icon: "🔗" },
       { href: "/automations", label: "Automations", icon: "⚡" },
       { href: "/agent-builder", label: "Create AI Agent", icon: "✨" },

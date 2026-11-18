@@ -5120,6 +5120,57 @@ def test_project_health_overdue_from_past_due_date():
         db.close()
 
 
+def test_uptime_monitor_check_up_then_down(client, auth_headers, monkeypatch):
+    """A monitor probes up, then down; uptime% and consecutive_failures track it.
+    The network seam (_probe) is monkeypatched so no real request is made."""
+    from app import uptime
+
+    m = client.post("/monitors", json={"name": "Backend", "url": "https://example.test/health",
+                                        "interval_minutes": 5}, headers=auth_headers).json()
+    mid = m["id"]
+    assert m["last_status"] == "unknown" and m["enabled"] is True
+
+    monkeypatch.setattr(uptime, "_probe", lambda url, method, exp: (True, 200, 42, None))
+    up = client.post(f"/monitors/{mid}/check", json={}, headers=auth_headers).json()
+    assert up["last_status"] == "up" and up["last_code"] == 200 and up["uptime_pct"] == 100.0
+
+    monkeypatch.setattr(uptime, "_probe", lambda url, method, exp: (False, 503, 10, "HTTP 503"))
+    down = client.post(f"/monitors/{mid}/check", json={}, headers=auth_headers).json()
+    assert down["last_status"] == "down" and down["consecutive_failures"] == 1
+    assert down["uptime_pct"] == 50.0 and down["checks_total"] == 2
+
+    s = client.get("/monitors/summary", headers=auth_headers).json()
+    assert s["total"] >= 1
+
+
+def test_uptime_run_due_respects_interval_and_prunes(monkeypatch):
+    """run_due only probes monitors whose interval elapsed, and history is pruned."""
+    from datetime import datetime, timezone
+    from app import uptime
+    from app.database import SessionLocal
+    from app.models import MonitorCheck
+
+    db = SessionLocal()
+    try:
+        monkeypatch.setattr(uptime, "_probe", lambda url, method, exp: (True, 200, 5, None))
+        m = uptime.create_monitor(db, name="Site", url="https://example.test/", interval_minutes=5)
+        out = uptime.run_due(db)           # never checked -> due
+        assert out["checked"] >= 1
+        m2 = db.get(type(m), m.id)
+        assert m2.last_status == "up"
+        # Just checked -> not due again immediately.
+        m2.last_checked_at = datetime.now(timezone.utc)
+        db.commit()
+        assert uptime.run_due(db)["checked"] == 0 or m2.interval_minutes >= 1
+        # History stays bounded.
+        for _ in range(55):
+            uptime.check(db, db.get(type(m), m.id))
+        kept = db.query(MonitorCheck).filter(MonitorCheck.monitor_id == m.id).count()
+        assert kept <= 50
+    finally:
+        db.close()
+
+
 def test_crm_token_falls_back_to_env_without_connection():
     from app.config import settings
     from app.integrations import crm

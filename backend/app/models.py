@@ -1123,5 +1123,46 @@ class ProjectTask(Base):
     project: Mapped["Project"] = relationship(back_populates="tasks")
 
 
+class Monitor(Base):
+    """An uptime monitor — one URL to watch (a Bruno app, or a client's site). The
+    scheduler probes it on its own interval; current state + all-time uptime
+    counters live on the row, and the last N probes live in MonitorCheck for a
+    sparkline. No new columns on existing tables — two brand-new tables only."""
+    __tablename__ = "monitors"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    url: Mapped[str] = mapped_column(String, nullable=False)
+    business: Mapped[str | None] = mapped_column(String, index=True)  # who it's for (optional)
+    method: Mapped[str] = mapped_column(String, default="GET")
+    expected_status: Mapped[int] = mapped_column(Integer, default=200)
+    interval_minutes: Mapped[int] = mapped_column(Integer, default=5)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_status: Mapped[str | None] = mapped_column(String)  # up|down|unknown
+    last_code: Mapped[int | None] = mapped_column(Integer)
+    last_latency_ms: Mapped[int | None] = mapped_column(Integer)
+    last_error: Mapped[str | None] = mapped_column(String)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    consecutive_failures: Mapped[int] = mapped_column(Integer, default=0)
+    checks_total: Mapped[int] = mapped_column(Integer, default=0)
+    checks_up: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    checks: Mapped[list["MonitorCheck"]] = relationship(
+        back_populates="monitor", cascade="all, delete-orphan")
+
+
+class MonitorCheck(Base):
+    """One probe result — kept as a short rolling history (pruned per monitor)."""
+    __tablename__ = "monitor_checks"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    monitor_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("monitors.id", ondelete="CASCADE"), index=True, nullable=False)
+    status: Mapped[str] = mapped_column(String)  # up|down
+    code: Mapped[int | None] = mapped_column(Integer)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    error: Mapped[str | None] = mapped_column(String)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    monitor: Mapped["Monitor"] = relationship(back_populates="checks")
+
+
 # Register new opt-in calling tables with the existing create_all lifecycle.
 from .calling_capacity_models import CallHandler, CallPermit, CallReservation, CallLeadHold  # noqa: E402,F401

@@ -287,6 +287,12 @@ def _run_billing_sweep(db):
     return billing.overdue_sweep(db)
 
 
+def _run_uptime_checks(db):
+    # Probe every enabled monitor whose interval has elapsed.
+    from . import uptime
+    return uptime.run_due(db)
+
+
 def _run_everquote_cadence(db):
     from . import everquote_cadence
     return everquote_cadence.run(db, per_run_limit=1)
@@ -379,6 +385,9 @@ _JOBS: dict[str, tuple] = {
     # Billing hygiene — flip past-due Sent invoices to Overdue each morning so the
     # billing dashboard is accurate without anyone touching it.
     "billing_sweep":    (_run_billing_sweep, "0 6 * * *"),
+    # Uptime monitors — probe every enabled monitor whose own interval has elapsed.
+    # Runs every 5 minutes; each monitor self-paces to its interval_minutes.
+    "uptime_checks":    (_run_uptime_checks, "*/5 * * * *"),
 }
 
 
