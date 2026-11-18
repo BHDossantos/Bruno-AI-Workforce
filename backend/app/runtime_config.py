@@ -172,6 +172,14 @@ FIELDS: dict[str, bool] = {
 }
 
 
+# Fields the IN-APP toggle must own, so a stored value wins even over an env var.
+# For a master on/off switch the user flips in the app (phone calls), an env var
+# like AUTO_DIAL_ENABLED=true must NOT silently re-enable it on the next restart —
+# otherwise "I turned calls off in the app" never sticks. For these fields a saved
+# DB value is authoritative; env is only the fallback when nothing is stored.
+_APP_AUTHORITATIVE: set[str] = {"auto_dial_enabled"}
+
+
 def _stored(db, field: str) -> str:
     try:
         row = db.get(Setting, _PREFIX + field)
@@ -181,12 +189,23 @@ def _stored(db, field: str) -> str:
 
 
 def apply_to_settings(db) -> None:
-    """Load stored credentials into the live settings object (env vars win)."""
+    """Load stored credentials into the live settings object.
+
+    Env vars win for normal credentials (so prod secrets aren't overridden), EXCEPT
+    for _APP_AUTHORITATIVE on/off switches, where a value the user saved in the app
+    wins over the env var — that's the whole point of an in-app master switch."""
     import os
     for field in FIELDS:
+        val = _stored(db, field)
+        if field in _APP_AUTHORITATIVE and val != "":
+            # The in-app toggle is the source of truth — apply it over any env var.
+            try:
+                setattr(settings, field, val)
+            except Exception:  # pragma: no cover
+                log.warning("could not apply stored config %s", field)
+            continue
         if os.environ.get(field.upper()):
             continue  # an explicit env var takes precedence
-        val = _stored(db, field)
         if val:
             try:
                 setattr(settings, field, val)

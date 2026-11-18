@@ -5216,6 +5216,30 @@ def test_seo_audit_endpoint_persists_and_lists(client, auth_headers, monkeypatch
     assert any(x["id"] == a["id"] for x in lst)
 
 
+def test_in_app_calls_toggle_wins_over_env_var(monkeypatch):
+    """A saved in-app 'calls off' must stick even if AUTO_DIAL_ENABLED=true is set in
+    the environment — otherwise the switch never holds across a restart."""
+    import os
+    from app import auto_dial, runtime_config
+    from app.config import settings
+    from app.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        monkeypatch.setenv("AUTO_DIAL_ENABLED", "true")   # a leftover prod env var
+        settings.auto_dial_enabled = True
+        runtime_config.save(db, "auto_dial_enabled", "false")  # user flips it off in the app
+        runtime_config.apply_to_settings(db)               # the refresh that used to clobber it
+        assert auto_dial.auto_dial_enabled() is False      # app toggle wins
+        # And turning it back on in the app also wins.
+        runtime_config.save(db, "auto_dial_enabled", "true")
+        runtime_config.apply_to_settings(db)
+        assert auto_dial.auto_dial_enabled() is True
+    finally:
+        runtime_config.save(db, "auto_dial_enabled", "true")  # restore the suite's shared convention
+        db.close()
+
+
 def test_crm_token_falls_back_to_env_without_connection():
     from app.config import settings
     from app.integrations import crm
