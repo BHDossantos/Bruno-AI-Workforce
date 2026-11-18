@@ -281,6 +281,12 @@ def _run_linkedin_founder(db):
     return linkedin_founder.run(db)
 
 
+def _run_billing_sweep(db):
+    # Flip past-due Sent invoices to Overdue, hands-free (no human click).
+    from . import billing
+    return billing.overdue_sweep(db)
+
+
 def _run_everquote_cadence(db):
     from . import everquote_cadence
     return everquote_cadence.run(db, per_run_limit=1)
@@ -370,6 +376,9 @@ _JOBS: dict[str, tuple] = {
     # 1pm ET — a strong LinkedIn engagement window. Self-gates on LinkedIn being
     # connected; only posts once/day. Runs under the insurance-only profile too.
     "linkedin_founder": (_run_linkedin_founder, "0 13 * * *"),
+    # Billing hygiene — flip past-due Sent invoices to Overdue each morning so the
+    # billing dashboard is accurate without anyone touching it.
+    "billing_sweep":    (_run_billing_sweep, "0 6 * * *"),
 }
 
 

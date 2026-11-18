@@ -1027,5 +1027,60 @@ class SenderSignature(Base):
     digest: Mapped[str] = mapped_column(String(64), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
+class Invoice(Base):
+    """A client invoice — the agency's billing layer (own clients across any
+    business). Status: Draft → Sent → Paid (or Overdue/Void). Totals are stored
+    and recomputed from InvoiceLine rows so a read never has to sum on the fly.
+    amount_paid rolls up its Payment rows so partial payments are first-class."""
+    __tablename__ = "invoices"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    number: Mapped[str] = mapped_column(String, unique=True, index=True)  # INV-2026-0001
+    business: Mapped[str] = mapped_column(String, default="insurance", index=True)
+    client_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), index=True)  # origin client, if any
+    client_name: Mapped[str] = mapped_column(String, nullable=False)
+    client_email: Mapped[str | None] = mapped_column(String)
+    status: Mapped[str] = mapped_column(String, default="Draft", index=True)  # Draft|Sent|Paid|Overdue|Void
+    currency: Mapped[str] = mapped_column(String, default="USD")
+    issue_date: Mapped[date | None] = mapped_column(Date)
+    due_date: Mapped[date | None] = mapped_column(Date, index=True)
+    subtotal: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
+    total: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
+    amount_paid: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
+    notes: Mapped[str | None] = mapped_column(Text)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    lines: Mapped[list["InvoiceLine"]] = relationship(
+        back_populates="invoice", cascade="all, delete-orphan")
+
+
+class InvoiceLine(Base):
+    """One billable line on an invoice. amount = quantity × unit_price."""
+    __tablename__ = "invoice_lines"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    invoice_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("invoices.id", ondelete="CASCADE"), index=True, nullable=False)
+    description: Mapped[str] = mapped_column(String, nullable=False)
+    quantity: Mapped[float] = mapped_column(Numeric(10, 2), default=1)
+    unit_price: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
+    amount: Mapped[float] = mapped_column(Numeric(12, 2), default=0)
+    invoice: Mapped["Invoice"] = relationship(back_populates="lines")
+
+
+class Payment(Base):
+    """A payment received against an invoice — supports partial payments."""
+    __tablename__ = "invoice_payments"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    invoice_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("invoices.id", ondelete="CASCADE"), index=True, nullable=False)
+    amount: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    method: Mapped[str | None] = mapped_column(String)  # card|ach|check|cash|other
+    reference: Mapped[str | None] = mapped_column(String)
+    paid_at: Mapped[date | None] = mapped_column(Date)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 # Register new opt-in calling tables with the existing create_all lifecycle.
 from .calling_capacity_models import CallHandler, CallPermit, CallReservation, CallLeadHold  # noqa: E402,F401
