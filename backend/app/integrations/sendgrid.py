@@ -18,6 +18,8 @@ import logging
 import httpx
 
 from ..config import settings
+from .. import outbound_guard
+from ..outbound_guard import RejectedDelivery
 
 log = logging.getLogger("bruno.sendgrid")
 
@@ -47,6 +49,7 @@ def replyto_for(account: str | None, from_email: str) -> str:
     return (settings.sendgrid_reply_to or "").strip() or from_email
 
 
+@outbound_guard.provider("email", result="tuple", recipient="to", ready=lambda v: has_key() and (v.get("from_email") or from_for("insurance")))
 def send_with_error(to: str, subject: str, html: str, *, from_email: str | None = None,
                     reply_to: str | None = None) -> tuple[str | None, str | None]:
     """Send one HTML email via SendGrid. Returns (message_id, error_reason) — exactly
@@ -90,10 +93,11 @@ def send_with_error(to: str, subject: str, html: str, *, from_email: str | None 
                 hint = " (auth failed — check the API key)"
             elif "from" in (msg or "").lower() or "verif" in (msg or "").lower():
                 hint = " (verify your sending domain/from address in SendGrid → Sender Authentication)"
-            return None, f"SendGrid {r.status_code}: {msg}{hint}"
+            error = f"SendGrid {r.status_code}: {msg}{hint}"
+            return None, (RejectedDelivery(error) if r.status_code in (400, 401, 403, 404, 413, 422, 429) else error)
         # 202 Accepted, no body — the id comes back in a header.
-        mid = r.headers.get("X-Message-Id") or "sendgrid-sent"
-        return mid, None
+        mid = r.headers.get("X-Message-Id")
+        return (mid, None) if mid else (None, "SendGrid acceptance missing receipt; reconcile before retrying.")
     except Exception as exc:  # pragma: no cover - network guard
         log.warning("SendGrid send failed (%s): %s", to, exc)
         return None, f"SendGrid error: {str(exc)[:160]}"

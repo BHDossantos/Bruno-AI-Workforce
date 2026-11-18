@@ -21,6 +21,20 @@ _read = require_role("admin", "operator", "viewer")
 _write = require_role("admin", "operator")
 
 
+@router.get("/inbound/health")
+def inbound_health(db: Session = Depends(get_db), _=Depends(_read)):
+    from sqlalchemy import func
+    from ..models import MailboxSyncHealth, InboundWebhookReceipt
+    rows = db.query(MailboxSyncHealth).all()
+    pending = db.query(func.count()).select_from(InboundWebhookReceipt).filter(
+        InboundWebhookReceipt.status != "complete").scalar() or 0
+    return {"mailboxes": [{"account": h.account, "status": h.status, "checked_at": h.checked_at,
+                           "completed_through": h.completed_through, "error_code": h.error_code,
+                           "scanned": h.scanned} for h in rows],
+            "webhook_events_requiring_review": pending,
+            "coverage_note": "A scheduler setting is not evidence of a completed mailbox scan"}
+
+
 @router.get("/emails/diagnostics")
 def email_diagnostics(db: Session = Depends(get_db), _=Depends(_read)):
     """Show whether insurance/EverQuote emails are actually SENDING and whether the
@@ -83,6 +97,18 @@ class ReplyIn(BaseModel):
     account: str | None = None
 
 
+@router.get("/messages/delivery-attempts")
+def delivery_attempts(db: Session = Depends(get_db), _=Depends(_write)):
+    """Read-only reconciliation queue. Never retries provider actions."""
+    from ..models import OutboundAttempt
+    attempts = db.query(OutboundAttempt).filter(
+        OutboundAttempt.state.in_(["pending", "unknown", "rejected"])
+    ).order_by(OutboundAttempt.created_at.desc()).limit(200).all()
+    return [{"key": a.key, "channel": a.channel, "state": a.state,
+             "created_at": a.created_at, "updated_at": a.updated_at,
+             "recipient": a.recipient, "account": a.account, "operation_ref": a.operation_ref} for a in attempts]
+
+
 @router.get("/messages", response_model=list[MessageOut])
 def list_messages(status: str | None = None, account: str | None = None, limit: int = 200,
                   db: Session = Depends(get_db), _=Depends(_read)):
@@ -108,18 +134,29 @@ def approve_message(message_id: str, db: Session = Depends(get_db), _=Depends(_w
 @router.post("/messages/{message_id}/send", response_model=MessageOut)
 def send_message(message_id: str, db: Session = Depends(get_db), _=Depends(_write)):
     """Send a drafted message now via its account's mailbox (one click, no approval step)."""
-    msg = db.query(Message).filter(Message.id == message_id).first()
+    msg = db.query(Message).filter(Message.id == message_id).with_for_update().first()
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found")
+    if msg.status == "Sent":
+        return msg  # historical sends may predate durable reservations
+    if msg.status == "Not Sent":
+        raise HTTPException(409, "This reconciled intent is closed; create a separate intentional action")
     if not msg.to_email:
         raise HTTPException(status_code=400, detail="Message has no recipient")
     from .. import outreach
     if not outreach.can_deliver(msg.from_account):
         raise HTTPException(status_code=400,
                             detail=f"No delivery channel for '{msg.from_account}' — connect Resend or a Gmail mailbox in Setup")
-    mid, err = outreach.deliver(msg.to_email, msg.subject, msg.body, account=msg.from_account)
+    mid, err = outreach.deliver(msg.to_email, msg.subject, msg.body, account=msg.from_account,
+                                operation_key=f"message:{msg.id}")
     if not mid:
-        raise HTTPException(status_code=502, detail=f"Send failed: {err or 'unknown error'}")
+        from .. import outbound_guard
+        if outbound_guard.retryable_without_reconciliation(err):
+            status = 429 if err.code in ("quota_exhausted", "daily_intent_exhausted") else 503
+            raise HTTPException(status, detail=str(err))
+        msg.status = "Needs Review"
+        db.commit()
+        raise HTTPException(status_code=409, detail=f"Send held: {err or 'unknown error'}")
     msg.provider_id = mid
     msg.approved = True
     msg.status = "Sent"
@@ -205,9 +242,9 @@ def list_followups(limit: int = 200, db: Session = Depends(get_db), _=Depends(_r
                 Message.entity_id == fu.entity_id).all())
         to_email = next((m.to_email for m in msgs if m.to_email), None)
         if not to_email:
-            continue  # nothing to follow up with
+            to_email = "Recipient missing"
         replied = any(m.status == "Replied" for m in msgs)
-        last_sent = max((m.sent_at or m.created_at for m in msgs if m.direction == "outbound"),
+        last_sent = max((m.sent_at for m in msgs if m.direction == "outbound" and m.sent_at),
                         default=None)
         items.append({
             "id": str(fu.id), "entity_type": fu.entity_type,
@@ -215,7 +252,10 @@ def list_followups(limit: int = 200, db: Session = Depends(get_db), _=Depends(_r
             "due_date": fu.due_date.isoformat() if fu.due_date else None,
             "due": bool(fu.due_date and fu.due_date <= today),
             "replied": replied,
+            "eligibility": followups.eligibility(db, fu, msgs),
             "last_sent": last_sent.isoformat() if last_sent else None,
         })
     due = sum(1 for i in items if i["due"] and not i["replied"])
-    return {"due": due, "total": len(items), "items": items}
+    return {"due": due, "eligible_due": sum(i["due"] and i["eligibility"] == "eligible" for i in items),
+            "count_scope": "returned page; eligibility is rechecked before dispatch",
+            "total": len(items), "items": items}

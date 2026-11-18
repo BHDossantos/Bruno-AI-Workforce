@@ -55,6 +55,8 @@ export function KpiCard({ label, value, hint }: { label: string; value: React.Re
 const STATUS_COLORS: Record<string, string> = {
   New: "bg-gray-100 text-gray-700",
   Drafted: "bg-blue-100 text-blue-700",
+  "Not Sent": "bg-gray-100 text-gray-700",
+  "Needs Review": "bg-amber-100 text-amber-800",
   Sent: "bg-indigo-100 text-indigo-700",
   Opened: "bg-cyan-100 text-cyan-700",
   Replied: "bg-teal-100 text-teal-700",

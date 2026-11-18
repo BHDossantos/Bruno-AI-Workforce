@@ -19,6 +19,7 @@ import logging
 import httpx
 
 from ..config import settings
+from .. import outbound_guard
 
 log = logging.getLogger("bruno.instantly")
 _BASE = "https://api.instantly.ai/api/v2"
@@ -38,6 +39,7 @@ def _headers() -> dict:
             "Content-Type": "application/json"}
 
 
+@outbound_guard.provider("campaign", result="bool", recipient="email", ready=lambda _: is_configured())
 def add_lead(email: str, *, first_name: str | None = None, last_name: str | None = None,
              company_name: str | None = None, website: str | None = None,
              phone: str | None = None, personalization: str | None = None,

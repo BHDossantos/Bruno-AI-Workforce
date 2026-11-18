@@ -1,9 +1,11 @@
--- ============================================================================
+-- =====================================================================);
+
 -- Bruno AI Workforce — PostgreSQL schema
 -- This file documents the full data model. The application also creates these
 -- tables automatically from the SQLAlchemy models (see backend/app/models.py),
 -- so running it manually is optional but useful for review / bare-metal setups.
--- ============================================================================
+-- =====================================================================);
+
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
@@ -303,3 +305,72 @@ CREATE INDEX IF NOT EXISTS idx_leads_segment     ON leads(segment);
 CREATE INDEX IF NOT EXISTS idx_restaurants_kind  ON restaurants(kind);
 CREATE INDEX IF NOT EXISTS idx_followups_due     ON follow_ups(due_date) WHERE completed = FALSE;
 CREATE INDEX IF NOT EXISTS idx_reports_date      ON daily_reports(report_date DESC);
+
+-- Durable provider reservations; never auto-expire pending/unknown outcomes.
+CREATE TABLE IF NOT EXISTS outbound_attempts (
+    key VARCHAR(64) PRIMARY KEY,
+    scope VARCHAR(64) NOT NULL,
+    payload_hash VARCHAR(64) NOT NULL,
+    recipient VARCHAR,
+    account VARCHAR,
+    operation_ref VARCHAR,
+    claim_hash VARCHAR(64),
+    channel VARCHAR(20) NOT NULL,
+    state VARCHAR(20) NOT NULL DEFAULT 'pending',
+    provider_id VARCHAR,
+    created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT now() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_outbound_attempts_scope ON outbound_attempts(scope);
+CREATE TABLE IF NOT EXISTS outbound_holds (
+    scope VARCHAR(64) PRIMARY KEY,
+    attempt_key VARCHAR(64) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS outbound_quotas (
+    key VARCHAR(64) PRIMARY KEY,
+    used INTEGER NOT NULL DEFAULT 0,
+    capacity INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS outbound_resolutions (
+    id SERIAL PRIMARY KEY,
+    attempt_key VARCHAR(64) NOT NULL,
+    actor VARCHAR NOT NULL,
+    decision VARCHAR(32) NOT NULL,
+    evidence TEXT NOT NULL,
+    provider_reference VARCHAR NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_outbound_resolutions_attempt_key ON outbound_resolutions(attempt_key);
+
+-- Immutable business policy follows a Message across all sending entry points.
+CREATE TABLE IF NOT EXISTS outbound_message_policies (
+    message_id UUID PRIMARY KEY,
+    daily_intent VARCHAR(64) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS mailbox_sync_health (
+  account TEXT PRIMARY KEY, status TEXT NOT NULL, checked_at TIMESTAMPTZ NOT NULL,
+  completed_through TIMESTAMPTZ, scanned INTEGER NOT NULL DEFAULT 0, error_code TEXT
+);
+CREATE TABLE IF NOT EXISTS inbound_webhook_receipts (
+  event_key TEXT PRIMARY KEY, payload_hash TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'processing',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- DOT research stays outside all existing outbound queues.
+CREATE TABLE IF NOT EXISTS dot_review_cases (
+    usdot VARCHAR(20) PRIMARY KEY,
+    payload JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS sender_signatures (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    mailbox VARCHAR NOT NULL,
+    png BYTEA NOT NULL,
+    plain_text TEXT NOT NULL,
+    source_ref VARCHAR NOT NULL,
+    digest VARCHAR(64) NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

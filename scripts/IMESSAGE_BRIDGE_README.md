@@ -41,3 +41,14 @@ Leave it running (the Mac must be awake/logged in). To keep it alive, run it in 
   configured and `BRIDGE_TOKEN` is set, so you choose exactly one path.
 - All three endpoints require the `X-Bridge-Token` header — keep the token secret.
 - iMessage (blue) works without step 2; step 2 adds SMS (green) to non-Apple phones.
+
+## Durable-claim protocol (PR #312)
+
+Upgrade the server and `imessage_bridge.py` together, with every old helper stopped
+and its cached outbound batch drained. The server now claims each queued SMS once;
+the helper returns its claim token with an accepted/unknown result. A lost response,
+crash or uncertain AppleScript send stays held for review and is not requeued. The
+helper chooses its service before sending and never retries an uncertain iMessage
+send through SMS. A helper refuses to send against a server without claim tokens.
+See `docs/OUTBOUND_CONCURRENCY.md` for reconciliation and the controlled rollout plan.
+No upgrade, restart or production configuration change was performed by this PR.

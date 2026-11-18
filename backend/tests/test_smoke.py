@@ -1231,7 +1231,7 @@ def test_send_text_refreshes_saved_twilio_config(client, auth_headers, monkeypat
     monkeypatch.setattr("app.sms_engine._refresh_config",
                         lambda db: called.__setitem__("refresh", True))
     monkeypatch.setattr(sms_int, "is_configured", lambda: True)
-    monkeypatch.setattr(sms_int, "send_sms", lambda to, body, account="personal": "SMFAKE")
+    monkeypatch.setattr(sms_int, "send_with_error", lambda to, body, account="personal", **kwargs: ("SMFAKE", None))
     monkeypatch.setattr(settings, "sms_daily_send_cap", 100000)
 
     from app import sms_engine
@@ -1790,6 +1790,11 @@ def test_plivo_voice_provider_and_dispatch(monkeypatch):
     """Plivo is a second voice provider: when voice_provider routes to Plivo, the
     dispatcher places calls via Plivo's Call API, and its XML drops the recorded
     voicemail (transfer off) or connects a live answer when enabled."""
+    # Routing unit test: durable reservation behavior is tested against PostgreSQL
+    # separately; these provider fixtures deliberately reuse the same phone number.
+    from app import outbound_guard
+    monkeypatch.setattr(outbound_guard, "invoke", lambda channel, recipient, account,
+                        operation, payload, send, **kwargs: send())
     from app.config import settings
     from app.integrations import plivo_voice, voice
 
@@ -1841,6 +1846,11 @@ def test_vonage_voice_provider_and_dispatch(monkeypatch):
     """Vonage is a third voice provider: JWT-authed calls to Vonage's API with
     E.164-without-plus numbers, and NCCO (JSON) that streams the recorded voicemail
     (transfer off) or connects a live answer to the cell (transfer on)."""
+    # Routing unit test: durable reservation behavior is tested against PostgreSQL
+    # separately; these provider fixtures deliberately reuse the same phone number.
+    from app import outbound_guard
+    monkeypatch.setattr(outbound_guard, "invoke", lambda channel, recipient, account,
+                        operation, payload, send, **kwargs: send())
     from app.config import settings
     from app.integrations import voice, vonage_voice
 
@@ -1928,6 +1938,11 @@ def test_sip_softswitch_provider_and_dispatch(monkeypatch):
     """Our own FreeSWITCH softswitch is a voice provider too: it originates over the
     Event Socket through a BYOC gateway and returns HTTAPI (XML) call control that
     leaves the recorded voicemail (transfer off) or bridges to the cell (transfer on)."""
+    # Routing unit test: durable reservation behavior is tested against PostgreSQL
+    # separately; these provider fixtures deliberately reuse the same phone number.
+    from app import outbound_guard
+    monkeypatch.setattr(outbound_guard, "invoke", lambda channel, recipient, account,
+                        operation, payload, send, **kwargs: send())
     from app.config import settings
     from app.integrations import sip_voice, voice
 
@@ -2058,7 +2073,7 @@ def test_resend_inbound_webhook_two_way(client, monkeypatch):
         monkeypatch.setattr(settings, "resend_webhook_secret", "", raising=False)
         r = client.post("/resend/inbound", json={
             "type": "inbound.email.received",
-            "data": {"from": f"Reply Co <{sender}>", "to": "b@dossantosinsurance.org",
+            "data": {"id": "fixture-inbound-reply-1", "from": f"Reply Co <{sender}>", "to": "b@dossantosinsurance.org",
                      "subject": "Re: your quote", "text": "Yes, I'm interested — please call me."}})
         assert r.status_code == 200
         body = r.json()
@@ -2095,7 +2110,8 @@ def test_resend_inbound_webhook_two_way(client, monkeypatch):
         monkeypatch.setattr(settings, "resend_webhook_secret", "whsec_dGVzdHNlY3JldA==", raising=False)
         r = client.post("/resend/inbound", json={"type": "inbound.email.received",
                                                   "data": {"from": sender, "text": "hi"}})
-        assert r.status_code == 200 and r.json()["ok"] is False
+        assert r.status_code == 401
+        assert r.json()["detail"] == "Webhook signature verification failed"
     finally:
         _purge()  # never leak rows into the session-scoped DB other tests share
 
@@ -4178,6 +4194,10 @@ def test_public_base_url_autofills_from_render(monkeypatch):
 
     # No explicit PUBLIC_BASE_URL → adopt Render's injected URL.
     monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
+    # Render also enables production credential guards; this URL-resolution
+    # fixture must provide valid non-default credentials.
+    monkeypatch.setenv("SECRET_KEY", "fixture-signing-key-for-render-config-test")
+    monkeypatch.setenv("ADMIN_PASSWORD", "fixture-render-admin-password")
     monkeypatch.setenv("RENDER_EXTERNAL_URL", "https://bruno-backend-abc.onrender.com")
     assert Settings().public_base_url == "https://bruno-backend-abc.onrender.com"
 
@@ -5572,7 +5592,8 @@ def test_autoscale_override_never_lowers_the_configured_cap(monkeypatch):
 def test_inbound_sync_is_safe_without_gmail(client, auth_headers):
     resp = client.post("/inbound/sync", headers=auth_headers)
     assert resp.status_code == 200
-    assert resp.json() == {"scanned": 0, "matched": 0}
+    assert resp.json()["scanned"] == resp.json()["matched"] == 0
+    assert all(h["status"] == "unavailable" for h in resp.json()["health"].values())
 
 
 @requires_db
@@ -5656,7 +5677,7 @@ def test_sms_opt_out_and_bulk_send_drafts(client, auth_headers):
     assert r["sent"] == 0  # no Twilio in tests → nothing actually sends
     assert r["sent"] + r["failed"] + r["blocked"] == r["considered"]
     assert r["blocked"] >= 1  # the opted-out number is held, never sent
-    assert any("opted out" in x for x in r["reasons"])
+    assert any("opted out" in x or "Do-Not-Contact" in x for x in r["reasons"])
 
     # Manual /sms/send also refuses the opted-out number with a clear reason.
     s = client.post("/sms/send", json={"to": stop_phone, "message": "hi"},
@@ -7345,7 +7366,7 @@ def test_lead_pipeline_health_shape(client, auth_headers):
     # it no longer requires CRON_SECRET to show healthy.
     from app.config import settings
     replies = next(s for s in h["steps"] if s["key"] == "replies")
-    assert replies["ok"] == bool(settings.enable_scheduler or settings.cron_secret)
+    assert replies["ok"] is False  # a configured scheduler is not proof of completed ingestion
 
 
 @requires_db
@@ -7519,7 +7540,7 @@ def test_send_drafts_sends_hot_leads_first(client, auth_headers, monkeypatch):
 
     # Delivery always succeeds, so what we're testing is the ORDER, not the channel.
     monkeypatch.setattr(outreach, "can_deliver", lambda account: True)
-    monkeypatch.setattr(outreach, "deliver", lambda to, subject, body, account: ("fake-mid", None))
+    monkeypatch.setattr(outreach, "deliver", lambda to, subject, body, account, **kwargs: ("fake-mid", None))
 
     acct = "hotfirst_test"
     db = SessionLocal()
@@ -8084,7 +8105,7 @@ def test_auto_dial_paced_one_per_run_and_daily_cap(monkeypatch):
     from app import auto_dial, control, sms_engine
     from app.config import settings
     from app.database import SessionLocal
-    from app.integrations import twilio_voice as voice
+    from app.integrations import voice  # Mock dispatcher: this test isolates queue pacing.
     from app.models import Lead, Message
 
     db = SessionLocal()
@@ -8180,7 +8201,7 @@ def test_auto_dial_daily_pass_calls_hottest_respects_cooldown_optout_and_dead(mo
     from app import auto_dial, control, sms_engine
     from app.config import settings
     from app.database import SessionLocal
-    from app.integrations import twilio_voice as voice
+    from app.integrations import voice  # Mock dispatcher: this test isolates queue pacing.
     from app.models import Lead, Message
 
     db = SessionLocal()
@@ -9060,12 +9081,12 @@ def test_outbound_bcc_copies_owner_on_every_email(monkeypatch):
         def json(self): return {"id": "re_1"}
     monkeypatch.setattr(resend.httpx, "post",
                         lambda url, json=None, headers=None, timeout=None: captured.update(json=json) or _Resp())
-    mid, err = resend.send_with_error("customer@x.co", "Hi", "<p>body</p>")
+    mid, err = resend.send_with_error.__wrapped__("customer@x.co", "Hi", "<p>body</p>")
     assert mid == "re_1" and err is None
     assert captured["json"].get("bcc") == ["boss@example.com"]   # owner copied
     # Never BCC the recipient themselves.
     captured.clear()
-    resend.send_with_error("boss@example.com", "Hi", "<p>body</p>")
+    resend.send_with_error.__wrapped__("boss@example.com", "Hi", "<p>body</p>")
     assert "bcc" not in captured["json"]
 
 
@@ -9117,7 +9138,7 @@ def test_everquote_cadence_calls_and_texts_once_per_wave(monkeypatch):
 
     # A fake send_text that records a SENT sms Message (mirrors the real one) so the
     # per-wave dedup can see it on the next run.
-    def _fake_send_text(db, *, entity_type, entity_id, phone, body, account="insurance", enforce_hours=True):
+    def _fake_send_text(db, *, entity_type, entity_id, phone, body, account="insurance", enforce_hours=True, intent_key=None):
         db.add(Message(channel="sms", direction="outbound", entity_type=entity_type,
                        entity_id=entity_id, to_email=phone, from_account=account,
                        body=body, status="Sent", provider_id="SMSSID",
@@ -9485,14 +9506,14 @@ def test_sendgrid_send_includes_owner_bcc(monkeypatch):
     monkeypatch.setattr(sendgrid.httpx, "post", _fake_post)
 
     assert sendgrid.is_configured()
-    mid, err = sendgrid.send_with_error("lead@x.co", "Hi", "<b>hi</b>")
+    mid, err = sendgrid.send_with_error.__wrapped__("lead@x.co", "Hi", "<b>hi</b>")
     assert err is None and mid == "SG-msg-1"
     p = captured["json"]
     assert p["from"]["email"] == "b@dossantosinsurance.org"
     assert p["personalizations"][0]["to"][0]["email"] == "lead@x.co"
     assert p["personalizations"][0]["bcc"][0]["email"] == "brunodossantos707@gmail.com"
     # Never BCC the recipient themselves.
-    mid2, _ = sendgrid.send_with_error("brunodossantos707@gmail.com", "x", "<b>y</b>")
+    mid2, _ = sendgrid.send_with_error.__wrapped__("brunodossantos707@gmail.com", "x", "<b>y</b>")
     assert "bcc" not in captured["json"]["personalizations"][0]
 
 
@@ -9500,6 +9521,7 @@ def test_email_esp_pool_resend_primary_sendgrid_overflow(monkeypatch):
     """Email prefers Resend (high daily quota) and only overflows to SendGrid (low
     quota) when Resend fails — Resend primary, SendGrid failover, not a 50/50 split."""
     from app import outreach
+    from app.outbound_guard import RejectedDelivery
     from app.integrations import resend, sendgrid
     for esp, tag in ((resend, "resend"), (sendgrid, "sendgrid")):
         monkeypatch.setattr(esp, "is_configured", lambda: True)
@@ -9510,7 +9532,7 @@ def test_email_esp_pool_resend_primary_sendgrid_overflow(monkeypatch):
     def _mk(tag, ok):
         def _send(to, subject, html, *, from_email=None, reply_to=None):
             calls.append(tag)
-            return (f"{tag}-id", None) if ok else (None, f"{tag} failed")
+            return (f"{tag}-id", None) if ok else (None, RejectedDelivery(f"{tag} rejected"))
         return _send
 
     # Resend healthy → EVERY send goes through Resend; SendGrid is never touched.

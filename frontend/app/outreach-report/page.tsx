@@ -6,7 +6,7 @@ import { AuthGate, PageHeader, useFetch, KpiCard, LoadState } from "@/components
 type Day = { date: string; sent: number; replies: number };
 type Report = {
   days: number;
-  totals: { sent: number; replies: number; reply_rate: number; warm: number; hot: number; actionable: number };
+  totals: { delivery_confirmed: number; delivery_unconfirmed: number; legacy_replied_outbound_undated: number; sent: number; replies: number; reply_rate: number; warm: number; hot: number; actionable: number };
   funnel: { cold: number; warm: number; hot: number; dead: number };
   daily: Day[];
 };
@@ -26,12 +26,17 @@ function OutreachReport() {
       />
 
       <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
-        <KpiCard label="Sent (30d)" value={data.totals.sent.toLocaleString()} />
-        <KpiCard label="Replies (30d)" value={data.totals.replies.toLocaleString()} hint={`${(data.totals.reply_rate * 100).toFixed(1)}% reply rate`} />
+        <KpiCard label="Recorded sends (30d)" value={data.totals.sent.toLocaleString()} />
+        <KpiCard label="Replies (30d)" value={data.totals.replies.toLocaleString()} hint="Observed inbound responses; mailbox coverage may be incomplete" />
         <KpiCard label="Hot leads" value={data.totals.hot.toLocaleString()} hint="buying signals — act now" />
         <KpiCard label="Warm leads" value={data.totals.warm.toLocaleString()} hint="engaged / replied" />
       </div>
 
+      <div className="card mb-6 text-sm">
+        <p>{data.totals.delivery_confirmed ?? 0} sends have recorded delivery evidence; {data.totals.delivery_unconfirmed ?? data.totals.sent} remain unconfirmed.</p>
+        <p>{data.totals.legacy_replied_outbound_undated ?? 0} legacy outbound records are marked replied without a reply timestamp. They are not assigned to this reporting window.</p>
+        <p>Zero observed replies is not proof that nobody replied. <a className="underline" href="/mailboxes">Check mailbox connections</a> and review sync health before relying on this count.</p>
+      </div>
       {/* Funnel */}
       <div className="card mb-6">
         <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Lead funnel (all businesses)</div>

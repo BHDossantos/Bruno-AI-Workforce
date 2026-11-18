@@ -32,7 +32,10 @@ from .routers import (
     export,
     graph,
     imports,
+    dot_review,
+    sender_signature,
     instagram,
+    insurance_growth,
     jobs,
     automations,
     browser,
@@ -41,6 +44,7 @@ from .routers import (
     content,
     crm,
     deliverability,
+    delivery,
     finance,
     leads,
     memory,
@@ -148,12 +152,16 @@ app.include_router(music.router)
 app.include_router(instagram.router)
 app.include_router(reports.router)
 app.include_router(messages.router)
+app.include_router(delivery.router)
 app.include_router(outreach_queue.router)
 app.include_router(sms.router)
 app.include_router(calls.router)
 app.include_router(cron.router)
 app.include_router(export.router)
 app.include_router(imports.router)
+app.include_router(dot_review.router)
+app.include_router(insurance_growth.router)
+app.include_router(sender_signature.router)
 app.include_router(connections.router)
 app.include_router(custom_connections.router)
 app.include_router(profile.router)

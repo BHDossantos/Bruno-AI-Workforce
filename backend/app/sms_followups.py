@@ -76,7 +76,8 @@ def run(db: Session, limit: int | None = None) -> dict:
     sent = skipped = 0
     for lead in rows:
         sid = sms_engine.send_text(db, entity_type="lead", entity_id=lead.id,
-                                   phone=lead.phone, body=_text_for(lead), account="insurance")
+                                   phone=lead.phone, body=_text_for(lead), account="insurance",
+                                   intent_key=f"email-sms-followup:{lead.id}")
         if sid:
             sent += 1
         else:

@@ -266,7 +266,7 @@ export default function WorkListPage() {
           )}
           {callHealth.auto_dial_enabled === false && (
             <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              ⏸ <b>Phone calls are OFF.</b> Not auto-dialing, and call-backs go to voicemail (your phone won’t ring). Email and texts still run. Hit “Resume calls” to turn calling back on.
+              ⏸ <b>Automatic calls are paused.</b> Scheduled dialing is paused and supported inbound call-backs go to voicemail. Manual/test calls and calls already in progress are unaffected. Email and texts still run.
             </div>
           )}
           <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-gray-100 pt-3 text-sm">

@@ -14,7 +14,8 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .integrations import apollo, gmail, places
 from .lead_temperature import classify
-from .models import Lead, Message
+from .models import Lead, Message, MailboxSyncHealth
+from datetime import datetime, timedelta, timezone
 
 
 def _seg_counts(db: Session, segments: list[str]) -> dict:
@@ -33,13 +34,23 @@ def health(db: Session) -> dict:
     # showed red even though the in-process scheduler was syncing.
     scheduler_on = bool(settings.enable_scheduler or settings.cron_secret)
     external_cron = bool(settings.cron_secret)
+    checks = db.query(MailboxSyncHealth).all()
+    now = datetime.now(timezone.utc)
+    def fresh(h):
+        t = h.completed_through
+        if t and t.tzinfo is None:
+            t = t.replace(tzinfo=timezone.utc)
+        return h.status == "complete" and t is not None and now - timedelta(minutes=15) <= t <= now
+    from .inbound import ACCOUNTS
+    required_accounts = [a for a in ACCOUNTS if gmail.is_configured(a)]
+    sync_verified = bool(required_accounts) and all(any(h.account == a and fresh(h) for h in checks) for a in required_accounts)
 
     sent_total = int(db.query(func.count()).select_from(Message).filter(
-        Message.direction == "outbound", Message.status == "Sent").scalar() or 0)
+        Message.direction == "outbound", Message.sent_at.isnot(None)).scalar() or 0)
     drafted = int(db.query(func.count()).select_from(Message).filter(
         Message.direction == "outbound", Message.status == "Drafted").scalar() or 0)
     replies_total = int(db.query(func.count()).select_from(Message).filter(
-        Message.direction == "inbound").scalar() or 0)
+        Message.direction == "inbound", Message.status.notin_(["Bounce Report", "Unmatched Inbound"])).scalar() or 0)
 
     insurance = _seg_counts(db, ["commercial", "personal"])
     bnb = _seg_counts(db, ["consulting"])
@@ -69,16 +80,13 @@ def health(db: Session) -> dict:
                     if any_gmail else
                     "No mailbox connected — nothing can send and no replies come back.")},
         {"key": "sent", "label": "Outreach actually going out", "ok": sent_total > 0,
-         "detail": (f"{sent_total} sent." + (f" {drafted} waiting for approval." if drafted else "")
+         "detail": (f"{sent_total} recorded sends; delivery is separate." + (f" {drafted} waiting for approval." if drafted else "")
                     if sent_total else
                     (f"{drafted} drafted, waiting for your approval." if drafted
                      else "Nothing sent yet."))},
-        {"key": "replies", "label": "Replies sync (warm/hot come from here)", "ok": scheduler_on,
-         "detail": (("Auto-syncing" + ("" if external_cron else " (in-app scheduler; set CRON_SECRET "
-                     "for scale-to-zero reliability)") + ". Use “Sync replies now” anytime.")
-                    if scheduler_on else
-                    "Replies aren't syncing — hit “Sync replies now”, or enable the scheduler so "
-                    "leads warm up automatically.")},
+        {"key": "replies", "label": "Recent completed reply ingestion", "ok": sync_verified,
+         "detail": "Recent mailbox scans completed." if sync_verified else
+                   "Reply coverage is unknown, stale or incomplete. Check mailbox sync health; scheduler configuration is not proof of ingestion."},
     ]
 
     # ── The single most important next action ────────────────────────────────
@@ -102,9 +110,11 @@ def health(db: Session) -> dict:
         blockers.append("For more + higher-quality leads, add an Apollo or Google Places API "
                         "key (the free OpenStreetMap source alone is limited).")
 
-    healthy = any_gmail and scheduler_on and leads_total > 0 and sent_total > 0
+    healthy = any_gmail and sync_verified and leads_total > 0 and sent_total > 0
     return {
         "healthy": healthy,
+        "sync_health": [{"account": h.account, "status": h.status, "checked_at": h.checked_at,
+                         "completed_through": h.completed_through, "error_code": h.error_code} for h in checks],
         "summary": ("Pipeline is live — warm/hot leads will accrue as prospects reply."
                     if healthy else "Pipeline has gaps — see what to fix below."),
         "counts": {"leads": leads_total, "warm": warm_total, "hot": hot_total,

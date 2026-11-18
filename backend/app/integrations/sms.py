@@ -12,6 +12,7 @@ import re
 import httpx
 
 from ..config import settings
+from .. import outbound_guard
 
 log = logging.getLogger("bruno.sms")
 
@@ -143,13 +144,16 @@ def _send_once(prov: str, to_num: str, body: str, account: str) -> tuple[str | N
                 hint = " (invalid recipient number — check the lead's phone)"
             elif code == 21606:
                 hint = " (your 'from' number can't send SMS — use an SMS-capable number)"
-            return None, f"{telco.label('sms', prov)} {code}: {msg}{hint}"
+            error = f"{telco.label('sms', prov)} {code}: {msg}{hint}"
+            return None, (outbound_guard.RejectedDelivery(error)
+                          if resp.status_code in (400, 401, 403, 404, 413, 422, 429) else error)
         return resp.json().get("sid"), None
     except Exception as exc:  # pragma: no cover - network guard
         log.warning("SMS send failed (%s via %s): %s", to_num, prov, exc)
         return None, f"{telco.label('sms', prov)} error: {str(exc)[:160]}"
 
 
+@outbound_guard.provider("sms", result="tuple", recipient="to", ready=lambda _: is_configured())
 def send_with_error(to: str, body: str, account: str = "personal") -> tuple[str | None, str | None]:
     """Send an SMS, returning (message_sid, error_reason). Tries each connected
     carrier in order (the sms_provider preference first) and FAILS OVER to the other
@@ -177,7 +181,9 @@ def send_with_error(to: str, body: str, account: str = "personal") -> tuple[str 
         sid, err = _send_once(prov, to_num, body, account)
         if sid:
             return sid, None
-        last_err = err  # failover: try the next connected carrier
+        last_err = err
+        if not isinstance(err, outbound_guard.RejectedDelivery):
+            return None, err or "Carrier acceptance unknown; reconcile before retrying."
     return None, last_err
 
 
@@ -199,6 +205,7 @@ def whatsapp_configured() -> bool:
     return whatsapp_cloud.is_configured() or _twilio_whatsapp_configured()
 
 
+@outbound_guard.provider("whatsapp", result="id", recipient="to", ready=lambda _: whatsapp_configured())
 def send_whatsapp(to: str, body: str) -> str | None:
     """Send a WhatsApp message. Prefers Meta's Cloud API (no reseller markup,
     reuses the connected Facebook app) when configured; falls back to Twilio's

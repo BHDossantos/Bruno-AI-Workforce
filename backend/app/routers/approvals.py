@@ -148,26 +148,30 @@ def count(db: Session = Depends(get_db), _=Depends(_read)):
 
 # ── Shared approve actions (reused by single-item act + bulk approve-all) ──────
 def _send_reply(db: Session, m: Message) -> tuple[bool, str | None]:
-    """Send a drafted reply in place. Never raises — returns (sent, note)."""
-    from .. import email_template
-    from ..integrations import gmail
-    sent = False
-    note = "Marked approved — connect that Gmail mailbox to actually send."
-    try:
-        if gmail.is_configured(m.from_account):
-            html = email_template.render(m.body or "", m.from_account)
-            mid = gmail.send_message(m.to_email, m.subject or "", html or "", account=m.from_account)
-            if mid:
-                m.provider_id = mid
-                m.sent_at = datetime.now(timezone.utc)
-                sent = True
-                note = None
-    except Exception as exc:  # token expired / API error — don't lose the item
-        log.warning("reply send failed: %s", exc)
-        note = f"Approved, but sending failed ({str(exc)[:80]}). Reconnect Gmail and resend."
-    m.status = "Sent" if sent else "Approved"
+    """Send a drafted reply in place through the shared durable intent."""
+    from .. import outreach
+    # Same row lock and operation key as the Outbox; approval cannot send around
+    # another worker or overwrite its completed status.
+    m = db.query(Message).filter(Message.id == m.id).populate_existing().with_for_update().one()
+    if m.status == "Sent":
+        return True, None
+    if m.status == "Not Sent":
+        return False, "This reconciled intent is closed; create a separate intentional action"
     m.approved = True
-    return sent, note
+    if not outreach.can_deliver(m.from_account):
+        m.status = "Approved"
+        return False, "Marked approved — connect a delivery provider to send."
+    mid, error = outreach.deliver(m.to_email, m.subject or "", m.body or "",
+                                  account=m.from_account, operation_key=f"message:{m.id}")
+    if mid:
+        m.provider_id = mid
+        m.sent_at = datetime.now(timezone.utc)
+        m.status = "Sent"
+        return True, None
+    from .. import outbound_guard
+    if not outbound_guard.retryable_without_reconciliation(error):
+        m.status = "Needs Review"
+    return False, error or "Delivery outcome uncertain; review provider evidence."
 
 
 def _outreach_fields(item_type: str, row) -> tuple[str, str, str | None, str]:

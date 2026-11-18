@@ -60,12 +60,16 @@ function CRM() {
       // 💬 actually SENDS the text (then logs it); 📞 just logs the call.
       if (quickLog.kind === "sms") {
         if (!quickLog.phone) throw new Error("This client has no phone on file");
-        const r = await api.post<{ ok?: boolean; reason?: string }>("/sms/send", {
+        const r = await api.sendSms({
           to: quickLog.phone, message: quickBody.trim(), account: "insurance",
           entity_type: "client", entity_id: quickLog.id });
         if (r.ok === false) throw new Error(r.reason || "Text not sent");
       }
       await api.post(`/book/clients/${quickLog.id}/notes`, { kind: quickLog.kind, body: quickBody.trim() });
+      if (quickLog.kind === "sms" && quickLog.phone) {
+        await api.finishSmsIntent({ to: quickLog.phone, message: quickBody.trim(), account: "insurance",
+                                    entity_type: "client", entity_id: quickLog.id });
+      }
       setQuickLog(null); setQuickBody(""); setRefresh((n) => n + 1);
       setMsg(quickLog.kind === "sms" ? "✅ Text sent & logged." : "✅ Call logged.");
     } catch (e) { setMsg(`❌ ${e}`); }

@@ -12,7 +12,7 @@ from datetime import date, datetime, timezone
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from . import email_template
+from . import email_template, outbound_guard
 from .config import settings
 from .integrations import gmail
 from .models import ActionLog, Lead, Message, Restaurant
@@ -176,18 +176,18 @@ def _send_via_esps(to_email: str, subject: str | None, html: str | None,
         if mid:
             return mid, None
         last_err = err
+        if not isinstance(err, outbound_guard.RejectedDelivery):
+            return None, err or "Provider outcome unknown; reconcile before retrying."
     return None, last_err
 
 
-def deliver(to_email: str, subject: str | None, body: str | None,
+def _deliver_once(to_email: str, subject: str | None, body: str | None,
             account: str = "insurance") -> tuple[str | None, str | None]:
     """Deliver one email NOW via the best available channel, returning
     (message_id, error_reason).
 
-    Order: the ESP pool (Resend + SendGrid, round-robined to spread volume across
-    both and raise the daily limit), then the account's Gmail mailbox. This is what
-    the Outbox "Send" / "Send next N" buttons use, so a working provider delivers
-    even when another is down or over quota.
+    Order: Resend, SendGrid, then the account's Gmail mailbox. Overflow is
+    permitted only after explicit rejection; ambiguous outcomes stop delivery.
     """
     # HARD GUARD: never send to a placeholder/sample address (example.com, .test, …).
     # These are synthetic/demo records; delivering to them wastes ESP quota and
@@ -208,17 +208,35 @@ def deliver(to_email: str, subject: str | None, body: str | None,
     if mid:
         return mid, None
     # 2) The account's Gmail mailbox.
-    if gmail.is_configured(account):
+    if esp_err and not isinstance(esp_err, outbound_guard.RejectedDelivery):
+        return None, esp_err
+    if gmail.is_configured(gmail.effective_account(account)):
         return gmail.send_with_error(to_email, subject or "", body or "", account=account)
     return None, (esp_err
                   or f"No delivery channel configured for '{account}' "
                      "(connect Resend/SendGrid or a Gmail mailbox)")
 
 
+def deliver(to_email: str, subject: str | None, body: str | None,
+            account: str = "insurance", *, operation_key: str | None = None,
+            replay_accepted: bool = True, daily_intent: str | None = None):
+    if not is_real_email(to_email) or not (email_template.clean_body(body) or "").strip():
+        return None, "Not sent — empty/blank body or placeholder/sample recipient."
+    if not can_deliver(account):
+        return outbound_guard.no_attempt("Not sent — no delivery channel configured.", "configuration")
+    # Legacy callers without a message identity get permanent content deduplication.
+    # Explicit intents should pass a stable message ID (never a fresh retry UUID).
+    operation = operation_key or outbound_guard.digest(subject, body)
+    return outbound_guard.invoke("email", to_email, account, operation,
+                                 [subject, body],
+                                 lambda: _deliver_once(to_email, subject, body, account),
+                                 replay_accepted=replay_accepted, daily_intent=daily_intent)
+
+
 def can_deliver(account: str = "insurance") -> bool:
     """True if any channel can deliver for this account (Resend, SendGrid, or Gmail)."""
     from .integrations import resend, sendgrid
-    return resend.is_configured() or sendgrid.is_configured() or gmail.is_configured(account)
+    return resend.is_configured() or sendgrid.is_configured() or gmail.is_configured(gmail.effective_account(account))
 
 
 def _email_sent_today(db: Session) -> int:
@@ -289,7 +307,7 @@ def send_email_drafts(db: Session, *, limit: int = 25, account: str | None = Non
     if account:
         q = q.filter(Message.from_account == account)
     msgs = (q.order_by(*lead_temperature.send_priority_order(Lead, Message))
-            .limit(batch).all())
+            .limit(batch).with_for_update(of=Message, skip_locked=True).all())
 
     sent = failed = skipped_blank = suppressed_fake = 0
     errors: list[str] = []
@@ -316,7 +334,8 @@ def send_email_drafts(db: Session, *, limit: int = 25, account: str | None = Non
             if reason not in errors:
                 errors.append(reason)
             continue
-        mid, err = deliver(m.to_email, m.subject, m.body, account=m.from_account)
+        mid, err = deliver(m.to_email, m.subject, m.body, account=m.from_account,
+                           operation_key=f"message:{m.id}")
         if mid:
             m.provider_id = mid
             m.approved = True
@@ -324,6 +343,8 @@ def send_email_drafts(db: Session, *, limit: int = 25, account: str | None = Non
             m.sent_at = datetime.now(timezone.utc)
             sent += 1
         else:
+            if not outbound_guard.retryable_without_reconciliation(err):
+                m.status = "Needs Review"
             failed += 1
             if err and err not in errors:
                 errors.append(err)
@@ -341,7 +362,7 @@ def send_email_drafts(db: Session, *, limit: int = 25, account: str | None = Non
 def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | None,
                    subject: str | None, body: str | None, account: str = "personal",
                    actor: str = "system", force_draft: bool = False,
-                   autonomous: bool = True) -> Message:
+                   autonomous: bool = True, intent_key: str | None = None) -> Message:
     """Create a Message and route it via Gmail per the configured mode.
 
     force_draft keeps it a draft regardless of GMAIL_OUTBOUND_MODE (used for
@@ -373,11 +394,24 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
     except Exception:  # never let a toggle lookup block a send
         pass
     body = email_template.clean_body(body)  # strip AI placeholders/sign-offs once
-    msg = Message(channel="email", direction="outbound", entity_type=entity_type,
-                  entity_id=entity_id, to_email=to_email, from_account=account,
-                  subject=subject, body=body, status="Drafted", approved=False)
-    db.add(msg)
-    db.flush()
+    from uuid import UUID
+    # A business intent survives retries, generated-copy changes and UTC rollover.
+    # Follow-ups and other distinct touches supply their own stable intent key.
+    daily_intent = "first-touch" if intent_key is None and entity_type in ("lead", "restaurant", "contact") else None
+    purpose = intent_key or (f"first-touch:{entity_type}:{entity_id}"
+                             if entity_type in ("lead", "restaurant", "contact") and entity_id
+                             else outbound_guard.digest(entity_type, str(entity_id), subject, body))
+    identity = outbound_guard.digest("email-intent", (to_email or "").strip().lower(), purpose)
+    message_id = UUID(identity[:32])
+    outbound_guard.persist_message_intent(dict(id=message_id, channel="email", direction="outbound",
+               entity_type=entity_type, entity_id=entity_id, to_email=to_email,
+               from_account=account, subject=subject, body=body, status="Drafted", approved=False),
+               daily_intent=daily_intent)
+    msg = db.query(Message).filter(Message.id == message_id).populate_existing().with_for_update().one()
+    if msg.status not in ("Drafted", "Approved"):
+        return msg
+    # Retrying a draft preserves the original payload/account and operation key.
+    to_email, account, subject, body = msg.to_email, msg.from_account, msg.subject, msg.body
 
     # HARD GUARD: never send a blank email. If the body is empty (or stripped to
     # empty), hold it for review instead of blasting a blank message that makes a
@@ -392,7 +426,7 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
     # A sender is anything that can deliver: Resend or SendGrid (own-domain APIs), a
     # campaign engine (Instantly/Smartlead), or Gmail. Only draft if NONE is set up.
     if not to_email or not (resend.is_configured() or sendgrid.is_configured()
-                            or gmail.is_configured(account) or sender.is_configured()):
+                            or gmail.is_configured(gmail.effective_account(account)) or sender.is_configured()):
         return msg  # nothing to send to / no sender configured — keep as stored draft
     if not is_real_email(to_email):
         # Never email sample/placeholder data — keep it as a draft only.
@@ -427,9 +461,15 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
             first, last, company, website, phone = _entity_fields(db, entity_type, entity_id)
         except Exception:
             pass
-        if sender.add_lead(email=to_email, first_name=first, last_name=last,
-                           company_name=company, website=website, phone=phone,
-                           personalization=body):
+        def enroll():
+            ok = sender.add_lead(email=to_email, first_name=first, last_name=last,
+                                 company_name=company, website=website, phone=phone,
+                                 personalization=body)
+            return (sender.name() or "provider", None) if ok else (None, "Enrollment outcome unknown")
+        enrollment, _error = outbound_guard.invoke(
+            "campaign", to_email, account, f"message:{msg.id}", [body, first, last, company], enroll,
+            replay_accepted=True, daily_intent=daily_intent)
+        if enrollment:
             msg.provider_id = sender.name() or "provider"
             msg.approved = True
             msg.status = "Sent"
@@ -442,6 +482,8 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
             except Exception:
                 pass
         else:
+            if not outbound_guard.retryable_without_reconciliation(_error):
+                msg.status = "Needs Review"
             _log(db, actor, "provider_handoff_failed", msg, to=to_email)
         return msg
 
@@ -463,13 +505,11 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
 
     html = email_template.render(body, account)  # consistent template + compliant footer
     if mode == "send":
-        # Provider ladder: the ESP pool (Resend + SendGrid, round-robined to spread
-        # the day's volume across both and raise the combined limit) → the account's
-        # Gmail. A working provider sends even when another is down or over quota.
-        # `_sent` rotates which ESP goes first, giving an even split across the day.
-        mid, send_err = _send_via_esps(to_email, subject, html, account)
-        if not mid and gmail.is_configured(account):
-            mid = gmail.send_message(to_email, subject or "", html or "", account=account)
+        # Explicit rejection can advance to the next configured provider.
+        # Ambiguous outcomes hold the recipient for manual reconciliation.
+        mid, send_err = deliver(to_email, subject, body, account=account,
+                                operation_key=f"message:{msg.id}",
+                                replay_accepted=True, daily_intent=daily_intent)
         if mid:
             msg.provider_id = mid
             msg.approved = True
@@ -487,7 +527,9 @@ def dispatch_email(db: Session, *, entity_type: str, entity_id, to_email: str | 
             except Exception:
                 pass
         else:
-            # Nothing delivered — record the real reason so the Outbox shows WHY.
+            if not outbound_guard.retryable_without_reconciliation(send_err):
+                msg.status = "Needs Review"
+            # Acceptance may be unknown; do not re-enqueue automatically.
             _log(db, actor, "email_send_failed", msg, to=to_email, detail=send_err)
     else:  # draft / send_on_approve
         did = gmail.create_draft(to_email, subject or "", html or "", account=account)

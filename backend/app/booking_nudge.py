@@ -63,7 +63,8 @@ def _nudge(db: Session, *, entity_type: str, entity_id, name: str | None,
     subject = f"Grabbing 15 minutes, {(name or 'there').split()[0]}?"
     msg = outreach.dispatch_email(
         db, entity_type=entity_type, entity_id=entity_id, to_email=email,
-        subject=subject, body=body, account=account, actor="booking_nudge")
+        subject=subject, body=body, account=account, actor="booking_nudge",
+        intent_key=f"booking-nudge:{entity_type}:{entity_id}")
     # Record the nudge regardless of send outcome so we never nudge twice.
     db.add(ActionLog(actor="booking_nudge", action=_ACTION, entity=entity_type,
                      entity_id=str(entity_id), detail={"sent": msg.status == "Sent"}))

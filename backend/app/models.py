@@ -4,6 +4,8 @@ from datetime import date, datetime
 
 from sqlalchemy import (
     Boolean,
+    JSON,
+    LargeBinary,
     Date,
     DateTime,
     ForeignKey,
@@ -272,6 +274,22 @@ class Lead(Base):
     # "updated_at": iso timestamp} — see lead_profile.py.
     intake: Mapped[dict | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class InsuranceProspectReview(Base):
+    """Operator-reported research, deliberately separate from dispatch/intake.
+
+    New table only; no alteration of the live leads schema. Evidence does not
+    grant calling permission or replace a lead's live contact details.
+    """
+    __tablename__ = "insurance_prospect_reviews"
+    lead_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    reviewed_by: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class Restaurant(Base):
@@ -918,3 +936,93 @@ class ImportedEmailLog(Base):
     imported: Mapped[int] = mapped_column(Integer, default=0)
     updated: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class OutboundMessagePolicy(Base):
+    """Immutable business limits attached to a persisted Message intent."""
+    __tablename__ = "outbound_message_policies"
+    message_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    daily_intent: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class OutboundAttempt(Base):
+    """Durable reservation committed BEFORE a provider call; never auto-expired."""
+    __tablename__ = "outbound_attempts"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    scope: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    recipient: Mapped[str | None] = mapped_column(String)
+    account: Mapped[str | None] = mapped_column(String)
+    operation_ref: Mapped[str | None] = mapped_column(String)
+    claim_hash: Mapped[str | None] = mapped_column(String(64))
+    channel: Mapped[str] = mapped_column(String(20), nullable=False)
+    state: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    provider_id: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class OutboundHold(Base):
+    """One outstanding provider action per recipient/account/channel."""
+    __tablename__ = "outbound_holds"
+    scope: Mapped[str] = mapped_column(String(64), primary_key=True)
+    attempt_key: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class OutboundQuota(Base):
+    """UTC-day shared budget; attempts consume capacity even when uncertain/rejected."""
+    __tablename__ = "outbound_quotas"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    capacity: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class OutboundResolution(Base):
+    """Append-only operator evidence. Resolution never dispatches another action."""
+    __tablename__ = "outbound_resolutions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    attempt_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    actor: Mapped[str] = mapped_column(String, nullable=False)
+    decision: Mapped[str] = mapped_column(String(32), nullable=False)
+    evidence: Mapped[str] = mapped_column(Text, nullable=False)
+    provider_reference: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MailboxSyncHealth(Base):
+    __tablename__ = "mailbox_sync_health"
+    account: Mapped[str] = mapped_column(String, primary_key=True)
+    status: Mapped[str] = mapped_column(String)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    completed_through: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scanned: Mapped[int] = mapped_column(Integer, default=0)
+    error_code: Mapped[str | None] = mapped_column(String)
+
+
+class InboundWebhookReceipt(Base):
+    __tablename__ = "inbound_webhook_receipts"
+    event_key: Mapped[str] = mapped_column(String, primary_key=True)
+    payload_hash: Mapped[str] = mapped_column(String)
+    status: Mapped[str] = mapped_column(String, default="processing")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DotReviewCase(Base):
+    """Research quarantine; deliberately not a Lead/Message/FollowUp queue item."""
+    __tablename__ = "dot_review_cases"
+    usdot: Mapped[str] = mapped_column(String(20), primary_key=True)
+    # Generic JSON permits isolated SQLite tests; production uses JSONB.
+    payload: Mapped[dict] = mapped_column(JSON().with_variant(JSONB, "postgresql"), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class SenderSignature(Base):
+    """Owned sender profile: never a global brand/default signature."""
+    __tablename__ = "sender_signatures"
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    mailbox: Mapped[str] = mapped_column(String, nullable=False)
+    png: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    plain_text: Mapped[str] = mapped_column(Text, nullable=False)
+    source_ref: Mapped[str] = mapped_column(String, nullable=False)
+    digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

@@ -112,10 +112,10 @@ def actions(db) -> dict:
         })
     if due_followups:
         cards.append({
-            "key": "followups", "title": f"Send {due_followups} due follow-up{'s' if due_followups != 1 else ''}",
-            "why": "Scheduled touches that are due — persistence is where most replies come from.",
+            "key": "followups", "title": f"Review {due_followups} due follow-up{'s' if due_followups != 1 else ''}",
+            "why": "Due candidates only; reply, bounce and suppression checks determine eligibility before any send.",
             "count": due_followups, "value": 0,
-            "cta": "Send due now", "action": "run-followups", "link": "/followups",
+            "cta": "Check eligibility", "action": "run-followups", "link": "/followups",
         })
     if backlog:
         cards.append({

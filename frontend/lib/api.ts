@@ -34,7 +34,30 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+type SmsInput = { to: string; message: string; account: string; entity_type?: string; entity_id?: string };
+async function smsCacheKey(body: SmsInput): Promise<string> {
+  const bytes = new TextEncoder().encode(JSON.stringify([body.to, body.message, body.account, body.entity_type || "", body.entity_id || ""]));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return "bruno_sms_intent:" + Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("");
+}
+async function smsIntent(body: SmsInput): Promise<string | undefined> {
+  try {
+    const key = await smsCacheKey(body);
+    let id = localStorage.getItem(key);
+    if (!id) { id = crypto.randomUUID(); localStorage.setItem(key, id); }
+    return id;
+  } catch { return undefined; } // Server's content-derived legacy key remains safe.
+}
+
 export const api = {
+  async sendSms(body: SmsInput) {
+    return request<{ ok?: boolean; reason?: string; status?: string; message_id?: string }>("/sms/send", {
+      method: "POST", body: JSON.stringify({ ...body, idempotency_key: await smsIntent(body) }),
+    });
+  },
+  async finishSmsIntent(body: SmsInput) {
+    try { localStorage.removeItem(await smsCacheKey(body)); } catch { /* retain safe server dedupe */ }
+  },
   async login(email: string, password: string) {
     const body = new URLSearchParams({ username: email, password });
     const res = await fetch(`${API_URL}/auth/token`, {

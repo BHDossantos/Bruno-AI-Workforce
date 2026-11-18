@@ -85,6 +85,11 @@ def _task(db: Session, summary: str, payload: dict | None = None) -> None:
 
 def _suppress(db: Session, sender: str) -> None:
     """Mark every record for this address do_not_contact — never email again."""
+    from .models import DoNotContact
+    from .compliance import _email_key
+    key = _email_key(sender)
+    if key and not db.query(DoNotContact).filter(DoNotContact.kind == "email", DoNotContact.value == key).first():
+        db.add(DoNotContact(kind="email", value=key, reason="Automation opt-out", source="automation"))
     for lead in db.query(Lead).filter(Lead.email == sender).all():
         lead.status = "do_not_contact"
     for rest in db.query(Restaurant).filter(Restaurant.email == sender).all():

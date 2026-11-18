@@ -21,3 +21,7 @@ langgraph==0.2.60
 google-cloud-storage==2.19.0
 playwright==1.49.1
 tzdata==2025.1  # zoneinfo DB for the slim image (Europe/Rome, America/New_York windows)
+
+# Official webhook signature validators (no provider clients are invoked).
+twilio==9.13.0
+plivo==4.63.0
