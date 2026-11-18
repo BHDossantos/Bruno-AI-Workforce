@@ -9175,6 +9175,59 @@ def test_everquote_cadence_calls_and_texts_once_per_wave(monkeypatch):
         db.close()
 
 
+def test_everquote_cadence_respects_phone_calls_off(monkeypatch):
+    """Regression: the 'Phone calls OFF' switch (auto_dial_enabled) must stop the
+    EverQuote cadence from CALLING too — not just the main dialer. Texts still flow."""
+    from datetime import datetime, timedelta, timezone
+    from app import compliance, control, everquote_cadence as eqc, runtime_config, sms_engine
+    from app.database import SessionLocal
+    from app.integrations import sms as sms_int, voice
+    from app.models import Lead, Message
+
+    monkeypatch.setattr(control, "is_paused_safe", lambda db: False)
+    monkeypatch.setattr(control, "get_mode", lambda db: "auto")
+    monkeypatch.setattr(control, "outreach_autopilot", lambda db: True)
+    monkeypatch.setattr(voice, "is_configured", lambda: True)
+    monkeypatch.setattr(voice, "voicemail_configured", lambda: True)
+    placed_calls: list = []
+    monkeypatch.setattr(voice, "place_auto_call",
+                        lambda phone, lid: (placed_calls.append(phone), ("CALLSID", None))[1])
+    monkeypatch.setattr(sms_int, "is_configured", lambda: True)
+    monkeypatch.setattr(eqc, "current_wave", lambda now=None: "am")
+    monkeypatch.setattr(eqc, "_wave_start_utc",
+                        lambda wave, now=None: datetime.now(timezone.utc) - timedelta(seconds=1))
+    monkeypatch.setattr(compliance, "gate", lambda *a, **k: type("D", (), {"allowed": True, "rule": None})())
+    monkeypatch.setattr(sms_engine, "send_text",
+                        lambda db, **k: (db.add(Message(channel="sms", direction="outbound",
+                            entity_type=k["entity_type"], entity_id=k["entity_id"], to_email=k["phone"],
+                            body=k["body"], status="Sent", provider_id="SMSSID",
+                            sent_at=datetime.now(timezone.utc))), db.commit(), "SMSSID")[2])
+    monkeypatch.delenv("AUTO_DIAL_ENABLED", raising=False)  # env would otherwise win
+
+    db = SessionLocal()
+    lid = None
+    try:
+        # PHONE CALLS OFF — via the real DB-backed switch (run() loads it with
+        # apply_to_settings, which overrides any in-memory value).
+        runtime_config.save(db, "auto_dial_enabled", "false")
+        db.query(Lead).filter(Lead.email == "eqcadence-off@x.co").delete(synchronize_session=False)
+        db.commit()
+        lead = Lead(segment="personal", category="EverQuote Auto", owner_name="No Call",
+                    email="eqcadence-off@x.co", phone="+15550008765", status="New")
+        db.add(lead); db.flush(); lid = lead.id; db.commit()
+
+        r = eqc.run(db, per_run_limit=5)
+        assert r.get("calls", 0) == 0 and not placed_calls   # NO calls placed while off
+        assert r.get("texts", 0) >= 1                          # texts still go
+    finally:
+        runtime_config.save(db, "auto_dial_enabled", "true")  # restore for later tests
+        if lid is not None:
+            db.query(Message).filter(Message.entity_id == lid).delete(synchronize_session=False)
+            db.query(Lead).filter(Lead.id == lid).delete(synchronize_session=False)
+            db.commit()
+        db.close()
+
+
 @requires_db
 def test_sms_diagnostics_shows_from_number_validity(client, auth_headers, monkeypatch):
     """The SMS diagnostics endpoint reports the active provider and the real 'From'
