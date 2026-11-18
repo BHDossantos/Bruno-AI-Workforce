@@ -36,6 +36,7 @@ from .routers import (
     sender_signature,
     instagram,
     insurance_growth,
+    calling_capacity,
     jobs,
     automations,
     browser,
@@ -161,8 +162,7 @@ app.include_router(export.router)
 app.include_router(imports.router)
 app.include_router(dot_review.router)
 app.include_router(insurance_growth.router)
-from . import insurance_source_intake
-app.include_router(insurance_source_intake.router)
+app.include_router(calling_capacity.router)
 app.include_router(sender_signature.router)
 app.include_router(connections.router)
 app.include_router(custom_connections.router)
