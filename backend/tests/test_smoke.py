@@ -5028,6 +5028,58 @@ def test_workforce_map_assembles_departments_and_gate(client, auth_headers, monk
     assert calls_dept["active"] is False and m2["waits_for_you"]["calls_on"] is False
 
 
+def test_invoice_lifecycle_create_send_pay(client, auth_headers):
+    """Create → Send → partial payment → full payment settles the invoice, and the
+    billing summary tracks outstanding vs paid."""
+    body = {
+        "client_name": "Acme Trucking", "business": "insurance", "due_date": "2099-01-01",
+        "lines": [
+            {"description": "Commercial auto policy", "quantity": 1, "unit_price": 1200},
+            {"description": "Setup fee", "quantity": 2, "unit_price": 150},
+        ],
+    }
+    inv = client.post("/invoices", json=body, headers=auth_headers).json()
+    assert inv["number"].startswith("INV-")
+    assert inv["status"] == "Draft"
+    assert inv["total"] == 1500.0 and inv["balance"] == 1500.0
+    assert len(inv["lines"]) == 2
+
+    iid = inv["id"]
+    sent = client.post(f"/invoices/{iid}/status", json={"status": "Sent"}, headers=auth_headers).json()
+    assert sent["status"] == "Sent"
+
+    # Partial payment keeps it open; full payment auto-settles to Paid.
+    part = client.post(f"/invoices/{iid}/payments", json={"amount": 500}, headers=auth_headers).json()
+    assert part["status"] == "Sent" and part["amount_paid"] == 500.0 and part["balance"] == 1000.0
+    paid = client.post(f"/invoices/{iid}/payments", json={"amount": 1000}, headers=auth_headers).json()
+    assert paid["status"] == "Paid" and paid["balance"] == 0.0
+
+    summ = client.get("/invoices/summary", headers=auth_headers).json()
+    assert summ["total_invoices"] >= 1 and summ["counts"].get("Paid", 0) >= 1
+
+
+def test_billing_overdue_sweep_and_numbering():
+    """The scheduler's hands-free sweep flips past-due Sent invoices to Overdue, and
+    invoice numbers stay sequential within the year."""
+    from datetime import date, timedelta
+    from app import billing
+    from app.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        n1 = billing.next_number(db)
+        a = billing.create_invoice(db, client_name="Past Due Co", due_date=str(date.today() - timedelta(days=5)),
+                                   lines=[{"description": "Retainer", "quantity": 1, "unit_price": 900}])
+        # Number increments for the next invoice.
+        assert billing.next_number(db) != n1
+        billing.set_status(db, a.id, "Sent")
+        out = billing.overdue_sweep(db)
+        assert out["flipped"] >= 1
+        assert billing.get_invoice(db, a.id)["status"] == "Overdue"
+    finally:
+        db.close()
+
+
 def test_crm_token_falls_back_to_env_without_connection():
     from app.config import settings
     from app.integrations import crm
