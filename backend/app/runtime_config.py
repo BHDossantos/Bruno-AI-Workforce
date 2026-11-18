@@ -172,12 +172,14 @@ FIELDS: dict[str, bool] = {
 }
 
 
-# Fields the IN-APP toggle must own, so a stored value wins even over an env var.
-# For a master on/off switch the user flips in the app (phone calls), an env var
-# like AUTO_DIAL_ENABLED=true must NOT silently re-enable it on the next restart —
-# otherwise "I turned calls off in the app" never sticks. For these fields a saved
-# DB value is authoritative; env is only the fallback when nothing is stored.
-_APP_AUTHORITATIVE: set[str] = {"auto_dial_enabled"}
+# Master on/off switches the user flips IN THE APP, which must be the ONLY control
+# for them. A stored (in-app) value always wins; with nothing stored we force the
+# safe default and IGNORE any same-named env var entirely. This is the fix for "I
+# turned calls off in the app and the phone still rang": a leftover
+# AUTO_DIAL_ENABLED=true in the deployment can no longer enable the dialer behind
+# the UI — calls can only ever be turned on by the in-app toggle. Maps each field
+# to its safe default (what it should be when nothing is stored).
+_APP_AUTHORITATIVE: dict[str, str] = {"auto_dial_enabled": "false"}
 
 
 def _stored(db, field: str) -> str:
@@ -192,15 +194,18 @@ def apply_to_settings(db) -> None:
     """Load stored credentials into the live settings object.
 
     Env vars win for normal credentials (so prod secrets aren't overridden), EXCEPT
-    for _APP_AUTHORITATIVE on/off switches, where a value the user saved in the app
-    wins over the env var — that's the whole point of an in-app master switch."""
+    for _APP_AUTHORITATIVE on/off switches: there the in-app value is the only
+    control — a stored value is applied, and with nothing stored the safe default is
+    forced and any same-named env var is ignored, so the switch can't be turned on
+    outside the app."""
     import os
     for field in FIELDS:
         val = _stored(db, field)
-        if field in _APP_AUTHORITATIVE and val != "":
-            # The in-app toggle is the source of truth — apply it over any env var.
+        if field in _APP_AUTHORITATIVE:
+            # In-app toggle owns this switch: stored value wins, else safe default.
+            # The env var is deliberately NOT consulted — it can't enable it.
             try:
-                setattr(settings, field, val)
+                setattr(settings, field, val if val != "" else _APP_AUTHORITATIVE[field])
             except Exception:  # pragma: no cover
                 log.warning("could not apply stored config %s", field)
             continue
