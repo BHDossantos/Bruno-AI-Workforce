@@ -5005,6 +5005,29 @@ def test_outreach_summary_counts_and_actions(client, auth_headers):
         db.commit(); db.close()
 
 
+@requires_db
+def test_workforce_map_assembles_departments_and_gate(client, auth_headers, monkeypatch):
+    """The Workforce cockpit returns the agent departments, the shared knowledge, today's
+    numbers, a live-switch 'Calls' department that follows the Phone-calls toggle, and
+    the human-approval gate."""
+    from app import auto_dial
+    m = client.get("/workforce/map", headers=auth_headers).json()
+    keys = {d["key"] for d in m["departments"]}
+    assert {"leads", "email", "texting", "calls", "conversation"} <= keys
+    assert m["total_agents"] == sum(d["count"] for d in m["departments"])
+    assert m["knowledge"] and all(isinstance(k, str) for k in m["knowledge"])
+    for k in ("email", "sms", "call", "replies"):
+        assert k in m["today"] and k in m["week"]
+    w = m["waits_for_you"]
+    assert w["mode"] in ("manual", "semi", "auto") and "pending_drafts" in w
+
+    # The Calls department + gate reflect the real auto-dial switch.
+    monkeypatch.setattr(auto_dial, "auto_dial_enabled", lambda: False)
+    m2 = client.get("/workforce/map", headers=auth_headers).json()
+    calls_dept = next(d for d in m2["departments"] if d["key"] == "calls")
+    assert calls_dept["active"] is False and m2["waits_for_you"]["calls_on"] is False
+
+
 def test_crm_token_falls_back_to_env_without_connection():
     from app.config import settings
     from app.integrations import crm
