@@ -138,7 +138,8 @@ def _autopilot_readiness(db: Session) -> dict:
 
     # CALL — the auto-dialer works the Call List every minute 8am-8pm when enabled
     # and a voice carrier + callback are set.
-    dial_on = bool(settings.auto_dial_enabled)
+    from .. import auto_dial
+    dial_on = auto_dial.auto_dial_enabled()  # tolerant of string "false"/env quirks
     call_conn = vdispatch.is_configured()
     call_diag = telco.diagnose("voice")
     call_block = list(email_block[:1])

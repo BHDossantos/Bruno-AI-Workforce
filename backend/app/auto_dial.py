@@ -32,7 +32,9 @@ from .models import Lead, Message
 def auto_dial_enabled() -> bool:
     """The auto-dial master switch, tolerant of how it's stored. The runtime toggle
     persists it as a STRING ('true'/'false') and env vars arrive as strings too, so a
-    bare truthiness check would read the string 'false' as on. Default on."""
+    bare truthiness check would read the string 'false' as on. Ships OFF, and can
+    only be turned on by the in-app toggle (runtime_config forces it off when nothing
+    is stored and ignores the AUTO_DIAL_ENABLED env var for this switch)."""
     v = settings.auto_dial_enabled
     if isinstance(v, bool):
         return v

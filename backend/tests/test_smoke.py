@@ -5216,22 +5216,33 @@ def test_seo_audit_endpoint_persists_and_lists(client, auth_headers, monkeypatch
     assert any(x["id"] == a["id"] for x in lst)
 
 
-def test_in_app_calls_toggle_wins_over_env_var(monkeypatch):
-    """A saved in-app 'calls off' must stick even if AUTO_DIAL_ENABLED=true is set in
-    the environment — otherwise the switch never holds across a restart."""
-    import os
+def test_calls_switch_controlled_only_by_app_not_env(monkeypatch):
+    """The phone-calls switch is controlled ONLY in the app. A leftover
+    AUTO_DIAL_ENABLED=true env var can never turn it on: with nothing stored it
+    stays OFF, a saved 'off' sticks, and only a saved 'on' enables it."""
     from app import auto_dial, runtime_config
     from app.config import settings
     from app.database import SessionLocal
+    from app.models import Setting
 
     db = SessionLocal()
     try:
         monkeypatch.setenv("AUTO_DIAL_ENABLED", "true")   # a leftover prod env var
         settings.auto_dial_enabled = True
-        runtime_config.save(db, "auto_dial_enabled", "false")  # user flips it off in the app
-        runtime_config.apply_to_settings(db)               # the refresh that used to clobber it
-        assert auto_dial.auto_dial_enabled() is False      # app toggle wins
-        # And turning it back on in the app also wins.
+
+        # 1) Nothing stored in-app + env=true  -> forced OFF (env is ignored).
+        row = db.get(Setting, "cfg:auto_dial_enabled")
+        if row:
+            db.delete(row); db.commit()
+        runtime_config.apply_to_settings(db)
+        assert auto_dial.auto_dial_enabled() is False
+
+        # 2) User flips OFF in the app -> stays OFF.
+        runtime_config.save(db, "auto_dial_enabled", "false")
+        runtime_config.apply_to_settings(db)
+        assert auto_dial.auto_dial_enabled() is False
+
+        # 3) Only an explicit in-app ON enables it.
         runtime_config.save(db, "auto_dial_enabled", "true")
         runtime_config.apply_to_settings(db)
         assert auto_dial.auto_dial_enabled() is True
