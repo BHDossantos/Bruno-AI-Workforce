@@ -5171,6 +5171,51 @@ def test_uptime_run_due_respects_interval_and_prunes(monkeypatch):
         db.close()
 
 
+def test_seo_analyze_scores_good_and_bad_pages():
+    """Pure scoring (no I/O): a well-formed page grades high; a broken one flags
+    the critical issues and scores low."""
+    from app import seo_audit
+
+    good_html = (
+        "<html><head>"
+        "<title>Affordable Commercial Truck Insurance in Massachusetts</title>"
+        "<meta name='description' content='"
+        + ("Compare commercial truck insurance quotes across Massachusetts carriers and save. " * 2)
+        + "'>"
+        "<link rel='canonical' href='https://x.com/a'></head>"
+        "<body><h1>Commercial Truck Insurance</h1>"
+        "<img src='a.jpg' alt='a truck'>"
+        "<p>" + ("word " * 400) + "</p></body></html>"
+    )
+    g = seo_audit.analyze("https://x.com/a", 200, good_html, None)
+    assert g["grade"] in ("A", "B") and g["score"] >= 80, g
+    assert g["h1_count"] == 1 and g["word_count"] >= 300
+
+    bad_html = "<html><head><meta name='robots' content='noindex'></head><body><p>hi</p></body></html>"
+    b = seo_audit.analyze("http://x.com/a", 200, bad_html, None)
+    msgs = " ".join(i["message"].lower() for i in b["issues"])
+    assert "title" in msgs and "noindex" in msgs
+    assert any(i["severity"] == "critical" for i in b["issues"])
+    assert b["score"] < g["score"]
+
+    # A fetch failure is a hard F.
+    f = seo_audit.analyze("https://x.com/a", None, "", "timeout")
+    assert f["score"] == 0 and f["grade"] == "F"
+
+
+def test_seo_audit_endpoint_persists_and_lists(client, auth_headers, monkeypatch):
+    """The /seo/audit endpoint stores a result (fetch stubbed) and it shows in the list."""
+    from app import seo_audit
+
+    html = "<html><head><title>" + ("T" * 45) + "</title></head><body><h1>Hi</h1><p>" + ("w " * 350) + "</p></body></html>"
+    monkeypatch.setattr(seo_audit, "_fetch", lambda url: (200, html, None))
+    a = client.post("/seo/audit", json={"url": "example.test/page", "business": "bnbglobal"}, headers=auth_headers).json()
+    assert a["url"] == "https://example.test/page"  # scheme auto-added
+    assert 0 <= a["score"] <= 100 and isinstance(a["issues"], list)
+    lst = client.get("/seo/audits?limit=5", headers=auth_headers).json()
+    assert any(x["id"] == a["id"] for x in lst)
+
+
 def test_crm_token_falls_back_to_env_without_connection():
     from app.config import settings
     from app.integrations import crm

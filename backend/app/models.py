@@ -1164,5 +1164,25 @@ class MonitorCheck(Base):
     monitor: Mapped["Monitor"] = relationship(back_populates="checks")
 
 
+class SeoAudit(Base):
+    """A single on-page SEO audit of a URL — a point-in-time snapshot kept as
+    history so you can see a page improve. Stores the computed score, the key
+    extracted signals, and the list of findings as JSON. One brand-new table."""
+    __tablename__ = "seo_audits"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    url: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    business: Mapped[str | None] = mapped_column(String, index=True)
+    score: Mapped[int] = mapped_column(Integer, default=0)       # 0..100
+    grade: Mapped[str | None] = mapped_column(String)            # A..F
+    status_code: Mapped[int | None] = mapped_column(Integer)
+    title: Mapped[str | None] = mapped_column(String)
+    meta_description: Mapped[str | None] = mapped_column(Text)
+    h1_count: Mapped[int] = mapped_column(Integer, default=0)
+    word_count: Mapped[int] = mapped_column(Integer, default=0)
+    issues: Mapped[list] = mapped_column(JSON().with_variant(JSONB, "postgresql"), default=list)
+    error: Mapped[str | None] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 # Register new opt-in calling tables with the existing create_all lifecycle.
 from .calling_capacity_models import CallHandler, CallPermit, CallReservation, CallLeadHold  # noqa: E402,F401

@@ -35,6 +35,7 @@ from .routers import (
     invoices,
     projects,
     monitors,
+    seo,
     dot_review,
     sender_signature,
     instagram,
@@ -167,6 +168,7 @@ app.include_router(imports.router)
 app.include_router(invoices.router)
 app.include_router(projects.router)
 app.include_router(monitors.router)
+app.include_router(seo.router)
 app.include_router(dot_review.router)
 app.include_router(insurance_growth.router)
 app.include_router(calling_capacity.router)
