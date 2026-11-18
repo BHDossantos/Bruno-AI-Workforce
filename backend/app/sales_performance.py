@@ -17,7 +17,8 @@ from .config import settings
 from .models import Client, Lead
 
 _NEW = ("New", "Drafted")
-_ENGAGED = ("Replied", "Interested", "Follow-up Needed")
+_CONTACTED = ("Contacted", "Sent", "Opened")
+_ENGAGED = ("Replied", "Interested")
 _ACTIVE_CLIENT = ("Active", "Renewed")
 
 
@@ -34,9 +35,13 @@ def funnel(db: Session) -> dict:
     engaged = sum(counts.get(s, 0) for s in _ENGAGED)
     won = counts.get("Closed Won", 0)
     lost = counts.get("Closed Lost", 0)
-    contacted = counts.get("Contacted", 0)
-    # "Reached at least this stage" (cumulative), so the funnel only narrows.
-    reached_contacted = total - new
+    contacted = sum(counts.get(s, 0) for s in _CONTACTED)
+    # Current status is not a stage history: a lost/suppressed lead or a
+    # queued follow-up may never have been contacted. Only explicit positive
+    # stages support this conservative status-based funnel.
+    reached_contacted = contacted + engaged + won
+    follow_up = counts.get("Follow-up Needed", 0)
+    other = total - new - contacted - engaged - won - lost - follow_up
     reached_engaged = engaged + won  # responded at some point
     decided = won + lost
     stages = [
@@ -46,9 +51,10 @@ def funnel(db: Session) -> dict:
         {"key": "won", "label": "Closed won", "count": won},
     ]
     return {
+        "basis": "Current lead statuses; not historical stage transitions. Lost, follow-up, and other statuses are not assumed contacted or engaged.",
         "stages": stages,
         "current": {"new": new, "contacted": contacted, "engaged": engaged,
-                    "won": won, "lost": lost, "total": total},
+                    "won": won, "lost": lost, "follow_up": follow_up, "other": other, "total": total},
         "rates": {
             "contact_rate": _pct(reached_contacted, total),
             "response_rate": _pct(reached_engaged, reached_contacted),

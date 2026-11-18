@@ -8777,8 +8777,8 @@ def test_sales_performance_funnel_rates_math(monkeypatch):
         def group_by(self, *a): return _Grouped()
     f = sp.funnel(_DB())
     counts = [s["count"] for s in f["stages"]]
-    assert counts == [100, 60, 28, 8]           # narrows: leads→contacted→engaged→won
-    assert f["rates"]["contact_rate"] == 60.0    # 60/100 reached contacted
+    assert counts == [100, 58, 28, 8]           # narrows: leads→contacted→engaged→won
+    assert f["rates"]["contact_rate"] == 58.0    # lost alone is not evidence of contact
     assert f["rates"]["close_rate"] == 80.0      # 8 won of 10 decided
 
 

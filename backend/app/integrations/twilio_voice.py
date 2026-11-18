@@ -540,10 +540,12 @@ def record_vm_twiml() -> str:
 
 @outbound_guard.provider("auto-call", result="tuple", recipient="lead_phone", ready=lambda _: is_configured(),
                          validate=lambda _: outbound_guard.voice_preflight())
-def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, str | None]:
+def place_auto_call(lead_phone: str, lead_id: str | None, reservation_id: str | None = None) -> tuple[str | None, str | None]:
     """Dial the LEAD directly with answering-machine detection. On answer Twilio hits
     /calls/twiml/amd, which transfers a human to your phone or drops your voicemail on
     a machine. Returns (call_sid, error)."""
+    if settings.auto_dial_capacity_enabled and not reservation_id:
+        return outbound_guard.no_attempt("Capacity mode requires a reserved handler", "capacity")
     if not is_configured():
         return None, _config_gap() or "Calling not connected — check Setup → Calling."
     base = _base_url()
@@ -570,6 +572,11 @@ def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, s
         # real failure reason if it never connected.
         "StatusCallbackEvent": ["initiated", "ringing", "answered", "completed"],
     }
+    if reservation_id:
+        from uuid import UUID
+        rid = str(UUID(reservation_id))
+        data["Url"] = f"{base}/calls/capacity/amd?reservation_id={rid}"
+        data["StatusCallback"] = f"{base}/calls/capacity/status?reservation_id={rid}"
     try:
         r = httpx.post(url, data=data, auth=telco.auth("voice"), timeout=20)
         if r.status_code >= 400:

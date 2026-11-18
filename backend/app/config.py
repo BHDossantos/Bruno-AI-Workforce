@@ -413,6 +413,7 @@ class Settings(BaseSettings):
     # Daily auto-dial: at 8am the scheduler auto-calls the Call List (hottest first),
     # transferring live answers to the producer and dropping the recorded voicemail
     # otherwise. Gated by the same Outreach Autopilot / full-auto switch as auto-send.
+    auto_dial_capacity_enabled: bool = False  # opt-in only after agency/provider acceptance tests
     auto_dial_enabled: bool = True         # master switch for the daily 8am auto-dial pass
     auto_dial_daily_cap: int = 100         # max leads auto-dialed per day (protects your line)
     # How often the auto-dialer fires (one call per fire). 45s → a call roughly every

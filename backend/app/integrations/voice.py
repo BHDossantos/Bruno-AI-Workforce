@@ -82,7 +82,9 @@ def access_token(identity: str):
     return twilio_voice.access_token(identity)
 
 
-def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, str | None]:
+def place_auto_call(lead_phone: str, lead_id: str | None, reservation_id: str | None = None) -> tuple[str | None, str | None]:
+    if settings.auto_dial_capacity_enabled and not reservation_id:
+        return outbound_guard.no_attempt("Capacity mode requires a reserved handler; no call made", "capacity")
     if not is_configured():
         return outbound_guard.no_attempt("Calling not connected", "configuration")
     issue = outbound_guard.voice_preflight()
@@ -95,13 +97,29 @@ def place_auto_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, s
     normalized = _e164(lead_phone)
     if not normalized:
         return None, "Invalid recipient phone; no call made"
-    return outbound_guard.invoke("auto-call", normalized, "voice",
+    if reservation_id and active() not in {"twilio", "signalwire"}:
+        return outbound_guard.no_attempt("Capacity routing requires Twilio-compatible carrier", "configuration")
+    submitted = False
+    def submit():
+        nonlocal submitted
+        submitted = True
+        if reservation_id:
+            return _mod().place_auto_call(lead_phone, lead_id, reservation_id=reservation_id)
+        return _mod().place_auto_call(lead_phone, lead_id)
+    result = outbound_guard.invoke("auto-call", normalized, "voice",
                                  str(datetime.now(timezone.utc).date()), [normalized.lstrip("+")],
-                                 lambda: _mod().place_auto_call(lead_phone, lead_id),
+                                 submit,
                                  replay_accepted=False)
+    if reservation_id and not submitted and not result.provider_id:
+        # This NEW capacity reservation did not enter the carrier function. Keep
+        # the existing outbound attempt fenced but release its unused handler.
+        return outbound_guard.no_attempt(str(result.error), "capacity_no_submit", retryable=False)
+    return result
 
 
 def place_bridge_call(lead_phone: str, lead_id: str | None) -> tuple[str | None, str | None]:
+    if settings.auto_dial_capacity_enabled:
+        return outbound_guard.no_attempt("Manual bridge is held while capacity mode owns calling", "capacity")
     return _mod().place_bridge_call(lead_phone, lead_id)
 
 
