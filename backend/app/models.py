@@ -1082,5 +1082,46 @@ class Payment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class Project(Base):
+    """A client engagement / delivery project — the post-sale 'are we actually
+    delivering what we sold?' layer. Groups the work (ProjectTask rows) for one
+    client across any business. Status is a simple delivery lifecycle; health is a
+    derived at-a-glance signal (on_track|at_risk|overdue) computed from due dates
+    and open task counts, not stored, so it's always honest."""
+    __tablename__ = "projects"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    business: Mapped[str] = mapped_column(String, default="insurance", index=True)
+    client_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), index=True)  # origin client, if any
+    client_name: Mapped[str | None] = mapped_column(String)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    owner: Mapped[str | None] = mapped_column(String)  # who's accountable
+    status: Mapped[str] = mapped_column(String, default="Active", index=True)  # Planned|Active|Blocked|Done|Cancelled
+    start_date: Mapped[date | None] = mapped_column(Date)
+    due_date: Mapped[date | None] = mapped_column(Date, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    tasks: Mapped[list["ProjectTask"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan")
+
+
+class ProjectTask(Base):
+    """One deliverable / to-do within a Project. A lightweight kanban item:
+    Todo → Doing → Done, optional owner + due date."""
+    __tablename__ = "project_tasks"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True, nullable=False)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, default="Todo", index=True)  # Todo|Doing|Done
+    owner: Mapped[str | None] = mapped_column(String)
+    due_date: Mapped[date | None] = mapped_column(Date)
+    position: Mapped[int] = mapped_column(Integer, default=0)  # order within a column
+    done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    project: Mapped["Project"] = relationship(back_populates="tasks")
+
+
 # Register new opt-in calling tables with the existing create_all lifecycle.
 from .calling_capacity_models import CallHandler, CallPermit, CallReservation, CallLeadHold  # noqa: E402,F401

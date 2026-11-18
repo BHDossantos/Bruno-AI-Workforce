@@ -5080,6 +5080,46 @@ def test_billing_overdue_sweep_and_numbering():
         db.close()
 
 
+def test_project_lifecycle_and_health(client, auth_headers):
+    """Create a project, add deliverables, move them to Done, and the derived
+    progress + health reflect reality."""
+    body = {"name": "Website relaunch", "business": "bnbglobal", "client_name": "Acme Co", "owner": "Bruno"}
+    p = client.post("/projects", json=body, headers=auth_headers).json()
+    pid = p["id"]
+    assert p["status"] == "Active" and p["health"] == "on_track" and p["task_count"] == 0
+
+    client.post(f"/projects/{pid}/tasks", json={"title": "Design"}, headers=auth_headers)
+    d = client.post(f"/projects/{pid}/tasks", json={"title": "Build"}, headers=auth_headers).json()
+    assert d["task_count"] == 2 and d["tasks_done"] == 0
+    tid = d["tasks"][0]["id"]
+    client.post(f"/projects/tasks/{tid}/status", json={"status": "Done"}, headers=auth_headers)
+
+    got = client.get(f"/projects/{pid}", headers=auth_headers).json()
+    assert got["tasks_done"] == 1 and got["progress"] == 0.5
+
+    s = client.get("/projects/summary", headers=auth_headers).json()
+    assert s["active"] >= 1
+
+
+def test_project_health_overdue_from_past_due_date():
+    """A project past its due date with open work derives 'overdue' — not stored."""
+    from datetime import date, timedelta
+    from app import projects
+    from app.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        p = projects.create_project(db, name="Late project", business="insurance",
+                                    due_date=str(date.today() - timedelta(days=2)))
+        projects.add_task(db, p.id, title="Unfinished")
+        assert projects.get_project(db, p.id)["health"] == "overdue"
+        # Completing everything + marking Done clears the health signal.
+        projects.update_project(db, p.id, status="Done")
+        assert projects.get_project(db, p.id)["health"] == "done"
+    finally:
+        db.close()
+
+
 def test_crm_token_falls_back_to_env_without_connection():
     from app.config import settings
     from app.integrations import crm
