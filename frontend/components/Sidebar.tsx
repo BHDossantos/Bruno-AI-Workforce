@@ -63,6 +63,7 @@ const GROUPS: NavGroup[] = [
       { href: "/analytics", label: "Funnel Analytics", icon: "📊" },
       { href: "/revenue", label: "Revenue & ROI", icon: "💵" },
       { href: "/growth", label: "Growth Analytics", icon: "📈" },
+      { href: "/seo", label: "SEO Audit", icon: "🔎" },
       { href: "/outreach-report", label: "Outreach Performance", icon: "📈" },
       { href: "/by-line", label: "Conversion by Line", icon: "📶" },
       { href: "/agents", label: "Agent Performance", icon: "🤖" },
