@@ -127,7 +127,12 @@ def run(db, per_run_limit: int = 1) -> dict:
     except Exception:  # best-effort — env vars still work
         log.debug("runtime config refresh skipped", exc_info=True)
 
-    can_call = voice.is_configured()
+    # Respect the in-app "Phone calls" master switch (the Pause auto-calls toggle /
+    # AUTO_DIAL_ENABLED). When calls are OFF, this cadence must NOT place a call either
+    # — otherwise pausing the dialer leaves EverQuote leads still being called twice a
+    # day. Texts are a separate channel and keep flowing.
+    from . import auto_dial
+    can_call = voice.is_configured() and auto_dial.auto_dial_enabled()
     from .integrations import sms as sms_int
     can_text = sms_int.is_configured() or bool(settings.bridge_token)
     if not (can_call or can_text):
