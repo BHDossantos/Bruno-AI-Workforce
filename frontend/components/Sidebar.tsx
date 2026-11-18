@@ -120,6 +120,7 @@ const GROUPS: NavGroup[] = [
 // Pinned at the very top of the menu — the handful of pages worked every day, so
 // they're always one click away without expanding a group.
 const QUICK_LINKS: NavItem[] = [
+  { href: "/workforce", label: "Workforce", icon: "🧠" },
   { href: "/worklist", label: "Call List", icon: "📞" },
   { href: "/insurance", label: "Insurance Leads", icon: "🎯" },
   { href: "/texts", label: "Texts", icon: "💬" },

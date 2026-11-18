@@ -63,6 +63,7 @@ from .routers import (
     setup,
     sms,
     webhooks,
+    workforce,
 )
 from .config import settings
 from .scheduler import shutdown_scheduler, start_scheduler
@@ -166,6 +167,7 @@ app.include_router(connections.router)
 app.include_router(custom_connections.router)
 app.include_router(profile.router)
 app.include_router(analytics.router)
+app.include_router(workforce.router)
 app.include_router(executive.router)
 app.include_router(memory.router)
 app.include_router(crm.router)
