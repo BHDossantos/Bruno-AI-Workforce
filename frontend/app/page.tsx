@@ -5,6 +5,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { AuthGate, PageHeader, useFetch } from "@/components/ui";
 import LiveClock from "@/components/LiveClock";
+import MissionOutreach, { type OutreachSummary } from "@/components/MissionOutreach";
 
 type Action = {
   key: string; title: string; command_center: string; objective: string; action_type: string;
@@ -28,29 +29,20 @@ type Goal = { area: string; target: number; today: number; status: string };
 type ClientGoal = {
   target: number; won_today: number; won_total: number; on_track: boolean; deficit: number;
   conversion_rate: number; conversion_measured: boolean; prospects_contacted: number;
-  needed_touches_per_day: number; sent_today: number;
+  needed_touches_per_day: number;
 };
 type Mission = {
   paused: boolean; approvals_pending: number; auto_sending?: number; goals: Goal[];
-  outreach_backlog?: number; sent_today?: number; mailbox_connected?: boolean;
-  sending_stalled?: boolean; sending_reason?: string | null;
+  outreach_backlog?: number; mailbox_connected?: boolean;
+  sending_stalled?: boolean;
   today: {
     posts: number; insurance_leads: number; bnb_leads: number; savorymind_leads: number;
-    outreach_sent: number; replies: number; applications: number; jobs_found: number;
+    applications: number; jobs_found: number;
   };
 };
 
 const CENTER_ICON: Record<string, string> = {
   wealth: "💰", business: "🏢", influence: "📣", personal: "💪", life_ops: "🗂️",
-};
-
-type ChanCounts = { email: number; sms: number; call: number };
-type OutreachAction = { name: string; channel: string; status: string; snippet: string; received_at: string; link: string };
-type OutreachSummary = {
-  sent: { today: ChanCounts; week: ChanCounts };
-  replies: { today: number; week: number };
-  actions: OutreachAction[];
-  actions_count: number;
 };
 
 function money(n: number) {
@@ -62,10 +54,10 @@ function Home() {
   const { data: b } = useFetch<Brief>(() => api.get<Brief>("/brief/today"), [refresh]);
   const { data: score } = useFetch<Score>(() => api.get<Score>("/scoreboard"), [refresh]);
   const { data: golive } = useFetch<Activation>(() => api.get<Activation>("/activation"), [refresh]);
-  const { data: mission } = useFetch<Mission>(() => api.get<Mission>("/mission/control"), [refresh]);
+  const { data: mission, error: missionError, loading: missionLoading, reload: reloadMission } = useFetch<Mission>(() => api.get<Mission>("/mission/control"), [refresh]);
   const { data: brands } = useFetch<Brand[]>(() => api.get<Brand[]>("/mission/brands"), [refresh]);
   const { data: cgoal } = useFetch<ClientGoal>(() => api.get<ClientGoal>("/clients/goal"), [refresh]);
-  const { data: outreach } = useFetch<OutreachSummary>(() => api.get<OutreachSummary>("/analytics/outreach-summary"), [refresh]);
+  const { data: outreach, error: outreachError, loading: outreachLoading, reload: reloadOutreach } = useFetch<OutreachSummary>(() => api.get<OutreachSummary>("/analytics/outreach-summary"), [refresh]);
   const [running, setRunning] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
@@ -100,10 +92,10 @@ function Home() {
   return (
     <div>
       <PageHeader
-        title={b?.greeting || "Good morning, Bruno"}
-        subtitle="Your chief of staff has ranked today. Do the top 3 — the rest can wait."
+        title="Mission Control"
+        subtitle="Review outreach activity, approvals and priorities."
         action={
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <LiveClock className="hidden text-sm text-gray-500 sm:inline" />
             <button className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium disabled:opacity-50"
               onClick={workPipeline} disabled={running}>▶ Work the pipeline</button>
@@ -112,6 +104,42 @@ function Home() {
         }
       />
       {msg && <p className="mb-4 rounded bg-brand/10 p-3 text-sm text-brand-dark">{msg}</p>}
+
+      <section aria-labelledby="controls-heading" className="mb-5 rounded-xl border border-gray-200 bg-white p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 id="controls-heading" className="text-lg font-semibold">Controls and approvals</h2>
+          <nav aria-label="Mission Control sections" className="flex flex-wrap gap-x-4 gap-y-2 text-sm">
+            <a href="#outreach-activity" className="text-brand-dark underline">Outreach activity</a>
+            <Link href="/inbox" className="text-brand-dark underline">Inbox</Link>
+            <Link href="/approvals" className="text-brand-dark underline">Approvals</Link>
+          </nav>
+        </div>
+        <p className="mb-2 text-sm text-gray-700">To pause scheduled activity, open <b>Automation engine</b> in the sidebar.</p>
+        {mission ? (
+          <p className={`text-sm font-medium ${mission.paused ? "text-red-700" : "text-gray-800"}`}>
+            {mission.paused ? "Scheduled automation is paused (Emergency Stop)." : "Scheduled automation is enabled. This does not verify sending."}
+            {" "}{mission.approvals_pending.toLocaleString()} approval {mission.approvals_pending === 1 ? "item" : "items"} reported.
+          </p>
+        ) : (
+          <div className="flex flex-wrap items-center gap-3 text-sm text-gray-700">
+            <p role="status">{missionLoading && !missionError ? "Loading control status…" : "Control status and approval count unavailable."}</p>
+            {missionError && <button type="button" className="rounded border border-gray-300 px-2 py-1" onClick={reloadMission}>Retry controls</button>}
+          </div>
+        )}
+      </section>
+      {mission && !mission.paused && (mission.sending_stalled || mission.mailbox_connected === false) && (mission.outreach_backlog ?? 0) > 0 && (
+        <Link href="/setup" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          <span><b>{mission.outreach_backlog}</b> outreach drafts queued. The app flagged a sending or mailbox issue.</span>
+          <span className="font-medium underline">Review setup</span>
+        </Link>
+      )}
+      {mission && !mission.paused && !mission.sending_stalled && mission.mailbox_connected !== false && (mission.auto_sending ?? 0) > 0 && (
+        <p className="mb-4 rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+          <b>{mission.auto_sending}</b> outreach drafts reported in the auto-send queue. A queue count is not a send count.
+        </p>
+      )}
+
+      <MissionOutreach data={outreach} loading={outreachLoading} error={outreachError} onRetry={reloadOutreach} />
 
       {/* Daily client goal — the standing order: bring in N new clients/day. */}
       {cgoal && (
@@ -127,8 +155,7 @@ function Home() {
               </div>
               <div className="mt-1 text-xs text-gray-500">
                 Engine sized for ~{cgoal.needed_touches_per_day.toLocaleString()} outreach touches/day at a{" "}
-                {(cgoal.conversion_rate * 100).toFixed(1)}% {cgoal.conversion_measured ? "measured" : "assumed"} conversion ·{" "}
-                {cgoal.sent_today.toLocaleString()} sent today
+                {(cgoal.conversion_rate * 100).toFixed(1)}% {cgoal.conversion_measured ? "measured" : "assumed"} conversion
               </div>
             </div>
             <Link href="/clients" className="text-sm font-medium text-brand">Tune the engine →</Link>
@@ -140,95 +167,14 @@ function Home() {
         </div>
       )}
 
-      {/* Outreach summary — sent counts, replies, and who's waiting on you */}
-      {outreach && (
-        <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div className="text-xs font-semibold uppercase tracking-wide text-gray-400">Outreach summary</div>
-            <Link href="/analytics" className="text-sm font-medium text-brand">Full analytics →</Link>
-          </div>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {([
-              ["📧 Emails", outreach.sent.today.email, outreach.sent.week.email],
-              ["💬 Texts", outreach.sent.today.sms, outreach.sent.week.sms],
-              ["📞 Calls", outreach.sent.today.call, outreach.sent.week.call],
-              ["↩️ Replies", outreach.replies.today, outreach.replies.week],
-            ] as [string, number, number][]).map(([label, today, week]) => (
-              <div key={label} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                <div className="text-xs text-gray-500">{label}</div>
-                <div className="mt-0.5 text-2xl font-bold">{today}<span className="text-sm font-normal text-gray-400"> today</span></div>
-                <div className="text-xs text-gray-400">{week} this week</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Outstanding actions — leads who replied and need a call/appointment/answer */}
-          <div className="mt-4">
-            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
-              🔔 Needs your action
-              <span className={`badge ${outreach.actions_count > 0 ? "bg-amber-100 text-amber-800" : "bg-gray-100 text-gray-500"}`}>
-                {outreach.actions_count}
-              </span>
-            </div>
-            {outreach.actions.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-gray-200 px-3 py-2 text-sm text-gray-400">
-                No replies waiting — you&apos;re all caught up.
-              </div>
-            ) : (
-              <ul className="divide-y divide-gray-100 rounded-lg border border-gray-100">
-                {outreach.actions.map((a, i) => (
-                  <li key={i}>
-                    <Link href={a.link} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm hover:bg-gray-50">
-                      <span>{a.channel === "sms" ? "💬" : a.channel === "call" ? "📞" : "📧"}</span>
-                      <b className="text-gray-900">{a.name}</b>
-                      <span className="badge bg-amber-100 text-amber-800">{a.status}</span>
-                      <span className="min-w-0 flex-1 truncate text-gray-500">{a.snippet}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Mission Control — today's status, approvals, paused state */}
-      {mission?.paused && (
-        <div className="mb-4 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-700">
-          ⛔ <b>Agents are paused</b> (Emergency Stop). Nothing is posting or sending. Resume from the sidebar when ready.
-        </div>
-      )}
-      {mission && mission.approvals_pending > 0 && (
-        <Link href="/approvals" className="mb-4 flex items-center justify-between rounded-xl border border-amber-300 bg-amber-50 p-4 hover:bg-amber-100">
-          <span className="text-sm text-amber-800">
-            ☑️ <b>{mission.approvals_pending}</b> item{mission.approvals_pending === 1 ? "" : "s"} need your approval.
-          </span>
-          <span className="text-sm font-medium text-amber-800">Review now →</span>
-        </Link>
-      )}
-      {mission && (mission.sending_stalled || mission.mailbox_connected === false) && (mission.outreach_backlog ?? 0) > 0 && (
-        <Link href="/setup" className="mb-4 flex items-center justify-between rounded-xl border border-red-300 bg-red-50 p-4 hover:bg-red-100">
-          <span className="text-sm text-red-700">
-            ⚠️ <b>{mission.outreach_backlog}</b> outreach email{mission.outreach_backlog === 1 ? "" : "s"} are queued but <b>not going out</b>.{" "}
-            {mission.sending_reason || "Your mailbox isn't sending."}
-          </span>
-          <span className="whitespace-nowrap text-sm font-medium text-red-700">Fix sending →</span>
-        </Link>
-      )}
-      {mission && !mission.sending_stalled && (mission.auto_sending ?? 0) > 0 && (
-        <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
-          📤 <b>{mission.auto_sending}</b> outreach email{mission.auto_sending === 1 ? "" : "s"} queued and sending automatically (Outreach Autopilot, paced to protect deliverability){(mission.sent_today ?? 0) > 0 ? ` — ${mission.sent_today} sent today` : ""}.
-        </div>
-      )}
       {mission && (
         <div className="mb-6">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Today&apos;s AI workforce</div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Today&apos;s logged workforce activity</div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
             {[
-              ["Posts", mission.today.posts], ["Insurance", mission.today.insurance_leads],
-              ["BnB", mission.today.bnb_leads], ["SavoryMind", mission.today.savorymind_leads],
-              ["Outreach", mission.today.outreach_sent], ["Replies", mission.today.replies],
-              ["Apps", mission.today.applications], ["Jobs", mission.today.jobs_found],
+              ["Content records", mission.today.posts], ["Insurance leads", mission.today.insurance_leads],
+              ["B&B leads", mission.today.bnb_leads], ["SavoryMind prospects", mission.today.savorymind_leads],
+              ["Application records", mission.today.applications], ["Jobs found", mission.today.jobs_found],
             ].map(([label, n]) => (
               <div key={label as string} className="rounded-lg border border-gray-200 bg-white p-2 text-center">
                 <div className="text-xl font-bold">{n as number}</div>
@@ -236,20 +182,22 @@ function Home() {
               </div>
             ))}
           </div>
-          {/* Goal score */}
-          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {mission.goals.map((g) => (
-              <div key={g.area} className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm">
-                <span className="text-gray-700">{g.area}</span>
-                <span className="flex items-center gap-2">
-                  <b>{g.today}</b><span className="text-gray-400">/ {g.target}</span>
-                  <span className={`badge ${g.status === "on track" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
-                    {g.status}
+          <details className="mt-3 rounded-lg border border-gray-200 bg-white p-3">
+            <summary className="cursor-pointer text-sm font-semibold">Activity targets</summary>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              {mission.goals.map((g) => (
+                <div key={g.area} className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm">
+                  <span className="text-gray-700">{g.area === "Outreach sent" ? "Outbound records" : g.area === "Replies" ? "Inbound records" : g.area}</span>
+                  <span className="flex items-center gap-2">
+                    <b>{g.today}</b><span className="text-gray-400">/ {g.target}</span>
+                    <span className={`badge ${g.status === "on track" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+                      {g.status}
+                    </span>
                   </span>
-                </span>
-              </div>
-            ))}
-          </div>
+                </div>
+              ))}
+            </div>
+          </details>
         </div>
       )}
 
