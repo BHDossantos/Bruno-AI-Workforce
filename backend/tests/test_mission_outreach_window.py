@@ -1,7 +1,7 @@
 """UTC range metadata for the read-only outreach panel."""
 from datetime import datetime, timedelta, timezone
 
-from conftest import requires_db
+from .conftest import requires_db
 
 
 @requires_db
