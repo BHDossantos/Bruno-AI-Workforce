@@ -7,7 +7,7 @@ the CRM reads across them, so the list is always fresh.
 """
 from __future__ import annotations
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from . import memory
@@ -60,26 +60,73 @@ def _from_contact(c: ManualContact) -> dict:
               link="/crm", kind=c.kind, subject=c.name)
 
 
+# Keep this a read-only search normalization: neither stored data nor delivery
+# destinations change. Use functions supported by PostgreSQL and SQLite.
+_PHONE_SEPARATORS = " +().-\t\u00a0\u202f"
+
+
+def _phone_search_keys(term: str | None) -> tuple[str, ...]:
+    term = (term or "").strip()
+    digits = term.translate(str.maketrans("", "", _PHONE_SEPARATORS))
+    if not digits.isascii() or not digits.isdecimal() or not 7 <= len(digits) <= 17:
+        return ()
+    if digits.startswith("00"):
+        country_number = digits[2:]
+        if not 7 <= len(country_number) <= 15:
+            return ()
+        if len(country_number) == 11 and country_number.startswith("1"):
+            return (digits, country_number, country_number[1:])
+        return (digits, country_number)
+    keys = [digits]
+    if term.startswith("+"):
+        # Explicit country codes stay intact, except that North American +1
+        # can match a stored domestic number without the 1.
+        keys.append("00" + digits)
+        if len(digits) == 11 and digits.startswith("1"):
+            keys.append(digits[1:])
+    elif len(digits) == 10 and digits[0] in "23456789":
+        keys.extend(("1" + digits, "001" + digits))
+    elif len(digits) == 11 and digits.startswith("1"):
+        keys.extend((digits[1:], "00" + digits))
+    return tuple(keys)
+
+
+def _phone_filter(column, keys: tuple[str, ...]):
+    normalized = column
+    for separator in _PHONE_SEPARATORS:
+        normalized = func.replace(normalized, separator, "")
+    return normalized.in_(keys)
+
+
 def list_contacts(db: Session, *, q: str | None = None, source: str | None = None,
                   limit: int = 200) -> list[dict]:
     out: list[dict] = []
     like = f"%{q}%" if q else None
+    phone_keys = _phone_search_keys(q)
 
-    def add(model, mapper, cols, src):
+    def add(model, mapper, cols, src, phone=None):
         if source and source != src:
             return
         query = db.query(model)
         if like is not None:
-            query = query.filter(or_(*[c.ilike(like) for c in cols]))
+            predicates = [c.ilike(like) for c in cols]
+            if phone is not None:
+                if phone_keys:
+                    predicates.append(_phone_filter(phone, phone_keys))
+                    if not q.strip().startswith(("+", "00")) and len(phone_keys[0]) < 10:
+                        predicates.append(phone.ilike(like))  # preserve partial local lookup
+                else:
+                    predicates.append(phone.ilike(like))
+            query = query.filter(or_(*predicates))
         for row in query.limit(limit).all():
             out.append(mapper(row))
 
-    add(Lead, _from_lead, [Lead.company_name, Lead.owner_name, Lead.email, Lead.phone], "insurance")
+    add(Lead, _from_lead, [Lead.company_name, Lead.owner_name, Lead.email], "insurance", phone=Lead.phone)
     add(Restaurant, _from_restaurant, [Restaurant.name, Restaurant.owner_manager, Restaurant.email], "savorymind")
     add(Job, _from_job, [Job.company, Job.title], "career")
     add(MusicPlaylist, _from_playlist, [MusicPlaylist.curator_name, MusicPlaylist.name, MusicPlaylist.email], "music")
     add(InstagramTarget, _from_ig, [InstagramTarget.handle, InstagramTarget.niche], "influence")
-    add(ManualContact, _from_contact, [ManualContact.name, ManualContact.company, ManualContact.email, ManualContact.phone], "manual")
+    add(ManualContact, _from_contact, [ManualContact.name, ManualContact.company, ManualContact.email], "manual", phone=ManualContact.phone)
 
     out.sort(key=lambda c: (c["name"] or "").lower())
     return out[:limit]
