@@ -12,13 +12,14 @@ import re
 from datetime import date, timedelta
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from . import outreach
 from .agents.base import FOLLOW_UP_OFFSETS
 from .ai import client, skills
 from .ai.prompts import CANDIDATE_PROFILE, CONSULTING_OUTREACH, INSURANCE_OUTREACH, SAVORYMIND_PITCH
 from .models import FollowUp, Lead, ManualContact, Message, Restaurant
+from .import_phone_key import import_phone_key
 
 log = logging.getLogger("bruno.importer")
 
@@ -206,18 +207,11 @@ def _existing_lead(db: Session, email: str, *, consulting: bool):
     return q.order_by(Lead.created_at.asc()).first()
 
 
-def _existing_lead_by_phone(db: Session, phone: str):
-    """Find an insurance lead already in the book with this phone (last-10-digits
-    match), so re-importing a phone-only list (e.g. DOT carriers, no emails) updates
-    instead of duplicating."""
-    digits = "".join(ch for ch in str(phone or "") if ch.isdigit())[-10:]
-    if len(digits) < 10:
-        return None
-    for lead in (db.query(Lead).filter(Lead.phone.isnot(None), Lead.phone != "",
-                                       Lead.segment != "consulting").all()):
-        if "".join(ch for ch in (lead.phone or "") if ch.isdigit())[-10:] == digits:
-            return lead
-    return None
+def _email_candidates(db: Session, email: str, *, insurance_only: bool) -> list[Lead]:
+    q = db.query(Lead).filter(func.lower(func.trim(Lead.email)) == email.strip().lower())
+    if insurance_only:
+        q = q.filter(Lead.segment != "consulting")
+    return q.limit(2).all()
 
 
 def process_leads_csv(db: Session, rows: list[dict], *, default_category: str | None = None,
@@ -237,11 +231,23 @@ def process_leads_csv(db: Session, rows: list[dict], *, default_category: str | 
     9:30am/3:30pm cron and the manual 'Send pending' action). A 2,000-row list now
     imports in a second instead of timing out the request.
 
-    Re-importing the same list is safe: a row whose email (or phone, when email-less)
-    already exists UPDATES that lead instead of creating a duplicate."""
+    Re-importing a resolved email/phone identity updates the existing lead.
+    Conflicting or non-unique identifiers never insert or schedule a second lead.
+    """
     default_category = (default_category or "").strip() or None
     default_segment = (default_segment or "").strip().lower() or None
-    imported = updated = skipped = 0
+    imported = updated = skipped = conflicts = 0
+    phones: dict[str, dict] | None = None
+
+    def record_phone(lead: Lead, old_key: str | None = None) -> None:
+        if phones is None:
+            return
+        if old_key and old_key in phones:
+            phones[old_key].pop(lead.id, None)
+        key = import_phone_key(lead.phone)
+        if key:
+            phones.setdefault(key, {})[lead.id] = lead
+
     for row in rows:
         # Match ANY email-column naming (not just a literal "email" header), so a
         # file exported from Google/Outlook/etc. and imported as "leads" doesn't
@@ -258,18 +264,54 @@ def process_leads_csv(db: Session, rows: list[dict], *, default_category: str | 
         category = _g(row, "category", "industry") or default_category or "Commercial"
         company = _g(row, "company_name", "company", "business", "business_name", *_COMPANY_KEYS)
         owner = _g(row, "owner_name", "owner", "name", *_FULLNAME_KEYS, *_FIRST_KEYS)
-        existing = (_existing_lead(db, email, consulting=False) if email
-                    else _existing_lead_by_phone(db, phone))
+        phone_key = import_phone_key(phone)
+        if phone and not phone_key:
+            # Do not guess an identity from unparseable supplied phone data.
+            conflicts += 1
+            continue
+        if phone_key and phones is None:
+            phones = {}
+            # Scan the small identity fields once per upload, not once per CSV row.
+            saved_phones = db.query(Lead).options(load_only(Lead.id, Lead.phone, Lead.email, Lead.segment)).filter(
+                Lead.phone.isnot(None), Lead.phone != "").all()
+            for saved in saved_phones:
+                record_phone(saved)
+        by_phone = list(phones.get(phone_key, {}).values()) if phones is not None and phone_key else []
+        by_email = _email_candidates(db, email, insurance_only=True) if email else []
+        if (len(by_phone) > 1 or len(by_email) > 1
+                or (by_phone and by_phone[0].segment not in ("commercial", "personal"))
+                or (by_email and by_phone and by_email[0].id != by_phone[0].id)):
+            conflicts += 1
+            continue
+
+        existing = by_email[0] if by_email else by_phone[0] if by_phone else None
+        if existing and by_phone and not by_email and email:
+            # Only enrich a genuinely phone-only lead in the same segment. Do not
+            # overwrite another email or guess identity from another business.
+            if existing.segment != segment or (existing.email or "").strip():
+                conflicts += 1
+                continue
+            locked = db.query(Lead).filter(Lead.id == existing.id).populate_existing().with_for_update().first()
+            if (not locked or locked.segment != segment or (locked.email or "").strip()
+                    or import_phone_key(locked.phone) != phone_key
+                    or _email_candidates(db, email, insurance_only=False)):
+                conflicts += 1
+                continue
+            existing = locked
         if existing:
+            old_key = import_phone_key(existing.phone)
             # Refresh newly-provided fields; never clobber existing data with blanks.
             existing.company_name = company or existing.company_name
             existing.owner_name = owner or existing.owner_name
-            existing.phone = phone or existing.phone
-            existing.email = existing.email or (email or None)
+            if phone and phone_key != old_key:
+                existing.phone = phone
+            existing.email = existing.email if (existing.email or "").strip() else email
             existing.category = existing.category or category
             existing.website = _g(row, "website") or existing.website
             existing.linkedin = _g(row, "linkedin") or existing.linkedin
             existing.industry = _g(row, "industry") or existing.industry
+            db.flush()  # Session uses autoflush=False; later rows must see this identity.
+            record_phone(existing, old_key)
             updated += 1
             continue
         reason = (f"{category} businesses typically need liability, property and professional coverage."
@@ -281,14 +323,16 @@ def process_leads_csv(db: Session, rows: list[dict], *, default_category: str | 
                     reason=reason, score=80, status="New")
         db.add(lead)
         db.flush()
+        record_phone(lead)
         _schedule_followups(db, "lead", lead.id)
         imported += 1
     db.commit()
-    log.info("Imported %d leads, updated %d (queued for paced outreach, %d skipped)",
-             imported, updated, skipped)
-    # sent is always 0 here — outreach goes out on the paced sender, not the upload.
+    log.info("Imported %d leads, updated %d (%d missing contact, %d identity conflicts)",
+             imported, updated, skipped, conflicts)
+    # This endpoint makes no send and never schedules another sequence for an update.
     return {"imported": imported, "updated": updated, "sent": 0, "queued": imported,
-            "skipped_no_contact": skipped, "skipped_no_email": skipped}
+            "skipped_no_contact": skipped, "skipped_no_email": skipped,
+            "skipped_identity_conflict": conflicts}
 
 
 def _first_name(full: str | None, default: str = "there") -> str:
