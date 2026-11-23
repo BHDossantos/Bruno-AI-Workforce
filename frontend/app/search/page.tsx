@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
@@ -19,27 +19,32 @@ function Search() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
+  const request = useRef(0);
+
   async function run(query: string) {
-    if (!query.trim()) { setRes(null); return; }
+    const current = ++request.current;
+    setRes(null); setErr("");
+    if (!query.trim()) { setLoading(false); return; }
     setLoading(true); setErr("");
-    try { setRes(await api.get<Results>(`/search?q=${encodeURIComponent(query)}`)); }
-    catch (e) { setErr(String(e)); }
-    finally { setLoading(false); }
+    try { const next = await api.get<Results>(`/search?q=${encodeURIComponent(query.trim())}`); if (current === request.current) setRes(next); }
+    catch (e) { if (current === request.current) setErr(String(e)); }
+    finally { if (current === request.current) setLoading(false); }
   }
-  useEffect(() => { run(initial); }, [initial]);  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setQ(initial); void run(initial); return () => { request.current++; }; }, [initial]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div>
       <PageHeader title="Search" subtitle="One search across your leads, every contact, and everything Bruno remembers." />
       <div className="mb-6 flex gap-2">
         <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && run(q)}
-          autoFocus placeholder="Search leads, contacts and memory…"
+          aria-label="Search leads, contacts and memory" autoFocus placeholder="Search leads, contacts and memory…"
           className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm" />
         <button className="btn" onClick={() => run(q)}>Search</button>
       </div>
 
-      {loading && <p className="text-sm text-gray-400">Searching…</p>}
-      {err && <p className="text-sm text-red-600">{err}</p>}
+      {loading && <p role="status" className="text-sm text-gray-400">Searching…</p>}
+      {err && <div role="alert" className="text-sm text-red-600">{err} <button className="btn" onClick={() => run(q)}>Try again</button></div>}
+      {res && !loading && !res.leads?.length && !res.contacts.length && !res.memories.length && <p role="status" className="mb-4 text-sm text-gray-500">No results. Try a name, email address, or a shorter search.</p>}
       {res && !loading && (res.leads?.length ?? 0) > 0 && (
         <div className="mb-6">
           <h2 className="mb-2 text-sm font-semibold text-gray-700">📇 Leads ({res.leads!.length})</h2>
