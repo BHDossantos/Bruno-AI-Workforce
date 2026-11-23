@@ -101,9 +101,7 @@ _ACTION_STATUSES = ("Interested", "Follow-up Needed")
 
 @router.get("/outreach-summary")
 def outreach_summary(db: Session = Depends(get_db), _=Depends(_read)):
-    """Dashboard summary: how many emails / texts / calls went out (today + this
-    week), how many replies came back, and the outstanding actions — leads who
-    replied (e.g. asked for a call or an appointment) and still need a human."""
+    """Logged message activity and recent flagged follow-ups (not provider receipts)."""
     now = datetime.now(timezone.utc)
     today_start = datetime.combine(now.date(), datetime.min.time(), tzinfo=timezone.utc)
     week_start = today_start - timedelta(days=6)
@@ -111,11 +109,11 @@ def outreach_summary(db: Session = Depends(get_db), _=Depends(_read)):
     def _sent(channel: str, since: datetime) -> int:
         return db.query(func.count()).select_from(Message).filter(
             Message.channel == channel, Message.direction == "outbound",
-            Message.sent_at.isnot(None), Message.sent_at >= since).scalar() or 0
+            Message.sent_at >= since, Message.sent_at <= now).scalar() or 0
 
     def _replies(since: datetime) -> int:
         return db.query(func.count()).select_from(Message).filter(
-            Message.direction == "inbound", Message.created_at >= since).scalar() or 0
+            Message.direction == "inbound", Message.created_at >= since, Message.created_at <= now).scalar() or 0
 
     sent = {
         "today": {"email": _sent("email", today_start), "sms": _sent("sms", today_start),
@@ -132,7 +130,8 @@ def outreach_summary(db: Session = Depends(get_db), _=Depends(_read)):
     recent = (db.query(Message)
               .filter(Message.direction == "inbound",
                       Message.status.in_(_ACTION_STATUSES),
-                      Message.created_at >= today_start - timedelta(days=30))
+                      Message.created_at >= today_start - timedelta(days=30),
+                      Message.created_at <= now)
               .order_by(Message.created_at.desc()).limit(200).all())
     actions = []
     seen: set = set()
@@ -150,7 +149,7 @@ def outreach_summary(db: Session = Depends(get_db), _=Depends(_read)):
         snippet = (m.body or "").strip().replace("\n", " ")
         actions.append({
             "name": name or "Lead",
-            "channel": m.channel or "sms",
+            "channel": m.channel or "unknown",
             "status": m.status,
             "snippet": snippet[:140] + ("…" if len(snippet) > 140 else ""),
             "received_at": (m.created_at or now).isoformat(),
@@ -160,6 +159,12 @@ def outreach_summary(db: Session = Depends(get_db), _=Depends(_read)):
             break
 
     return {
+        "window": {
+            "timezone": "UTC",
+            "today_start": today_start.isoformat(),
+            "seven_day_start": week_start.isoformat(),
+            "snapshot_at": now.isoformat(),
+        },
         "sent": sent,
         "replies": {"today": _replies(today_start), "week": _replies(week_start)},
         "actions": actions,
