@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { describeWorkforceControl } from "@/lib/workforceControl";
 import { api } from "@/lib/api";
 import { AuthGate, PageHeader, useFetch, LoadState } from "@/components/ui";
 
@@ -9,7 +11,7 @@ type Dept = {
 };
 type WaitsForYou = {
   mode: string; autopilot: boolean; paused: boolean; calls_on: boolean;
-  pending_drafts: number; open_actions: number; approve_from_phone: boolean;
+  pending_drafts: number; open_actions: number;
 };
 type Activity = { time: string; actor: string; action: string; detail: string };
 type Map = {
@@ -40,6 +42,7 @@ function Stat({ label, value }: { label: string; value: number }) {
 function Workforce() {
   const { data, loading, error, reload } = useFetch<Map>(() => api.get<Map>("/workforce/map"));
   const w = data?.waits_for_you;
+  const control = describeWorkforceControl(w);
   const activeCount = (data?.departments || []).filter((d) => d.active).length;
 
   return (
@@ -63,22 +66,19 @@ function Workforce() {
                 </div>
               </div>
             </div>
-            <div className={`rounded-2xl border p-4 ${w?.approve_from_phone ? "border-amber-300 bg-amber-50" : "border-emerald-300 bg-emerald-50"}`}>
+            <div className={`rounded-2xl border p-4 ${control.warning ? "border-amber-300 bg-amber-50" : "border-gray-200 bg-gray-50"}`}>
               <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">🙌 Waits for you</div>
               <div className="mt-1 text-sm text-gray-800">
-                {w?.paused
-                  ? "⛔ Everything is paused (Emergency Stop)."
-                  : w?.approve_from_phone
-                    ? "Nothing sends without your yes — approve from your phone."
-                    : "Full autopilot — sending on its own."}
+                {control.text}
               </div>
               <div className="mt-2 flex flex-wrap gap-2 text-xs">
                 <span className="rounded-full bg-white px-2 py-0.5 text-gray-700 ring-1 ring-gray-200">{w?.pending_drafts ?? 0} drafts pending</span>
                 <span className="rounded-full bg-white px-2 py-0.5 text-gray-700 ring-1 ring-gray-200">{w?.open_actions ?? 0} replies need you</span>
                 <span className={`rounded-full px-2 py-0.5 ring-1 ${w?.calls_on ? "bg-white text-gray-700 ring-gray-200" : "bg-red-100 text-red-700 ring-red-200"}`}>
-                  calls {w?.calls_on ? "on" : "off"}
+                  calls setting {typeof w?.calls_on !== "boolean" ? "unknown" : w.calls_on ? "on" : "off"}
                 </span>
               </div>
+              <Link href="/approvals" className="mt-3 inline-block text-sm font-medium text-brand-dark underline">Review approvals</Link>
             </div>
           </div>
 
