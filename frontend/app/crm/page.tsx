@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { AuthGate, PageHeader } from "@/components/ui";
@@ -19,6 +19,8 @@ type Mem = { id: string; kind: string; content: string };
 type Conn = { id: string; subject: string; relation: string; direction: string; type?: string | null };
 type Detail = Contact & { memories: Mem[]; connections: Conn[] };
 
+const EMPTY_FORM = { name: "", company: "", title: "", email: "", phone: "", kind: "contact" };
+
 const SOURCES: { key: string; label: string; icon: string }[] = [
   { key: "", label: "All", icon: "👥" },
   { key: "insurance", label: "Insurance", icon: "🛡️" },
@@ -36,15 +38,49 @@ function CRM() {
   const [open, setOpen] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ name: "", company: "", title: "", email: "", phone: "", kind: "contact" });
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [savedContact, setSavedContact] = useState<Contact | null>(null);
+  const [listState, setListState] = useState<"loading" | "ready" | "error">("loading");
+  const savingRef = useRef(false);
+  const request = useRef(0);
 
-  async function load() {
+  async function load(filterSource: string, filterQuery: string) {
+    const current = ++request.current;
     const p = new URLSearchParams();
-    if (q) p.set("q", q);
-    if (source) p.set("source", source);
-    setItems(await api.get<Contact[]>(`/crm?${p.toString()}`));
+    if (filterQuery.trim()) p.set("q", filterQuery.trim());
+    if (filterSource) p.set("source", filterSource);
+    setItems([]);
+    setListState("loading");
+    try {
+      const next = await api.get<Contact[]>(`/crm?${p.toString()}`);
+      if (current !== request.current) return;
+      setItems(next);
+      setListState("ready");
+    } catch {
+      if (current === request.current) setListState("error");
+    }
   }
-  useEffect(() => { load().catch(() => {}); }, [source]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    void load("", "");
+    return () => { request.current++; };
+  }, []); // Load the initial unfiltered list.
+
+  function showSource(next: string) {
+    setSource(next);
+    setSavedContact(null);
+    void load(next, q);
+  }
+
+  function search() {
+    setSavedContact(null);
+    void load(source, q);
+  }
+
+  const displayed = savedContact && source === "manual" && !q.trim()
+    ? [savedContact, ...items.filter((item) => item.id !== savedContact.id)] : items;
 
   const [note, setNote] = useState("");
   const [savingNote, setSavingNote] = useState(false);
@@ -78,10 +114,43 @@ function CRM() {
   }
 
   async function addContact() {
-    if (!form.name.trim()) return;
-    await api.post("/crm", form);
-    setForm({ name: "", company: "", title: "", email: "", phone: "", kind: "contact" });
-    setAdding(false); setSource("manual"); await load();
+    const name = form.name.trim();
+    if (!name || savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    setSaveError("");
+    try {
+      const created = await api.post<Contact>("/crm", { ...form, name });
+      if (!created?.id?.startsWith("contact:")) {
+        setSaveError("The app did not confirm the contact ID. Check Added contacts before retrying.");
+        return;
+      }
+      setForm(EMPTY_FORM);
+      setAdding(false);
+      setSavedContact(created);
+      setQ("");
+      setSource("manual");
+      setOpen(null);
+      setDetail(null);
+      void load("manual", "");
+    } catch {
+      setSaveError("The app could not confirm the save. Check Added contacts before retrying.");
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  }
+
+  const [callableBusy, setCallableBusy] = useState<string | null>(null);
+  // Turn a hand-added contact into a callable lead, then open it (Call/Text live there).
+  async function makeCallable(cid: string) {
+    setCallableBusy(cid);
+    try {
+      const r = await api.post<{ lead_id: string }>(`/crm/${encodeURIComponent(cid)}/to-lead`, {});
+      window.location.href = `/leads/${r.lead_id}`;
+    } catch {
+      setCallableBusy(null);
+    }
   }
 
   const [callableBusy, setCallableBusy] = useState<string | null>(null);
@@ -103,7 +172,7 @@ function CRM() {
 
       <div className="mb-4 flex flex-wrap gap-2">
         {SOURCES.map((s) => (
-          <button key={s.key} onClick={() => setSource(s.key)}
+          <button key={s.key} onClick={() => showSource(s.key)} aria-pressed={source === s.key}
             className={`rounded-full px-3 py-1 text-sm ${source === s.key ? "bg-brand text-white" : "bg-gray-100 text-gray-600"}`}>
             {s.icon} {s.label}
           </button>
@@ -111,21 +180,22 @@ function CRM() {
       </div>
 
       <div className="mb-4 flex gap-2">
-        <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load()}
+        <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && search()}
           placeholder="Search name, company, email, phone…"
           className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm" />
-        <button className="btn" onClick={load}>Search</button>
-        <button className="rounded-lg border border-gray-300 px-3 py-2 text-sm" onClick={() => setAdding(!adding)}>+ Add</button>
+        <button className="btn" onClick={search}>Search</button>
+        <button className="rounded-lg border border-gray-300 px-3 py-2 text-sm" disabled={saving} onClick={() => { setAdding(!adding); setSaveError(""); }}>+ Add</button>
       </div>
 
+      {savedContact && <p role="status" className="mb-4 text-sm font-medium text-green-800">{savedContact.name} saved. Showing Added contacts without a search filter.</p>}
       {adding && (
         <div className="card mb-4 grid gap-2 sm:grid-cols-3">
           {(["name", "company", "title", "email", "phone"] as const).map((f) => (
-            <input key={f} placeholder={f} value={form[f]}
+            <input key={f} aria-label={f} placeholder={f} value={form[f]} disabled={saving}
               onChange={(e) => setForm({ ...form, [f]: e.target.value })}
               className="rounded-lg border border-gray-300 px-3 py-2 text-sm" />
           ))}
-          <select value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}
+          <select aria-label="Contact type" disabled={saving} value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}
             className="rounded-lg border border-gray-300 px-3 py-2 text-sm">
             <option value="contact">Contact</option>
             <option value="recruiter">Recruiter</option>
@@ -133,10 +203,17 @@ function CRM() {
             <option value="advisor">Advisor</option>
             <option value="client">Client</option>
           </select>
-          <button className="btn" onClick={addContact}>Save contact</button>
+          <button className="btn" disabled={saving || !form.name.trim()} onClick={addContact}>{saving ? "Saving…" : "Save contact"}</button>
+          {saveError && <p role="alert" className="text-sm text-red-700 sm:col-span-3">{saveError}</p>}
         </div>
       )}
 
+      {listState === "error" && (
+        <div role="status" className="mb-3 flex flex-wrap items-center gap-3 text-sm text-red-700">
+          <span>Contacts could not be loaded.</span>
+          <button type="button" onClick={() => void load(source, q)} className="rounded border border-gray-300 px-2 py-1">Retry contacts</button>
+        </div>
+      )}
       <div className="card overflow-hidden p-0">
         <table className="w-full text-sm">
           <thead className="bg-gray-50 text-left text-xs text-gray-500">
@@ -144,7 +221,7 @@ function CRM() {
               <th className="p-3">Source</th><th className="p-3">Status</th><th className="p-3"></th></tr>
           </thead>
           <tbody>
-            {items.map((c) => (
+            {displayed.map((c) => (
               <Fragment key={c.id}>
                 <tr className="cursor-pointer border-t hover:bg-gray-50" onClick={() => expand(c)}>
                   <td className="p-3 font-medium">{c.name}</td>
@@ -244,7 +321,7 @@ function CRM() {
                 )}
               </Fragment>
             ))}
-            {items.length === 0 && <tr><td colSpan={5} className="p-6 text-center text-gray-400">No contacts.</td></tr>}
+            {displayed.length === 0 && listState !== "error" && <tr><td colSpan={5} className="p-6 text-center text-gray-500">{listState === "loading" ? "Loading contacts…" : "No matching contacts."}</td></tr>}
           </tbody>
         </table>
       </div>
