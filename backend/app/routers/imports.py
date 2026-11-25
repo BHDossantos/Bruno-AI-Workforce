@@ -1,34 +1,17 @@
 """CSV import endpoints — bring your own real contact lists."""
 import csv
-import io
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
 
 from .. import importer
+from ..csv_upload import csv_rows as _csv_rows
 from ..database import get_db
 from ..security import require_role
 
 router = APIRouter(prefix="/import", tags=["import"])
 _write = require_role("admin", "operator")
-
-
-_HEADER_HINTS = ("first name", "last name", "name", "email", "e-mail", "company")
-
-
-def _csv_rows(content: str) -> list[dict]:
-    """DictReader, but tolerant of a preamble before the real header row — e.g.
-    LinkedIn's Connections.csv starts with a 3-line 'Notes:' block, which would
-    otherwise make DictReader treat 'Notes:' as the only column (→ 0 imported)."""
-    lines = content.splitlines()
-    start = 0
-    for i, ln in enumerate(lines[:10]):
-        low = ln.lower()
-        if "," in ln and sum(h in low for h in _HEADER_HINTS) >= 1:
-            start = i
-            break
-    return list(csv.DictReader(io.StringIO("\n".join(lines[start:]))))
 
 
 async def _rows(file: UploadFile) -> list[dict]:
@@ -39,7 +22,14 @@ async def _rows(file: UploadFile) -> list[dict]:
         or "BEGIN:VCARD" in content[:200].upper()
     if is_vcard:
         return importer.parse_vcards(content)
-    return _csv_rows(content)
+    try:
+        return _csv_rows(content)
+    except csv.Error as exc:
+        # Only report our own structural errors; never echo file data.
+        message = str(exc)
+        if not message.startswith("CSV "):
+            message = "CSV quoting is malformed. Export a fresh CSV or fix unmatched quotes."
+        raise HTTPException(status_code=422, detail=message) from exc
 
 
 @router.post("/leads")

@@ -141,6 +141,18 @@ function CRM() {
     }
   }
 
+  const [callableBusy, setCallableBusy] = useState<string | null>(null);
+  // Turn a hand-added contact into a callable lead, then open it (Call/Text live there).
+  async function makeCallable(cid: string) {
+    setCallableBusy(cid);
+    try {
+      const r = await api.post<{ lead_id: string }>(`/crm/${encodeURIComponent(cid)}/to-lead`, {});
+      window.location.href = `/leads/${r.lead_id}`;
+    } catch {
+      setCallableBusy(null);
+    }
+  }
+
   return (
     <div>
       <PageHeader title="Universal CRM"
@@ -208,6 +220,12 @@ function CRM() {
                     {leadProfileHref(c.id) && (
                       <Link href={leadProfileHref(c.id)!} onClick={(e) => e.stopPropagation()}
                         className="mr-3 text-xs font-medium text-brand hover:underline">Open profile ↗</Link>
+                    )}
+                    {c.id.startsWith("contact:") && c.phone && (
+                      <button onClick={(e) => { e.stopPropagation(); makeCallable(c.id); }}
+                        disabled={callableBusy === c.id}
+                        className="mr-3 text-xs font-medium text-brand hover:underline">
+                        {callableBusy === c.id ? "Adding…" : "📞 Add to Call List"}</button>
                     )}
                     <span className="text-gray-400">{open === c.id ? "▲" : "▼"}</span>
                   </td>

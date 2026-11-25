@@ -5251,6 +5251,30 @@ def test_calls_switch_controlled_only_by_app_not_env(monkeypatch):
         db.close()
 
 
+def test_contact_promote_to_callable_lead():
+    """A hand-added CRM contact can be turned into a callable lead (so it gets the
+    Call/Text toolbar + Call List), reusing an existing lead instead of duplicating."""
+    from app import crm
+    from app.database import SessionLocal
+    from app.models import Lead
+
+    db = SessionLocal()
+    try:
+        c = crm.add_contact(db, name="Lucas Borbas", phone="+16039308272", kind="contact")
+        cid = c["id"]
+        assert cid.startswith("contact:")
+        lead_id = crm.promote_to_lead(db, cid)
+        assert lead_id
+        lead = db.query(Lead).filter(Lead.id == lead_id).first()
+        assert lead and lead.owner_name == "Lucas Borbas" and lead.phone == "+16039308272"
+        # Re-promoting the same contact reuses that lead (no duplicate in the book).
+        assert crm.promote_to_lead(db, cid) == lead_id
+        # A non-contact cid (e.g. an already-callable lead) returns None.
+        assert crm.promote_to_lead(db, f"lead:{lead_id}") is None
+    finally:
+        db.close()
+
+
 def test_crm_token_falls_back_to_env_without_connection():
     from app.config import settings
     from app.integrations import crm
