@@ -207,6 +207,25 @@ def _existing_lead(db: Session, email: str, *, consulting: bool):
     return q.order_by(Lead.created_at.asc()).first()
 
 
+def _existing_lead_by_phone(db: Session, phone: str | None):
+    """Find a non-consulting lead already in the book with the same phone, so
+    promoting a hand-added contact reuses that lead instead of duplicating it.
+    Matches on the exact import phone key (see import_phone_key), never on a
+    partial number; returns None for unparseable phones or ambiguous matches."""
+    key = import_phone_key(phone)
+    if not key:
+        return None
+    q = db.query(Lead).filter(Lead.segment != "consulting")
+    exact = q.filter(Lead.phone == (phone or "").strip()).order_by(Lead.created_at.asc()).first()
+    if exact is not None:
+        return exact
+    candidates = (q.options(load_only(Lead.id, Lead.phone, Lead.created_at))
+                  .filter(Lead.phone.isnot(None), Lead.phone != "")
+                  .order_by(Lead.created_at.asc()).all())
+    matches = [lead for lead in candidates if import_phone_key(lead.phone) == key]
+    return matches[0] if len(matches) == 1 else None
+
+
 def _email_candidates(db: Session, email: str, *, insurance_only: bool) -> list[Lead]:
     q = db.query(Lead).filter(func.lower(func.trim(Lead.email)) == email.strip().lower())
     if insurance_only:

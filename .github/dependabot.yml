@@ -1,0 +1,58 @@
+# Weekly grouped dependency updates: one PR per ecosystem per week instead of
+# a pile of single-package PRs. Security updates still arrive on their own.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/backend"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      pip-backend-minor-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: npm
+    directory: "/frontend"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      npm-frontend-minor-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: npm
+    directory: "/mobile"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      npm-mobile-minor-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: docker
+    directory: "/backend"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      docker-backend-minor-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: docker
+    directory: "/frontend"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      docker-frontend-minor-patch:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      github-actions-minor-patch:
+        update-types: ["minor", "patch"]
