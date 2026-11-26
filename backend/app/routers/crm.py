@@ -66,7 +66,10 @@ def get_contact(cid: str, db: Session = Depends(get_db), _=Depends(_read)):
 def contact_to_lead(cid: str, db: Session = Depends(get_db), _=Depends(_write)):
     """Make a hand-added contact callable: turn it into a Lead so it gets the
     Call/Text toolbar and appears in the Call List. Returns the new lead id."""
-    lead_id = crm.promote_to_lead(db, cid)
+    try:
+        lead_id = crm.promote_to_lead(db, cid)
+    except crm.ContactIdentityConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
     if not lead_id:
         raise HTTPException(404, "contact not found, or not a hand-added contact")
     return {"lead_id": lead_id}

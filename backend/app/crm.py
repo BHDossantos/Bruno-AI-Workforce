@@ -11,6 +11,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from . import memory
+from .import_phone_key import import_phone_key
 from .models import InstagramTarget, Job, Lead, ManualContact, MusicPlaylist, Restaurant
 
 # Each source: (cid prefix, model, row->contact mapper, searchable columns, source label)
@@ -203,18 +204,64 @@ def add_contact(db: Session, **fields) -> dict:
     # The primary write is already durable. Search memory has its own transaction
     # and must not turn a confirmed save into an apparent failure.
     bits = [b for b in [row.title, row.company, row.kind] if b]
-    try:
-        memory.add(db, f"{row.name}" + (f" — {', '.join(bits)}" if bits else ""),
-                   kind="contact", subject=row.name, source="crm")
-    except Exception:
-        import logging
+    memory.add(db, f"{row.name}" + (f" — {', '.join(bits)}" if bits else ""),
+               kind="contact", subject=row.name, source="crm")
+    return _from_contact(row)
 
-        log = logging.getLogger(__name__)
-        log.warning("CRM contact saved; optional search memory update failed")
-        try:
-            db.rollback()
-        except Exception:
-            # The request dependency closes the session; keep the saved response
-            # even if a broken connection also prevents rollback.
-            log.warning("CRM optional search memory transaction cleanup failed")
-    return saved
+
+class ContactIdentityConflict(Exception):
+    """A manual contact does not safely identify exactly one existing lead."""
+
+
+def _promotion_match(db: Session, email: str | None, phone: str | None) -> Lead | None:
+    email = (email or "").strip().lower()
+    key = import_phone_key(phone)
+    if (phone or "").strip() and not key:
+        raise ContactIdentityConflict("This contact's phone could not be matched safely. Check its full number.")
+
+    emails = db.query(Lead).filter(func.lower(func.trim(Lead.email)) == email).limit(2).all() if email else []
+    phone_ids = []
+    if key:
+        for lead_id, number in db.query(Lead.id, Lead.phone).filter(Lead.phone.isnot(None)).yield_per(500):
+            if import_phone_key(number) == key:
+                phone_ids.append(lead_id)
+                if len(phone_ids) == 2:
+                    break
+
+    conflict = "This contact matches conflicting lead records. Review its email and phone before adding it to the Call List."
+    if len(emails) > 1 or len(phone_ids) > 1 or (emails and phone_ids and emails[0].id != phone_ids[0]):
+        raise ContactIdentityConflict(conflict)
+    lead = emails[0] if emails else db.get(Lead, phone_ids[0]) if phone_ids else None
+    if phone_ids and lead is None:
+        raise ContactIdentityConflict(conflict)
+    if lead and (lead.segment not in ("commercial", "personal")
+            or (email and (lead.email or "").strip() and lead.email.strip().lower() != email)
+            or (key and (lead.phone or "").strip() and import_phone_key(lead.phone) != key)):
+        raise ContactIdentityConflict(conflict)
+    return lead
+
+
+def promote_to_lead(db: Session, cid: str) -> str | None:
+    """Make a hand-added contact callable: create (or reuse) a Lead from a
+    'contact:' entry so it gains the Call/Text toolbar and shows up in the Call
+    List. Returns the lead id, or None if ``cid`` isn't a manual contact. Reuses an
+    existing lead with the same email/phone so this never duplicates the book."""
+    prefix, sep, raw = (cid or "").partition(":")
+    if not sep or prefix != "contact":
+        return None
+    try:
+        c = db.query(ManualContact).filter(ManualContact.id == raw).with_for_update().first()
+    except Exception:  # malformed id → not found, not a 500
+        return None
+    if c is None:
+        return None
+    lead = _promotion_match(db, c.email, c.phone)
+    if lead is None:
+        lead = Lead(segment="commercial", category=(c.kind or "contact").title(),
+                    company_name=c.company or c.name, owner_name=c.name,
+                    email=c.email or None, phone=c.phone, status="New", score=80,
+                    reason="Added from your contacts to reach out directly.")
+        db.add(lead)
+        db.commit()
+        db.refresh(lead)
+    return str(lead.id)
