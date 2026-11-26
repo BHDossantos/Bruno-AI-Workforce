@@ -81,7 +81,7 @@ jobs:
       - name: Resolve the agent summary path
         run: echo "AGENT_SUMMARY_PATH=$RUNNER_TEMP/agent-summary.md" >> "$GITHUB_ENV"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 

@@ -30,8 +30,8 @@ jobs:
       ADMIN_EMAIL: admin@example.com
       ADMIN_PASSWORD: testpass
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
@@ -47,8 +47,8 @@ jobs:
     name: Frontend build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: npm
