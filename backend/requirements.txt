@@ -20,7 +20,7 @@ google-auth-oauthlib==1.5.0
 langgraph==0.2.60
 google-cloud-storage==3.17.1
 playwright==1.49.1
-tzdata==2025.1  # zoneinfo DB for the slim image (Europe/Rome, America/New_York windows)
+tzdata==2026.6  # zoneinfo DB for the slim image (Europe/Rome, America/New_York windows)
 
 # Official webhook signature validators (no provider clients are invoked).
 twilio==9.13.0
