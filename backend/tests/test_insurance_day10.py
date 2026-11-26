@@ -81,3 +81,31 @@ class InsuranceDay10Test(TestCase):
     def test_missing_or_future_ack_safe(self):
         self.assertEqual(self.decide(11, 15, dispatch="accepted", accepted_at=ts(11, 16)).action,
                          Action.REVIEW)
+
+    def test_cancelled_booking_reopens_once_without_waiting_another_day(self):
+        k = dict(dispatch="accepted", accepted_at=ts(11, 16), callback_created=True,
+                 cancelled_booking_id="booking-1", booking_cancelled_at=ts(14, 15))
+        d = self.decide(14, 15, **k)
+        self.assertEqual(d.action, Action.CALLBACK)
+        self.assertIn("cancelled without replacement", d.reason)
+        self.assertEqual(d.key, self.decide(14, 16, **k).key)
+        self.assertEqual(self.decide(14, 16, **k, reopened_for_booking_id="booking-1").action,
+                         Action.COMPLETE)
+
+    def test_cancellation_with_replacement_or_reply_is_not_reopened(self):
+        k = dict(dispatch="accepted", accepted_at=ts(11, 16),
+                 cancelled_booking_id="booking-1", booking_cancelled_at=ts(14, 15))
+        for changes in ({"booked": True}, {"replied": True}):
+            self.assertEqual(self.decide(14, 16, **k, **changes).action, Action.COMPLETE)
+        self.assertEqual(self.decide(14, 16, **k, opted_out=True).action, Action.SUPPRESS)
+        self.assertEqual(self.decide(14, 16, **k, call_allowed=False).action, Action.SUPPRESS)
+
+    def test_cancelled_booking_outside_hours_waits_for_human(self):
+        k = dict(dispatch="accepted", accepted_at=ts(11, 16),
+                 cancelled_booking_id="booking-1", booking_cancelled_at=ts(12, 16))
+        self.assertEqual(self.decide(12, 16, **k).due_at, ts(14, 14))
+        self.assertEqual(self.decide(14, 14, **k).action, Action.CALLBACK)
+
+    def test_cancellation_without_confirmed_initial_send_goes_to_review(self):
+        self.assertEqual(self.decide(14, 15, cancelled_booking_id="booking-1",
+                                     booking_cancelled_at=ts(14, 14)).action, Action.REVIEW)
