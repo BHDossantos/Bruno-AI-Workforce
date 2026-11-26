@@ -18,7 +18,7 @@ google-api-python-client==2.156.0
 google-auth==2.37.0
 google-auth-oauthlib==1.2.1
 langgraph==0.2.60
-google-cloud-storage==2.19.0
+google-cloud-storage==3.17.1
 playwright==1.49.1
 tzdata==2025.1  # zoneinfo DB for the slim image (Europe/Rome, America/New_York windows)
 
