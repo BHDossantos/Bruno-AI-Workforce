@@ -38,6 +38,10 @@ class CheckIn:
     dispatch: str = "new"  # new, queued, accepted, failed, uncertain
     accepted_at: datetime | None = None
     callback_created: bool = False
+    # Adapter supplies authenticated, ordered booking state only.
+    cancelled_booking_id: str | None = None
+    booking_cancelled_at: datetime | None = None
+    reopened_for_booking_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -100,9 +104,27 @@ def plan(case: CheckIn, now: datetime, *, approved_booking_hosts: frozenset[str]
         return Decision(Action.SUPPRESS, "out of pilot scope")
     if case.opted_out or not case.policy_active:
         return Decision(Action.SUPPRESS, "opt-out or inactive policy")
-    if case.replied or case.booked or case.callback_created:
-        return Decision(Action.COMPLETE, "reply, booking or callback already recorded")
+    if case.replied or case.booked:
+        return Decision(Action.COMPLETE, "reply or current booking already recorded")
     base = f"insurance-day10:{case.case_key}"
+    if case.cancelled_booking_id:
+        if case.reopened_for_booking_id == case.cancelled_booking_id:
+            return Decision(Action.COMPLETE, "this cancelled booking was already assigned")
+        if not case.call_allowed:
+            return Decision(Action.SUPPRESS, "no permitted callback")
+        if (not case.owner_id or case.dispatch != "accepted" or case.accepted_at is None
+                or case.booking_cancelled_at is None
+                or not bound <= _aware(case.accepted_at) <= _aware(case.booking_cancelled_at) <= moment):
+            return Decision(Action.REVIEW, "cancellation lacks a valid original send, time or assignee",
+                            key=f"{base}:cancellation-review")
+        due = _next_staffed(_aware(case.booking_cancelled_at), closed_dates)
+        if moment < due or not _staffed(moment, closed_dates):
+            return Decision(Action.WAIT, "defer cancellation follow-up until staffed",
+                            due_at=_next_staffed(max(moment, due), closed_dates))
+        return Decision(Action.CALLBACK, "booking cancelled without replacement; reopen existing callback",
+                        key=f"{base}:cancel:{case.cancelled_booking_id}", due_at=due)
+    if case.callback_created:
+        return Decision(Action.COMPLETE, "callback already recorded")
     if case.dispatch in {"failed", "uncertain"}:
         return Decision(Action.REVIEW, "failed or uncertain delivery; no automatic resend or callback",
                         key=f"{base}:delivery-review")
