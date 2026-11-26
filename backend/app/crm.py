@@ -200,7 +200,9 @@ def add_contact(db: Session, **fields) -> dict:
     db.add(row)
     db.commit()
     db.refresh(row)
-    # Seed the knowledge graph so the contact is immediately searchable everywhere.
+    saved = _from_contact(row)
+    # The primary write is already durable. Search memory has its own transaction
+    # and must not turn a confirmed save into an apparent failure.
     bits = [b for b in [row.title, row.company, row.kind] if b]
     memory.add(db, f"{row.name}" + (f" — {', '.join(bits)}" if bits else ""),
                kind="contact", subject=row.name, source="crm")
