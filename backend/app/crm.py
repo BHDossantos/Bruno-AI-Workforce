@@ -204,9 +204,21 @@ def add_contact(db: Session, **fields) -> dict:
     # The primary write is already durable. Search memory has its own transaction
     # and must not turn a confirmed save into an apparent failure.
     bits = [b for b in [row.title, row.company, row.kind] if b]
-    memory.add(db, f"{row.name}" + (f" — {', '.join(bits)}" if bits else ""),
-               kind="contact", subject=row.name, source="crm")
-    return _from_contact(row)
+    try:
+        memory.add(db, f"{row.name}" + (f" — {', '.join(bits)}" if bits else ""),
+                   kind="contact", subject=row.name, source="crm")
+    except Exception:
+        import logging
+
+        log = logging.getLogger(__name__)
+        log.warning("CRM contact saved; optional search memory update failed")
+        try:
+            db.rollback()
+        except Exception:
+            # The request dependency closes the session; keep the saved response
+            # even if a broken connection also prevents rollback.
+            log.warning("CRM optional search memory transaction cleanup failed")
+    return saved
 
 
 class ContactIdentityConflict(Exception):
