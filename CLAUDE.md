@@ -41,8 +41,9 @@ the base branch.
   (≈100/day) — only falling to the next when one errors, then to the account's
   Gmail. (SendGrid was
   re-added alongside Resend for capacity — both are first-class.)
-- **Telephony is Twilio**, on the verified toll-free, with SignalWire as the
-  fallback. Both speak the identical REST + TwiML API, so `integrations/telco.py`
+- **Telephony is Twilio**, on the one `business_phone` number (`phone_numbers.py`),
+  with SignalWire as the fallback. Never hard-code a phone number elsewhere: the
+  per-channel fields are blank-by-default overrides (see `docs/phone-number.md`). Both speak the identical REST + TwiML API, so `integrations/telco.py`
   builds one request either way. The carrier is chosen PER CHANNEL —
   `sms_provider` for texting, `voice_provider` for calling, both defaulting to
   `twilio` — so one channel can move without dragging the other. Do NOT switch

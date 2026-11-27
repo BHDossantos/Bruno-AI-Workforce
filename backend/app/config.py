@@ -160,7 +160,7 @@ class Settings(BaseSettings):
     # insurance_business_name). Shown as:
     #   Thrust Insurance
     #   Bruno Dossantos | insurance agent
-    #   phone# (833) 854-7055   Cell# 16039308272   (phone# = business_phone)
+    #   phone# (857) 380-1011   Cell# 16039308272   (phone# = business_phone)
     producer_title: str = "insurance agent"
     # Producer headshot shown in the email signature (a hosted image URL). Rendered
     # as a small round photo next to the name/phones so outreach feels personal.
@@ -255,7 +255,7 @@ class Settings(BaseSettings):
     # The one Twilio number for texting, caller-ID, transfers and the number printed
     # on outreach. The per-channel fields below are optional overrides: blank means
     # "use business_phone". See app/phone_numbers.py and docs/phone-number.md.
-    business_phone: str = "+18338547055"
+    business_phone: str = "+18573801011"   # (857) 380-1011, Twilio, Voice + SMS
     twilio_from_number: str = ""          # override: texting "from" (blank → business_phone)
     twilio_insurance_number: str = ""     # override: insurance texting "from"
     # Backup SMS provider (Plivo) — a Twilio-compatible carrier. When Twilio is down

@@ -61,7 +61,8 @@ reversible increments as you touch an area. See CLAUDE.md → "Engineering direc
 - **Email path is an ESP pool → Gmail.** Resend is primary (~2000/day), **SendGrid**
   is overflow/failover (~100/day), then the account's Gmail. Both ESPs are
   first-class — do NOT remove SendGrid. **Telephony is Twilio** as primary (the
-  verified toll-free +18338547055, via the twilio-compat module), with SignalWire as
+  one `business_phone` setting, via the twilio-compat module; never hard-code a
+  number anywhere else, see docs/phone-number.md), with SignalWire as
   fallback — do NOT switch telephony back to SignalWire-only.
 - **Backend**: FastAPI + SQLAlchemy + Postgres in `backend/app`. **Frontend**:
   Next.js + TypeScript in `frontend`. Run tests from `backend/`.
