@@ -160,15 +160,15 @@ class Settings(BaseSettings):
     # insurance_business_name). Shown as:
     #   Thrust Insurance
     #   Bruno Dossantos | insurance agent
-    #   phone# (833) 854-7055   Cell# 16039308272
+    #   phone# (833) 854-7055   Cell# 16039308272   (phone# = business_phone)
     producer_title: str = "insurance agent"
     # Producer headshot shown in the email signature (a hosted image URL). Rendered
     # as a small round photo next to the name/phones so outreach feels personal.
     # Blank → signature shows no photo (text only).
     producer_photo_url: str = ""
-    # Main line shown on outreach — the business toll-free that greets callers and
-    # forwards to the cell (so a lead who calls the email's number reaches Bruno).
-    producer_office_phone: str = "(833) 854-7055"
+    # Number shown on outreach. Blank → the business_phone (formatted). Only set it
+    # to print a DIFFERENT number than the one the app calls and texts from.
+    producer_office_phone: str = ""
     producer_cell: str = "16039308272"
     # Forward every inbound LEAD text reply to the producer's cell as a notification,
     # so replies actually reach the owner's phone (the toll-free is the app's number,
@@ -251,19 +251,20 @@ class Settings(BaseSettings):
     # (cold automated SMS violates TCPA). No-ops if unconfigured.
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
-    # Toll-free +1 (833) 854-7055 — the number registered in Twilio for BOTH SMS and
-    # voice. Baked in as the default so texts/calls go out from it without touching
-    # Setup. SMS from this number is live only once Twilio Toll-Free Verification is
-    # approved (voice works immediately); until then SMS is rate-limited carrier-side.
-    twilio_from_number: str = "+18338547055"   # default sending number (E.164)
-    twilio_insurance_number: str = ""     # optional separate number for insurance
+    # ── THE business phone number — change it HERE (or Setup → Phone number) ──
+    # The one Twilio number for texting, caller-ID, transfers and the number printed
+    # on outreach. The per-channel fields below are optional overrides: blank means
+    # "use business_phone". See app/phone_numbers.py and docs/phone-number.md.
+    business_phone: str = "+18338547055"
+    twilio_from_number: str = ""          # override: texting "from" (blank → business_phone)
+    twilio_insurance_number: str = ""     # override: insurance texting "from"
     # Backup SMS provider (Plivo) — a Twilio-compatible carrier. When Twilio is down
     # or your account is deactivated, connect Plivo and texting keeps working with no
     # code change. sms_provider: "twilio" | "plivo" | "signalwire" | "auto" (auto =
     # whichever is connected; SignalWire preferred, then Twilio). "twilio" forces
     # Twilio. See app/integrations/plivo.py and app/integrations/telco.py.
-    # Forced to "twilio" so SMS always goes out on the verified toll-free
-    # (+18338547055) and can never drift to SignalWire (separate 10DLC approval) if
+    # Forced to "twilio" so SMS always goes out on the Twilio business_phone
+    # and can never drift to SignalWire (separate 10DLC approval) if
     # its creds get reconnected. Safe: provider() falls back to whatever IS connected
     # when Twilio creds are absent.
     sms_provider: str = "twilio"
@@ -274,8 +275,8 @@ class Settings(BaseSettings):
     # Voice provider for calling: "auto" (Plivo if connected, else Twilio/SignalWire),
     # "plivo", "vonage", "twilio", "signalwire", or "sip". Lets calling move between
     # carriers when a number's carrier reputation is filtering calls to voicemail.
-    # Forced to "twilio" so the auto-dialer places calls from the verified toll-free
-    # (+18338547055) instead of SignalWire (whose 10DLC is still pending). Safe: when
+    # Forced to "twilio" so the auto-dialer places calls from the Twilio business_phone
+    # instead of SignalWire (whose 10DLC is still pending). Safe: when
     # Twilio creds aren't connected, provider() falls back to SignalWire automatically.
     voice_provider: str = "twilio"
     # Self-hosted SIP softswitch (FreeSWITCH) — "build our own" origination. Instead
@@ -340,10 +341,9 @@ class Settings(BaseSettings):
     whatsapp_cloud_phone_number_id: str = ""
     whatsapp_cloud_token: str = ""
     # ── Twilio Voice (calling) ────────────────────────────────────────────────
-    # Caller-ID number for outbound calls (Voice-enabled Twilio number). Defaults to
-    # the toll-free +18338547055 (voice is enabled on it now); falls back to the
-    # insurance/default SMS number when blank.
-    twilio_voice_number: str = "+18338547055"
+    # Override: caller-ID for outbound calls. Blank → the texting numbers above,
+    # then business_phone.
+    twilio_voice_number: str = ""
     # Record calls + play a "this call may be recorded" notice (MA/FL are
     # two-party-consent states, so the notice is required when recording).
     call_recording_enabled: bool = True

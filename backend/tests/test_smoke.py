@@ -1591,10 +1591,12 @@ def test_sms_configured_accepts_either_number():
     from app.config import settings
     from app.integrations import sms
     orig = (settings.twilio_account_sid, settings.twilio_auth_token,
-            settings.twilio_from_number, settings.twilio_insurance_number)
+            settings.twilio_from_number, settings.twilio_insurance_number,
+            settings.business_phone)
     try:
         settings.twilio_account_sid, settings.twilio_auth_token = "AC1", "tok"
         settings.twilio_from_number = settings.twilio_insurance_number = ""
+        settings.business_phone = ""
         assert sms.is_configured() is False  # creds but no number
         settings.twilio_insurance_number = "+16035550100"
         assert sms.is_configured() is True   # insurance number alone is enough
@@ -1606,7 +1608,8 @@ def test_sms_configured_accepts_either_number():
         assert sms.number_for("insurance") == "+16175550111"
     finally:
         (settings.twilio_account_sid, settings.twilio_auth_token,
-         settings.twilio_from_number, settings.twilio_insurance_number) = orig
+         settings.twilio_from_number, settings.twilio_insurance_number,
+         settings.business_phone) = orig
 
 
 def test_sms_send_normalizes_from_and_to_to_e164(monkeypatch):
@@ -7659,7 +7662,7 @@ def test_setup_connect_status_and_save(client, auth_headers):
                       "apollo", "google_places", "sms", "whatsapp", "calling", "jobs_api", "instantly",
                       "smartlead", "resend", "meta_app", "tiktok_app", "booking",
                       "contacts_outreach_exclude", "newsletter_banners",
-                      "signature", "email_from", "schedule"}
+                      "signature", "email_from", "schedule", "phone"}
     # Per-secret "is a value stored" map: booleans only, keyed by secret field,
     # never the secret value itself.
     assert isinstance(s["secrets_set"], dict)

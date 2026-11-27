@@ -43,6 +43,11 @@ type Status = {
   booking?: { default: string; insurance: string; bnb: string; savorymind: string };
   contacts_outreach_exclude?: string;
   newsletter_banners?: { insurance: string; bnb: string; savorymind: string; music: string };
+  phone?: {
+    business_phone: string; texting_from: string; insurance_texting_from: string;
+    caller_id: string; transfer_caller_id: string; office_phone: string;
+    overrides_set: string[]; pinned_by_env: string[];
+  };
   signature?: {
     producer_name: string; producer_title: string; producer_office_phone: string;
     producer_cell: string; insurance_business_name: string; personal_business_name: string;
@@ -692,7 +697,7 @@ function Setup() {
               value={form.producer_name || ""} onChange={(e) => set("producer_name", e.target.value)} />
             <input className="input" placeholder={data.signature?.producer_title || "Your title (e.g. insurance agent)"}
               value={form.producer_title || ""} onChange={(e) => set("producer_title", e.target.value)} />
-            <input className="input" placeholder={data.signature?.producer_office_phone || "Main phone (e.g. (833) 854-7055)"}
+            <input className="input" placeholder={data.signature?.producer_office_phone || `Phone shown on emails (blank = business number ${data.phone?.office_phone || ""})`}
               value={form.producer_office_phone || ""} onChange={(e) => set("producer_office_phone", e.target.value)} />
             <input className="input" placeholder={data.signature?.producer_cell || "Cell (e.g. 16039308272)"}
               value={form.producer_cell || ""} onChange={(e) => set("producer_cell", e.target.value)} />
@@ -980,6 +985,36 @@ function Setup() {
           </div>
         </div>
 
+        {/* THE business phone number — one field drives every channel */}
+        <div className="card border-l-4 border-brand">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-semibold">☎️ Business phone number</h2>
+            <Badge ok={!!data.phone?.business_phone} />
+          </div>
+          <p className="mb-3 text-xs text-gray-500">
+            The one Twilio number the app texts and calls from, shows on transfers to your
+            cell, and prints on emails. <b>To change numbers, change it here</b> — saving clears
+            the older per-channel numbers below so nothing keeps using the old one.
+          </p>
+          <input className="input w-full" placeholder={data.phone?.business_phone || "+1 857 555 1234"}
+            value={form.business_phone || ""} onChange={(e) => set("business_phone", e.target.value)} />
+          {data.phone && (
+            <ul className="mt-3 grid gap-1 text-xs text-gray-600 sm:grid-cols-2">
+              <li>Texts from: <b>{data.phone.texting_from || "—"}</b></li>
+              <li>Insurance texts from: <b>{data.phone.insurance_texting_from || "—"}</b></li>
+              <li>Calls show: <b>{data.phone.caller_id || "—"}</b></li>
+              <li>Transfers to your cell show: <b>{data.phone.transfer_caller_id || "—"}</b></li>
+              <li className="sm:col-span-2">Emails show: <b>{data.phone.office_phone || "—"}</b></li>
+            </ul>
+          )}
+          {!!data.phone?.pinned_by_env?.length && (
+            <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              ⚠️ Set in the server environment, so they override this page:{" "}
+              <b>{data.phone.pinned_by_env.join(", ")}</b>. Remove them in Render → Environment.
+            </div>
+          )}
+        </div>
+
         {/* Twilio (SMS) */}
         <div className="card">
           <div className="mb-2 flex items-center justify-between">
@@ -987,12 +1022,12 @@ function Setup() {
             <Badge ok={!!data.sms?.configured} />
           </div>
           <p className="mb-3 text-xs text-gray-500">
-            Powers the Texts page. From twilio.com → Console: Account SID, Auth Token, and your Twilio phone number (E.164, e.g. +16175551234). The insurance number is optional — leave it blank to text from the main number.
+            Powers the Texts page. From twilio.com → Console: Account SID and Auth Token. The numbers here are optional overrides — leave them blank to text from the business phone number above.
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
             <SecretInput className="input" placeholder="Account SID" field="twilio_account_sid" form={form} set={set} saved={data?.secrets_set} />
             <SecretInput className="input" placeholder="Auth Token" field="twilio_auth_token" form={form} set={set} saved={data?.secrets_set} />
-            <input className="input" placeholder="Main number +1 555 123 4567"
+            <input className="input" placeholder="Texting number override (optional)"
               value={form.twilio_from_number || ""} onChange={(e) => set("twilio_from_number", e.target.value)} />
             <input className="input" placeholder="Insurance number (optional)"
               value={form.twilio_insurance_number || ""} onChange={(e) => set("twilio_insurance_number", e.target.value)} />
@@ -1126,9 +1161,9 @@ function Setup() {
             <SecretInput className="input" placeholder="Twilio Auth Token" field="twilio_auth_token" form={form} set={set} saved={data?.secrets_set} />
             <input className="input" placeholder="Your cell to ring +1 617 555 1234"
               value={form.producer_callback || ""} onChange={(e) => set("producer_callback", e.target.value)} />
-            <input className="input" placeholder="Caller-ID / Voice number (optional)"
+            <input className="input" placeholder="Caller-ID override (optional)"
               value={form.twilio_voice_number || ""} onChange={(e) => set("twilio_voice_number", e.target.value)} />
-            <input className="input" placeholder="Transfer caller-ID — LOCAL number +1 978 555 1234"
+            <input className="input" placeholder="Transfer caller-ID override — LOCAL number (optional)"
               value={form.transfer_caller_id || ""} onChange={(e) => set("transfer_caller_id", e.target.value)} />
             <input className="input sm:col-span-2" placeholder="Local-presence pool (optional, comma-separated: +16035551212,+16175551212)"
               value={form.local_presence_numbers || ""} onChange={(e) => set("local_presence_numbers", e.target.value)} />

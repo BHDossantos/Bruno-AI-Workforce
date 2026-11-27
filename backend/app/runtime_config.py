@@ -42,6 +42,7 @@ FIELDS: dict[str, bool] = {
     # Twilio (two-way SMS) — connect texting in-app instead of env vars.
     "twilio_account_sid": True,
     "twilio_auth_token": True,
+    "business_phone": False,           # THE number: texts, calls, transfers, signature
     "twilio_from_number": False,
     "twilio_insurance_number": False,  # optional separate number for insurance texts
     "twilio_voice_number": False,      # caller-ID for outbound calls (Voice-enabled)
@@ -233,12 +234,29 @@ def save(db, field: str, value: str) -> bool:
         row = Setting(key=_PREFIX + field)
         db.add(row)
     row.value = value
+    if field == "business_phone":
+        _clear_number_overrides(db)
     db.commit()
     try:
         setattr(settings, field, value)
     except Exception:  # pragma: no cover
         pass
     return True
+
+
+def _clear_number_overrides(db) -> None:
+    """A new business number replaces every per-channel copy. Blank the stored
+    overrides (and the live values) so no old number can keep winning; a stale
+    override in the database is exactly how an old number kept ringing."""
+    from .phone_numbers import OVERRIDES
+    for f in OVERRIDES:
+        row = db.get(Setting, _PREFIX + f)
+        if row is not None:
+            row.value = ""
+        try:
+            setattr(settings, f, "")
+        except Exception:  # pragma: no cover
+            pass
 
 
 def _secrets_set(db) -> dict:
@@ -258,7 +276,7 @@ def _secrets_set(db) -> dict:
 
 def status(db) -> dict:
     """Connection status — booleans + non-secret addresses only, never secrets."""
-    from . import sms_engine
+    from . import phone_numbers, sms_engine
     from .integrations import (apollo, gmail, instantly, jobs_api, places, resend,
                                smartlead, sms, twilio_voice, voice,
                                whatsapp_cloud)
@@ -361,6 +379,9 @@ def status(db) -> dict:
             "bnb": settings.calendar_link_bnb or "",
             "savorymind": settings.calendar_link_savorymind or "",
         },
+        # Which number each channel uses right now (texts, caller-ID, transfers,
+        # signature) — one place to see that a number swap fully took.
+        "phone": phone_numbers.summary(),
         # Email-signature identity (not secret) — returned so Setup can show current
         # values as placeholders and let the owner edit them without a redeploy.
         "signature": {

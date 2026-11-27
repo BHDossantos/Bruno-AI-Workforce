@@ -82,7 +82,10 @@ def save(body: dict = Body(...), db: Session = Depends(get_db),
     field (Resend, Plivo, …) that hadn't been mirrored into it — so a connected key
     looked saved but never persisted."""
     saved = []
-    for field, value in (body or {}).items():
+    # The business number goes first: saving it clears the per-channel overrides,
+    # so an override typed in the SAME save still lands after it.
+    items = sorted((body or {}).items(), key=lambda kv: kv[0] != "business_phone")
+    for field, value in items:
         if isinstance(value, str) and value.strip() != "":
             if runtime_config.save(db, field, value):
                 saved.append(field)
