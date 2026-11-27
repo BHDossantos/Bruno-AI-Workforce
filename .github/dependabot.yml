@@ -11,6 +11,10 @@ updates:
     groups:
       pip-backend-minor-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      # passlib 1.7.4 can't hash or verify with bcrypt>=4.1, so every login fails.
+      - dependency-name: bcrypt
+        versions: [">=4.1"]
   - package-ecosystem: npm
     directory: "/frontend"
     schedule:
@@ -20,6 +24,9 @@ updates:
     groups:
       npm-frontend-minor-patch:
         update-types: ["minor", "patch"]
+      # react and react-dom must move together, or `npm install` fails (ERESOLVE).
+      react:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
   - package-ecosystem: npm
     directory: "/mobile"
     schedule:
