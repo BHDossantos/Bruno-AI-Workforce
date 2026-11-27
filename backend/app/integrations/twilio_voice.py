@@ -23,20 +23,13 @@ import httpx
 import jwt
 
 from ..config import settings
-from .. import outbound_guard
+from .. import outbound_guard, phone_numbers
 
 log = logging.getLogger("bruno.voice")
 
 
-def _e164(phone: str | None) -> str:
-    """Normalize a US phone to E.164 (+1XXXXXXXXXX) so Twilio accepts it and it's
-    safe in a URL. '(978) 254-1435' -> '+19782541435'."""
-    d = re.sub(r"\D", "", phone or "")
-    if len(d) == 11 and d.startswith("1"):
-        return "+" + d
-    if len(d) == 10:
-        return "+1" + d
-    return ("+" + d) if d else ""
+# '(978) 254-1435' -> '+19782541435'. One shared normalizer (app/phone_numbers.py).
+_e164 = phone_numbers.e164
 
 _CONSENT = ("This call is with a licensed insurance producer and may be "
             "recorded for quality and training purposes.")
@@ -48,7 +41,7 @@ def _voice_number() -> str:
         return (settings.signalwire_voice_number or settings.signalwire_insurance_number
                 or settings.signalwire_from_number or "")
     return (settings.twilio_voice_number or settings.twilio_insurance_number
-            or settings.twilio_from_number or "")
+            or settings.twilio_from_number or phone_numbers.business_number())
 
 
 def _area_code(phone: str | None) -> str:

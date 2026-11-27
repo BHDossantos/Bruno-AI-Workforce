@@ -72,6 +72,7 @@ def diagnostics(db: Session = Depends(get_db), _=Depends(_read)):
             "from_number": (settings.twilio_from_number or "") or None,
             "insurance_number": (settings.twilio_insurance_number or "") or None,
             "voice_number": (settings.twilio_voice_number or "") or None,
+            "business_phone": (settings.business_phone or "") or None,
         },
         "voice": voice_info,
         "accounts": accounts,

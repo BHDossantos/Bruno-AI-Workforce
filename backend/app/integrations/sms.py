@@ -104,9 +104,11 @@ def number_for(account: str, provider: str | None = None) -> str:
         return settings.signalwire_from_number or settings.signalwire_insurance_number
     if account == "insurance" and settings.twilio_insurance_number:
         return settings.twilio_insurance_number
-    # Fall back to whichever number IS set, so a send never goes out with an empty
-    # From (which the carrier rejects) just because one field was left blank.
-    return settings.twilio_from_number or settings.twilio_insurance_number
+    # Fall back to whichever number IS set, then the one business number, so a send
+    # never goes out with an empty From (which the carrier rejects).
+    from .. import phone_numbers
+    return (settings.twilio_from_number or settings.twilio_insurance_number
+            or phone_numbers.business_number())
 
 
 def _send_once(prov: str, to_num: str, body: str, account: str) -> tuple[str | None, str | None]:

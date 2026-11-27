@@ -63,11 +63,13 @@ def _tel(phone: str) -> str:
 
 
 def _phone_line() -> str:
-    """'phone# (978) 824-4228   Cell# 16039308272' — click-to-call, from config."""
+    """'phone# (833) 854-7055   Cell# 16039308272' — click-to-call, from config."""
+    from . import phone_numbers
     parts = []
-    if settings.producer_office_phone:
-        parts.append(f'phone# <a href="tel:{_tel(settings.producer_office_phone)}" '
-                     f'style="color:#6d28d9;text-decoration:none">{settings.producer_office_phone}</a>')
+    office = phone_numbers.office_phone()
+    if office:
+        parts.append(f'phone# <a href="tel:{_tel(office)}" '
+                     f'style="color:#6d28d9;text-decoration:none">{office}</a>')
     if settings.producer_cell:
         parts.append(f'Cell# <a href="tel:{_tel(settings.producer_cell)}" '
                      f'style="color:#6d28d9;text-decoration:none">{settings.producer_cell}</a>')
@@ -176,7 +178,8 @@ def render(body: str | None, account: str = "personal") -> str | None:
     if link:
         cta = f'<a href="{link}" style="{btn}">Book a time</a>'
     else:
-        tel = _tel(settings.producer_cell or settings.producer_office_phone or "")
+        from . import phone_numbers
+        tel = _tel(settings.producer_cell or phone_numbers.office_phone() or "")
         cta = (f'<a href="tel:{tel}" style="{btn}">Call or text me</a>' if tel
                else '<span style="font-weight:600;color:#6d28d9">Reply to this email to get started.</span>')
     cta_block = f'<div style="margin-top:18px">{cta}</div>'

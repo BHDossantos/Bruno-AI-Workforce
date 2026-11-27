@@ -290,13 +290,15 @@ def _signature() -> str:
     """Producer email signature block (configurable). Renders as:
         Thrust Insurance
         Bruno Dossantos | insurance agent
-        phone# (978) 824-4228   Cell# 16039308272
+        phone# (833) 854-7055   Cell# 16039308272   (phone# = the business number)
     """
+    from . import phone_numbers
     name_line = settings.producer_name + (f" | {settings.producer_title}" if settings.producer_title else " | ")
     lines = [settings.insurance_business_name or "Thrust Insurance", name_line]
     phones = []
-    if settings.producer_office_phone:
-        phones.append(f"phone# {settings.producer_office_phone}")
+    office = phone_numbers.office_phone()
+    if office:
+        phones.append(f"phone# {office}")
     if settings.producer_cell:
         phones.append(f"Cell# {settings.producer_cell}")
     if phones:
